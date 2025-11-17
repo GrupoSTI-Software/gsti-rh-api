@@ -23,6 +23,7 @@ import EmployeeContract from '#models/employee_contract'
 import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
+import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
 import SystemSettingsEmployee from '#models/system_settings_employee'
 import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
@@ -1084,7 +1085,23 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .orderBy('shift_exceptions_date', 'asc')
 
-    return vacations ? vacations : []
+      const signatures = await VacationAuthorizationSignature.query()
+      .whereNull('vacation_authorization_signature_deleted_at')
+      .whereIn('shift_exception_id', vacations.map((vacation: ShiftException) => vacation.shiftExceptionId))
+      .orderBy('vacation_authorization_signature_created_at', 'asc')
+
+    const vacationsWithSignatures = vacations.map((vacation) => {
+      const signature = signatures.find((sig: VacationAuthorizationSignature) =>
+        sig.shiftExceptionId === vacation.shiftExceptionId
+      )?.vacationAuthorizationSignatureFile
+
+      return {
+        ...vacation.$attributes, // Solo los atributos del modelo
+        signature: signature || null
+      }
+    })
+
+    return vacationsWithSignatures ? vacationsWithSignatures : [] as (ShiftException & { signature: string })[]
   }
 
   async verifyExistPhoto(url: string) {
