@@ -5,6 +5,7 @@ import ShiftException from '#models/shift_exception'
 import ShiftExceptionService from '#services/shift_exception_service'
 import ExceptionType from '#models/exception_type'
 import { DateTime } from 'luxon'
+import { I18n } from '@adonisjs/i18n'
 
 /**
  * Service responsible for authorizing vacation requests using a signature file
@@ -20,7 +21,7 @@ export default class VacationAuthorizationSignaturesService {
    * @param vacationSettingId - Vacation setting ID to use for ShiftExceptions
    * @returns Result object with created shift exceptions, signatures, updated requests and errors
    */
-  async authorize(signatureFile: any, requestIds: number[], vacationSettingId: number) {
+  async authorize(signatureFile: any, requestIds: number[], vacationSettingId: number, i18n: I18n) {
     // Ensure vacation exception type exists
     const vacationType = await ExceptionType.query()
       .whereNull('exception_type_deleted_at')
@@ -50,7 +51,7 @@ export default class VacationAuthorizationSignaturesService {
       }
     }
 
-    const shiftExceptionService = new ShiftExceptionService()
+    const shiftExceptionService = new ShiftExceptionService(i18n)
     const createdShiftExceptions: ShiftException[] = []
     const createdSignatures: VacationAuthorizationSignature[] = []
     const updatedRequests: ExceptionRequest[] = []

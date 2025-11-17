@@ -198,7 +198,7 @@ export default class VacationAuthorizationSignaturesController {
    * Authorize vacation exception requests using a signature file.
    * @param ctx Http context
    */
-  async authorize({ auth, request, response }: HttpContext) {
+  async authorize({ auth, request, response, i18n }: HttpContext) {
     const user = auth.user
     if (!user) {
       return response.status(401).json({
@@ -222,7 +222,7 @@ export default class VacationAuthorizationSignaturesController {
     try {
       const payload = await request.validateUsing(authorizeVacationValidator)
       const service = new VacationAuthorizationSignaturesService()
-      const result = await service.authorize(signature, payload.requestIds, payload.vacationSettingId)
+      const result = await service.authorize(signature, payload.requestIds, payload.vacationSettingId, i18n)
       return response.status(result.status).json(result)
     } catch (error: any) {
       return response.status(422).json({
