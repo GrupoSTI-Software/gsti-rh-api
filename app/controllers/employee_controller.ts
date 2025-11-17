@@ -5623,7 +5623,7 @@ export default class EmployeeController {
    *                   type: string
    *                   description: Detailed error information
    */
-  async importFromExcel({ request, response }: HttpContext) {
+  async importFromExcel({ request, response, i18n }: HttpContext) {
     try {
       const file = request.file('file')
 
@@ -5674,7 +5674,7 @@ export default class EmployeeController {
         }
       }
 
-      const employeeService = new EmployeeService()
+      const employeeService = new EmployeeService(i18n)
       const result = await employeeService.importFromExcel(file)
 
       // Determinar el tipo de respuesta basado en los resultados

@@ -205,14 +205,14 @@ export default class BirthdayReminderEmail extends BaseCommand {
           // Intentar parsear como ISO o formato de fecha
           birthday = DateTime.fromISO(person.personBirthday) || DateTime.fromJSDate(new Date(person.personBirthday))
         } else {
-          birthday = DateTime.fromJSDate(new Date(person.personBirthday))
+          birthday = DateTime.fromJSDate(new Date(person.personBirthday || ''))
         }
 
         if (birthday.isValid) {
           age = today.diff(birthday, 'years').years
         } else {
           // Fallback: calcular manualmente
-          const birthDate = new Date(person.personBirthday)
+          const birthDate = new Date(person.personBirthday || '')
           const todayDate = new Date()
           age = todayDate.getFullYear() - birthDate.getFullYear()
           const monthDiff = todayDate.getMonth() - birthDate.getMonth()
