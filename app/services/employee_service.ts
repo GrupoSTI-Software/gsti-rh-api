@@ -23,6 +23,8 @@ import EmployeeContract from '#models/employee_contract'
 import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
+import SystemSettingsEmployee from '#models/system_settings_employee'
+import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 
 export default class EmployeeService {
@@ -34,42 +36,76 @@ export default class EmployeeService {
   }
 
   async syncCreate(employee: BiometricEmployeeInterface) {
-    const newEmployee = new Employee()
-    const personService = new PersonService(this.i18n)
-    const newPerson = await personService.syncCreate(employee)
-    const employeeType = await EmployeeType.query()
-      .where('employee_type_slug', 'employee')
-      .whereNull('employee_type_deleted_at')
-      .first()
+    // Guardar el personId que viene del frontend
+    const personIdToDelete = employee.personId || null
+    // const newEmployee = new Employee()
+    // const personService = new PersonService(this.i18n)
+    // const newPerson = await personService.syncCreate(employee)
+    // const employeeType = await EmployeeType.query()
+      // .where('employee_type_slug', 'employee')
+      // .whereNull('employee_type_deleted_at')
+      // .first()
 
-    if (newPerson) {
-      newEmployee.personId = newPerson.personId
-    }
-    newEmployee.employeeSyncId = employee.id
-    newEmployee.employeeCode = employee.empCode
-    newEmployee.employeeFirstName = employee.firstName
-    newEmployee.employeeLastName = employee.lastName
-    newEmployee.employeeSecondLastName = employee.secondLastName
-    newEmployee.employeePayrollNum = employee.payrollNum
-    newEmployee.employeeHireDate = employee.hireDate
-    newEmployee.companyId = employee.companyId
-    newEmployee.departmentId = employee.departmentId
-    newEmployee.positionId = employee.positionId
-    newEmployee.businessUnitId = employee.businessUnitId || 1
-
-    if (employeeType?.employeeTypeId) {
-      newEmployee.employeeTypeId = employeeType.employeeTypeId
-    }
-    if (employee.empCode) {
-      const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
-      const existPhoto = await this.verifyExistPhoto(urlPhoto)
-      if (existPhoto) {
-        newEmployee.employeePhoto = urlPhoto
+    try {
+      // Verificar límite de empleados dentro del try-catch
+      const businessUnitId = employee.businessUnitId || 1
+      const limitCheck = await this.verifyEmployeeLimit(businessUnitId)
+      if (limitCheck.status !== 200) {
+        throw new Error(limitCheck.message)
       }
+      const newEmployee = new Employee()
+
+      const employeeType = await EmployeeType.query()
+        .where('employee_type_slug', 'employee')
+        .whereNull('employee_type_deleted_at')
+        .first()
+
+      // Usar el personId que viene del frontend
+      if (employee.personId) {
+        newEmployee.personId = employee.personId
+      }
+      newEmployee.employeeSyncId = employee.id
+      newEmployee.employeeCode = employee.empCode
+      newEmployee.employeeFirstName = employee.firstName
+      newEmployee.employeeLastName = employee.lastName
+      newEmployee.employeeSecondLastName = employee.secondLastName
+      newEmployee.employeePayrollNum = employee.payrollNum
+      newEmployee.employeeHireDate = employee.hireDate
+      newEmployee.companyId = employee.companyId
+      newEmployee.departmentId = employee.departmentId
+      newEmployee.positionId = employee.positionId
+      newEmployee.businessUnitId = businessUnitId
+
+      if (employeeType?.employeeTypeId) {
+        newEmployee.employeeTypeId = employeeType.employeeTypeId
+      }
+      if (employee.empCode) {
+        const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
+        const existPhoto = await this.verifyExistPhoto(urlPhoto)
+        if (existPhoto) {
+          newEmployee.employeePhoto = urlPhoto
+        }
+      }
+      newEmployee.employeeLastSynchronizationAt = new Date()
+
+      // Guardar empleado
+      await newEmployee.save()
+
+      // Asignar usuarios responsables
+      await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
+
+      return newEmployee
+    } catch (error) {
+      // Si hay error y tenemos un personId, eliminarlo
+      if (personIdToDelete) {
+        try {
+          await this.deletePersonById(personIdToDelete)
+        } catch (deleteError) {
+          console.error('Error eliminando persona huérfana:', deleteError)
+        }
+      }
+      throw error
     }
-    newEmployee.employeeLastSynchronizationAt = new Date()
-    await newEmployee.save()
-    await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
    /*  await newEmployee.load('employeeType')
     if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
       const user = {
@@ -92,7 +128,6 @@ export default class EmployeeService {
         }
       }
     } */
-    return newEmployee
   }
 
   async syncUpdate(
@@ -241,31 +276,56 @@ export default class EmployeeService {
   }
 
   async create(employee: Employee, usersResponsible: User[]) {
-    const newEmployee = new Employee()
-    newEmployee.employeeFirstName = employee.employeeFirstName
-    newEmployee.employeeLastName = employee.employeeLastName
-    newEmployee.employeeSecondLastName = employee.employeeSecondLastName
-    newEmployee.employeeCode = employee.employeeCode
-    newEmployee.employeePayrollNum = employee.employeePayrollNum
-    newEmployee.employeeHireDate = employee.employeeHireDate
-    newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
-    newEmployee.companyId = employee.companyId
-    newEmployee.departmentId = employee.departmentId
-    newEmployee.positionId = employee.positionId
-    newEmployee.personId = employee.personId
-    newEmployee.businessUnitId = employee.businessUnitId
-    newEmployee.dailySalary = employee.dailySalary || 0
-    newEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
-    newEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
-    newEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
-    newEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
-    newEmployee.employeeTypeId = employee.employeeTypeId
-    newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
-    newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
-    await newEmployee.save()
-    await newEmployee.load('businessUnit')
-    await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
-    return newEmployee
+    // Guardar el personId que viene del frontend
+    const personIdToDelete = employee.personId || null
+
+    try {
+      // Verificar límite de empleados dentro del try-catch
+      const limitCheck = await this.verifyEmployeeLimit(employee.businessUnitId)
+      if (limitCheck.status !== 200) {
+        throw new Error(limitCheck.message)
+      }
+      const newEmployee = new Employee()
+      newEmployee.employeeFirstName = employee.employeeFirstName
+      newEmployee.employeeLastName = employee.employeeLastName
+      newEmployee.employeeSecondLastName = employee.employeeSecondLastName
+      newEmployee.employeeCode = employee.employeeCode
+      newEmployee.employeePayrollNum = employee.employeePayrollNum
+      newEmployee.employeeHireDate = employee.employeeHireDate
+      newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+      newEmployee.companyId = employee.companyId
+      newEmployee.departmentId = employee.departmentId
+      newEmployee.positionId = employee.positionId
+      newEmployee.personId = employee.personId
+      newEmployee.businessUnitId = employee.businessUnitId
+      newEmployee.dailySalary = employee.dailySalary || 0
+      newEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
+      newEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
+      newEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
+      newEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
+      newEmployee.employeeTypeId = employee.employeeTypeId
+      newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
+      newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
+
+      // Guardar empleado
+      await newEmployee.save()
+
+      // Asignar usuarios responsables
+      await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
+
+      await newEmployee.load('businessUnit')
+      return newEmployee
+    } catch (error) {
+      // Si hay error y tenemos un personId, eliminarlo
+      if (personIdToDelete) {
+        try {
+          await this.deletePersonById(personIdToDelete)
+        } catch (deleteError) {
+          console.error('Error eliminando persona huérfana:', deleteError)
+        }
+      }
+      throw error
+    }
   }
 
   async update(currentEmployee: Employee, employee: Employee) {
@@ -315,6 +375,31 @@ export default class EmployeeService {
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
+    return currentEmployee
+  }
+
+  /**
+   * Reactivar un empleado eliminado (soft delete)
+   * @param currentEmployee - Empleado a reactivar
+   * @returns Promise<Employee>
+   */
+  async reactivate(currentEmployee: Employee) {
+    // Verificar límite de empleados antes de reactivar
+    const limitCheck = await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
+    if (limitCheck.status !== 200) {
+      throw new Error(limitCheck.message)
+    }
+
+    // Restaurar el empleado eliminado
+    await currentEmployee.restore()
+
+    // Limpiar el código temporal si existe
+    if (typeof currentEmployee.employeeCode === 'string' && currentEmployee.employeeCode.includes('-IN')) {
+      const originalCode = currentEmployee.employeeCode.split('-IN')[0]
+      currentEmployee.employeeCode = originalCode
+      await currentEmployee.save()
+    }
+
     return currentEmployee
   }
 
@@ -1489,6 +1574,183 @@ export default class EmployeeService {
       .replace(/[^a-zA-Z\s]/g, '')
       .toLowerCase()
       .trim()
+  }
+
+
+  /**
+   * Eliminar una persona por su ID
+   * @param personId - ID de la persona a eliminar
+   * @returns Promise<boolean> - true si se eliminó correctamente
+   */
+  async deletePersonById(personId: number): Promise<boolean> {
+    try {
+      const person = await Person.find(personId)
+      if (person) {
+        await person.delete()
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('Error eliminando persona por ID:', error)
+      return false
+    }
+  }
+
+  /**
+   * Limpiar registros huérfanos de personas que no tienen empleados asociados
+   * Útil para limpiar registros que quedaron de intentos fallidos de creación
+   * @returns Promise<number> - Número de registros eliminados
+   */
+  async cleanupOrphanPersons(): Promise<number> {
+    try {
+      // Buscar personas que no tienen empleados asociados
+      const orphanPersons = await Person.query()
+        .whereNotExists((query) => {
+          query.from('employees')
+            .whereRaw('employees.person_id = persons.person_id')
+            .whereNull('employees.employee_deleted_at')
+        })
+        .whereNotExists((query) => {
+          query.from('customers')
+            .whereRaw('customers.person_id = persons.person_id')
+            .whereNull('customers.customer_deleted_at')
+        })
+        .whereNotExists((query) => {
+          query.from('users')
+            .whereRaw('users.person_id = persons.person_id')
+            .whereNull('users.user_deleted_at')
+        })
+
+      let deletedCount = 0
+      for (const person of orphanPersons) {
+        await person.delete()
+        deletedCount++
+      }
+
+      return deletedCount
+    } catch (error) {
+      console.error('Error cleaning up orphan persons:', error)
+      return 0
+    }
+  }
+
+  /**
+   * Verificar si se puede crear un empleado sin exceder el límite establecido
+   * @param businessUnitId - ID de la unidad de negocio
+   * @returns Promise<{status: number, type: string, title: string, message: string, data: any}>
+   */
+  async verifyEmployeeLimit(businessUnitId: number): Promise<{status: number, type: string, title: string, message: string, data: any}> {
+    try {
+      // Obtener el límite de empleados para la unidad de negocio
+      const employeeLimit = await this.getEmployeeLimitForBusinessUnit(businessUnitId)
+
+      if (employeeLimit === null) {
+        // No hay límite establecido, permitir creación
+        return {
+          status: 200,
+          type: 'success',
+          title: 'Employee limit verification',
+          message: 'No employee limit is set for this business unit',
+          data: { businessUnitId, limit: null }
+        }
+      }
+
+      // Contar empleados activos en la unidad de negocio
+      const activeEmployees = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .where('businessUnitId', businessUnitId)
+      const activeEmployeesCount = activeEmployees.length
+
+      if (activeEmployeesCount >= employeeLimit) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'Employee limit exceeded',
+          message: `Cannot create employee. The business unit has reached its limit of ${employeeLimit} employees. Current count: ${activeEmployeesCount}`,
+          data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
+        }
+      }
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Employee limit verification',
+        message: 'Employee can be created within the established limit',
+        data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
+      }
+    } catch (error) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Error verifying employee limit',
+        message: 'An error occurred while verifying the employee limit',
+        data: { businessUnitId, error: error.message }
+      }
+    }
+  }
+
+  /**
+   * Obtener el límite de empleados para una unidad de negocio específica
+   * @param businessUnitId - ID de la unidad de negocio
+   * @returns Promise<number | null>
+   */
+  private async getEmployeeLimitForBusinessUnit(businessUnitId: number): Promise<number | null> {
+    try {
+      // Obtener la variable de entorno SYSTEM_BUSINESS
+      const systemBusinessEnv = env.get('SYSTEM_BUSINESS', '')
+      if (!systemBusinessEnv) {
+        console.error('SYSTEM_BUSINESS environment variable not found')
+        return null
+      }
+
+      // Convertir la variable de entorno a array de strings
+      const systemBusinessUnits = systemBusinessEnv.split(',').map((unit: string) => unit.trim())
+
+      // Obtener el nombre de la unidad de negocio
+      const businessUnit = await BusinessUnit.find(businessUnitId)
+      if (!businessUnit) {
+        console.error('Business unit not found:', businessUnitId)
+        return null
+      }
+
+      // Buscar el system_setting que contenga la unidad de negocio
+      const systemSettings = await SystemSetting.query()
+        .whereNull('system_setting_deleted_at')
+        .where('system_setting_active', 1)
+        .select('system_setting_id', 'system_setting_business_units')
+
+      let matchingSystemSettingId: number | null = null
+
+      for (const setting of systemSettings) {
+        const settingBusinessUnits = setting.systemSettingBusinessUnits.split(',').map((unit: string) => unit.trim())
+
+        // Verificar si hay coincidencia entre las unidades de negocio
+        const hasMatch = settingBusinessUnits.some((settingUnit: string) =>
+          systemBusinessUnits.includes(settingUnit)
+        )
+
+        if (hasMatch) {
+          matchingSystemSettingId = setting.systemSettingId
+          break
+        }
+      }
+
+      if (!matchingSystemSettingId) {
+        return null
+      }
+
+      // Buscar el límite de empleados activo para el system_setting encontrado
+      const result = await SystemSettingsEmployee.query()
+        .where('is_active', 1)
+        .where('system_setting_id', matchingSystemSettingId)
+        .whereNull('system_setting_employee_deleted_at')
+        .first()
+
+      return result ? result.employeeLimit : null
+    } catch (error) {
+      console.error('Error getting employee limit for business unit:', error)
+      return null
+    }
   }
 
   /**
