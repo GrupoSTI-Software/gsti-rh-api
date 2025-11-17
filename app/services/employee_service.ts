@@ -1754,6 +1754,721 @@ export default class EmployeeService {
   }
 
   /**
+   * Import employees from Excel file
+   */
+  async importFromExcel(file: any) {
+    const ExcelJSModule = await import('exceljs')
+    const ExcelJS = ExcelJSModule.default
+    const workbook = new ExcelJS.Workbook()
+
+    try {
+      // Leer el archivo Excel
+      await workbook.xlsx.readFile(file.tmpPath)
+      const worksheet = workbook.getWorksheet(1)
+
+      if (!worksheet) {
+        throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
+      }
+
+      // Validar que la primera fila contenga los encabezados esperados
+      const headers = this.validateExcelHeaders(worksheet)
+
+      // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
+      const departments = await Department.query()
+        .whereNull('department_deleted_at')
+        .select('departmentId', 'departmentName')
+
+      const positions = await Position.query()
+        .whereNull('position_deleted_at')
+        .select('positionId', 'positionName')
+
+      const businessUnits = await BusinessUnit.query()
+        .whereNull('business_unit_deleted_at')
+        .where('business_unit_active', 1)
+        .select('businessUnitId', 'businessUnitName')
+
+      // Buscar departamento y posición por defecto
+      const defaultDepartment = departments.find(dept =>
+        dept.departmentName?.toLowerCase().includes('sin departamento')
+      )
+      const defaultPosition = positions.find(pos =>
+        pos.positionName?.toLowerCase().includes('sin posición')
+      )
+
+      // Obtener empleados existentes por número de empleado
+      const existingEmployees = await Employee.query()
+        .whereNull('deletedAt')
+        .preload('person')
+        .select('employeeId', 'employeeCode', 'employeeFirstName', 'employeeLastName', 'employeeSecondLastName', 'personId')
+
+      // Obtener códigos de empleado existentes para generar códigos únicos
+      const existingEmployeeCodes = existingEmployees.map(emp => emp.employeeCode.toString())
+
+      // Verificar límite de empleados (se verificará por unidad de negocio individual)
+
+      const results = {
+        totalRows: 0,
+        processed: 0,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        limitReached: false,
+        errors: [] as string[]
+      }
+
+      // Procesar cada fila del Excel
+      const rows: Array<{ row: any; rowNumber: number }> = []
+      worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
+        if (rowNumber === 1) return // Saltar encabezados
+        rows.push({ row, rowNumber })
+      })
+
+      // Primero, procesar todas las filas para validar y contar empleados nuevos
+      let newEmployeesCount = 0
+      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number }> = []
+
+      for (const { row, rowNumber } of rows) {
+        results.totalRows++
+
+        try {
+          const employeeData = this.extractEmployeeDataFromRow(row, headers)
+
+          // Validar que los datos básicos estén presentes
+          if (!employeeData.firstName && !employeeData.lastName) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: Fila vacía o sin datos de empleado`)
+            continue
+          }
+
+          // Validar datos del empleado
+          const employeeValidation = this.validateEmployeeData(employeeData)
+          if (!employeeValidation.isValid) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${employeeValidation.errors.join(', ')}`)
+            continue
+          }
+
+          // Validar datos de la persona
+          const personValidation = this.validatePersonData(employeeData)
+          if (!personValidation.isValid) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${personValidation.errors.join(', ')}`)
+            continue
+          }
+
+          // Mapear unidad de negocio por nombre
+          const businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+
+          // Buscar empleado existente por número de empleado
+          const existingEmployee = existingEmployees.find(emp =>
+            emp.employeeCode.toString() === employeeData.employeeNumber
+          )
+
+          if (existingEmployee) {
+            // Para empleados existentes, no contamos para el límite
+            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+          } else {
+            // Para empleados nuevos, contamos el total
+            newEmployeesCount++
+            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+          }
+
+        } catch (error: any) {
+          results.skipped++
+          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+        }
+      }
+
+      // Verificar límite general de empleados
+      if (newEmployeesCount > 0) {
+        // Obtener el límite general del sistema (usando la primera unidad de negocio como referencia)
+        const firstBusinessUnit = businessUnits[0]
+        const employeeLimit = firstBusinessUnit ? await this.getEmployeeLimitForBusinessUnit(firstBusinessUnit.businessUnitId) : null
+
+        if (employeeLimit) {
+          const currentTotalCount = await Employee.query()
+            .whereNull('deletedAt')
+            .count('* as total')
+          const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
+
+          if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
+            results.limitReached = true
+            results.errors.push(`Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`)
+          }
+        }
+      }
+
+      // Si se alcanzó el límite, no procesar más empleados nuevos
+      if (results.limitReached) {
+        // Procesar solo empleados existentes (actualizaciones)
+        for (const { rowNumber, employeeData } of validRows) {
+          const existingEmployee = existingEmployees.find(emp =>
+            emp.employeeCode.toString() === employeeData.employeeNumber
+          )
+
+          if (existingEmployee) {
+            try {
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              results.updated++
+              results.processed++
+            } catch (error: any) {
+              results.skipped++
+              results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+            }
+          } else {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+          }
+        }
+      } else {
+        // Procesar todos los empleados (creaciones y actualizaciones)
+        for (const { rowNumber, employeeData, businessUnitId } of validRows) {
+          try {
+            const payrollBusinessUnitId = businessUnitId // Usar la misma unidad de negocio para nómina
+
+            // Buscar empleado existente por número de empleado
+            const existingEmployee = existingEmployees.find(emp =>
+              emp.employeeCode.toString() === employeeData.employeeNumber
+            )
+
+            if (existingEmployee) {
+              // Actualizar empleado existente
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              results.updated++
+              results.processed++
+            } else {
+              // Generar código de empleado único si no se proporciona
+              let employeeCode = employeeData.employeeNumber
+              if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+                employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+              }
+              existingEmployeeCodes.push(employeeCode)
+
+              // Mapear departamento y posición usando búsqueda por similitud
+              const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+              const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+              // Crear persona
+              const person = await this.createPerson(employeeData)
+
+              // Crear empleado
+              await this.createEmployee(employeeData, person.personId, businessUnitId, payrollBusinessUnitId, departmentId, positionId, employeeCode)
+
+              results.created++
+              results.processed++
+            }
+
+          } catch (error: any) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          }
+        }
+      }
+
+      return results
+
+    } catch (error) {
+      throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
+    }
+  }
+
+  /**
+   * Validar encabezados del Excel
+   */
+  private validateExcelHeaders(worksheet: any) {
+    const expectedHeaders = [
+      'N° de empleado',
+      'Razón social',
+      'Unidad de negocios',
+      'Nombre del empleado',
+      'Apellido Paterno del empleado',
+      'Apellido Materno del empleado',
+      'Fecha de contratación (dd/mm/yyyy)',
+      'Departamento',
+      'Posición',
+      'Salario diario',
+      'Fecha de nacimiento (dd/mm/yyyy)',
+      'CURP',
+      'RFC',
+      'NSS'
+    ]
+
+    const firstRow = worksheet.getRow(1)
+    const headers: string[] = []
+
+    firstRow.eachCell((cell: any, colNumber: number) => {
+      headers[colNumber] = cell.value?.toString() || ''
+    })
+
+    // Verificar que los encabezados coincidan (permitir variaciones menores)
+    const missingHeaders = expectedHeaders.filter(expected =>
+      !headers.some(header => header.toLowerCase().includes(expected.toLowerCase().substring(0, 10)))
+    )
+
+
+    if (missingHeaders.length > 0) {
+      throw new Error(`Faltan los siguientes encabezados: ${missingHeaders.join(', ')}`)
+    }
+
+    return headers
+  }
+
+  /**
+   * Extraer datos del empleado de una fila
+   */
+  private extractEmployeeDataFromRow(row: any, headers: string[]) {
+    const data: any = {}
+
+    row.eachCell((cell: any, colNumber: number) => {
+      const header = headers[colNumber]?.toLowerCase() || ''
+      const value = cell.value?.toString() || ''
+
+
+      if (header.includes('n° de emplead')) {
+        data.employeeNumber = value
+      } else if (header.includes('razón social')) {
+        data.companyName = value
+      } else if (header.includes('unidad de negocios')) {
+        data.businessUnit = value
+      } else if (header.includes('nombre del empleado')) {
+        data.firstName = value
+      } else if (header.includes('apellido paterno del empleado')) {
+        data.lastName = value
+      } else if (header.includes('apellido materno del empleado')) {
+        data.secondLastName = value
+      } else if (header.includes('fecha de contratación')) {
+        data.hireDate = value
+      } else if (header.includes('departamento')) {
+        data.department = value
+      } else if (header.includes('posición')) {
+        data.position = value
+      } else if (header.includes('salario diario')) {
+        data.dailySalary = Number.parseFloat(value) || 0
+      } else if (header.includes('fecha de nacimiento')) {
+        data.birthDate = value
+      } else if (header.includes('curp')) {
+        data.curp = value
+      } else if (header.includes('rfc')) {
+        data.rfc = value
+      } else if (header.includes('nss')) {
+        data.nss = value
+      }
+    })
+
+    return data
+  }
+
+  /**
+   * Actualizar empleado existente
+   */
+  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any) {
+    // Actualizar datos del empleado
+    existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
+    existingEmployee.employeeLastName = employeeData.lastName || existingEmployee.employeeLastName
+    existingEmployee.employeeSecondLastName = employeeData.secondLastName || existingEmployee.employeeSecondLastName
+    const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
+    if (parsedHireDate) {
+      existingEmployee.employeeHireDate = parsedHireDate
+    }
+    existingEmployee.dailySalary = employeeData.dailySalary || existingEmployee.dailySalary
+
+    // Mapear departamento y posición usando búsqueda por similitud
+    existingEmployee.departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+    existingEmployee.positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+    await existingEmployee.save()
+
+    // Actualizar datos de la persona si existe
+    if (existingEmployee.person) {
+      const person = existingEmployee.person
+      person.personFirstname = employeeData.firstName || person.personFirstname
+      person.personLastname = employeeData.lastName || person.personLastname
+      person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
+      person.personCurp = employeeData.curp || person.personCurp
+      person.personRfc = employeeData.rfc || person.personRfc
+      person.personImssNss = employeeData.nss || person.personImssNss
+      const parsedBirthday = this.parseDate(employeeData.birthDate)
+      if (parsedBirthday) {
+        person.personBirthday = parsedBirthday
+      }
+
+      await person.save()
+    }
+  }
+
+  /**
+   * Generar código de empleado único
+   */
+  private generateUniqueEmployeeCode(existingCodes: string[]): string {
+    let attempts = 0
+    let code: string
+
+    do {
+      const randomNumber = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+      code = `27800${randomNumber}`
+      attempts++
+    } while (existingCodes.includes(code) && attempts < 100)
+
+    if (attempts >= 100) {
+      throw new Error('No se pudo generar un código de empleado único')
+    }
+
+    return code
+  }
+
+  /**
+   * Mapear unidad de negocio por nombre
+   */
+  private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number {
+    if (!businessUnitName) {
+      // Usar la primera unidad de negocio registrada en la base de datos
+      return businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1
+    }
+
+    // Buscar coincidencia exacta primero
+    const exactMatch = businessUnits.find(unit =>
+      unit.businessUnitName?.toLowerCase() === businessUnitName.toLowerCase()
+    )
+
+    if (exactMatch) return exactMatch.businessUnitId
+
+    // Buscar por similitud
+    const similarMatch = this.findMostSimilar(
+      businessUnitName,
+      businessUnits,
+      'businessUnitName',
+      0.6
+    )
+
+    // Usar la primera unidad de negocio registrada como valor por defecto si no se encuentra
+    return similarMatch ? similarMatch.businessUnitId : (businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1)
+  }
+
+  /**
+   * Mapear departamento usando búsqueda por similitud
+   */
+  private mapDepartmentBySimilarity(departmentName: string, departments: any[], defaultDepartment: any): number | null {
+    if (!departmentName) return defaultDepartment ? defaultDepartment.departmentId : null
+
+    // Buscar coincidencia exacta primero
+    const exactMatch = departments.find(dept =>
+      dept.departmentName?.toLowerCase() === departmentName.toLowerCase()
+    )
+
+    if (exactMatch) return exactMatch.departmentId
+
+    // Buscar por similitud
+    const similarMatch = this.findMostSimilar(
+      departmentName,
+      departments,
+      'departmentName',
+      0.6
+    )
+
+    return similarMatch ? similarMatch.departmentId : (defaultDepartment ? defaultDepartment.departmentId : null)
+  }
+
+  /**
+   * Mapear posición usando búsqueda por similitud
+   */
+  private mapPositionBySimilarity(positionName: string, positions: any[], defaultPosition: any): number | null {
+    if (!positionName) return defaultPosition ? defaultPosition.positionId : null
+
+    // Buscar coincidencia exacta primero
+    const exactMatch = positions.find(pos =>
+      pos.positionName?.toLowerCase() === positionName.toLowerCase()
+    )
+
+    if (exactMatch) return exactMatch.positionId
+
+    // Buscar por similitud
+    const similarMatch = this.findMostSimilar(
+      positionName,
+      positions,
+      'positionName',
+      0.6
+    )
+
+    return similarMatch ? similarMatch.positionId : (defaultPosition ? defaultPosition.positionId : null)
+  }
+
+  /**
+   * Crear persona
+   */
+  private async createPerson(employeeData: any) {
+    const person = new Person()
+    person.personFirstname = employeeData.firstName || ''
+    person.personLastname = employeeData.lastName || ''
+    person.personSecondLastname = employeeData.secondLastName || ''
+    person.personCurp = employeeData.curp || ''
+    person.personRfc = employeeData.rfc || ''
+    person.personImssNss = employeeData.nss || ''
+    person.personBirthday = this.parseDate(employeeData.birthDate)
+    person.personGender = '' // No disponible en el Excel
+    person.personPhone = ''
+    person.personEmail = ''
+    person.personPhoneSecondary = ''
+    person.personMaritalStatus = ''
+    person.personPlaceOfBirthCountry = ''
+    person.personPlaceOfBirthState = ''
+    person.personPlaceOfBirthCity = ''
+
+    await person.save()
+    return person
+  }
+
+  /**
+   * Crear empleado
+   */
+  private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string) {
+    const employee = new Employee()
+    employee.employeeCode = employeeCode
+    employee.employeeFirstName = employeeData.firstName || ''
+    employee.employeeLastName = employeeData.lastName || ''
+    employee.employeeSecondLastName = employeeData.secondLastName || ''
+    employee.employeeHireDate = this.parseDateToDateTime(employeeData.hireDate)
+    employee.companyId = 1 // Valor por defecto
+    employee.departmentId = departmentId
+    employee.positionId = positionId
+    employee.personId = personId
+    employee.businessUnitId = businessUnitId
+    employee.dailySalary = employeeData.dailySalary || 0
+    employee.payrollBusinessUnitId = payrollBusinessUnitId
+    employee.employeeAssistDiscriminator = 1
+    employee.employeeTypeId = 1 // Valor por defecto
+    employee.employeeBusinessEmail = ''
+    employee.employeeTypeOfContract = 'Internal'
+    employee.employeeTerminatedDate = null
+    employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeSyncId = 0
+    employee.departmentSyncId = 0
+    employee.positionSyncId = 0
+    employee.employeeLastSynchronizationAt = new Date()
+
+    await employee.save()
+    return employee
+  }
+
+  /**
+   * Parsear fecha desde string
+   */
+  private parseDate(dateString: string): string | null {
+    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+
+    try {
+      // Intentar diferentes formatos de fecha
+      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+
+      for (const format of formats) {
+        try {
+          const parsed = DateTime.fromFormat(dateString, format)
+          if (parsed.isValid) {
+            return parsed.toISODate()
+          }
+        } catch (e) {
+          continue
+        }
+      }
+
+      // Si no funciona con formatos específicos, intentar parse automático
+      const parsed = DateTime.fromISO(dateString)
+      if (parsed.isValid) {
+        return parsed.toISODate()
+      }
+
+      return null
+    } catch (error) {
+      return null
+    }
+  }
+
+  /**
+   * Parsear fecha desde string a DateTime
+   */
+  private parseDateToDateTime(dateString: string): DateTime | null {
+    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+
+    try {
+      // Intentar diferentes formatos de fecha
+      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+
+      for (const format of formats) {
+        try {
+          const parsed = DateTime.fromFormat(dateString, format)
+          if (parsed.isValid) {
+            return parsed
+          }
+        } catch (e) {
+          continue
+        }
+      }
+
+      // Si no funciona con formatos específicos, intentar parse automático
+      const parsed = DateTime.fromISO(dateString)
+      if (parsed.isValid) {
+        return parsed
+      }
+
+      return null
+    } catch (error) {
+      return null
+    }
+  }
+
+  /**
+   * Calcular similitud entre dos strings usando algoritmo de Levenshtein
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    const s1 = str1.toLowerCase().trim()
+    const s2 = str2.toLowerCase().trim()
+
+    if (s1 === s2) return 1.0
+
+    const matrix = []
+    const len1 = s1.length
+    const len2 = s2.length
+
+    for (let i = 0; i <= len2; i++) {
+      matrix[i] = [i]
+    }
+
+    for (let j = 0; j <= len1; j++) {
+      matrix[0][j] = j
+    }
+
+    for (let i = 1; i <= len2; i++) {
+      for (let j = 1; j <= len1; j++) {
+        if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1]
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          )
+        }
+      }
+    }
+
+    const maxLen = Math.max(len1, len2)
+    return maxLen === 0 ? 1.0 : (maxLen - matrix[len2][len1]) / maxLen
+  }
+
+  /**
+   * Buscar el elemento más similar en una lista
+   */
+  private findMostSimilar<T>(
+    searchTerm: string,
+    items: T[],
+    nameField: keyof T,
+    threshold: number = 0.6
+  ): T | null {
+    if (!searchTerm || !items.length) return null
+
+    let bestMatch: T | null = null
+    let bestScore = 0
+
+    for (const item of items) {
+      const itemName = String(item[nameField] || '').trim()
+      if (!itemName) continue
+
+      const score = this.calculateSimilarity(searchTerm, itemName)
+
+      if (score > bestScore && score >= threshold) {
+        bestScore = score
+        bestMatch = item
+      }
+    }
+
+    return bestMatch
+  }
+
+  /**
+   * Validar datos del empleado usando las mismas reglas que los validadores
+   */
+  private validateEmployeeData(employeeData: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+
+    // Validar código de empleado
+    if (!employeeData.employeeNumber || employeeData.employeeNumber.trim().length === 0) {
+      errors.push('El código de empleado es requerido')
+    } else if (employeeData.employeeNumber.length > 200) {
+      errors.push('El código de empleado no puede exceder 200 caracteres')
+    }
+
+    // Validar nombres
+    if (employeeData.firstName && employeeData.firstName.length > 25) {
+      errors.push('El nombre no puede exceder 25 caracteres')
+    }
+
+    if (employeeData.lastName && employeeData.lastName.length > 25) {
+      errors.push('El apellido paterno no puede exceder 25 caracteres')
+    }
+
+    if (employeeData.secondLastName && employeeData.secondLastName.length > 25) {
+      errors.push('El apellido materno no puede exceder 25 caracteres')
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    }
+  }
+
+  /**
+   * Validar datos de la persona usando las mismas reglas que los validadores
+   */
+  private validatePersonData(personData: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+
+    // Validar nombre
+    if (!personData.firstName || personData.firstName.trim().length === 0) {
+      errors.push('El nombre de la persona es requerido')
+    } else if (personData.firstName.length > 150) {
+      errors.push('El nombre no puede exceder 150 caracteres')
+    }
+
+    // Validar apellidos
+    if (personData.lastName && personData.lastName.length > 150) {
+      errors.push('El apellido paterno no puede exceder 150 caracteres')
+    }
+
+    if (personData.secondLastName && personData.secondLastName.length > 150) {
+      errors.push('El apellido materno no puede exceder 150 caracteres')
+    }
+
+    // Validar teléfono
+    if (personData.phone && personData.phone.length > 45) {
+      errors.push('El teléfono no puede exceder 45 caracteres')
+    }
+
+    // Validar email
+    if (personData.email && personData.email.length > 200) {
+      errors.push('El email no puede exceder 200 caracteres')
+    }
+
+    // Validar CURP
+    if (personData.curp && personData.curp.length > 45) {
+      errors.push('La CURP no puede exceder 45 caracteres')
+    }
+
+    // Validar RFC
+    if (personData.rfc && personData.rfc.length > 45) {
+      errors.push('El RFC no puede exceder 45 caracteres')
+    }
+
+    // Validar NSS
+    if (personData.nss && personData.nss.length > 45) {
+      errors.push('El NSS no puedesexceder 45 caracteres')
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    }
+  }
+
+  /**
    * Normaliza los valores de orderDirection para manejar tanto inglés como español
    * @param orderDirection - Dirección del ordenamiento
    * @returns 'desc' o 'asc'

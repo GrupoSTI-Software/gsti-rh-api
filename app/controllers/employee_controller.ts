@@ -5518,4 +5518,197 @@ export default class EmployeeController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/employees/import-excel:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Import employees from Excel file
+   *     description: Import employees from Excel file. The business unit and payroll business unit are automatically detected from the Excel file content using similarity matching.
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               file:
+   *                 type: string
+   *                 format: binary
+   *                 description: Excel file with employee data. Must contain columns for business unit names, department names, and position names.
+   *             required:
+   *               - file
+   *     responses:
+   *       200:
+   *         description: Employees imported successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Response type (success, warning, error)
+   *                 title:
+   *                   type: string
+   *                   description: Response title
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Import results
+   *                   properties:
+   *                     totalRows:
+   *                       type: number
+   *                       description: Total rows processed
+   *                     processed:
+   *                       type: number
+   *                       description: Successfully processed rows
+   *                     created:
+   *                       type: number
+   *                       description: New employees created
+   *                     updated:
+   *                       type: number
+   *                       description: Existing employees updated
+   *                     skipped:
+   *                       type: number
+   *                       description: Rows skipped due to errors
+   *                     limitReached:
+   *                       type: boolean
+   *                       description: Whether employee limit was reached
+   *                     errors:
+   *                       type: array
+   *                       items:
+   *                         type: string
+   *                       description: List of error messages
+   *       400:
+   *         description: Bad request - Invalid file or validation errors
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *       500:
+   *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *                 error:
+   *                   type: string
+   *                   description: Detailed error information
+   */
+  async importFromExcel({ request, response, i18n }: HttpContext) {
+    try {
+      const file = request.file('file')
+
+      if (!file) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Excel file is required',
+        }
+      }
+
+      // Validar que el archivo sea un Excel
+      const allowedExtensions = ['.xlsx', '.xls']
+      const allowedMimeTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls
+        'application/octet-stream' // Fallback para algunos casos
+      ]
+
+      // Verificar por extensión del archivo
+      const fileName = file.clientName || file.tmpPath || ''
+      const fileExtension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'))
+
+      // Verificar por MIME type
+      const mimeType = file.type || ''
+
+      const isValidExtension = allowedExtensions.includes(fileExtension)
+      const isValidMimeType = allowedMimeTypes.includes(mimeType.toLowerCase())
+
+      // Si no pasa la validación básica, intentar validar por contenido
+      if (!isValidExtension && !isValidMimeType) {
+        try {
+          // Intentar leer el archivo con ExcelJS para verificar si es realmente un Excel
+          const ExcelJSModule = await import('exceljs')
+          const ExcelJSLib = ExcelJSModule.default
+          const workbook = new ExcelJSLib.Workbook()
+
+          await workbook.xlsx.readFile(file.tmpPath || '')
+          // Si llega aquí, es un archivo Excel válido
+        } catch (excelError: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: `El archivo debe ser un Excel válido (.xlsx o .xls). Extensión detectada: ${fileExtension}, MIME type: ${mimeType}. Error: ${excelError.message}`,
+          }
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.importFromExcel(file)
+
+      // Determinar el tipo de respuesta basado en los resultados
+      let responseType = 'success'
+      let title = 'Importación completada'
+      let message = ''
+
+      if (result.limitReached) {
+        responseType = 'warning'
+        title = 'Límite de empleados alcanzado'
+        message = `Se alcanzó el límite de empleados. Se crearon ${result.created} empleados, se actualizaron ${result.updated} empleados, y ${result.skipped} no se pudieron procesar.`
+      } else if (result.errors.length > 0) {
+        responseType = 'warning'
+        title = 'Importación completada con advertencias'
+        message = `Se procesaron ${result.processed} empleados: ${result.created} creados, ${result.updated} actualizados. ${result.errors.length} errores encontrados.`
+      } else {
+        message = `Importación exitosa: ${result.created} empleados creados, ${result.updated} empleados actualizados.`
+      }
+
+      response.status(200)
+      return {
+        type: responseType,
+        title: title,
+        message: message,
+        data: result,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred during import',
+        error: error.message,
+      }
+    }
+  }
 }

@@ -125,7 +125,7 @@ export default class PersonService {
       if (personBirthdayPast) {
         const newPersonBirthdayPast = new Date(personBirthdayPast)
         const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
-        const fixedBirthdayString = person.personBirthday.replace('00:000:00', '00:00:00')
+        const fixedBirthdayString = person.personBirthday!.replace('00:000:00', '00:00:00')
 
         const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
         const datePastISO = DateTime.fromJSDate(datePast).toISO()
