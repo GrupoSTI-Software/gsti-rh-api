@@ -14,6 +14,8 @@ interface EmployeeFilterSearchInterface {
   dateStart?: string
   dateEnd?: string
   userResponsibleId?: number
+  orderBy?: 'number' | 'name'
+  orderDirection?: 'ascend' | 'descend' | 'Ascendente' | 'Descendente'
 }
 
 export type { EmployeeFilterSearchInterface }

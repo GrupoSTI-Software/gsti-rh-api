@@ -9,9 +9,18 @@ import ShiftExceptionService from './shift_exception_service.js'
 import { ShiftExceptionFilterInterface } from '../interfaces/shift_exception_filter_interface.js'
 import HolidayService from './holiday_service.js'
 import SyncAssistsService from './sync_assists_service.js'
+import { I18n } from '@adonisjs/i18n'
 // import { AssistInterface } from '../interfaces/assist_interface.js'
 
 export default class EmployeeAssistsCalendarService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+    this.i18n = i18n
+  }
+
   async index (filters: EmployeeAssistCalendarFilterInterface) {
     const stringDate = `${filters.dateStart}T00:00:00.000-06:00`
     const time = DateTime.fromISO(stringDate, { setZone: true })
@@ -29,11 +38,12 @@ export default class EmployeeAssistsCalendarService {
         .first()
 
       if (!employee) {
+        const entity = this.t('employee')
         return {
           status: 400,
           type: 'warning',
-          title: 'Invalid data',
-          message: 'Employee not found',
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
           data: null,
         }
       }
@@ -53,7 +63,7 @@ export default class EmployeeAssistsCalendarService {
     const missingDates = allDatesInRange.filter(date => !datesWithData.has(date))
 
     if (missingDates.length > 0 && employee) {
-      const assistService = new AssistsService()
+      const assistService = new AssistsService(this.i18n)
       for await (const day of missingDates) {
         const date = typeof day === 'string' ? new Date(day) : day
         await assistService.updateAssistCalendar(employee.employeeId, date)
@@ -63,8 +73,8 @@ export default class EmployeeAssistsCalendarService {
     return {
       status: 200,
       type: 'success',
-      title: 'Successfully action',
-      message: 'Success access data',
+      title: this.t('resources'),
+      message: this.t('resources_were_found_successfully'),
       data: {
         employeeCalendar,
       },
@@ -100,10 +110,10 @@ export default class EmployeeAssistsCalendarService {
       .preload('checkEatOut')
       .orderBy('day', 'asc')
 
-    const assistService = new AssistsService()
-    const holidayService = new HolidayService()
-    const shiftExceptionService = new ShiftExceptionService()
-    const syncAssistService = new SyncAssistsService()
+    const assistService = new AssistsService(this.i18n)
+    const holidayService = new HolidayService(this.i18n)
+    const shiftExceptionService = new ShiftExceptionService(this.i18n)
+    const syncAssistService = new SyncAssistsService(this.i18n)
 
     const employeeAssistCalendar = await query
     const employeeCalendar: AssistDayInterface[] = []

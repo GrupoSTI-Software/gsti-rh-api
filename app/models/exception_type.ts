@@ -23,6 +23,9 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         exceptionTypeSlug:
  *           type: string
  *           description: Slug identifier for the exception type
+ *         exceptionTypeIsGeneral:
+ *           type: boolean
+ *           description: Is general
  *         exceptionTypeNeedCheckInTime:
  *           type: number
  *           description: Need check in time
@@ -73,6 +76,7 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         exceptionTypeTypeName: "Absence from work"
  *         exceptionTypeIcon: "icon_absence_from_work"
  *         exceptionTypeSlug: "absence-from-work"
+ *         exceptionTypeIsGeneral: 0
  *         exceptionTypeNeedCheckInTime: 1
  *         exceptionTypeNeedCheckOutTime: 1
  *         exceptionTypeNeedReason: 1
@@ -98,6 +102,9 @@ export default class ExceptionType extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare exceptionTypeSlug: string
+
+  @column()
+  declare exceptionTypeIsGeneral: number
 
   @column()
   declare exceptionTypeNeedCheckInTime: number | null

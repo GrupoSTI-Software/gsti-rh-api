@@ -176,10 +176,15 @@ export default class EmployeeProceedingFileService {
       .whereHas('employeeProceedingFile', (query) => {
         query.whereHas('employee', (subQuery) => {
           subQuery.whereIn('departmentId', departmentsList)
+          .whereNull('employee_deleted_at') 
         })
       })
       .preload('proceedingFileType')
-      .preload('employeeProceedingFile')
+      .preload('employeeProceedingFile', (query) => {
+        query.preload('employee', (subQuery) => {
+          subQuery.whereNull('employee_deleted_at')
+        })
+      })
       .orderBy('proceeding_file_expiration_at')
 
     const newDateStart = DateTime.fromISO(filters.dateEnd).plus({ days: 1 }).toFormat('yyyy-MM-dd')
@@ -192,10 +197,15 @@ export default class EmployeeProceedingFileService {
       .whereHas('employeeProceedingFile', (query) => {
         query.whereHas('employee', (subQuery) => {
           subQuery.whereIn('departmentId', departmentsList)
+          .whereNull('employee_deleted_at') 
         })
       })
       .preload('proceedingFileType')
-      .preload('employeeProceedingFile')
+      .preload('employeeProceedingFile', (query) => {
+        query.preload('employee', (subQuery) => {
+          subQuery.whereNull('employee_deleted_at')
+        })
+      })
       .orderBy('proceeding_file_expiration_at')
 
     const allCounted = await ProceedingFile.query()
@@ -205,6 +215,7 @@ export default class EmployeeProceedingFileService {
       .whereHas('employeeProceedingFile', (query) => {
         query.whereHas('employee', (subQuery) => {
           subQuery.whereIn('departmentId', departmentsList)
+          .whereNull('employee_deleted_at') 
         })
       })
       .count('proceeding_file_id as quantity_files')
@@ -218,6 +229,7 @@ export default class EmployeeProceedingFileService {
       .whereBetween('employee_contract_end_date', [filters.dateStart, filters.dateEnd])
       .whereHas('employee', (query) => {
         query.whereIn('departmentId', departmentsList)
+        .whereNull('employee_deleted_at') 
       })
       .preload('employee')
       .orderBy('employee_contract_end_date')
@@ -228,6 +240,7 @@ export default class EmployeeProceedingFileService {
       .whereBetween('employee_contract_end_date', [newDateStart, newDateEnd])
       .whereHas('employee', (query) => {
         query.whereIn('departmentId', departmentsList)
+        .whereNull('employee_deleted_at') 
       })
       .preload('employee')
       .orderBy('employee_contract_end_date')
@@ -237,6 +250,7 @@ export default class EmployeeProceedingFileService {
       .where('employee_contract_active', 1)
       .whereHas('employee', (query) => {
         query.whereIn('departmentId', departmentsList)
+        .whereNull('employee_deleted_at') 
       })
       .count('employee_contract_id as quantity_files')
 

@@ -41,7 +41,8 @@ export default class AircraftMaintenanceStatusController {
    *       '500':
    *         description: Server error
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -59,16 +60,16 @@ export default class AircraftMaintenanceStatusController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Aircraft Maintenance Statuses Found',
-        message: 'Aircraft Maintenance Statuses found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: { aircraftMaintenanceStatuses },
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server Error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

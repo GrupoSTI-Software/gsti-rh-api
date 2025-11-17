@@ -3,8 +3,15 @@ import Person from '#models/person'
 import { CustomerFilterSearchInterface } from '../interfaces/customer_filter_search_interface.js'
 import Employee from '#models/employee'
 import CustomerProceedingFile from '#models/customer_proceeding_file'
+import { I18n } from '@adonisjs/i18n'
 
 export default class CustomerService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
+
   async index(filters: CustomerFilterSearchInterface) {
     const customers = await Customer.query()
       .whereNull('customer_deleted_at')
@@ -68,11 +75,12 @@ export default class CustomerService {
         .first()
 
       if (!existPerson && customer.personId) {
+        const entity = this.t('person')
         return {
           status: 400,
           type: 'warning',
-          title: 'The person was not found',
-          message: 'The person was not found with the entered ID',
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...customer },
         }
       }
@@ -80,8 +88,8 @@ export default class CustomerService {
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...customer },
     }
   }
@@ -108,11 +116,12 @@ export default class CustomerService {
       .first()
 
     if (existUuid && customer.customerUuid) {
+      const entity = this.t('customer')
       return {
         status: 400,
         type: 'warning',
-        title: 'The customer uuid exists for another customer',
-        message: `The customer resource cannot be ${action} because the uuid is already assigned to another customer`,
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: 'UUID'  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: 'UUID' })}`,
         data: { ...customer },
       }
     }
@@ -126,11 +135,13 @@ export default class CustomerService {
         .first()
 
       if (existPersonId && customer.personId) {
+        const entity = this.t('customer')
+        const param = `${this.t('person')} ID`
         return {
           status: 400,
           type: 'warning',
-          title: 'The customer person id exists for another customer',
-          message: `The customer resource cannot be ${action} because the person id is already assigned to another customer`,
+          title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
+          message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
           data: { ...customer },
         }
       }
@@ -139,11 +150,13 @@ export default class CustomerService {
         .where('person_id', customer.personId)
         .first()
       if (existEmployeePersonId) {
+        const entity = this.t('customer')
+        const param = `${this.t('person')} ID`
         return {
           status: 400,
           type: 'warning',
-          title: 'The person id exists for another employee',
-          message: `The customer resource cannot be ${action} because the person id is already assigned to another employee`,
+          title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
+          message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
           data: { ...customer },
         }
       }
@@ -151,8 +164,8 @@ export default class CustomerService {
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...customer },
     }
   }

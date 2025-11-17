@@ -66,7 +66,8 @@ export default class AircraftPropertiesController {
       return 'S3Producer.fileUpload'
     }
   }
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const page = request.input('page', 1)
     const limit = request.input('limit', 10)
     const searchText = request.input('searchText', '')
@@ -85,8 +86,8 @@ export default class AircraftPropertiesController {
 
     const formattedResponse = formatResponse(
       'success',
-      'Successfully fetched',
-      'Resources fetched',
+      t('successfully_fetched'),
+      t('resources_fetched'),
       properties.all(),
       {
         total: properties.total,
@@ -185,7 +186,8 @@ export default class AircraftPropertiesController {
   //       )
   //   }
   // }
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(createAircraftPropertyValidator)
 
@@ -198,7 +200,7 @@ export default class AircraftPropertiesController {
         } else {
           return response
             .status(500)
-            .json(formatResponse('error', 'Upload error', 'Failed to upload file to S3', bannerUrl))
+            .json(formatResponse('error',  t('upload_error'), t('failed_to_upload_file_to_s3'), bannerUrl))
         }
       }
 
@@ -214,8 +216,8 @@ export default class AircraftPropertiesController {
         .json(
           formatResponse(
             'success',
-            'Successfully action',
-            'Resource created',
+            t('successfully_action'),
+            t('resource_created'),
             aircraftProperty.toJSON()
           )
         )
@@ -223,7 +225,7 @@ export default class AircraftPropertiesController {
       return response
         .status(400)
         .json(
-          formatResponse('error', 'Validation error', 'Invalid input, validation error 400', error)
+          formatResponse('error', t('validation_error'), t('invalid_input_validation_error_400'), error)
         )
     }
   }
@@ -247,7 +249,8 @@ export default class AircraftPropertiesController {
    *       '404':
    *         description: Aircraft property not found
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftProperty = await AircraftProperty.query()
         .where('aircraftPropertiesId', params.id)
@@ -258,15 +261,15 @@ export default class AircraftPropertiesController {
         .json(
           formatResponse(
             'success',
-            'Successfully fetched',
-            'Resource fetched',
+            t('successfully_fetched'),
+            t('resource_fetched'),
             aircraftProperty.toJSON()
           )
         )
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Not Found', 'Resource not found', 'NO DATA'))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), t('no_data')))
     }
   }
 
@@ -421,7 +424,8 @@ export default class AircraftPropertiesController {
   //       )
   //   }
   // }
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(updateAircraftPropertyValidator)
       const aircraftProperty = await AircraftProperty.findOrFail(params.id)
@@ -439,7 +443,7 @@ export default class AircraftPropertiesController {
         } else {
           return response
             .status(500)
-            .json(formatResponse('error', 'Upload error', 'Failed to upload file to S3', bannerUrl))
+            .json(formatResponse('error', t('upload_error'), t('failed_to_upload_file_to_s3'), bannerUrl))
         }
       }
 
@@ -454,8 +458,8 @@ export default class AircraftPropertiesController {
         .json(
           formatResponse(
             'success',
-            'Successfully action',
-            'Resource updated',
+            t('successfully_action'),
+            t('resource_updated'),
             aircraftProperty.toJSON()
           )
         )
@@ -466,8 +470,7 @@ export default class AircraftPropertiesController {
         .json(
           formatResponse(
             'error',
-            'Validation error',
-            'Invalid input, validation error 400',
+            t('validation_error'), t('invalid_input_validation_error_400'),
             error.messages || error
           )
         )
@@ -493,18 +496,19 @@ export default class AircraftPropertiesController {
    *       '404':
    *         description: Aircraft property not found
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftProperty = await AircraftProperty.findOrFail(params.id)
       aircraftProperty.aircraftPropertiesDeletedAt = DateTime.now()
       await aircraftProperty.save()
       return response
         .status(200)
-        .json(formatResponse('success', 'Successfully action', 'Resource deleted', {}))
+        .json(formatResponse('success', t('successfully_action'), t('resource_deleted'), {}))
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Not Found', 'Resource not found', 'NO DATA'))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 }
