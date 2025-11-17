@@ -69,6 +69,7 @@ export default class EmployeeService {
     }
     newEmployee.employeeLastSynchronizationAt = new Date()
     await newEmployee.save()
+    await this.updateEmployeeSlug(newEmployee)
     await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
    /*  await newEmployee.load('employeeType')
     if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
@@ -129,6 +130,7 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
+    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
@@ -247,6 +249,7 @@ export default class EmployeeService {
     newEmployee.employeeSecondLastName = employee.employeeSecondLastName
     newEmployee.employeeCode = employee.employeeCode
     newEmployee.employeePayrollNum = employee.employeePayrollNum
+    newEmployee.employeePayrollCode = employee.employeePayrollCode
     newEmployee.employeeHireDate = employee.employeeHireDate
     newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
     newEmployee.companyId = employee.companyId
@@ -263,6 +266,7 @@ export default class EmployeeService {
     newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     await newEmployee.save()
+    await this.updateEmployeeSlug(newEmployee)
     await newEmployee.load('businessUnit')
     await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
     return newEmployee
@@ -274,6 +278,7 @@ export default class EmployeeService {
     currentEmployee.employeeSecondLastName = employee.employeeSecondLastName
     currentEmployee.employeeCode = employee.employeeCode
     currentEmployee.employeePayrollNum = employee.employeePayrollNum
+    currentEmployee.employeePayrollCode = employee.employeePayrollCode
     currentEmployee.employeeHireDate = employee.employeeHireDate
     currentEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
     currentEmployee.companyId = employee.companyId
@@ -289,6 +294,7 @@ export default class EmployeeService {
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     await currentEmployee.save()
+    await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -318,6 +324,48 @@ export default class EmployeeService {
     return currentEmployee
   }
 
+  private async updateEmployeeSlug(employee: Employee) {
+    if (!employee.employeeId) {
+      return
+    }
+
+    const slug = this.generateEmployeeSlug(employee)
+    await Employee.query()
+      .where('employee_id', employee.employeeId)
+      .update({ employee_slug: slug })
+    employee.employeeSlug = slug
+  }
+
+  private generateEmployeeSlug(employee: Employee) {
+    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
+    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
+    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
+    const namePart =
+      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
+
+    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
+    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
+
+    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
+  }
+
+  private normalizeSlugSegment(value?: string | null, fallback = '') {
+    if (!value) {
+      return fallback
+    }
+
+    return value
+      .toString()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9\-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase()
+  }
+
   async show(employeeId: number) {
     const employee = await Employee.query()
       .where('employee_id', employeeId)
@@ -333,9 +381,9 @@ export default class EmployeeService {
     return employee ? employee : null
   }
 
-  async getByCode(employeeCode: number, userResponsibleId?: number | null) {
+  async getById(employeeId: number, userResponsibleId?: number | null) {
     const employee = await Employee.query()
-      .where('employee_code', employeeCode)
+      .where('employee_id', employeeId)
       .if(userResponsibleId &&
         typeof userResponsibleId && userResponsibleId > 0,
         (query) => {

@@ -44,6 +44,12 @@ import UserResponsibleEmployee from './user_responsible_employee.js'
  *          employeePayrollNum:
  *            type: string
  *            description: Employee payroll num
+ *          employeePayrollCode:
+ *            type: string
+ *            description: Employee payroll code
+ *          employeeSlug:
+ *            type: string
+ *            description: Employee slug
  *          employeeHireDate:
  *            type: date
  *            description: Employee hire date
@@ -124,6 +130,12 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare employeePayrollNum: string
+
+  @column()
+  declare employeePayrollCode: string | null
+
+  @column()
+  declare employeeSlug: string | null
 
   @column()
   declare employeeWorkSchedule: string
