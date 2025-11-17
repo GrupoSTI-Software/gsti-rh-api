@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notificación de Ausencia - {{ employee.name }}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .email-container {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, {{ systemSetting.sidebarColor }}, {{ systemSetting.sidebarColor }}dd);
+            color: white;
+            padding: 40px 30px;
+            text-align: center;
+            position: relative;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="white" opacity="0.1"/><circle cx="75" cy="75" r="1" fill="white" opacity="0.1"/><circle cx="50" cy="10" r="0.5" fill="white" opacity="0.1"/><circle cx="10" cy="60" r="0.5" fill="white" opacity="0.1"/><circle cx="90" cy="40" r="0.5" fill="white" opacity="0.1"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            opacity: 0.3;
+        }
+        .logo {
+            max-width: 100px;
+            height: auto;
+            margin-bottom: 20px;
+            position: relative;
+            z-index: 1;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 700;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header p {
+            margin: 15px 0 0 0;
+            font-size: 18px;
+            opacity: 0.95;
+            position: relative;
+            z-index: 1;
+        }
+        .content {
+            padding: 25px 20px;
+        }
+        .greeting {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .greeting h2 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        .notification-box {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-left: 4px solid {{ systemSetting.sidebarColor }};
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 0 8px 8px 0;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.05);
+        }
+        .notification-box h3 {
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .notification-box p {
+            margin: 0;
+            color: #555;
+            font-size: 14px;
+        }
+        .info-section {
+            background-color: #ffffff;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        }
+        .info-section h3 {
+            margin: 0 0 12px 0;
+            color: {{ systemSetting.sidebarColor }};
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+        .info-section h3::before {
+            content: '👤';
+            margin-right: 8px;
+            font-size: 16px;
+        }
+        .exception-info h3::before {
+            content: '📋';
+        }
+        .greeting h2::before {
+            content: '📢';
+            margin-right: 8px;
+            font-size: 18px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 8px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #555;
+            flex: 1;
+            font-size: 14px;
+        }
+        .info-value {
+            color: #2c3e50;
+            flex: 2;
+            text-align: right;
+            font-weight: 500;
+        }
+        .footer {
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            padding: 15px;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            border-top: 1px solid #e9ecef;
+        }
+        .footer p {
+            margin: 5px 0;
+        }
+        .footer .copyright {
+            color: #999;
+            font-size: 11px;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .content {
+                padding: 25px 20px;
+            }
+            .header {
+                padding: 30px 20px;
+            }
+            .header h1 {
+                font-size: 24px;
+            }
+            .info-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .info-value {
+                text-align: left;
+                margin-top: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            @if(systemSetting.logo)
+                <img src="{{ systemSetting.logo }}" alt="{{ systemSetting.tradeName }}" class="logo">
+            @endif
+            @if(exception.isVacation)
+                <h1>Notificación de Vacaciones</h1>
+            @elseif(exception.isAbsence)
+                <h1>Notificación de Ausencia</h1>
+            @elseif(exception.isEarlyDeparture)
+                <h1>Notificación de Salida Temprana</h1>
+            @elseif(exception.isLateArrival)
+                <h1>Notificación de Llegada Tardía</h1>
+            @elseif(exception.isOvertime)
+                <h1>Notificación de Horas Extras</h1>
+            @else
+                <h1>Notificación de Excepción</h1>
+            @endif
+            <p>{{ systemSetting.tradeName }}</p>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <!-- Greeting -->
+            <div class="greeting">
+                <h2>Notificación de Ausencia del Personal</h2>
+            </div>
+
+            <!-- Notification Box -->
+            <div class="notification-box">
+                @if(exception.isVacation)
+                    <h3>Empleado en vacaciones</h3>
+                    <p>Se informa que el empleado <strong>{{ employee.name }}</strong> estará en <strong>{{ exception.type }}</strong> y no estará disponible para trabajar en la fecha indicada.</p>
+                @elseif(exception.isAbsence)
+                    <h3>Empleado ausente</h3>
+                    <p>Se informa que el empleado <strong>{{ employee.name }}</strong> estará <strong>{{ exception.type }}</strong> y no estará disponible para trabajar en la fecha indicada.</p>
+                @elseif(exception.isEarlyDeparture)
+                    <h3>Empleado con salida temprana</h3>
+                    <p>Se informa que el empleado <strong>{{ employee.name }}</strong> tendrá <strong>{{ exception.type }}</strong> y no estará disponible durante el horario completo.</p>
+                @elseif(exception.isLateArrival)
+                    <h3>Empleado con llegada tardía</h3>
+                    <p>Se informa que el empleado <strong>{{ employee.name }}</strong> tendrá <strong>{{ exception.type }}</strong> y llegará tarde al trabajo.</p>
+                @elseif(exception.isOvertime)
+                    <h3>Empleado con horas extras</h3>
+                    <p>Se informa que el empleado <strong>{{ employee.name }}</strong> trabajará <strong>{{ exception.type }}</strong> en la fecha indicada.</p>
+                @else
+                    <h3>Empleado con excepción de horario</h3>
+                    <p>Se informa que el empleado <strong>{{ employee.name }}</strong> tendrá <strong>{{ exception.type }}</strong> y no estará disponible en el horario normal.</p>
+                @endif
+            </div>
+
+            <!-- Employee Information -->
+            <div class="info-section">
+                <h3>Información del Empleado</h3>
+                <div class="info-row">
+                    <span class="info-label">Nombre:</span>
+                    <span class="info-value"><strong>{{ employee.name }}</strong></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Código:</span>
+                    <span class="info-value">{{ employee.code }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Departamento:</span>
+                    <span class="info-value">{{ employee.department }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Posición:</span>
+                    <span class="info-value">{{ employee.position }}</span>
+                </div>
+            </div>
+
+            <!-- Exception Information -->
+            <div class="info-section exception-info">
+                @if(exception.isVacation)
+                    <h3>Detalles de las Vacaciones</h3>
+                @elseif(exception.isAbsence)
+                    <h3>Detalles de la Ausencia</h3>
+                @elseif(exception.isEarlyDeparture)
+                    <h3>Detalles de la Salida Temprana</h3>
+                @elseif(exception.isLateArrival)
+                    <h3>Detalles de la Llegada Tardía</h3>
+                @elseif(exception.isOvertime)
+                    <h3>Detalles de las Horas Extras</h3>
+                @else
+                    <h3>Detalles de la Excepción</h3>
+                @endif
+
+                <div class="info-row">
+                    <span class="info-label">Tipo:</span>
+                    <span class="info-value"><strong>{{ exception.type }}</strong></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Fecha:</span>
+                    <span class="info-value"><strong>{{ exception.date }}</strong></span>
+                </div>
+
+                @if(exception.isEarlyDeparture || exception.isLateArrival || exception.isOvertime)
+                    @if(exception.checkInTime !== 'N/A')
+                    <div class="info-row">
+                        <span class="info-label">Hora de Entrada:</span>
+                        <span class="info-value">{{ exception.checkInTime }}</span>
+                    </div>
+                    @endif
+                    @if(exception.checkOutTime !== 'N/A')
+                    <div class="info-row">
+                        <span class="info-label">Hora de Salida:</span>
+                        <span class="info-value">{{ exception.checkOutTime }}</span>
+                    </div>
+                    @endif
+                @endif
+
+                @if(exception.description !== 'No description provided')
+                <div class="info-row">
+                    <span class="info-label">Descripción:</span>
+                    <span class="info-value">{{ exception.description }}</span>
+                </div>
+                @endif
+            </div>
+
+            <!-- Additional Message -->
+            <div class="notification-box">
+                <p style="margin: 0; color: #666; font-size: 14px;">
+                    <strong>Nota:</strong> Esta es una notificación automática del sistema.
+                    Por favor, tome las medidas necesarias para cubrir la ausencia del empleado y
+                    asegurar la continuidad de las operaciones.
+                </p>
+                <p style="margin: 10px 0 0 0; color: #1976d2; font-size: 14px; font-weight: 600;">
+                    📎 <strong>Archivo adjunto:</strong> Se incluye un reporte Excel con todos los permisos y ausencias del día {{ exception.date }}.
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>{{ systemSetting.tradeName }}</strong></p>
+            <p>Notificación automática del sistema de gestión de ausencias</p>
+            <p class="copyright">
+                ©{{ new Date().getFullYear() }} {{ systemSetting.tradeName }}. Todos los derechos reservados.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

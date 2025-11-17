@@ -627,7 +627,7 @@ export default class PilotController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     try {
       const pilotId = request.param('pilotId')
       if (!pilotId) {
@@ -678,8 +678,8 @@ export default class PilotController {
           data: { personId: currentEmployee.personId },
         }
       }
-      const personService = new PersonService()
-      const employeeService = new EmployeeService()
+      const personService = new PersonService(i18n)
+      const employeeService = new EmployeeService(i18n)
       const pilotService = new PilotService()
       const deletePerson = await personService.delete(currentPerson)
       const deleteEmployee = await employeeService.delete(currentEmployee)

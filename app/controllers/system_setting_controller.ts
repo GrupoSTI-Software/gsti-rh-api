@@ -1315,4 +1315,290 @@ export default class SystemSettingController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/system-settings/{systemSettingId}/birthday-emails:
+   *   put:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: update birthday emails status for system setting
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         schema:
+   *           type: number
+   *         description: System setting id
+   *         required: true
+   *     requestBody:
+   *       content:
+   *          application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               systemSettingBirthdayEmails:
+   *                 type: boolean
+   *                 description: Enable or disable birthday emails
+   *                 required: true
+   *                 default: false
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async updateBirthdayEmailsStatus({ request, response }: HttpContext) {
+    try {
+      const systemSettingId = request.param('systemSettingId')
+      const systemSettingBirthdayEmails = request.input('systemSettingBirthdayEmails')
+
+      if (!systemSettingId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The system setting id was not found',
+          data: { systemSettingId },
+        }
+      }
+
+      if (systemSettingBirthdayEmails === undefined || systemSettingBirthdayEmails === null) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The systemSettingBirthdayEmails field is required',
+          data: { systemSettingBirthdayEmails },
+        }
+      }
+
+      const systemSettingService = new SystemSettingService()
+      const result = await systemSettingService.updateBirthdayEmailsStatus(
+        systemSettingId,
+        systemSettingBirthdayEmails
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/system-settings-get-payroll-config:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: get system setting get payroll config
+   *     produces:
+   *       - application/json
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async getPayrollConfig({ response }: HttpContext) {
+    try {
+      const systemSettingService = new SystemSettingService()
+      const systemSetting = await systemSettingService.getActive()
+      if (!systemSetting) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The system setting was not found',
+          message: 'The system setting active was not found ',
+          data: { },
+        }
+      }
+      const systemSettingPayrollConfig = await systemSettingService.getPayrollConfig(systemSetting.systemSettingId)
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System settings',
+        message: 'The system setting payroll config was found successfully',
+        data: { systemSettingPayrollConfig: systemSettingPayrollConfig },
+      }
+
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
 }

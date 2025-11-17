@@ -123,14 +123,14 @@ export default class EmployeeShiftController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response }: HttpContext) {
+  async store({ auth, request, response, i18n }: HttpContext) {
     try {
       await request.validateUsing(createEmployeeShiftValidator)
 
       const employeeId = request.input('employeeId')
       const shiftId = request.input('shiftId')
       const employeShiftsApplySince = request.input('employeShiftsApplySince')
-      const employeeShiftService = new EmployeeShiftService()
+      const employeeShiftService = new EmployeeShiftService(i18n)
 
       if (!employeeShiftService.isValidDate(employeShiftsApplySince)) {
         return response.status(400).json({
@@ -551,13 +551,13 @@ export default class EmployeeShiftController {
    *                       type: string
    */
 
-  async update({ auth, params, request, response }: HttpContext) {
+  async update({ auth, params, request, response, i18n }: HttpContext) {
     try {
       await request.validateUsing(updateEmployeeShiftValidator)
       const updateEmployeeShift = await EmployeeShift.findOrFail(params.id)
       const employeeShiftId = params.id
       const employeShiftsApplySince = request.input('employeShiftsApplySince')
-      const employeeShiftService = new EmployeeShiftService()
+      const employeeShiftService = new EmployeeShiftService(i18n)
       if (!employeeShiftService.isValidDate(employeShiftsApplySince)) {
         return response.status(400).json({
           type: 'error',
@@ -731,12 +731,12 @@ export default class EmployeeShiftController {
    *                       type: string
    */
 
-  async destroy({ auth, request, params, response }: HttpContext) {
+  async destroy({ auth, request, params, response, i18n }: HttpContext) {
     try {
       const employeeShift = await EmployeeShift.findOrFail(params.id)
       employeeShift.deletedAt = DateTime.now()
       await employeeShift.save()
-      const employeeShiftService = new EmployeeShiftService()
+      const employeeShiftService = new EmployeeShiftService(i18n)
 
       const employeeShiftDate = employeeShift.employeShiftsApplySince
       const date = typeof employeeShiftDate === 'string' ? new Date(employeeShiftDate) : employeeShiftDate
@@ -893,7 +893,7 @@ export default class EmployeeShiftController {
    *                     error:
    *                       type: string
    */
-  async getByEmployee({ request, response }: HttpContext) {
+  async getByEmployee({ request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       const shiftId = request.input('shiftId')
@@ -914,7 +914,7 @@ export default class EmployeeShiftController {
         dateStart: dateStart,
         dateEnd: dateEnd,
       } as EmployeeShiftFilterInterface
-      const employeeShiftService = new EmployeeShiftService()
+      const employeeShiftService = new EmployeeShiftService(i18n)
       const employeeShifts = await employeeShiftService.getByEmployee(filters)
       response.status(200)
       return {
@@ -1035,7 +1035,7 @@ export default class EmployeeShiftController {
    *                     error:
    *                       type: string
    */
-  async getShiftActiveByEmployee({ request, response }: HttpContext) {
+  async getShiftActiveByEmployee({ request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -1047,7 +1047,7 @@ export default class EmployeeShiftController {
           data: { employeeId },
         }
       }
-      const employeeShiftService = new EmployeeShiftService()
+      const employeeShiftService = new EmployeeShiftService(i18n)
       const employeeShift = await employeeShiftService.getShiftActiveByEmployee(employeeId)
       response.status(200)
       return {

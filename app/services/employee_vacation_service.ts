@@ -16,8 +16,15 @@ import SystemSetting from '#models/system_setting'
 import sharp from 'sharp'
 import { EmployeeVacationExcelRowSummaryInterface } from '../interfaces/employee_vacation_excel_row_summary_interface.js'
 import { EmployeeVacationExcelRowSummaryYearInterface } from '../interfaces/employee_vacation_excel_row_summary_year_interface.js'
+import { I18n } from '@adonisjs/i18n'
 
 export default class EmployeeVacationService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
   async getExcelAll(filters: EmployeeVacationExcelFilterInterface) {
     try {
       const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
@@ -222,7 +229,7 @@ export default class EmployeeVacationService {
   }
 
   async addEmployees(employees: Employee[], year: number) {
-    const employeeService = new EmployeeService()
+    const employeeService = new EmployeeService(this.i18n)
     const rows = [] as EmployeeVacationExcelRowInterface[]
     for await (const employee of employees) {
       const yearsWorked = await employeeService.getYearWorked(employee, year)
@@ -836,7 +843,7 @@ export default class EmployeeVacationService {
   }
 
   async addEmployeesSummary(employees: Employee[], years: number[]) {
-    const employeeService = new EmployeeService()
+    const employeeService = new EmployeeService(this.i18n)
     const rows = [] as EmployeeVacationExcelRowSummaryInterface[]
     for await (const employee of employees) {
       const yearsInfo = [] as EmployeeVacationExcelRowSummaryYearInterface[]

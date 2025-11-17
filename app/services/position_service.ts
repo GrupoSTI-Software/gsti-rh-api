@@ -4,6 +4,7 @@ import EmployeeShift from '#models/employee_shift'
 import Position from '#models/position'
 import Shift from '#models/shift'
 import env from '#start/env'
+import { I18n } from '@adonisjs/i18n'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
 import { PositionShiftEmployeeWarningInterface } from '../interfaces/position_shift_employee_warning_interface.js'
 import { PositionShiftFilterInterface } from '../interfaces/position_shift_filter_interface.js'
@@ -11,6 +12,13 @@ import EmployeeService from './employee_service.js'
 import EmployeeShiftService from './employee_shift_service.js'
 
 export default class PositionService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
+
   async syncCreate(position: BiometricPositionInterface) {
     const newPosition = new Position()
     newPosition.positionSyncId = position.id
@@ -87,7 +95,7 @@ export default class PositionService {
   }
 
   async assignShift(filters: PositionShiftFilterInterface) {
-    const employeeShiftService = new EmployeeShiftService()
+    const employeeShiftService = new EmployeeShiftService(this.i18n)
     if (!employeeShiftService.isValidDate(filters.applySince)) {
       return {
         status: 400,
@@ -97,7 +105,7 @@ export default class PositionService {
         data: null,
       }
     }
-    const employeeService = new EmployeeService()
+    const employeeService = new EmployeeService(this.i18n)
     const departmentId = filters.departmentId
     const page = 1
     const limit = 999999999999999

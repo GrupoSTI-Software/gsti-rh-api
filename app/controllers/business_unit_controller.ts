@@ -28,8 +28,8 @@ export default class BusinessUnitController {
    *                 data:
    *                   type: object
    */
-  async index({ response }: HttpContext) {
-    const res = await new BusinessUnitService().index()
+  async index({ response, i18n }: HttpContext) {
+    const res = await new BusinessUnitService(i18n).index()
     return response.status(res.status || 200).send(res)
   }
 }
