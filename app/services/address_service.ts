@@ -2,6 +2,13 @@ import Address from '#models/address'
 import AddressType from '#models/address_type'
 
 export default class AddressService {
+
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: any) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
+
   async create(address: Address) {
     const newAddress = new Address()
     newAddress.addressZipcode = address.addressZipcode
@@ -45,13 +52,14 @@ export default class AddressService {
         .whereNull('address_type_deleted_at')
         .where('address_type_id', address.addressTypeId)
         .first()
-
+     
       if (!existAddressType && address.addressTypeId) {
+        const entity = this.t('address_type')
         return {
           status: 400,
           type: 'warning',
-          title: 'The address was not found',
-          message: 'The address was not found with the entered ID',
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...address },
         }
       }
@@ -59,8 +67,8 @@ export default class AddressService {
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...address },
     }
   }

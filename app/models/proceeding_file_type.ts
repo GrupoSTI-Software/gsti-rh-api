@@ -63,7 +63,7 @@ export default class ProceedingFileType extends compose(BaseModel, SoftDeletes) 
   declare proceedingFileTypeBusinessUnits: string
 
   @column()
-  declare parentId: number
+  declare parentId: number | null
 
   @column.dateTime({ autoCreate: true })
   declare proceedingFileTypeCreatedAt: DateTime

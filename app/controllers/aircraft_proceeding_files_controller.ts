@@ -73,7 +73,8 @@ export default class AircraftProceedingFileController {
    *                 data:
    *                   $ref: '#/components/schemas/AircraftProceedingFile'
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(createAircraftProceedingFileValidator)
       const aircraftId = request.input('aircraftId')
@@ -109,8 +110,8 @@ export default class AircraftProceedingFileController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Aircraft proceeding files',
-          message: 'The relation aircraft-proceedingfile was created successfully',
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
           data: { aircraftProceedingFile: newAircraftProceedingFile },
         }
       }
@@ -120,8 +121,8 @@ export default class AircraftProceedingFileController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -153,15 +154,16 @@ export default class AircraftProceedingFileController {
    *                 data:
    *                   $ref: '#/components/schemas/AircraftProceedingFile'
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftProceedingFileId = params.id
       if (!aircraftProceedingFileId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation aircraft-proceedingfile Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftProceedingFileId },
         }
       }
@@ -172,16 +174,16 @@ export default class AircraftProceedingFileController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation aircraft-proceedingfile was not found',
-          message: 'The relation aircraft-proceedingfile was not found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { aircraftProceedingFileId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Aircraft proceeding files',
-          message: 'The relation aircraft-proceedingfile was found successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { aircraftProceedingFile: showAircraftProceedingFile },
         }
       }
@@ -189,8 +191,8 @@ export default class AircraftProceedingFileController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -231,7 +233,8 @@ export default class AircraftProceedingFileController {
    *                 data:
    *                   $ref: '#/components/schemas/AircraftProceedingFile'
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftProceedingFileId = request.input('aircraftProceedingFileId')
       const aircraftId = request.input('aircraftId')
@@ -245,8 +248,8 @@ export default class AircraftProceedingFileController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation aircraft-proceedingfile Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { ...aircraftProceedingFile },
         }
       }
@@ -258,8 +261,8 @@ export default class AircraftProceedingFileController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation aircraft-proceedingfile was not found',
-          message: 'The relation aircraft-proceedingfile was not found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { ...aircraftProceedingFile },
         }
       }
@@ -293,8 +296,8 @@ export default class AircraftProceedingFileController {
         response.status(200)
         return {
           type: 'success',
-          title: 'Aircraft proceeding files',
-          message: 'The relation aircraft-proceedingfile was updated successfully',
+          title: t('resource'),
+          message: t('resource_was_updated_successfully'),
           data: { aircraftProceedingFile: updateAircraftProceedingFile },
         }
       }
@@ -304,8 +307,8 @@ export default class AircraftProceedingFileController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -338,13 +341,14 @@ export default class AircraftProceedingFileController {
    *                   type: string
    *                   example: Aircraft proceeding file deleted successfully.
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const file = await AircraftProceedingFile.findOrFail(params.id)
     await file.delete()
 
     return response.json({
       status: 'success',
-      message: 'Aircraft proceeding file deleted successfully.',
+      message: t('resource_was_deleted_successfully'),
     })
   }
 
@@ -474,14 +478,15 @@ export default class AircraftProceedingFileController {
    *                       type: string
    *                       example: Unexpected error occurred on the server.
    */
-  async getAircraftProceedingFiles({ request, response }: HttpContext) {
+  async getAircraftProceedingFiles({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftId = request.param('aircraftId')
       const fileType = request.input('type')
 
       if (!aircraftId) {
         response.status(400)
-        return formatResponse('warning', 'Aircraft ID not found', 'Missing data to process', {
+        return formatResponse('warning', t('resource'), t('resource_id_was_not_found'), {
           aircraftId,
         })
       }
@@ -512,8 +517,8 @@ export default class AircraftProceedingFileController {
         .json(
           formatResponse(
             'success',
-            'Proceeding files fetched successfully',
-            'The proceeding files for the aircraft were found successfully',
+            t('resources'),
+            t('resources_were_found_successfully'),
             aircraftProceedingFiles.toJSON()
           )
         )
@@ -521,8 +526,8 @@ export default class AircraftProceedingFileController {
       response.status(500)
       return formatResponse(
         'error',
-        'Server error',
-        'An unexpected error has occurred on the server',
+        t('server_error'),
+        t('an_unexpected_error_has_occurred_on_the_server'),
         { error: error.message }
       )
     }
@@ -635,7 +640,8 @@ export default class AircraftProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async getExpiresAndExpiring({ request, response }: HttpContext) {
+  async getExpiresAndExpiring({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const dateStart = request.input('dateStart')
       const dateEnd = request.input('dateEnd')
@@ -649,8 +655,8 @@ export default class AircraftProceedingFileController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Aircraft proceeding files',
-        message: 'The aircraft proceeding files were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: {
           aircraftProceedingFiles: aircraftProceedingFiles,
         },
@@ -659,8 +665,8 @@ export default class AircraftProceedingFileController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

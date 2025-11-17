@@ -168,7 +168,8 @@ export default class AddressController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const addressZipcode = request.input('addressZipcode')
       const addressCountry = request.input('addressCountry')
@@ -198,7 +199,7 @@ export default class AddressController {
         addressBetweenStreet2: addressBetweenStreet2,
         addressTypeId: addressTypeId,
       } as Address
-      const addressService = new AddressService()
+      const addressService = new AddressService(i18n)
       await request.validateUsing(createAddressValidator)
       const verifyExist = await addressService.verifyInfoExist(address)
       if (verifyExist.status !== 200) {
@@ -215,8 +216,8 @@ export default class AddressController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Address',
-          message: 'The address was created successfully',
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
           data: { address: newAddress },
         }
       }
@@ -226,8 +227,8 @@ export default class AddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -404,7 +405,8 @@ export default class AddressController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const addressId = request.param('addressId')
       const addressZipcode = request.input('addressZipcode')
@@ -440,8 +442,8 @@ export default class AddressController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The address Id was not found',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { ...address },
         }
       }
@@ -451,15 +453,17 @@ export default class AddressController {
         .first()
       if (!currentAddress) {
         response.status(404)
+        const entity = t('address')
         return {
           type: 'warning',
-          title: 'The address was not found',
-          message: 'The address was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...address },
         }
       }
-      const addressService = new AddressService()
+      const addressService = new AddressService(i18n)
       const data = await request.validateUsing(updateAddressValidator)
+      
       const verifyExist = await addressService.verifyInfoExist(address)
       if (verifyExist.status !== 200) {
         response.status(verifyExist.status)
@@ -475,8 +479,8 @@ export default class AddressController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Address',
-          message: 'The address was updated successfully',
+          title: t('resource'),
+          message: t('resource_was_updated_successfully'),
           data: { address: updateAddress },
         }
       }
@@ -486,8 +490,8 @@ export default class AddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -596,17 +600,18 @@ export default class AddressController {
    *                     error:
    *                       type: string
    */
-  async getPlaces({ request, response }: HttpContext) {
+  async getPlaces({ request, response , i18n}: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
       const field = request.input('field')
-      const addressService = new AddressService()
+      const addressService = new AddressService(i18n)
       const places = await addressService.getPlaces(search, field)
       response.status(200)
       return {
         type: 'success',
-        title: 'Address',
-        message: 'The address places were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: {
           places,
         },
@@ -615,8 +620,8 @@ export default class AddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server Error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

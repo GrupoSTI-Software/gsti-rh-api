@@ -16,4 +16,5 @@ export default interface BiometricEmployeeInterface {
   photo: string
   usersResponsible?: User[]
   businessUnitId?: number
+  personId?: number
 }

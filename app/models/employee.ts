@@ -177,7 +177,7 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   declare employeeTypeOfContract: string
 
   @column()
-  declare employeeTerminatedDate: Date | string
+  declare employeeTerminatedDate: Date | string | null
 
   @column()
   declare employeeIgnoreConsecutiveAbsences: number

@@ -875,12 +875,12 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async getExpiresAndExpiring({ auth, request, response }: HttpContext) {
+  async getExpiresAndExpiring({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
 
       const user = auth.user
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       let departmentsList = [] as Array<number>
 
       if (user) {

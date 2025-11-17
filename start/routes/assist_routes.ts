@@ -10,6 +10,7 @@ router
     router.get('/get-excel-by-position', '#controllers/assists_controller.getExcelByPosition')
     router.get('/get-excel-by-department', '#controllers/assists_controller.getExcelByDepartment')
     router.get('/get-excel-all', '#controllers/assists_controller.getExcelAll')
+    router.get('/get-excel-permissions-dates', '#controllers/assists_controller.getExcelPermissionsByDates')
     router.get('/', '#controllers/assists_controller.index')//.use(middleware.auth({ guards: ['api'] }))
     router.get('/status', '#controllers/assists_controller.getStatusSync')
     router.post('/synchronize', '#controllers/assists_controller.synchronize')
