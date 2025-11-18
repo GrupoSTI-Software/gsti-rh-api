@@ -47,6 +47,7 @@ router
       '#controllers/employee_controller.exportShiftExceptionsToExcel'
     )
     router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
+    router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
 
   })
   .prefix('/api/employees')

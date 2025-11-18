@@ -5711,4 +5711,138 @@ export default class EmployeeController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/employees/inverse-synchronization:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Sincronizar un empleado existente a la API de biométricos
+   *     description: Envía un empleado existente en la base de datos local a la API de biométricos
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               employeeId:
+   *                 type: integer
+   *                 description: ID del empleado a sincronizar
+   *                 required: true
+   *     responses:
+   *       200:
+   *         description: Empleado sincronizado exitosamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Response type (success, error)
+   *                 title:
+   *                   type: string
+   *                   description: Response title
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *       400:
+   *         description: Bad request - ID de empleado requerido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *       404:
+   *         description: Empleado no encontrado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *       500:
+   *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *                 error:
+   *                   type: string
+   *                   description: Detailed error information
+   */
+  async inverseSync({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'El ID del empleado es requerido',
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.sendEmployeeToBiometrics(employeeId)
+
+      if (!result.success) {
+        response.status(404)
+        return {
+          type: 'error',
+          title: 'Sincronización fallida',
+          message: result.message,
+          error: result.error,
+        }
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Sincronización exitosa',
+        message: result.message,
+      }
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'Ocurrió un error inesperado al sincronizar el empleado',
+        error: error.message,
+      }
+    }
+  }
 }

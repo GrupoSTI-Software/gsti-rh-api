@@ -1939,6 +1939,8 @@ export default class EmployeeService {
         }
       } else {
         // Procesar todos los empleados (creaciones y actualizaciones)
+        const createdEmployees: Employee[] = [] // Array para almacenar empleados creados
+
         for (const { rowNumber, employeeData, businessUnitId } of validRows) {
           try {
             const payrollBusinessUnitId = businessUnitId // Usar la misma unidad de negocio para nómina
@@ -1969,7 +1971,10 @@ export default class EmployeeService {
               const person = await this.createPerson(employeeData)
 
               // Crear empleado
-              await this.createEmployee(employeeData, person.personId, businessUnitId, payrollBusinessUnitId, departmentId, positionId, employeeCode)
+              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId, payrollBusinessUnitId, departmentId, positionId, employeeCode)
+
+              // Agregar a la lista de empleados creados para enviar a biométricos
+              createdEmployees.push(newEmployee)
 
               results.created++
               results.processed++
@@ -1978,6 +1983,18 @@ export default class EmployeeService {
           } catch (error: any) {
             results.skipped++
             results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          }
+        }
+
+        // Enviar empleados creados a la API de biométricos
+        if (createdEmployees.length > 0) {
+          try {
+            const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
+            if (!biometricResult.success) {
+              results.errors.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
+            }
+          } catch (error: any) {
+            results.errors.push(`Error al sincronizar con biométricos: ${error.message}`)
           }
         }
       }
@@ -2482,6 +2499,219 @@ export default class EmployeeService {
     return {
       isValid: errors.length === 0,
       errors
+    }
+  }
+
+  /**
+   * Mapear empleado local al formato de la API de biométricos
+   * Formato basado en la estructura de la base de datos de biométricos
+   */
+  private mapEmployeeToBiometricFormat(employee: Employee): any {
+    const payrollNum = env.get('SYSTEM_BUSINESS', '')
+
+    // Normalizar gender a un solo carácter (M/F) o null
+    let genderValue: string | null = null
+    if (employee.person?.personGender) {
+      const gender = String(employee.person.personGender).trim().toUpperCase()
+      if (gender === 'M' || gender.startsWith('M') || gender.includes('HOMBRE') || gender.includes('MALE')) {
+        genderValue = 'M'
+      } else if (gender === 'F' || gender.startsWith('F') || gender.includes('MUJER') || gender.includes('FEMALE')) {
+        genderValue = 'F'
+      }
+    }
+
+    // Helper para normalizar strings (convertir vacíos a null)
+    const normalizeString = (value: any): string | null => {
+      if (value === null || value === undefined) return null
+      if (typeof value !== 'string') return null
+      const trimmed = value.trim()
+      return trimmed.length > 0 ? trimmed : null
+    }
+
+    // Helper para normalizar fechas (formato YYYY-MM-DD)
+    const normalizeDate = (value: any): string | null => {
+      if (!value) return null
+      // Si es un string, validar formato
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.length === 0) return null
+        // Si ya está en formato YYYY-MM-DD, retornarlo
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          return trimmed
+        }
+        return trimmed
+      }
+      // Si es un objeto DateTime (Luxon)
+      if (value && typeof value.toISODate === 'function') {
+        return value.toISODate()
+      }
+      // Si es un objeto Date
+      if (value instanceof Date) {
+        const year = value.getFullYear()
+        const month = String(value.getMonth() + 1).padStart(2, '0')
+        const day = String(value.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      return null
+    }
+
+    // Construir el objeto siguiendo el formato de la base de datos de biométricos
+    // Basado en la estructura de la API que acepta correctamente
+    const now = new Date().toISOString()
+
+    const biometricEmployee: any = {
+      // Campos básicos requeridos
+      empCode: employee.employeeCode ? Number(employee.employeeCode) : 0,
+      firstName: normalizeString(employee.employeeFirstName),
+      lastName: normalizeString(employee.employeeLastName),
+      companyId: 1,
+      departmentId: 1,
+      positionId: 1,
+      payrollNum: normalizeString(payrollNum),
+
+      // Campos de timestamps
+      createTime: now,
+      createUser: null,
+      changeTime: now,
+      changeUser: null,
+      updateTime: now,
+
+      // Campos requeridos con valores por defecto
+      status: 0,
+      isAdmin: false,
+      empType: 0,
+      enableAtt: true,
+      enablePayroll: true,
+      enableOvertime: false,
+      enableHoliday: true,
+      deleted: false,
+      reserved: 0,
+      delTag: 0,
+      appStatus: 0,
+      appRole: 0,
+      isActive: true,
+      vacationRule: 0,
+
+      // Campos opcionales - enviar null si no tenemos datos
+      nickname: normalizeString(employee.employeeSecondLastName),
+      gender: genderValue,
+      birthday: normalizeDate(employee.person?.personBirthday),
+      hireDate: normalizeDate(employee.employeeHireDate),
+      email: normalizeString(employee.person?.personEmail),
+      mobile: normalizeString(employee.person?.personPhone),
+      nationalNum: normalizeString(employee.person?.personCurp) || normalizeString(employee.person?.personImssNss),
+      ssn: normalizeString(employee.person?.personRfc),
+      internalEmpNum: null,
+      city: null,
+      lastLogin: null,
+
+      // Campos que deben ser null según especificación
+      accTimezone: null,
+      enrollSn: null
+    }
+
+    // Asegurar que todos los valores undefined se conviertan en null
+    Object.keys(biometricEmployee).forEach(key => {
+      if (biometricEmployee[key] === undefined) {
+        biometricEmployee[key] = null
+      }
+    })
+
+    return biometricEmployee
+  }
+
+  /**
+   * Enviar empleados a la API de biométricos en bulk
+   */
+  async sendEmployeesToBiometrics(employees: Employee[]): Promise<{ success: boolean; message: string; errors?: any[] }> {
+    try {
+      const apiHost = env.get('API_BIOMETRICS_HOST')
+
+      if (!apiHost) {
+        return {
+          success: false,
+          message: 'API_BIOMETRICS_HOST no está configurada en las variables de entorno'
+        }
+      }
+
+      // Cargar relaciones necesarias
+      await Promise.all(employees.map(emp => emp.load('person')))
+
+      // Mapear empleados al formato de la API
+      const biometricEmployees = employees.map(emp => this.mapEmployeeToBiometricFormat(emp))
+
+      // Enviar a la API
+      const apiUrl = `${apiHost}/employees/bulk`
+      const response = await axios.post(apiUrl, {
+        employees: biometricEmployees
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      return {
+        success: true,
+        message: `${employees.length} empleado(s) enviado(s) exitosamente a biométricos`,
+        errors: response.data?.errors || []
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error al enviar empleados a biométricos: ${error.message}`,
+        errors: error.response?.data || []
+      }
+    }
+  }
+
+  /**
+   * Enviar un empleado individual a la API de biométricos
+   */
+  async sendEmployeeToBiometrics(employeeId: number): Promise<{ success: boolean; message: string; error?: any }> {
+    try {
+      const employee = await Employee.query()
+        .where('employeeId', employeeId)
+        .whereNull('deletedAt')
+        .preload('person')
+        .first()
+
+      if (!employee) {
+        return {
+          success: false,
+          message: 'Empleado no encontrado'
+        }
+      }
+
+      const apiHost = env.get('API_BIOMETRICS_HOST')
+
+      if (!apiHost) {
+        return {
+          success: false,
+          message: 'API_BIOMETRICS_HOST no está configurada en las variables de entorno'
+        }
+      }
+
+      // Mapear empleado al formato de la API
+      const biometricEmployee = this.mapEmployeeToBiometricFormat(employee)
+
+      // Enviar a la API
+      const apiUrl = `${apiHost}/employees`
+      await axios.post(apiUrl, biometricEmployee, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      return {
+        success: true,
+        message: 'Empleado enviado exitosamente a biométricos'
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error al enviar empleado a biométricos: ${error.message}`,
+        error: error.response?.data || error.message
+      }
     }
   }
 
