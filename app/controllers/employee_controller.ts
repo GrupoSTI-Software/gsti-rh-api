@@ -502,7 +502,7 @@ export default class EmployeeController {
       await auth.check()
       const user = auth.user
 
-      let hasAccessToFullEmployes = false
+      let hasAccessToFullEmployees = false
       let userResponsibleId = null
 
       if (user) {
@@ -510,10 +510,10 @@ export default class EmployeeController {
 
         if (user.role.roleSlug !== 'root') {
           const roleService = new RoleService()
-          hasAccessToFullEmployes = await roleService.hasAccessToFullEmployees(user.role.roleId)
+          hasAccessToFullEmployees = await roleService.hasAccessToFullEmployees(user.role.roleId)
         }
 
-        if (user.role.roleSlug !== 'root' && !hasAccessToFullEmployes) {
+        if (user.role.roleSlug !== 'root' && !hasAccessToFullEmployees) {
           userResponsibleId = user?.userId
         }
       }
@@ -522,7 +522,7 @@ export default class EmployeeController {
       let departmentsList = [] as Array<number>
 
       if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId, hasAccessToFullEmployes)
+        departmentsList = await userService.getRoleDepartments(user.userId, hasAccessToFullEmployees)
       }
 
       const search = request.input('search')
@@ -784,6 +784,7 @@ export default class EmployeeController {
       const employeeSecondLastName = request.input('employeeSecondLastName')
       const employeeCode = request.input('employeeCode')
       const employeePayrollNum = request.input('employeePayrollNum')
+      const employeePayrollCode = request.input('employeePayrollCode')
       let employeeHireDate = request.input('employeeHireDate')
       employeeHireDate = employeeHireDate
         ? (employeeHireDate.split('T')[0] + ' 00:000:00').replace('"', '')
@@ -807,6 +808,7 @@ export default class EmployeeController {
         employeeSecondLastName: `${employeeSecondLastName}`,
         employeeCode: employeeCode,
         employeePayrollNum: employeePayrollNum,
+        employeePayrollCode: employeePayrollCode,
         employeeHireDate: employeeHireDate,
         companyId: companyId,
         departmentId: departmentId,
@@ -1115,6 +1117,7 @@ export default class EmployeeController {
       const employeeSecondLastName = request.input('employeeSecondLastName')
       const employeeCode = request.input('employeeCode')
       const employeePayrollNum = request.input('employeePayrollNum')
+      const employeePayrollCode = request.input('employeePayrollCode')
 
       let employeeHireDate = request.input('employeeHireDate')
       employeeHireDate = employeeHireDate ? (employeeHireDate.split('T')[0] + ' 00:000:00').replace('"', '') : null
@@ -1141,6 +1144,7 @@ export default class EmployeeController {
         employeeSecondLastName: `${employeeSecondLastName}`,
         employeeCode: employeeCode,
         employeePayrollNum: employeePayrollNum,
+        employeePayrollCode: employeePayrollCode,
         employeeHireDate: employeeHireDate,
         companyId: companyId,
         departmentId: departmentId,
@@ -1524,21 +1528,21 @@ export default class EmployeeController {
 
   /**
    * @swagger
-   * /api/employees/get-by-code/{employeeCode}:
+   * /api/employees/get-by-id/{employeeId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
    *       - Employees
-   *     summary: get employee by code
+   *     summary: get employee by Id
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: employeeCode
+   *         name: employeeId
    *         schema:
-   *           type: string
-   *         description: Employee code
+   *           type: integer
+   *         description: Employee Identifier
    *         required: true
    *     responses:
    *       '200':
@@ -1621,7 +1625,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getByCode({ auth, request, response, i18n }: HttpContext) {
+  async getById({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -1632,7 +1636,7 @@ export default class EmployeeController {
           userResponsibleId = user?.userId
         }
       }
-      const employeeCode = request.param('employeeCode')
+      const employeeCode = request.param('employeeId')
       if (!employeeCode) {
         response.status(400)
         return {
@@ -1643,7 +1647,7 @@ export default class EmployeeController {
         }
       }
       const employeeService = new EmployeeService(i18n)
-      const showEmployee = await employeeService.getByCode(employeeCode, userResponsibleId)
+      const showEmployee = await employeeService.getById(employeeCode, userResponsibleId)
       if (!showEmployee) {
         response.status(404)
         return {
