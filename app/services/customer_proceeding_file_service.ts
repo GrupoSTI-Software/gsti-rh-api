@@ -7,8 +7,15 @@ import PilotProceedingFile from '#models/pilot_proceeding_file'
 import ProceedingFileType from '#models/proceeding_file_type'
 import { CustomerProceedingFileFilterInterface } from '../interfaces/customer_proceeding_file_filter_interface.js'
 import { DateTime } from 'luxon'
+import { I18n } from '@adonisjs/i18n'
 
 export default class CustomerProceedingFileService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
+
   async create(customerProceedingFile: CustomerProceedingFile) {
     const newCustomerProceedingFile = new CustomerProceedingFile()
     newCustomerProceedingFile.customerId = customerProceedingFile.customerId
@@ -57,11 +64,12 @@ export default class CustomerProceedingFileService {
       .first()
 
     if (!existCustomer && customerProceedingFile.customerId) {
+      const entity = this.t('customer')
       return {
         status: 400,
         type: 'warning',
-        title: 'The customer was not found',
-        message: 'The customer was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...customerProceedingFile },
       }
     }
@@ -72,19 +80,20 @@ export default class CustomerProceedingFileService {
       .first()
 
     if (!existProceedingFile && customerProceedingFile.proceedingFileId) {
+      const entity = this.t('proceeding_file')
       return {
         status: 400,
         type: 'warning',
-        title: 'The proceeding file was not found',
-        message: 'The proceeding file was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...customerProceedingFile },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...customerProceedingFile },
     }
   }
@@ -103,11 +112,12 @@ export default class CustomerProceedingFileService {
       .where('proceeding_file_id', customerProceedingFile.proceedingFileId)
       .first()
     if (existCustomerProceedingFile) {
+      const entity = `${this.t('relation')} ${this.t('customer')} - ${this.t('proceeding_files')}`
       return {
         status: 400,
         type: 'warning',
-        title: 'The relation customer-proceedingfile already exists',
-        message: `The relation customer proceeding file resource cannot be ${action} because the relation is already assigned`,
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_relation_is_already_assigned_to_another_register')}`,
         data: { ...customerProceedingFile },
       }
     }
@@ -116,11 +126,14 @@ export default class CustomerProceedingFileService {
       .where('proceeding_file_id', customerProceedingFile.proceedingFileId)
       .first()
     if (existPilotProceedingFile) {
+      const entity = `${this.t('relation')} ${this.t('customer')} - ${this.t('proceeding_files')}`
+      const param = this.t('proceeding_file')
+      const table = `${this.t('relation')} ${this.t('pilot')} - ${this.t('proceeding_files')}`
       return {
         status: 400,
         type: 'warning',
-        title: 'The proceeding file was assigned in pilot proceeding files',
-        message: `The relation customer proceeding file resource cannot be ${action} because the proceeding file id was assigned in pilot proceeding files`,
+        title: this.t('param_was_already_assigned_in_entity', { entity: table, param  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_param_was_already_assigned_in_entity', { entity: table,  param })}`,
         data: { ...customerProceedingFile },
       }
     }
@@ -129,11 +142,14 @@ export default class CustomerProceedingFileService {
       .where('proceeding_file_id', customerProceedingFile.proceedingFileId)
       .first()
     if (existEmployeeProceedingFile) {
+      const entity = `${this.t('relation')} ${this.t('customer')} - ${this.t('proceeding_files')}`
+      const param = this.t('proceeding_file')
+      const table = `${this.t('relation')} ${this.t('employee')} - ${this.t('proceeding_files')}`
       return {
         status: 400,
         type: 'warning',
-        title: 'The proceeding file was assigned in employee proceeding files',
-        message: `The relation customer proceeding file resource cannot be ${action} because the proceeding file id was assigned in employee proceeding files`,
+        title: this.t('param_was_already_assigned_in_entity', { entity: table, param  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_param_was_already_assigned_in_entity', { entity: table,  param })}`,
         data: { ...customerProceedingFile },
       }
     }
@@ -142,19 +158,22 @@ export default class CustomerProceedingFileService {
       .where('proceeding_file_id', customerProceedingFile.proceedingFileId)
       .first()
     if (existFlightAttendantProceedingFile) {
+      const entity = `${this.t('relation')} ${this.t('customer')} - ${this.t('proceeding_files')}`
+      const param = this.t('proceeding_file')
+      const table = `${this.t('relation')} ${this.t('flight_attendant')} - ${this.t('proceeding_files')}`
       return {
         status: 400,
         type: 'warning',
-        title: 'The proceeding file was assigned in flight attendant proceeding files',
-        message: `The relation customer proceeding file resource cannot be ${action} because the proceeding file id was assigned in flight attendant proceeding files`,
+        title: this.t('param_was_already_assigned_in_entity', { entity: table, param  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_param_was_already_assigned_in_entity', { entity: table,  param })}`,
         data: { ...customerProceedingFile },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...customerProceedingFile },
     }
   }

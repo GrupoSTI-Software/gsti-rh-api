@@ -60,6 +60,7 @@
     "@adonisjs/core": "^6.9.0",
     "@adonisjs/cors": "^2.2.1",
     "@adonisjs/drive": "^2.3.0",
+    "@adonisjs/i18n": "^2.2.2",
     "@adonisjs/lucid": "^20.6.0",
     "@adonisjs/mail": "^9.2.1",
     "@adonisjs/session": "^7.4.0",

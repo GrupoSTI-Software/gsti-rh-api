@@ -141,10 +141,11 @@ export default class EmployeeBankController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       await request.validateUsing(createEmployeeBankValidator)
-      const employeeBankService = new EmployeeBankService()
+      const employeeBankService = new EmployeeBankService(i18n)
       const employeeBankAccountClabe = request.input('employeeBankAccountClabe')
       const employeeBankAccountClabeLastNumbers = employeeBankAccountClabe.slice(-4)
       const employeeBankAccountNumber = request.input('employeeBankAccountNumber')
@@ -194,8 +195,8 @@ export default class EmployeeBankController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Employee Bank',
-          message: 'The employee bank was created successfully',
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
           data: { employeeBank: newEmployeeBank },
         }
       }
@@ -205,8 +206,8 @@ export default class EmployeeBankController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -350,9 +351,10 @@ export default class EmployeeBankController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
-      const employeeBankService = new EmployeeBankService()
+      const employeeBankService = new EmployeeBankService(i18n)
       const employeeBankId = request.param('employeeBankId')
       const employeeBankAccountClabe = request.input('employeeBankAccountClabe')
       const employeeBankAccountClabeLastNumbers = employeeBankAccountClabe.slice(-4)
@@ -390,8 +392,8 @@ export default class EmployeeBankController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The employee bank Id was not found',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { ...employeeBank },
         }
       }
@@ -400,11 +402,12 @@ export default class EmployeeBankController {
         .where('employee_bank_id', employeeBankId)
         .first()
       if (!currentEmployeeBank) {
+        const entity = `${t('relation')} ${t('employee')} - ${t('bank')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The employee bank was not found',
-          message: 'The employee bank was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...employeeBank },
         }
       }
@@ -415,8 +418,8 @@ export default class EmployeeBankController {
         response.status(200)
         return {
           type: 'success',
-          title: 'Employee banks',
-          message: 'The employee bank was updated successfully',
+          title: t('resource'),
+          message: t('resource_was_updated_successfully'),
           data: { employeeBank: updateEmployeeBank },
         }
       }
@@ -426,8 +429,8 @@ export default class EmployeeBankController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -532,15 +535,16 @@ export default class EmployeeBankController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeBankId = request.param('employeeBankId')
       if (!employeeBankId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The employee bank Id was not found',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { employeeBankId },
         }
       }
@@ -549,22 +553,23 @@ export default class EmployeeBankController {
         .where('employee_bank_id', employeeBankId)
         .first()
       if (!currentEmployeeBank) {
+        const entity = `${t('relation')} ${t('employee')} - ${t('bank')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The employee bank was not found',
-          message: 'The employee bank was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { employeeBankId },
         }
       }
-      const employeeBankService = new EmployeeBankService()
+      const employeeBankService = new EmployeeBankService(i18n)
       const deleteEmployeeBank = await employeeBankService.delete(currentEmployeeBank)
       if (deleteEmployeeBank) {
         response.status(200)
         return {
           type: 'success',
-          title: 'Employee bank',
-          message: 'The employee bank was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { employeeBank: deleteEmployeeBank },
         }
       }
@@ -572,8 +577,8 @@ export default class EmployeeBankController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -678,34 +683,36 @@ export default class EmployeeBankController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeBankId = request.param('employeeBankId')
       if (!employeeBankId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The employee bank Id was not found',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { employeeBankId },
         }
       }
-      const employeeBankService = new EmployeeBankService()
+      const employeeBankService = new EmployeeBankService(i18n)
       const showEmployeeBank = await employeeBankService.show(employeeBankId)
       if (!showEmployeeBank) {
+        const entity = `${t('relation')} ${t('employee')} - ${t('bank')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The employee bank was not found',
-          message: 'The employee bank was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { employeeBankId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Employee bank',
-          message: 'The employee bank was found successfully',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
           data: { employeeBank: showEmployeeBank },
         }
       }
@@ -713,8 +720,8 @@ export default class EmployeeBankController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

@@ -123,7 +123,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async login({ request, response }: HttpContext) {
+  async login({ request, response, i18n }: HttpContext) {
     try {
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
@@ -178,7 +178,7 @@ export default class UserController {
         const date = DateTime.local().setZone('utc').toISO()
         try {
           const rawHeaders = request.request.rawHeaders
-          const userService = new UserService()
+          const userService = new UserService(i18n)
           const userAgent = userService.getHeaderValue(rawHeaders, 'User-Agent')
           const secChUaPlatform = userService.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
           const secChUa = userService.getHeaderValue(rawHeaders, 'sec-ch-ua')
@@ -853,7 +853,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async passwordReset({ request, response }: HttpContext) {
+  async passwordReset({ request, response, i18n }: HttpContext) {
     try {
       const user = await User.query()
         .where('user_token', request.input('token'))
@@ -880,7 +880,7 @@ export default class UserController {
       user.save()
       const url = request.header('origin')
       if (url) {
-        const userService = new UserService()
+        const userService = new UserService(i18n)
         userService.sendNewPasswordEmail(url, user, userPassword)
       }
      
@@ -1019,7 +1019,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
     try {
       const search = request.input('search')
       const roleId = request.input('roleId')
@@ -1031,7 +1031,7 @@ export default class UserController {
         page: page,
         limit: limit,
       } as UserFilterSearchInterface
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const users = await userService.index(filters)
       response.status(200)
       return {
@@ -1176,7 +1176,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response }: HttpContext) {
+  async store({ auth, request, response, i18n }: HttpContext) {
     try {
       const userEmail = request.input('userEmail')
       let userPassword = request.input('userPassword')
@@ -1196,7 +1196,7 @@ export default class UserController {
         personId: personId,
         userBusinessAccess: systemBussines,
       } as User
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
       const exist = await userService.verifyInfoExist(user)
       if (exist.status !== 200) {
@@ -1373,7 +1373,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response }: HttpContext) {
+  async update({ auth, request, response, i18n }: HttpContext) {
     try {
       const input = request.all()
       const userId = request.param('userId')
@@ -1419,7 +1419,7 @@ export default class UserController {
         }
       }
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const data = await request.validateUsing(updateUserValidator)
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
@@ -1569,7 +1569,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async delete({ auth, request, response }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     try {
       const userId = request.param('userId')
       if (!userId) {
@@ -1594,7 +1594,7 @@ export default class UserController {
           data: { userId },
         }
       }
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const deleteUser = await userService.delete(currentUser)
       if (deleteUser) {
         const rawHeaders = request.request.rawHeaders
@@ -1723,7 +1723,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
     try {
       const userId = request.param('userId')
       if (!userId) {
@@ -1735,7 +1735,7 @@ export default class UserController {
           data: { userId },
         }
       }
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const showUser = await userService.show(userId)
       if (!showUser) {
         response.status(404)
@@ -1870,7 +1870,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async hasAccessDepartment({ request, response }: HttpContext) {
+  async hasAccessDepartment({ request, response, i18n }: HttpContext) {
     try {
       const userId = request.param('userId')
       if (!userId) {
@@ -1892,7 +1892,7 @@ export default class UserController {
           data: { departmentId },
         }
       }
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const userHasAccess = await userService.hasAccessDepartment(userId, departmentId)
       response.status(200)
       return {
@@ -2043,7 +2043,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async getEmployeesAssigned({ auth, request, response }: HttpContext) {
+  async getEmployeesAssigned({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -2066,7 +2066,7 @@ export default class UserController {
         }
       }
 
-      const userService = new UserService()
+      const userService = new UserService(i18n)
       const showUser = await userService.show(userId)
 
       if (!showUser) {

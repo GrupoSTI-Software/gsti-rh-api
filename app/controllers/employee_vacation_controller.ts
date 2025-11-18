@@ -79,7 +79,7 @@ export default class EmployeeVacationController {
    *             schema:
    *               type: object
    */
-  async getExcel({ auth, request, response }: HttpContext) {
+  async getExcel({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -109,7 +109,7 @@ export default class EmployeeVacationController {
         onlyOneYear: onlyOneYear,
         userResponsibleId: userResponsibleId,
       } as EmployeeVacationExcelFilterInterface
-      const emplpoyeeVacationService = new EmployeeVacationService()
+      const emplpoyeeVacationService = new EmployeeVacationService(i18n)
       const buffer = await emplpoyeeVacationService.getExcelAll(filters)
       if (buffer.status === 201) {
         response.header(
@@ -208,7 +208,7 @@ export default class EmployeeVacationController {
    *             schema:
    *               type: object
    */
-  async getVacationsUsedExcel({ auth, request, response }: HttpContext) {
+  async getVacationsUsedExcel({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -236,7 +236,7 @@ export default class EmployeeVacationController {
         onlyInactive: onlyInactive,
         userResponsibleId: userResponsibleId,
       } as EmployeeVacationExcelFilterInterface
-      const emplpoyeeVacationService = new EmployeeVacationService()
+      const emplpoyeeVacationService = new EmployeeVacationService(i18n)
       const buffer = await emplpoyeeVacationService.getVacationUsedExcel(filters)
       if (buffer.status === 201) {
         response.header(
@@ -342,7 +342,7 @@ export default class EmployeeVacationController {
    *             schema:
    *               type: object
    */
-  async getVacationsSummaryExcel({ auth, request, response }: HttpContext) {
+  async getVacationsSummaryExcel({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -372,7 +372,7 @@ export default class EmployeeVacationController {
         userResponsibleId: userResponsibleId,
         onlyOneYear: onlyOneYear,
       } as EmployeeVacationExcelFilterInterface
-      const emplpoyeeVacationService = new EmployeeVacationService()
+      const emplpoyeeVacationService = new EmployeeVacationService(i18n)
       const buffer = await emplpoyeeVacationService.getVacationsSummaryExcel(filters)
       if (buffer.status === 201) {
         response.header(

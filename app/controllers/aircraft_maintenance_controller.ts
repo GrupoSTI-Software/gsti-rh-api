@@ -43,7 +43,8 @@ export default class AircraftMaintenanceController {
    *       '500':
    *         description: Server error
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -61,7 +62,7 @@ export default class AircraftMaintenanceController {
         limit,
       } as GenericFilterSearchInterface
 
-      const aircraftMaintenanceService = new AircraftMaintenanceService()
+      const aircraftMaintenanceService = new AircraftMaintenanceService(i18n)
       const aircraftMaintenances = await aircraftMaintenanceService.index(
         filters,
         aircraftId,
@@ -72,16 +73,16 @@ export default class AircraftMaintenanceController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Aircraft Maintenances',
-        message: 'The aircraft maintenances were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: { aircraftMaintenances },
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server Error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -131,7 +132,8 @@ export default class AircraftMaintenanceController {
    *       '500':
    *         description: Server error
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       let aircraftMaintenanceStartDate = request.input('aircraftMaintenanceStartDate')
       aircraftMaintenanceStartDate = (
@@ -161,7 +163,7 @@ export default class AircraftMaintenanceController {
       const data = await request.validateUsing(createAircraftMaintenanceValidator)
 
       // Lógica de verificación adicional en el service (si aplica)
-      const aircraftMaintenanceService = new AircraftMaintenanceService()
+      const aircraftMaintenanceService = new AircraftMaintenanceService(i18n)
       const valid = await aircraftMaintenanceService.verifyInfo(aircraftMaintenanceData, 0)
       if (valid.status !== 200) {
         response.status(valid.status)
@@ -179,8 +181,8 @@ export default class AircraftMaintenanceController {
       response.status(201)
       return {
         type: 'success',
-        title: 'Reservations',
-        message: 'The reservation was created successfully',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
         data: { reservation: newReservation },
       }
     } catch (error) {
@@ -189,8 +191,8 @@ export default class AircraftMaintenanceController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -248,15 +250,16 @@ export default class AircraftMaintenanceController {
    *       '500':
    *         description: Server error
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftMaintenanceId = request.param('id')
       if (!aircraftMaintenanceId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Aircraft Maintenance ID not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftMaintenanceId },
         }
       }
@@ -304,14 +307,14 @@ export default class AircraftMaintenanceController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The aircraft maintenance was not found',
-          message: 'No aircraft maintenance found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { aircraftMaintenanceId },
         }
       }
 
       // Pasamos por un service que verifique la info (opcional)
-      const aircraftMaintenanceService = new AircraftMaintenanceService()
+      const aircraftMaintenanceService = new AircraftMaintenanceService(i18n)
       const valid = await aircraftMaintenanceService.verifyInfo(
         aircraftMaintenanceData,
         aircraftMaintenanceId
@@ -334,8 +337,8 @@ export default class AircraftMaintenanceController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Aircraft Maintenance',
-        message: 'The aircraft maintenance was updated successfully',
+        title: t('resource'),
+        message: t('resource_was_updated_successfully'),
         data: { reservation: updatedReservation },
       }
     } catch (error) {
@@ -344,8 +347,8 @@ export default class AircraftMaintenanceController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -374,15 +377,16 @@ export default class AircraftMaintenanceController {
    *       '500':
    *         description: Server error
    */
-  async destroy({ request, response }: HttpContext) {
+  async destroy({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftMaintenanceId = request.param('id')
       if (!aircraftMaintenanceId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Aircraft Maintenance ID not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftMaintenanceId },
         }
       }
@@ -395,12 +399,12 @@ export default class AircraftMaintenanceController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The aircraft maintenance was not found',
-          message: 'No aircraft maintenance found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { aircraftMaintenanceId },
         }
       }
-      const aircraftMaintenanceService = new AircraftMaintenanceService()
+      const aircraftMaintenanceService = new AircraftMaintenanceService(i18n)
       const deleteAircraftMaintenance = await aircraftMaintenanceService.delete(
         currentAircraftMaintenance
       )
@@ -408,8 +412,8 @@ export default class AircraftMaintenanceController {
         response.status(200)
         return {
           type: 'success',
-          title: 'Reservations',
-          message: 'The Aircraft Maintenance was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { reservation: deleteAircraftMaintenance },
         }
       }
@@ -419,8 +423,8 @@ export default class AircraftMaintenanceController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -451,35 +455,36 @@ export default class AircraftMaintenanceController {
    *       '500':
    *         description: Server error
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftMaintenanceId = request.param('id')
       if (!aircraftMaintenanceId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Aircraft Maintenance ID not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftMaintenanceId },
         }
       }
-      const aircraftMaintenanceService = new AircraftMaintenanceService()
+      const aircraftMaintenanceService = new AircraftMaintenanceService(i18n)
       const showAircraftMaintenance = await aircraftMaintenanceService.show(aircraftMaintenanceId)
 
       if (!showAircraftMaintenance) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The aircraft maintenance was not found',
-          message: 'No aircraft maintenance found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { aircraftMaintenanceId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Aircraft Maintenance',
-          message: 'The aircraft maintenance was found successfully',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
           data: { reservation: showAircraftMaintenance },
         }
       }
@@ -487,8 +492,8 @@ export default class AircraftMaintenanceController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

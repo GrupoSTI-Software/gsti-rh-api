@@ -47,8 +47,9 @@ export default class EmployeeAssistCalendarController {
    *             schema:
    *               type: object
    */
-  async index({ request, response }: HttpContext) {
-    const syncAssistsService = new EmployeeAssistsCalendarService()
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    const syncAssistsService = new EmployeeAssistsCalendarService(i18n)
     const employeeID = request.input('employeeId')
     const filterDate = request.input('date')
     const filterDateEnd = request.input('date-end')
@@ -66,8 +67,8 @@ export default class EmployeeAssistCalendarController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

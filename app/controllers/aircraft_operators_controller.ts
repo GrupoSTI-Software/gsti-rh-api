@@ -61,7 +61,8 @@ export default class AircraftOperatorsController {
    *       default:
    *         description: Unexpected error
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       // 1) Retrieve query params
       const search = request.input('search')
@@ -83,16 +84,16 @@ export default class AircraftOperatorsController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Aircraft Operators',
-        message: 'The aircraft operators were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: { operators },
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server Error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -138,7 +139,8 @@ export default class AircraftOperatorsController {
    *       default:
    *         description: Unexpected error
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       // 1) Retrieve input data
       const data = request.only([
@@ -188,8 +190,8 @@ export default class AircraftOperatorsController {
           return {
             status: 400,
             type: 'warning',
-            title: 'Missing data to process',
-            message: 'Please upload a image valid',
+            title: t('missing_data_to_process'),
+            message: t('please_upload_a_image_valid'),
             data: photo,
           }
         }
@@ -204,8 +206,8 @@ export default class AircraftOperatorsController {
       response.status(201)
       return {
         type: 'success',
-        title: 'Aircraft Operators',
-        message: 'The aircraft operator was created successfully',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
         data: { operator: newOperator },
       }
     } catch (error) {
@@ -215,8 +217,8 @@ export default class AircraftOperatorsController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -267,7 +269,8 @@ export default class AircraftOperatorsController {
    *       default:
    *         description: Unexpected error
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       // 1) Retrieve route param
       const aircraftOperatorId = request.param('aircraftOperatorId')
@@ -277,8 +280,8 @@ export default class AircraftOperatorsController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The aircraftOperatorId was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftOperatorId },
         }
       }
@@ -293,8 +296,8 @@ export default class AircraftOperatorsController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The operator was not found',
-          message: 'No operator found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { ...request.all() },
         }
       }
@@ -338,8 +341,8 @@ export default class AircraftOperatorsController {
           return {
             status: 400,
             type: 'warning',
-            title: 'Missing data to process',
-            message: 'Please upload a image valid',
+            title: t('missing_data_to_process'),
+            message: t('please_upload_a_image_valid'),
             data: photo,
           }
         }
@@ -371,8 +374,8 @@ export default class AircraftOperatorsController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Aircraft Operators',
-        message: 'The aircraft operator was updated successfully',
+        title: t('resource'),
+        message: t('resource_was_updated_successfully'),
         data: { operator: updatedOperator },
       }
     } catch (error) {
@@ -382,8 +385,8 @@ export default class AircraftOperatorsController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -415,7 +418,8 @@ export default class AircraftOperatorsController {
    *       default:
    *         description: Unexpected error
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftOperatorId = request.param('aircraftOperatorId')
 
@@ -423,8 +427,8 @@ export default class AircraftOperatorsController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The aircraftOperatorId was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftOperatorId },
         }
       }
@@ -438,8 +442,8 @@ export default class AircraftOperatorsController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The operator was not found',
-          message: 'No operator found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { aircraftOperatorId },
         }
       }
@@ -451,8 +455,8 @@ export default class AircraftOperatorsController {
         response.status(200)
         return {
           type: 'success',
-          title: 'Aircraft Operators',
-          message: 'The aircraft operator was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { operator: deleteOperator },
         }
       }
@@ -463,8 +467,8 @@ export default class AircraftOperatorsController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -496,15 +500,16 @@ export default class AircraftOperatorsController {
    *       default:
    *         description: Unexpected error
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftOperatorId = request.param('aircraftOperatorId')
       if (!aircraftOperatorId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The aircraftOperatorId was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { aircraftOperatorId },
         }
       }
@@ -516,16 +521,16 @@ export default class AircraftOperatorsController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The operator was not found',
-          message: 'No operator found with the entered ID',
+          title: t('resource'),
+          message: t('resource_was_not_found_with_the_entered_id'),
           data: { aircraftOperatorId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Aircraft Operators',
-          message: 'The aircraft operator was found successfully',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
           data: { operator: showOperator },
         }
       }
@@ -533,8 +538,8 @@ export default class AircraftOperatorsController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

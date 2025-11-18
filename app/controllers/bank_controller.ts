@@ -114,7 +114,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -129,8 +130,8 @@ export default class RoleController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Banks',
-        message: 'The banks were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: {
           banks,
         },
@@ -139,8 +140,8 @@ export default class RoleController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server Error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

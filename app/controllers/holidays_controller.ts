@@ -87,7 +87,7 @@ export default class HolidayController {
    *       500:
    *         description: Server error
    */
-  async index({ response, request }: HttpContext) {
+  async index({ response, request, i18n }: HttpContext) {
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -95,7 +95,7 @@ export default class HolidayController {
       const firstDate = request.input('firstDate')
       const lastDate = request.input('lastDate')
 
-      const service = await new HolidayService().index(firstDate, lastDate, search, page, limit)
+      const service = await new HolidayService(i18n).index(firstDate, lastDate, search, page, limit)
 
       return response.status(service.status).json(service)
     } catch (error) {
@@ -143,7 +143,7 @@ export default class HolidayController {
    *       400:
    *         description: Validation error
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
     // try {
 
     let holiday = null as any
@@ -186,7 +186,7 @@ export default class HolidayController {
 
     const newHolidayDate = new Date(dateParts + 'T00:00:00')
     if (newHolidayDate <= todayAtMidnight) {
-      const holidayService = new HolidayService()
+      const holidayService = new HolidayService(i18n)
       const date = typeof newHolidayDate === 'string' ? new Date(newHolidayDate) : newHolidayDate
       await holidayService.updateAssistCalendar(date)
     }
@@ -305,7 +305,7 @@ export default class HolidayController {
    *       400:
    *         description: Validation error
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, i18n }: HttpContext) {
     try {
       let holidayDate = request.input('holidayDate')
       holidayDate = (holidayDate.split('T')[0] + ' 00:000:00').replace('"', '')
@@ -324,7 +324,7 @@ export default class HolidayController {
       const dateParts = holidayDate.split(' ')[0]
       const newHolidayDate = new Date(dateParts + 'T00:00:00')
       if (newHolidayDate <= todayAtMidnight) {
-        const holidayService = new HolidayService()
+        const holidayService = new HolidayService(i18n)
         const date = typeof newHolidayDate === 'string' ? new Date(newHolidayDate) : newHolidayDate
         await holidayService.updateAssistCalendar(date)
       }
@@ -333,7 +333,7 @@ export default class HolidayController {
       const datePast = typeof newHolidayDatePast === 'string' ? new Date(newHolidayDatePast) : newHolidayDatePast
       if (newHolidayDate.toISOString() !== datePast.toISOString()) {
         if (datePast <= todayAtMidnight) {
-          const holidayService = new HolidayService()
+          const holidayService = new HolidayService(i18n)
           await holidayService.updateAssistCalendar(datePast)
         }
       }
@@ -389,7 +389,7 @@ export default class HolidayController {
    *       404:
    *         description: Resource not found
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response, i18n }: HttpContext) {
     try {
       const holiday = await Holiday.findOrFail(params.id)
       await holiday.delete()
@@ -402,7 +402,7 @@ export default class HolidayController {
       const date = typeof newHolidayDate === 'string' ? new Date(newHolidayDate) : newHolidayDate
 
       if (date <= todayAtMidnight) {
-        const holidayService = new HolidayService()
+        const holidayService = new HolidayService(i18n)
         await holidayService.updateAssistCalendar(date)
       }
 

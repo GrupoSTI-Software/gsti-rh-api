@@ -137,7 +137,7 @@ export default class WorkDisabilityPeriodController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, auth }: HttpContext) {
+  async store({ request, response, auth, i18n }: HttpContext) {
     try {
       const workDisabilityPeriodStartDate = request.input('workDisabilityPeriodStartDate')
       const workDisabilityPeriodEndDate = request.input('workDisabilityPeriodEndDate')
@@ -151,7 +151,7 @@ export default class WorkDisabilityPeriodController {
         workDisabilityId: workDisabilityId,
         workDisabilityTypeId: workDisabilityTypeId,
       } as WorkDisabilityPeriod
-      const workDisabilityPeriodService = new WorkDisabilityPeriodService()
+      const workDisabilityPeriodService = new WorkDisabilityPeriodService(i18n)
       const data = await request.validateUsing(createWorkDisabilityPeriodValidator)
       const exist = await workDisabilityPeriodService.verifyInfoExist(workDisabilityPeriod)
       if (exist.status !== 200) {
@@ -378,7 +378,7 @@ export default class WorkDisabilityPeriodController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
     try {
       const workDisabilityPeriodId = request.param('workDisabilityPeriodId')
       if (!workDisabilityPeriodId) {
@@ -416,7 +416,7 @@ export default class WorkDisabilityPeriodController {
         workDisabilityPeriodTicketFolio: workDisabilityPeriodTicketFolio,
         workDisabilityTypeId: workDisabilityTypeId,
       } as WorkDisabilityPeriod
-      const workDisabilityPeriodService = new WorkDisabilityPeriodService()
+      const workDisabilityPeriodService = new WorkDisabilityPeriodService(i18n)
       const data = await request.validateUsing(createWorkDisabilityPeriodValidator)
       const exist = await workDisabilityPeriodService.verifyInfoExist(workDisabilityPeriod)
       if (exist.status !== 200) {
@@ -614,7 +614,7 @@ export default class WorkDisabilityPeriodController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
     try {
       const workDisabilityPeriodId = request.param('workDisabilityPeriodId')
       if (!workDisabilityPeriodId) {
@@ -626,7 +626,7 @@ export default class WorkDisabilityPeriodController {
           data: { workDisabilityPeriodId },
         }
       }
-      const workDisabilityPeriodService = new WorkDisabilityPeriodService()
+      const workDisabilityPeriodService = new WorkDisabilityPeriodService(i18n)
       const showWorkDisabilityPeriod =
         await workDisabilityPeriodService.show(workDisabilityPeriodId)
       if (!showWorkDisabilityPeriod) {
@@ -755,7 +755,7 @@ export default class WorkDisabilityPeriodController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     try {
       const workDisabilityPeriodId = request.param('workDisabilityPeriodId')
       if (!workDisabilityPeriodId) {
@@ -780,7 +780,7 @@ export default class WorkDisabilityPeriodController {
           data: { workDisabilityPeriodId },
         }
       }
-      const workDisabilityPeriodService = new WorkDisabilityPeriodService()
+      const workDisabilityPeriodService = new WorkDisabilityPeriodService(i18n)
       const deleteWorkDisabilityPeriod = await workDisabilityPeriodService.delete(
         currentWorkDisabilityPeriod
       )

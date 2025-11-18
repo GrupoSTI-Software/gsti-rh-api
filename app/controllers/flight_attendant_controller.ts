@@ -650,7 +650,7 @@ export default class FlightAttendantController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     try {
       const flightAttendantId = request.param('flightAttendantId')
       if (!flightAttendantId) {
@@ -702,8 +702,8 @@ export default class FlightAttendantController {
         }
       }
       const flightAttendantService = new FlightAttendantService()
-      const personService = new PersonService()
-      const employeeService = new EmployeeService()
+      const personService = new PersonService(i18n)
+      const employeeService = new EmployeeService(i18n)
       const deletePerson = await personService.delete(currentPerson)
       const deleteEmployee = await employeeService.delete(currentEmployee)
       const deleteFlightAttendant = await flightAttendantService.delete(currentFlightAttendant)

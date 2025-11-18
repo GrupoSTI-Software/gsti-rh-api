@@ -99,23 +99,24 @@ export default class EmployeeAddressController {
    *                     error:
    *                       type: string
    */
-  async index({ response }: HttpContext) {
+  async index({ response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
-      const employeeAddressService = new EmployeeAddressService()
+      const employeeAddressService = new EmployeeAddressService(i18n)
       const showEmployeeAddress = await employeeAddressService.index()
       response.status(200)
       return {
         type: 'success',
-        title: 'Employees address',
-        message: 'The relation employee-address were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: { employeeAddress: showEmployeeAddress },
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -229,7 +230,8 @@ export default class EmployeeAddressController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = request.input('employeeId')
       const addressId = request.input('addressId')
@@ -237,7 +239,7 @@ export default class EmployeeAddressController {
         employeeId: employeeId,
         addressId: addressId,
       } as EmployeeAddress
-      const employeeAddressService = new EmployeeAddressService()
+      const employeeAddressService = new EmployeeAddressService(i18n)
       const data = await request.validateUsing(createEmployeeAddressValidator)
       const exist = await employeeAddressService.verifyInfoExist(employeeAddress)
       if (exist.status !== 200) {
@@ -254,8 +256,8 @@ export default class EmployeeAddressController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Employees proceeding files',
-          message: 'The relation employee-address was created successfully',
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
           data: { employeeAddress: newEmployeeAddress },
         }
       }
@@ -265,8 +267,8 @@ export default class EmployeeAddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -386,7 +388,8 @@ export default class EmployeeAddressController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeAddressId = request.param('employeeAddressId')
       const employeeId = request.input('employeeId')
@@ -400,8 +403,8 @@ export default class EmployeeAddressController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation employee-address Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { ...employeeAddress },
         }
       }
@@ -410,15 +413,16 @@ export default class EmployeeAddressController {
         .where('employee_proceeding_file_id', employeeAddressId)
         .first()
       if (!currentEmployeeAddress) {
+        const entity = `${t('relation')} ${t('employee')} - ${t('address')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation employee-address was not found',
-          message: 'The relation employee-address was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...employeeAddress },
         }
       }
-      const employeeAddressService = new EmployeeAddressService()
+      const employeeAddressService = new EmployeeAddressService(i18n)
       const data = await request.validateUsing(updateEmployeeAddressValidator)
       const exist = await employeeAddressService.verifyInfoExist(employeeAddress)
       if (exist.status !== 200) {
@@ -438,8 +442,8 @@ export default class EmployeeAddressController {
         response.status(200)
         return {
           type: 'success',
-          title: 'Employee proceeding files',
-          message: 'The relation employee-address was updated successfully',
+          title: t('resource'),
+          message: t('resource_was_updated_successfully'),
           data: { employeeAddress: updateEmployeeAddress },
         }
       }
@@ -449,8 +453,8 @@ export default class EmployeeAddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -554,15 +558,16 @@ export default class EmployeeAddressController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeAddressId = request.param('employeeAddressId')
       if (!employeeAddressId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation employee-address Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { employeeAddressId },
         }
       }
@@ -571,22 +576,23 @@ export default class EmployeeAddressController {
         .where('employee_proceeding_file_id', employeeAddressId)
         .first()
       if (!currentEmployeeAddress) {
+        const entity = `${t('relation')} ${t('employee')} - ${t('address')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation employee-address was not found',
-          message: 'The relation employee-address was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { employeeAddressId },
         }
       }
-      const employeeAddressService = new EmployeeAddressService()
+      const employeeAddressService = new EmployeeAddressService(i18n)
       const deleteEmployeeAddress = await employeeAddressService.delete(currentEmployeeAddress)
       if (deleteEmployeeAddress) {
         response.status(200)
         return {
           type: 'success',
-          title: 'Employees proceeding files',
-          message: 'The relation employee-address was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { employeeAddress: deleteEmployeeAddress },
         }
       }
@@ -594,8 +600,8 @@ export default class EmployeeAddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -699,34 +705,36 @@ export default class EmployeeAddressController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeAddressId = request.param('employeeAddressId')
       if (!employeeAddressId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The relation employee-address Id was not found',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { employeeAddressId },
         }
       }
-      const employeeAddressService = new EmployeeAddressService()
+      const employeeAddressService = new EmployeeAddressService(i18n)
       const showEmployeeAddress = await employeeAddressService.show(employeeAddressId)
       if (!showEmployeeAddress) {
+        const entity = `${t('relation')} ${t('employee')} - ${t('address')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation employee-address was not found',
-          message: 'The relation employee-address was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { employeeAddressId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Employees proceeding files',
-          message: 'The relation employee-address was found successfully',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
           data: { employeeAddress: showEmployeeAddress },
         }
       }
@@ -734,8 +742,8 @@ export default class EmployeeAddressController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

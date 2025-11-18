@@ -16,7 +16,8 @@ export default class SyncAssistance extends BaseCommand {
   }
 
   @inject()
-  async run(syncAssistsService: SyncAssistsService) {
+  async run() {
+    const syncAssistsService = new SyncAssistsService()
     const startLogTime = DateTime.now()
     try {
       if (env.get('NODE_ENV') !== 'production') {
