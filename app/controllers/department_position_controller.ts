@@ -116,7 +116,8 @@ export default class DepartmentPositionController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.input('departmentId')
       const positionId = request.input('positionId')
@@ -124,7 +125,7 @@ export default class DepartmentPositionController {
         departmentId: departmentId,
         positionId: positionId,
       } as DepartmentPosition
-      const departmentPositionService = new DepartmentPositionService()
+      const departmentPositionService = new DepartmentPositionService(i18n)
       const data = await request.validateUsing(createDepartmentPositionValidator)
       const exist = await departmentPositionService.verifyInfoExist(departmentPosition)
       if (exist.status !== 200) {
@@ -151,8 +152,8 @@ export default class DepartmentPositionController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Departments positions',
-          message: 'The relation department-position was created successfully',
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
           data: { departmentPosition: newDepartmentPosition },
         }
       }
@@ -162,8 +163,8 @@ export default class DepartmentPositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -284,7 +285,8 @@ export default class DepartmentPositionController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentPositionId = request.param('departmentPositionId')
       const departmentId = request.input('departmentId')
@@ -298,8 +300,8 @@ export default class DepartmentPositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation department-position Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { ...departmentPosition },
         }
       }
@@ -308,15 +310,16 @@ export default class DepartmentPositionController {
         .where('department_position_id', departmentPositionId)
         .first()
       if (!currentDepartmentPosition) {
+        const entity = `${t('relation')} ${t('department')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation department-position was not found',
-          message: 'The relation department-position was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...departmentPosition },
         }
       }
-      const departmentPositionService = new DepartmentPositionService()
+      const departmentPositionService = new DepartmentPositionService(i18n)
       const data = await request.validateUsing(updateDepartmentPositionValidator)
       const exist = await departmentPositionService.verifyInfoExist(departmentPosition)
       if (exist.status !== 200) {
@@ -346,8 +349,8 @@ export default class DepartmentPositionController {
         response.status(201)
         return {
           type: 'success',
-          title: 'Department positions',
-          message: 'The relation department-position was updated successfully',
+          title: t('resource'),
+          message: t('resource_was_updated_successfully'),
           data: { departmentPosition: updateDepartmentPosition },
         }
       }
@@ -357,8 +360,8 @@ export default class DepartmentPositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -463,15 +466,16 @@ export default class DepartmentPositionController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentPositionId = request.param('departmentPositionId')
       if (!departmentPositionId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation department-position Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { departmentPositionId },
         }
       }
@@ -480,23 +484,24 @@ export default class DepartmentPositionController {
         .where('department_position_id', departmentPositionId)
         .first()
       if (!currentDepartmentPosition) {
+        const entity = `${t('relation')} ${t('department')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation department-position was not found',
-          message: 'The relation department-position was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { departmentPositionId },
         }
       }
-      const departmentPositionService = new DepartmentPositionService()
+      const departmentPositionService = new DepartmentPositionService(i18n)
       const deleteDepartmentPosition =
         await departmentPositionService.delete(currentDepartmentPosition)
       if (deleteDepartmentPosition) {
         response.status(201)
         return {
           type: 'success',
-          title: 'Departments positions',
-          message: 'The relation department-position was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { departmentPosition: deleteDepartmentPosition },
         }
       }
@@ -504,8 +509,8 @@ export default class DepartmentPositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -616,7 +621,8 @@ export default class DepartmentPositionController {
    *                     error:
    *                       type: string
    */
-  async deleteRelation({ request, response }: HttpContext) {
+  async deleteRelation({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
       const positionId = request.param('positionId')
@@ -624,8 +630,8 @@ export default class DepartmentPositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation department-position Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { departmentId, positionId },
         }
       }
@@ -637,35 +643,36 @@ export default class DepartmentPositionController {
         .first()
 
       if (!currentDepartmentPosition) {
+        const entity = `${t('relation')} ${t('department')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation department-position was not found',
-          message: 'The relation department-position was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { departmentId, positionId },
         }
       }
       // validate if Employee belongs to the Position
-      const employeeService = new EmployeeService()
+      const employeeService = new EmployeeService(i18n)
       const hasEmployeesPosition = await employeeService.hasEmployeesPosition(positionId)
       if (hasEmployeesPosition) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation department-position has employees',
-          message: 'The relation department-position has employees assigned',
+          title: t('the_relation_department_position_has_employees'),
+          message: t('the_relation_department_position_has_employees_assigned'),
           data: { departmentId, positionId },
         }
       }
-      const departmentPositionService = new DepartmentPositionService()
+      const departmentPositionService = new DepartmentPositionService(i18n)
       const deleteDepartmentPosition =
         await departmentPositionService.delete(currentDepartmentPosition)
       if (deleteDepartmentPosition) {
         response.status(201)
         return {
           type: 'success',
-          title: 'Departments positions',
-          message: 'The relation department-position was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { departmentPosition: deleteDepartmentPosition },
         }
       }
@@ -673,8 +680,8 @@ export default class DepartmentPositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -779,34 +786,36 @@ export default class DepartmentPositionController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentPositionId = request.param('departmentPositionId')
       if (!departmentPositionId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The relation department-position Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { departmentPositionId },
         }
       }
-      const departmentPositionService = new DepartmentPositionService()
+      const departmentPositionService = new DepartmentPositionService(i18n)
       const showDepartmentPosition = await departmentPositionService.show(departmentPositionId)
       if (!showDepartmentPosition) {
+        const entity = `${t('relation')} ${t('department')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The relation department-position was not found',
-          message: 'The relation department-position was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { departmentPositionId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Departments positions',
-          message: 'The relation department-position was found successfully',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
           data: { departmentPosition: showDepartmentPosition },
         }
       }
@@ -814,8 +823,8 @@ export default class DepartmentPositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

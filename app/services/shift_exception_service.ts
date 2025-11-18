@@ -6,8 +6,18 @@ import { LogStore } from '#models/MongoDB/log_store'
 import ShiftExceptionEvidence from '#models/shift_exception_evidence'
 import SyncAssistsService from './sync_assists_service.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
+import ExceptionType from '#models/exception_type'
+import Employee from '#models/employee'
+import { I18n } from '@adonisjs/i18n'
 
 export default class ShiftExceptionService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
+
   async create(shiftException: ShiftException) {
     const newShiftException = new ShiftException()
     newShiftException.employeeId = shiftException.employeeId
@@ -114,6 +124,46 @@ export default class ShiftExceptionService {
     return `${shiftExceptionsDate}T00:00:00.000-06:00`
   }
 
+
+  async verifyInfoExist(shiftException: ShiftException) {
+    const existExceptionType = await ExceptionType.query()
+      .whereNull('exception_type_deleted_at')
+      .where('exception_type_id', shiftException.exceptionTypeId)
+      .first()
+
+    if (!existExceptionType && shiftException.exceptionTypeId) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'The exception type was not found',
+        message: 'The exception type was not found with the entered ID',
+        data: { ...shiftException },
+      }
+    }
+
+    const existEmployee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', shiftException.employeeId)
+      .first()
+
+    if (!existEmployee && shiftException.employeeId) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'The employee was not found',
+        message: 'The employee was not found with the entered ID',
+        data: { ...shiftException },
+      }
+    }
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Info verifiy successfully',
+      message: 'Info verify successfully',
+      data: { ...shiftException },
+    }
+  }
+
   async verifyInfo(shiftException: ShiftException) {
     const action = shiftException.shiftExceptionId > 0 ? 'update' : 'create'
     const existDate = await ShiftException.query()
@@ -192,7 +242,7 @@ export default class ShiftExceptionService {
         dateEnd: this.formatDate(dateEnd),
         employeeID: employeeId
       }
-      const syncAssistsService = new SyncAssistsService()
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       await syncAssistsService.setDateCalendar(filter)
   }
 

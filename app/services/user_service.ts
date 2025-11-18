@@ -16,9 +16,16 @@ import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
+import { I18n } from '@adonisjs/i18n'
 // import BusinessUnit from '#models/business_unit'
 
 export default class UserService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
+
   async index(filters: UserFilterSearchInterface) {
     const systemBussines = env.get('SYSTEM_BUSINESS')
     const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
@@ -136,19 +143,21 @@ export default class UserService {
       .first()
 
     if (existEmail && user.userEmail) {
+      const entity = this.t('user')
+      const param = this.t('email')
       return {
         status: 400,
         type: 'warning',
-        title: 'The user email already exists for another user',
-        message: `The user resource cannot be ${action} because the email is already assigned to another user`,
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
         data: { ...user },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...user },
     }
   }
@@ -161,11 +170,12 @@ export default class UserService {
         .first()
 
       if (!existUser && user.personId) {
+        const entity = this.t('person')
         return {
           status: 400,
           type: 'warning',
-          title: 'The person was not found',
-          message: 'The person was not found with the entered ID',
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...user },
         }
       }
@@ -173,8 +183,8 @@ export default class UserService {
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...user },
     }
   }

@@ -9,8 +9,15 @@ import { ShiftExceptionErrorInterface } from '../interfaces/shift_exception_erro
 import { WorkDisabilityPeriodAddShiftExceptionInterface } from '../interfaces/work_disability_period_add_shift_exception_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
+import { I18n } from '@adonisjs/i18n'
 
 export default class WorkDisabilityPeriodService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
   async create(workDisabilityPeriod: WorkDisabilityPeriod) {
     const newWorkDisabilityPeriod = new WorkDisabilityPeriod()
     newWorkDisabilityPeriod.workDisabilityPeriodStartDate =
@@ -85,7 +92,7 @@ export default class WorkDisabilityPeriodService {
           workDisabilityPeriodId: filters.workDisabilityPeriod.workDisabilityPeriodId,
         } as ShiftException
         try {
-          const shiftExceptionService = new ShiftExceptionService()
+          const shiftExceptionService = new ShiftExceptionService(this.i18n)
           const verifyInfoException = await shiftExceptionService.verifyInfo(shiftException)
           if (verifyInfoException.status !== 200) {
             shiftExceptionsError.push({
@@ -335,7 +342,7 @@ export default class WorkDisabilityPeriodService {
         dateEnd: this.formatDate(dateEnd),
         employeeID: employeeId
       }
-      const syncAssistsService = new SyncAssistsService()
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       await syncAssistsService.setDateCalendar(filter)
   }
 

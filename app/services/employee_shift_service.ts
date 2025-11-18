@@ -5,8 +5,16 @@ import { LogStore } from '#models/MongoDB/log_store'
 import { LogEmployeeShift } from '../interfaces/MongoDB/log_employee_shift.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
+import { I18n } from '@adonisjs/i18n'
 
 export default class EmployeeShiftService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
+
   async verifyInfo(employeeShift: EmployeeShift) {
     const lastShift = await EmployeeShift.query()
       .whereNull('employe_shifts_deleted_at')
@@ -164,7 +172,7 @@ export default class EmployeeShiftService {
         dateEnd: this.formatDate(dateEnd),
         employeeID: employeeId
       }
-      const syncAssistsService = new SyncAssistsService()
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       await syncAssistsService.setDateCalendar(filter)
   }
 

@@ -1,8 +1,14 @@
 import Employee from '#models/employee'
 import EmployeeBank from '#models/employee_bank'
+import { I18n } from '@adonisjs/i18n'
 import crypto from 'node:crypto'
 
 export default class EmployeeBankService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
   async create(employeeBank: EmployeeBank) {
     const newEmployeeBank = new EmployeeBank()
     newEmployeeBank.employeeBankAccountClabe = employeeBank.employeeBankAccountClabe
@@ -61,19 +67,20 @@ export default class EmployeeBankService {
       .first()
 
     if (!existEmployee && employeeBank.employeeId) {
+      const entity = this.t('employee')
       return {
         status: 400,
         type: 'warning',
-        title: 'The employee was not found',
-        message: 'The employee was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...employeeBank },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...employeeBank },
     }
   }

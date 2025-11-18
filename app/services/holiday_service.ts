@@ -2,10 +2,18 @@ import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import Holiday from '#models/holiday'
 import env from '#start/env'
+import { I18n } from '@adonisjs/i18n'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
 
 export default class HolidayService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
+
   async index(firstDate: string, lastDate: string, search: string, page: number, limit: number) {
     try {
       const businessConf = `${env.get('SYSTEM_BUSINESS')}`
@@ -85,7 +93,7 @@ export default class HolidayService {
         dateEnd: this.formatDate(dateEnd),
         employeeID: employee.employeeId
       }
-      const syncAssistsService = new SyncAssistsService()
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       await syncAssistsService.setDateCalendar(filter)
     }
   }

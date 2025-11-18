@@ -116,7 +116,8 @@ export default class CustomerController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -126,13 +127,13 @@ export default class CustomerController {
         page: page,
         limit: limit,
       } as CustomerFilterSearchInterface
-      const customerService = new CustomerService()
+      const customerService = new CustomerService(i18n)
       const customers = await customerService.index(filters)
       response.status(200)
       return {
         type: 'success',
-        title: 'Customers',
-        message: 'The customers were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: {
           customers,
         },
@@ -141,8 +142,8 @@ export default class CustomerController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server Error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -256,7 +257,8 @@ export default class CustomerController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const personId = request.input('personId')
       let customerUuid = request.input('customerUuid', null)
@@ -265,7 +267,7 @@ export default class CustomerController {
         personId: personId,
         customerUuid: customerUuid,
       } as Customer
-      const customerService = new CustomerService()
+      const customerService = new CustomerService(i18n)
       const data = await request.validateUsing(createCustomerValidator)
       const valid = await customerService.verifyInfo(customer)
       if (valid.status !== 200) {
@@ -291,8 +293,8 @@ export default class CustomerController {
       response.status(201)
       return {
         type: 'success',
-        title: 'Customers',
-        message: 'The customer was created successfully',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
         data: { customer: newCustomer },
       }
     } catch (error) {
@@ -301,8 +303,8 @@ export default class CustomerController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -418,7 +420,8 @@ export default class CustomerController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const customerId = request.param('customerId')
       let customerUuid = request.input('customerUuid', null)
@@ -431,8 +434,8 @@ export default class CustomerController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The customer Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { ...customer },
         }
       }
@@ -441,15 +444,16 @@ export default class CustomerController {
         .where('customer_id', customerId)
         .first()
       if (!currentCustomer) {
+        const entity = t('customer')
         response.status(404)
         return {
           type: 'warning',
-          title: 'The customer was not found',
-          message: 'The customer was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...request.all() },
         }
       }
-      const customerService = new CustomerService()
+      const customerService = new CustomerService(i18n)
       const valid = await customerService.verifyInfo(customer)
       if (valid.status !== 200) {
         response.status(valid.status)
@@ -464,8 +468,8 @@ export default class CustomerController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Customers',
-        message: 'The customer was updated successfully',
+        title: t('resource'),
+        message: t('resource_was_updated_successfully'),
         data: { customer: updateCustomer },
       }
     } catch (error) {
@@ -474,8 +478,8 @@ export default class CustomerController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -580,15 +584,16 @@ export default class CustomerController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const customerId = request.param('customerId')
       if (!customerId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The customer Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { customerId },
         }
       }
@@ -597,22 +602,23 @@ export default class CustomerController {
         .where('customer_id', customerId)
         .first()
       if (!currentCustomer) {
+        const entity = t('customer')
         response.status(404)
         return {
           type: 'warning',
-          title: 'The customer was not found',
-          message: 'The customer was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { customerId },
         }
       }
-      const customerService = new CustomerService()
+      const customerService = new CustomerService(i18n)
       const deleteCustomer = await customerService.delete(currentCustomer)
       if (deleteCustomer) {
         response.status(200)
         return {
           type: 'success',
-          title: 'Customers',
-          message: 'The customer was deleted successfully',
+          title: t('resource'),
+          message: t('resource_was_deleted_successfully'),
           data: { customer: deleteCustomer },
         }
       }
@@ -622,8 +628,8 @@ export default class CustomerController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -728,34 +734,36 @@ export default class CustomerController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const customerId = request.param('customerId')
       if (!customerId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The customer Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { customerId },
         }
       }
-      const customerService = new CustomerService()
+      const customerService = new CustomerService(i18n)
       const showCustomer = await customerService.show(customerId)
       if (!showCustomer) {
+        const entity = t('customer')
         response.status(404)
         return {
           type: 'warning',
-          title: 'The customer was not found',
-          message: 'The customer was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { customerId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Customers',
-          message: 'The customer was found successfully',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
           data: { customer: showCustomer },
         }
       }
@@ -763,8 +771,8 @@ export default class CustomerController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -869,26 +877,28 @@ export default class CustomerController {
    *                     error:
    *                       type: string
    */
-  async getProceedingFiles({ request, response }: HttpContext) {
+  async getProceedingFiles({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const customerId = request.param('customerId')
       if (!customerId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The customer Id was not found',
-          message: 'Missing data to process',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
           data: { customerId },
         }
       }
-      const customerService = new CustomerService()
+      const customerService = new CustomerService(i18n)
       const showCustomer = await customerService.show(customerId)
       if (!showCustomer) {
+        const entity = t('customer')
         response.status(404)
         return {
           type: 'warning',
-          title: 'The customer was not found',
-          message: 'The customer was not found with the entered ID',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
           data: { customerId },
         }
       }
@@ -896,16 +906,16 @@ export default class CustomerController {
       response.status(200)
       return {
         type: 'success',
-        title: 'Customers',
-        message: 'The proceeding files were found successfully',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
         data: { proceedingFiles: proceedingFiles },
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
