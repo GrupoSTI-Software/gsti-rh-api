@@ -32,19 +32,74 @@ import BusinessUnit from '#models/business_unit'
 import DepartmentService from './department_service.js'
 import { I18n } from '@adonisjs/i18n'
 import EmployeeService from './employee_service.js'
+
+/**
+ * Servicio para la sincronización y procesamiento de asistencias de empleados.
+ *
+ * Este servicio es responsable de:
+ * - Sincronizar asistencias desde una API externa de biometría
+ * - Procesar y calcular el calendario de asistencias de empleados
+ * - Validar estados de entrada/salida (check-in/check-out)
+ * - Aplicar reglas de negocio (tolerancias, excepciones, turnos)
+ * - Optimizar consultas mediante caché y bulk loading
+ *
+ * @class SyncAssistsService
+ * @example
+ * ```typescript
+ * const service = new SyncAssistsService(i18n)
+ * const result = await service.index({
+ *   date: '2024-10-01',
+ *   dateEnd: '2024-10-30',
+ *   employeeID: 123
+ * })
+ * ```
+ */
 export default class SyncAssistsService {
   /**
-   * Retrieves the status sync of assists.
-   * @returns {Promise<AssistStatusResponseDto>} The assist status response DTO.
+   * Función para traducir mensajes usando i18n.
+   * @private
+   * @type {Function}
    */
-
   private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  /**
+   * Instancia de internacionalización para traducción de mensajes.
+   * @private
+   * @type {I18n | undefined}
+   */
   private i18n?: I18n
 
-  // Cache para datos que no cambian frecuentemente
+  /**
+   * Caché de tolerancias (Delay y Fault) para evitar consultas repetidas.
+   * Se carga una sola vez y se reutiliza durante la vida de la instancia.
+   * @private
+   * @type {{ delayTolerance: Tolerance | undefined, faultTolerance: Tolerance | undefined } | null}
+   */
   private tolerancesCache: { delayTolerance: Tolerance | undefined, faultTolerance: Tolerance | undefined } | null = null
+
+  /**
+   * Caché de días festivos (holidays) organizados por fecha (yyyy-MM-dd).
+   * Permite acceso O(1) en lugar de consultas repetidas a la base de datos.
+   * @private
+   * @type {Map<string, HolidayInterface>}
+   */
   private holidaysCache: Map<string, HolidayInterface> = new Map()
 
+  /**
+   * Constructor del servicio de sincronización de asistencias.
+   *
+   * @param {I18n} [i18n] - Instancia de i18n para internacionalización. Si no se proporciona,
+   *                        las traducciones retornarán strings vacíos.
+   *
+   * @example
+   * ```typescript
+   * // Con i18n
+   * const service = new SyncAssistsService(i18n)
+   *
+   * // Sin i18n (traducciones vacías)
+   * const service = new SyncAssistsService()
+   * ```
+   */
   constructor(i18n?: I18n) {
     this.t = i18n?.formatMessage.bind(i18n) ?? (() => '')
     this.i18n = i18n
@@ -554,6 +609,76 @@ export default class SyncAssistsService {
     }
   }
 
+  /**
+   * Método principal para obtener el calendario de asistencias de un empleado.
+   *
+   * Este es el punto de entrada principal para consultar las asistencias de un empleado
+   * en un rango de fechas. Procesa y calcula:
+   * - Agrupación de asistencias por día
+   * - Validación de check-in/check-out
+   * - Aplicación de turnos asignados
+   * - Cálculo de estados (tardanza, falta, tolerancia)
+   * - Detección de excepciones, vacaciones, días festivos
+   *
+   * OPTIMIZACIONES IMPLEMENTADAS:
+   * - Agrupación O(n) usando Map en lugar de bucles anidados O(n²)
+   * - Bulk loading de relaciones (shift changes, exceptions, holidays)
+   * - Caché de tolerancias y holidays
+   *
+   * @param {SyncAssistsServiceIndexInterface} bodyParams - Parámetros de búsqueda
+   * @param {string} bodyParams.date - Fecha de inicio en formato ISO (yyyy-MM-dd)
+   * @param {string} bodyParams.dateEnd - Fecha de fin en formato ISO (yyyy-MM-dd)
+   * @param {number} [bodyParams.employeeID] - ID del empleado (opcional)
+   * @param {boolean} [bodyParams.withOutExternal] - Si es true, filtra solo empleados internos
+   * @param {{ page: number; limit: number }} [paginator] - Parámetros de paginación
+   * @param {number} [paginator.page=1] - Número de página
+   * @param {number} [paginator.limit=500] - Cantidad de registros por página
+   *
+   * @returns {Promise<Object>} Respuesta con el calendario de asistencias
+   * @returns {number} return.status - Código de estado HTTP (200 = éxito, 400 = error)
+   * @returns {string} return.type - Tipo de respuesta ('success' | 'warning')
+   * @returns {string} return.title - Título de la respuesta
+   * @returns {string} return.message - Mensaje descriptivo
+   * @returns {Object} return.data - Datos del calendario
+   * @returns {AssistDayInterface[]} return.data.employeeCalendar - Array de días con sus asistencias
+   *
+   * @throws {Object} Retorna objeto con status 400 si el empleado no existe
+   *
+   * @example
+   * ```typescript
+   * // Consultar asistencias de un empleado por 30 días
+   * const result = await service.index({
+   *   date: '2024-10-01',
+   *   dateEnd: '2024-10-30',
+   *   employeeID: 123
+   * })
+   *
+   * // Con paginación
+   * const result = await service.index({
+   *   date: '2024-10-01',
+   *   dateEnd: '2024-10-30',
+   *   employeeID: 123
+   * }, { page: 1, limit: 100 })
+   *
+   * // Solo empleados internos
+   * const result = await service.index({
+   *   date: '2024-10-01',
+   *   dateEnd: '2024-10-30',
+   *   employeeID: 123,
+   *   withOutExternal: true
+   * })
+   * ```
+   *
+   * @description
+   * El proceso completo incluye:
+   * 1. Conversión de fechas a zona horaria UTC-6 (CST)
+   * 2. Consulta de asistencias desde la base de datos
+   * 3. Obtención de turnos asignados al empleado
+   * 4. Agrupación de asistencias por día (optimizado con Map)
+   * 5. Precarga de relaciones (shift changes, exceptions, holidays)
+   * 6. Cálculo del calendario con todas las validaciones
+   * 7. Retorno del calendario completo
+   */
   async index (bodyParams: SyncAssistsServiceIndexInterface, paginator?: { page: number; limit: number }) {
     const intialSyncDate = '2024-01-01T00:00:00.000-06:00'
     const stringDate = `${bodyParams.date}T00:00:00.000-06:00`
@@ -744,6 +869,60 @@ export default class SyncAssistsService {
     return selectedShift
   }
 
+  /**
+   * Genera el calendario completo de asistencias para un empleado en un rango de fechas.
+   *
+   * Esta función es el núcleo del procesamiento de asistencias. Toma las asistencias
+   * agrupadas por día y aplica todas las validaciones y reglas de negocio:
+   * - Asigna turnos a cada día
+   * - Detecta días festivos y cumpleaños
+   * - Aplica cambios de turno
+   * - Detecta excepciones
+   * - Calcula estados de check-in/check-out
+   * - Valida tolerancias y retardos
+   * - Detecta vacaciones, incapacidades, días de descanso
+   *
+   * OPTIMIZACIÓN: Esta función carga todas las relaciones (shift changes, exceptions)
+   * en bulk para el rango completo, evitando el problema N+1 de queries.
+   *
+   * @private
+   * @param {Date | DateTime} dateStart - Fecha de inicio del rango
+   * @param {Date | DateTime} dateEnd - Fecha de fin del rango
+   * @param {AssistDayInterface[]} employeeAssist - Array de asistencias ya agrupadas por día
+   * @param {ShiftRecordInterface[]} employeeShifts - Array de turnos asignados al empleado
+   * @param {number} [employeeID] - ID del empleado (opcional)
+   * @param {number} TOLERANCE_DELAY_MINUTES - Minutos de tolerancia para considerar tardanza
+   * @param {number} TOLERANCE_FAULT_MINUTES - Minutos de tolerancia para considerar falta
+   * @param {Employee | null} employee - Instancia del modelo Employee (puede ser null)
+   *
+   * @returns {Promise<AssistDayInterface[]>} Array completo de días con todas las validaciones aplicadas
+   *
+   * @description
+   * El proceso incluye:
+   * 1. Precarga de todas las relaciones del empleado (shift changes, exceptions) en bulk
+   * 2. Creación de un calendario base con todos los días del rango
+   * 3. Para cada día:
+   *    - Asignación del turno correspondiente
+   *    - Detección de cambios de turno
+   *    - Detección de excepciones
+   *    - Cálculo de check-in/check-out esperados
+   *    - Validación de estados
+   *    - Aplicación de reglas de negocio
+   *
+   * @example
+   * ```typescript
+   * const calendar = await this.getEmployeeCalendar(
+   *   DateTime.fromISO('2024-10-01'),
+   *   DateTime.fromISO('2024-10-30'),
+   *   assistsByDay,
+   *   employeeShifts,
+   *   123,
+   *   10, // TOLERANCE_DELAY_MINUTES
+   *   30, // TOLERANCE_FAULT_MINUTES
+   *   employeeInstance
+   * )
+   * ```
+   */
   private async getEmployeeCalendar(
     dateStart: Date | DateTime,
     dateEnd: Date | DateTime,
@@ -885,7 +1064,39 @@ export default class SyncAssistsService {
   }
 
   /**
-   * Carga todos los holidays de un rango de fechas de una sola vez
+   * Carga todos los días festivos (holidays) de un rango de fechas y los almacena en caché.
+   *
+   * OPTIMIZACIÓN: En lugar de consultar holidays día por día (N queries),
+   * esta función carga todos los holidays del rango en una sola consulta (1 query)
+   * y los almacena en un Map para acceso O(1) posterior.
+   *
+   * Esto elimina el problema N+1 donde se hacían 30 consultas para 30 días,
+   * reduciéndolo a solo 1 consulta para todo el rango.
+   *
+   * @private
+   * @param {DateTime} dateStart - Fecha de inicio del rango
+   * @param {DateTime} dateEnd - Fecha de fin del rango
+   *
+   * @returns {Promise<void>} No retorna nada, solo popula el caché interno
+   *
+   * @description
+   * El caché se organiza por fecha (yyyy-MM-dd) para acceso rápido:
+   * - Clave: fecha en formato 'yyyy-MM-dd' (ej: '2024-10-15')
+   * - Valor: objeto HolidayInterface con los datos del día festivo
+   *
+   * Si el caché ya tiene datos, no vuelve a consultar (early return).
+   *
+   * @example
+   * ```typescript
+   * // Cargar holidays de octubre 2024
+   * await this.loadHolidaysInRange(
+   *   DateTime.fromISO('2024-10-01'),
+   *   DateTime.fromISO('2024-10-31')
+   * )
+   *
+   * // Acceder después desde el caché
+   * const holiday = this.holidaysCache.get('2024-10-12') // Día de la raza
+   * ```
    */
   private async loadHolidaysInRange(dateStart: DateTime, dateEnd: DateTime) {
     if (this.holidaysCache.size > 0) {
@@ -1052,6 +1263,58 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
+  /**
+   * Calcula y asigna los checks (check-in, check-out, comida) a un día específico del calendario.
+   *
+   * Esta es una de las funciones más complejas del sistema. Maneja múltiples casos especiales:
+   * - Turnos que abarcan dos días (turnos nocturnos)
+   * - Turnos con cambios (shift changes)
+   * - Excepciones especiales (descanso laborado, cobertura de turno, vacaciones)
+   * - Ajuste por horario de verano (DST)
+   * - Validación de días de descanso
+   *
+   * LÓGICA CRÍTICA:
+   * 1. Si el turno cubre dos días, obtiene checks del día actual Y del día siguiente
+   * 2. Aplica corrección de horario de verano si es necesario
+   * 3. Filtra checks que corresponden al turno (3 horas antes de inicio, 3 horas después de salida)
+   * 4. Asigna checks en orden: checkIn, checkEatIn, checkEatOut, checkOut
+   * 5. Aplica reglas de excepciones (vacaciones, descansos laborados, etc.)
+   *
+   * @private
+   * @param {AssistDayInterface} dateAssistItem - Objeto del día a procesar
+   * @param {AssistDayInterface[]} assistList - Lista completa de días con asistencias (para buscar días siguientes)
+   *
+   * @returns {AssistDayInterface} El mismo objeto dateAssistItem modificado con los checks asignados
+   *
+   * @description
+   * CASOS ESPECIALES MANEJADOS:
+   *
+   * 1. TURNOS DE DOS DÍAS:
+   *    - Si checkOutDateTime es del día siguiente, busca checks en ambos días
+   *    - Filtra checks del día anterior (3 horas antes del inicio del turno)
+   *    - Filtra checks del día siguiente (3 horas después del fin del turno)
+   *
+   * 2. EXCEPCIONES:
+   *    - 'descanso-laborado': Marca como día laboral aunque sea descanso
+   *    - 'cover-shift': Marca como día laboral (cobertura de turno)
+   *    - 'rest-day': Marca como día de descanso
+   *    - 'vacation': Elimina todos los checks y marca como vacación
+   *
+   * 3. DÍAS DE DESCANSO:
+   *    - Si es día de descanso y NO hay excepción de "descanso laborado", elimina checks
+   *    - Si hay excepción de "descanso laborado", mantiene los checks
+   *
+   * @example
+   * ```typescript
+   * // Ejemplo de turno normal (1 día)
+   * // Entrada: 4 checks en el día
+   * // Salida: checkIn=1er check, checkEatIn=2do check, checkEatOut=3er check, checkOut=4to check
+   *
+   * // Ejemplo de turno nocturno (2 días)
+   * // Entrada: 2 checks día 1, 2 checks día 2
+   * // Salida: checkIn=1er check día 1, checkEatIn=1er check día 2, checkOut=2do check día 2
+   * ```
+   */
   private async calculateRawCalendar(dateAssistItem: AssistDayInterface, assistList: AssistDayInterface[]) {
     const startDay = DateTime.fromJSDate(new Date(`${dateAssistItem.assist.dateShiftApplySince}`)).setZone('UTC-6')
     const evaluatedDay = DateTime.fromISO(`${dateAssistItem.day}T00:00:00.000-06:00`).setZone('UTC-6')
@@ -1130,10 +1393,29 @@ export default class SyncAssistsService {
 
           /**
            * =================================================================================================================
-           * YA QUE EL TURNO CUBRE DOS DIAS, PUEDE SUCEDER QUE EXISTAN CHECKS EN AMBOS DIAS
-           * POR LO QUE SOLAMENTE SE OBTIENEN LOS CHECKS QUE PUEDAN CORRESPONDER A
-           * TRES HORAS ANTES DE INICIAR EL TURNO, CUIDANDO ASI QUE NO SE TOMEN HORAS DEL
-           * TURNO DEL DIA ANTERIOR, COMO HORAS DE COMIDA
+           * LÓGICA PARA TURNOS NOCTURNOS (2 DÍAS) - PARTE 1: CHECKS DEL DÍA ACTUAL
+           * =================================================================================================================
+           *
+           * PROBLEMA: Cuando un turno empieza un día y termina al día siguiente, los checks pueden estar
+           * distribuidos en ambos días. Necesitamos filtrar solo los checks que pertenecen a este turno.
+           *
+           * EJEMPLO PRÁCTICO:
+           * - Turno: 22:00 (día 1) -> 06:00 (día 2)
+           * - Checks día 1: 21:30, 22:05, 00:30, 02:00
+           * - Checks día 2: 05:45, 06:10
+           *
+           * SOLUCIÓN:
+           * - Tomamos checks del día actual que sean >= 3 horas antes del inicio del turno
+           * - Esto evita tomar checks del turno anterior (ej: 19:00 del día anterior)
+           * - Pero permite tomar checks del turno actual (ej: 21:30 del día actual)
+           *
+           * FILTRO APLICADO: checks >= (inicio_turno - 3 horas)
+           * - Turno inicia: 22:00
+           * - Ventana permitida: >= 19:00
+           * - Resultado: 21:30, 22:05, 00:30, 02:00 (todos >= 19:00)
+           *
+           * NOTA: El filtro de "3 horas antes" evita confundir checks del turno anterior con checks del
+           * turno actual, especialmente en horarios de comida del turno anterior.
            * =================================================================================================================
            */
           const checkInToNexCalendarDay = this.setNexCalendarDayCheckIns(dateAssistItem.assist.assitFlatList, checkInDateTime)
@@ -1141,9 +1423,29 @@ export default class SyncAssistsService {
 
           /**
            * =================================================================================================================
-           * AL SER UN TURNO CON MAS DE UN DIA, SE VALIDA SOBRE EL PROXIMO DIA Y SE OBTIENEN LOS CHECKS
-           * QUE SE ENCUENTREN HASTA TRES HORAS DESPUES DE LA HORA DE SALIDA ESPERADA, POR SI A CASO SE HA
-           * QUEDADO MAS TIEMPO EL EMPLEADO Y YA NO HAGA CONFLICTO CON LAS HORAS DEL PROXIMO TURNO
+           * LÓGICA PARA TURNOS NOCTURNOS (2 DÍAS) - PARTE 2: CHECKS DEL DÍA SIGUIENTE
+           * =================================================================================================================
+           *
+           * PROBLEMA: Los checks de salida del turno nocturno están en el día siguiente.
+           * Necesitamos obtener checks del día siguiente que pertenezcan a este turno.
+           *
+           * EJEMPLO PRÁCTICO (continuación):
+           * - Checks día 2: 05:45, 06:10, 08:00
+           * - Turno termina: 06:00
+           *
+           * SOLUCIÓN:
+           * - Tomamos checks del día siguiente que sean <= 3 horas después del fin del turno
+           * - Esto evita tomar checks del siguiente turno (ej: 08:00 del día siguiente si el siguiente turno empieza antes)
+           * - Pero permite tomar checks del turno actual (ej: 05:45, 06:10 del día siguiente)
+           *
+           * FILTRO APLICADO: checks <= (fin_turno + 3 horas)
+           * - Turno termina: 06:00
+           * - Ventana permitida: <= 09:00
+           * - Resultado: 05:45, 06:10 (ambos <= 09:00)
+           *
+           * NOTA: Si el empleado se quedó más tiempo (ej: hasta las 08:00), se consideran esos checks
+           * siempre que no entren en conflicto con el siguiente turno. El margen de 3 horas permite
+           * flexibilidad sin interferir con el siguiente turno.
            * =================================================================================================================
            */
           const checkOutToNexCalendarDay = this.setNexCalendarDayCheckOuts(evaluatedDay, assistList, checkOutDateTime)
@@ -1263,6 +1565,61 @@ export default class SyncAssistsService {
     return dateAssistItem
   }
 
+  /**
+   * Calcula y asigna el estado del check-in de un empleado.
+   *
+   * Evalúa el tiempo de entrada del empleado comparándolo con la hora esperada del turno
+   * y aplica las tolerancias configuradas. Los estados posibles son:
+   * - 'ontime': Llegó a tiempo o antes
+   * - 'tolerance': Llegó dentro de la tolerancia de tardanza
+   * - 'delay': Llegó tarde pero dentro de la tolerancia de falta
+   * - 'fault': Llegó muy tarde o no llegó (falta)
+   * - 'exception': Existe una excepción que anula el estado
+   * - '': Vacío (sin evaluación, ej: días festivos, vacaciones)
+   *
+   * @private
+   * @param {AssistDayInterface} checkAssist - Objeto del día a evaluar
+   * @param {number} TOLERANCE_FAULT_MINUTES - Minutos de tolerancia para considerar falta
+   *                                          (ej: 30 minutos = si llega 30+ minutos tarde, es falta)
+   * @param {number} TOLERANCE_DELAY_MINUTES - Minutos de tolerancia para considerar tardanza
+   *                                          (ej: 10 minutos = si llega 10+ minutos tarde, es tardanza)
+   * @param {boolean} [discriminated] - Si es true, el empleado está discriminado y no se evalúa
+   *
+   * @returns {AssistDayInterface} El mismo objeto con checkInStatus asignado
+   *
+   * @description
+   * LÓGICA DE EVALUACIÓN:
+   * 1. Si NO hay check-in pero hay check-out: Estado vacío (puede ser entrada manual)
+   * 2. Si NO hay check-in ni check-out: 'fault' (falta completa)
+   * 3. Si hay check-in:
+   *    - Calcula diferencia entre hora de entrada y hora esperada del turno
+   *    - diffTime <= 0: 'ontime'
+   *    - diffTime <= TOLERANCE_DELAY_MINUTES: 'tolerance'
+   *    - diffTime <= TOLERANCE_FAULT_MINUTES: 'delay'
+   *    - diffTime > TOLERANCE_FAULT_MINUTES: 'fault'
+   *
+   * EXCEPCIONES QUE ANULAN EL ESTADO:
+   * - Días festivos
+   * - Vacaciones
+   * - Ausencia con goce de sueldo
+   * - Cambio de turno
+   * - Empleado discriminado
+   *
+   * @example
+   * ```typescript
+   * // Empleado llegó 5 minutos tarde (dentro de tolerancia)
+   * // checkInStatus = 'tolerance'
+   *
+   * // Empleado llegó 15 minutos tarde (tardanza)
+   * // checkInStatus = 'delay'
+   *
+   * // Empleado llegó 45 minutos tarde (falta)
+   * // checkInStatus = 'fault'
+   *
+   * // Empleado no llegó y no tiene check-out
+   * // checkInStatus = 'fault'
+   * ```
+   */
   private checkInStatus(checkAssist: AssistDayInterface, TOLERANCE_FAULT_MINUTES: number, TOLERANCE_DELAY_MINUTES: number, discriminated?: Boolean) {
     if (!checkAssist?.assist?.dateShift) {
       return checkAssist
@@ -1468,9 +1825,42 @@ export default class SyncAssistsService {
     return timeToStart
   }
 
+  /**
+   * Obtiene las tolerancias de Delay y Fault del sistema.
+   *
+   * OPTIMIZACIÓN: Implementa caché para evitar consultas repetidas a la base de datos.
+   * Las tolerancias se cargan una sola vez y se reutilizan durante la vida de la instancia.
+   *
+   * Las tolerancias se usan para:
+   * - TOLERANCE_DELAY_MINUTES: Determinar si un retraso es considerado "tardanza"
+   *   Ejemplo: Si es 10 minutos, llegar 5 minutos tarde = "tolerance", llegar 15 minutos tarde = "delay"
+   * - TOLERANCE_FAULT_MINUTES: Determinar si un retraso es considerado "falta"
+   *   Ejemplo: Si es 30 minutos, llegar 15 minutos tarde = "delay", llegar 45 minutos tarde = "fault"
+   *
+   * @private
+   * @returns {Promise<{ delayTolerance: Tolerance | undefined, faultTolerance: Tolerance | undefined }>}
+   *          Objeto con las tolerancias de Delay y Fault
+   *
+   * @throws {Error} Si no se encuentran las tolerancias de Delay o Fault
+   *
+   * @description
+   * PROCESO:
+   * 1. Verifica si hay caché disponible (early return)
+   * 2. Obtiene el system setting activo
+   * 3. Consulta las tolerancias para ese system setting
+   * 4. Busca las tolerancias "Delay" y "Fault"
+   * 5. Almacena en caché para próximas consultas
+   *
+   * @example
+   * ```typescript
+   * const { delayTolerance, faultTolerance } = await this.getTolerances()
+   * // delayTolerance.toleranceMinutes = 10
+   * // faultTolerance.toleranceMinutes = 30
+   * ```
+   */
   private async getTolerances() {
     try {
-      // Usar caché si ya se cargó
+      // OPTIMIZACIÓN: Usar caché si ya se cargó para evitar consultas repetidas
       if (this.tolerancesCache) {
         return this.tolerancesCache
       }

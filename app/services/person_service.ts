@@ -72,11 +72,11 @@ export default class PersonService {
       if (newPerson.personBirthday) {
         const birthdayDate = newPerson.personBirthday;
         const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
-        
+
         const currentYear = new Date().getFullYear()
         const month = date.getMonth()
         const day = date.getDate()
-        
+
         let updatedBirthday = new Date(currentYear, month, day)
         if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
           updatedBirthday = new Date(currentYear, 1, 28)
@@ -111,11 +111,11 @@ export default class PersonService {
       if (currentPerson.personBirthday) {
         const birthdayDate = currentPerson.personBirthday;
         const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
-        
+
         const currentYear = new Date().getFullYear()
         const month = date.getMonth()
         const day = date.getDate()
-        
+
         let updatedBirthday = new Date(currentYear, month, day)
         if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
           updatedBirthday = new Date(currentYear, 1, 28)
@@ -125,7 +125,7 @@ export default class PersonService {
       if (personBirthdayPast) {
         const newPersonBirthdayPast = new Date(personBirthdayPast)
         const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
-        const fixedBirthdayString = person.personBirthday.replace('00:000:00', '00:00:00')
+        const fixedBirthdayString = person.personBirthday!.replace('00:000:00', '00:00:00')
 
         const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
         const datePastISO = DateTime.fromJSDate(datePast).toISO()

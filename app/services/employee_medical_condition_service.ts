@@ -7,7 +7,6 @@ export default class EmployeeMedicalConditionService {
     newEmployeeMedicalCondition.employeeId = employeeMedicalCondition.employeeId
     newEmployeeMedicalCondition.medicalConditionTypeId = employeeMedicalCondition.medicalConditionTypeId
     newEmployeeMedicalCondition.employeeMedicalConditionDiagnosis = employeeMedicalCondition.employeeMedicalConditionDiagnosis
-    newEmployeeMedicalCondition.employeeMedicalConditionTreatment = employeeMedicalCondition.employeeMedicalConditionTreatment
     newEmployeeMedicalCondition.employeeMedicalConditionNotes = employeeMedicalCondition.employeeMedicalConditionNotes
     newEmployeeMedicalCondition.employeeMedicalConditionActive = employeeMedicalCondition.employeeMedicalConditionActive
     await newEmployeeMedicalCondition.save()
@@ -36,7 +35,6 @@ export default class EmployeeMedicalConditionService {
     currentEmployeeMedicalCondition.employeeId = employeeMedicalCondition.employeeId
     currentEmployeeMedicalCondition.medicalConditionTypeId = employeeMedicalCondition.medicalConditionTypeId
     currentEmployeeMedicalCondition.employeeMedicalConditionDiagnosis = employeeMedicalCondition.employeeMedicalConditionDiagnosis
-    currentEmployeeMedicalCondition.employeeMedicalConditionTreatment = employeeMedicalCondition.employeeMedicalConditionTreatment
     currentEmployeeMedicalCondition.employeeMedicalConditionNotes = employeeMedicalCondition.employeeMedicalConditionNotes
     currentEmployeeMedicalCondition.employeeMedicalConditionActive = employeeMedicalCondition.employeeMedicalConditionActive
     await currentEmployeeMedicalCondition.save()

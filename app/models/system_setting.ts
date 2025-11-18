@@ -4,6 +4,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import SystemSettingSystemModule from './system_setting_system_module.js'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
+import SystemSettingsEmployee from './system_settings_employee.js'
 import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
 
 /**
@@ -46,6 +47,9 @@ import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
  *          systemSettingBirthdayEmails:
  *            type: number
  *            description: System setting birthday emails status to activate or deactivate the birthday emails from the command "birth_day_email" by default is false as 0
+ *          systemSettingAnniversaryEmails:
+ *            type: number
+ *            description: System setting anniversary emails status to activate or deactivate the anniversary emails from the command "anniversary_email" by default is false as 0
  *          systemSettingCreatedAt:
  *            type: string
  *          systemSettingUpdatedAt:
@@ -88,6 +92,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   @column()
   declare systemSettingBirthdayEmails: number | 0 // 0 for false, 1 for true
 
+  @column()
+  declare systemSettingAnniversaryEmails: number | 0 // 0 for false, 1 for true
+
   @column.dateTime({ autoCreate: true })
   declare systemSettingCreatedAt: DateTime
 
@@ -107,6 +114,11 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   })
   declare systemSettingSystemModules: HasMany<typeof SystemSettingSystemModule>
 
+  @hasMany(() => SystemSettingsEmployee, {
+    foreignKey: 'systemSettingId',
+  })
+
+  declare systemSettingsEmployees: HasMany<typeof SystemSettingsEmployee>
   @hasMany(() => SystemSettingPayrollConfig, {
     foreignKey: 'systemSettingId',
   })

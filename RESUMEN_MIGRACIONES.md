@@ -172,6 +172,8 @@ ANALYZE TABLE assists;
 ANALYZE TABLE employee_shift_changes;
 ANALYZE TABLE shift_exceptions;
 ANALYZE TABLE holidays;
+ANALYZE TABLE employees;
+ANALYZE TABLE tolerances;
 ```
 
 ### ⚠️ Notas Importantes
