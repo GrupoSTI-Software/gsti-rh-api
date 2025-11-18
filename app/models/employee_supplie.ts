@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { belongsTo } from '@adonisjs/lucid/orm'
 import Employee from './employee.js'
 import Supply from './supplie.js'
+import EmployeeSuppliesResponseContract from './employee_supplies_response_contract.js'
 import * as relations from '@adonisjs/lucid/types/relations'
 
 /**
@@ -33,6 +34,11 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *           type: string
  *           format: date-time
  *           description: Employee supply retirement date
+ *         employeeSupplyExpirationDate:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: Employee supply expiration date (optional)
  *         employeeSupplyCreatedAt:
  *           type: string
  *           format: date-time
@@ -53,6 +59,7 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         employeeSupplyStatus: 'active'
  *         employeeSupplyRetirementReason: 'Lost'
  *         employeeSupplyRetirementDate: '2025-02-12T12:00:00Z'
+ *         employeeSupplyExpirationDate: '2026-02-12T12:00:00Z'
  *         employeeSupplyCreatedAt: '2025-02-12T12:00:00Z'
  *         employeeSupplyUpdatedAt: '2025-02-12T13:00:00Z'
  *         employeeSupplyDeletedAt: null
@@ -80,6 +87,12 @@ export default class EmployeeSupplie extends compose(BaseModel, SoftDeletes) {
   @column.dateTime()
   declare employeeSupplyRetirementDate: DateTime | null
 
+  @column.dateTime()
+  declare employeeSupplyExpirationDate: DateTime | null
+
+  @column()
+  declare employeeSupplyAdditions: string | null
+
   @column.dateTime({ autoCreate: true })
   declare employeeSupplyCreatedAt: DateTime
 
@@ -104,4 +117,9 @@ export default class EmployeeSupplie extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare supply: relations.BelongsTo<typeof Supply>
+
+  @hasMany(() => EmployeeSuppliesResponseContract, {
+    foreignKey: 'employeeSupplyId',
+  })
+  declare responseContracts: relations.HasMany<typeof EmployeeSuppliesResponseContract>
 }

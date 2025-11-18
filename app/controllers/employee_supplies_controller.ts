@@ -139,22 +139,26 @@ export default class EmployeeSuppliesController {
    *         application/json:
    *           schema:
    *             type: object
-   *             required:
-   *               - employeeId
-   *               - supplyId
-   *             properties:
-   *               employeeId:
-   *                 type: integer
-   *                 description: Employee ID
-   *               supplyId:
-   *                 type: integer
-   *                 description: Supply ID
-   *               employeeSupplyStatus:
-   *                 type: string
-   *                 enum: [active, retired, shipping]
-   *                 description: Assignment status
-   *     responses:
-   *       201:
+ *             required:
+ *               - employeeId
+ *               - supplyId
+ *             properties:
+ *               employeeId:
+ *                 type: integer
+ *                 description: Employee ID
+ *               supplyId:
+ *                 type: integer
+ *                 description: Supply ID
+ *               employeeSupplyExpirationDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Expiration date for the assignment (optional)
+ *               employeeSupplyStatus:
+ *                 type: string
+ *                 enum: [active, retired, shipping]
+ *                 description: Assignment status
+ *     responses:
+ *       201:
    *         description: Employee supply assignment created successfully
    *         content:
    *           application/json:
@@ -198,19 +202,23 @@ export default class EmployeeSuppliesController {
    *         application/json:
    *           schema:
    *             type: object
-   *             properties:
-   *               employeeId:
-   *                 type: integer
-   *                 description: Employee ID
-   *               supplyId:
-   *                 type: integer
-   *                 description: Supply ID
-   *               employeeSupplyStatus:
-   *                 type: string
-   *                 enum: [active, retired, shipping]
-   *                 description: Assignment status
-   *     responses:
-   *       200:
+ *             properties:
+ *               employeeId:
+ *                 type: integer
+ *                 description: Employee ID
+ *               supplyId:
+ *                 type: integer
+ *                 description: Supply ID
+ *               employeeSupplyExpirationDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Expiration date for the assignment (optional, can be null to remove)
+ *               employeeSupplyStatus:
+ *                 type: string
+ *                 enum: [active, retired, shipping]
+ *                 description: Assignment status
+ *     responses:
+ *       200:
    *         description: Employee supply assignment updated successfully
    *         content:
    *           application/json:

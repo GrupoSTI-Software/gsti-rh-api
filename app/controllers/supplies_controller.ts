@@ -403,4 +403,49 @@ export default class SuppliesController {
       , 404)
     }
   }
+
+  /**
+   * @swagger
+   * /api/supplies/excel:
+   *   get:
+   *     summary: Generate Excel report of supplies with assignments
+   *     tags: [Supplies]
+   *     description: Generates a downloadable Excel file listing all supplies and their assignments, including assignment status, employee information, and retirement details. The Excel format is automatically set based on the active system setting.
+   *     responses:
+   *       201:
+   *         description: Excel file generated successfully
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       500:
+   *         description: Server error
+   */
+  async getExcel({ response }: HttpContext) {
+    try {
+      const result = await SupplieService.getExcelReport()
+
+      if (result.status === 201) {
+        response.header(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response.header('Content-Disposition', 'attachment; filename=supplies-report.xlsx')
+        response.status(201)
+        response.send(result.buffer)
+      } else {
+        response.status(result.status)
+        return {
+          type: result.type,
+          title: result.title,
+          message: result.message,
+          error: result.error,
+        }
+      }
+    } catch (error) {
+      return StandardResponseFormatter.error(response, error.message
+      , 500)
+    }
+  }
 }

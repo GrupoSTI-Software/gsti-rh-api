@@ -5,6 +5,7 @@ router
   .group(() => {
     router.post('/supplies', '#controllers/supplies_controller.store')
     router.get('/supplies', '#controllers/supplies_controller.index')
+    router.get('/supplies/excel', '#controllers/supplies_controller.getExcel')
     router.get('/supplies/:id', '#controllers/supplies_controller.show')
     router.put('/supplies/:id', '#controllers/supplies_controller.update')
     router.delete('/supplies/:id', '#controllers/supplies_controller.destroy')

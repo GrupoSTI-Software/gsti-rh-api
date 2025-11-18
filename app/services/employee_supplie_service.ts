@@ -54,33 +54,28 @@ export default class EmployeeSupplieService {
   static async create(data: {
     employeeId: number
     supplyId: number
+    employeeSupplyExpirationDate?: string
     employeeSupplyStatus?: 'active' | 'retired' | 'shipping'
   }) {
     // Get supply to check its type
     const supply = await Supplie.findOrFail(data.supplyId)
-
-    // Check if employee already has an active or shipping supply of the same type
-    const existingAssignment = await EmployeeSupplie.query()
-      .where('employeeId', data.employeeId)
-      .whereIn('employeeSupplyStatus', ['active', 'shipping'])
-      .whereHas('supply', (supplyQuery) => {
-        supplyQuery.where('supplyTypeId', supply.supplyTypeId)
-      })
-      .first()
-
-    if (existingAssignment) {
-      throw new Error('Employee already has an active or shipping supply of this type')
-    }
 
     // Check if supply is available (active status)
     if (supply.supplyStatus !== 'active') {
       throw new Error('Supply is not available for assignment')
     }
 
-    return await EmployeeSupplie.create({
+    const createData: any = {
       ...data,
       employeeSupplyStatus: data.employeeSupplyStatus || 'active'
-    })
+    }
+
+    // Convert expiration date string to DateTime if provided
+    if (data.employeeSupplyExpirationDate) {
+      createData.employeeSupplyExpirationDate = DateTime.fromISO(data.employeeSupplyExpirationDate)
+    }
+
+    return await EmployeeSupplie.create(createData)
   }
 
   /**
@@ -89,6 +84,7 @@ export default class EmployeeSupplieService {
   static async update(id: number, data: {
     employeeId?: number
     supplyId?: number
+    employeeSupplyExpirationDate?: string
     employeeSupplyStatus?: 'active' | 'retired' | 'shipping'
   }) {
     const employeeSupply = await EmployeeSupplie.findOrFail(id)
@@ -117,7 +113,15 @@ export default class EmployeeSupplieService {
       }
     }
 
-    employeeSupply.merge(data)
+    // Convert expiration date string to DateTime if provided
+    const updateData: any = { ...data }
+    if (data.employeeSupplyExpirationDate !== undefined) {
+      updateData.employeeSupplyExpirationDate = data.employeeSupplyExpirationDate
+        ? DateTime.fromISO(data.employeeSupplyExpirationDate)
+        : null
+    }
+
+    employeeSupply.merge(updateData)
     await employeeSupply.save()
 
     return employeeSupply
