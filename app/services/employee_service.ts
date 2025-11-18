@@ -23,6 +23,9 @@ import EmployeeContract from '#models/employee_contract'
 import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
+import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
+import SystemSettingsEmployee from '#models/system_settings_employee'
+import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 
 export default class EmployeeService {
@@ -34,42 +37,76 @@ export default class EmployeeService {
   }
 
   async syncCreate(employee: BiometricEmployeeInterface) {
-    const newEmployee = new Employee()
-    const personService = new PersonService(this.i18n)
-    const newPerson = await personService.syncCreate(employee)
-    const employeeType = await EmployeeType.query()
-      .where('employee_type_slug', 'employee')
-      .whereNull('employee_type_deleted_at')
-      .first()
+    // Guardar el personId que viene del frontend
+    const personIdToDelete = employee.personId || null
+    // const newEmployee = new Employee()
+    // const personService = new PersonService(this.i18n)
+    // const newPerson = await personService.syncCreate(employee)
+    // const employeeType = await EmployeeType.query()
+      // .where('employee_type_slug', 'employee')
+      // .whereNull('employee_type_deleted_at')
+      // .first()
 
-    if (newPerson) {
-      newEmployee.personId = newPerson.personId
-    }
-    newEmployee.employeeSyncId = employee.id
-    newEmployee.employeeCode = employee.empCode
-    newEmployee.employeeFirstName = employee.firstName
-    newEmployee.employeeLastName = employee.lastName
-    newEmployee.employeeSecondLastName = employee.secondLastName
-    newEmployee.employeePayrollNum = employee.payrollNum
-    newEmployee.employeeHireDate = employee.hireDate
-    newEmployee.companyId = employee.companyId
-    newEmployee.departmentId = employee.departmentId
-    newEmployee.positionId = employee.positionId
-    newEmployee.businessUnitId = employee.businessUnitId || 1
-
-    if (employeeType?.employeeTypeId) {
-      newEmployee.employeeTypeId = employeeType.employeeTypeId
-    }
-    if (employee.empCode) {
-      const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
-      const existPhoto = await this.verifyExistPhoto(urlPhoto)
-      if (existPhoto) {
-        newEmployee.employeePhoto = urlPhoto
+    try {
+      // Verificar límite de empleados dentro del try-catch
+      const businessUnitId = employee.businessUnitId || 1
+      const limitCheck = await this.verifyEmployeeLimit(businessUnitId)
+      if (limitCheck.status !== 200) {
+        throw new Error(limitCheck.message)
       }
+      const newEmployee = new Employee()
+
+      const employeeType = await EmployeeType.query()
+        .where('employee_type_slug', 'employee')
+        .whereNull('employee_type_deleted_at')
+        .first()
+
+      // Usar el personId que viene del frontend
+      if (employee.personId) {
+        newEmployee.personId = employee.personId
+      }
+      newEmployee.employeeSyncId = employee.id
+      newEmployee.employeeCode = employee.empCode
+      newEmployee.employeeFirstName = employee.firstName
+      newEmployee.employeeLastName = employee.lastName
+      newEmployee.employeeSecondLastName = employee.secondLastName
+      newEmployee.employeePayrollNum = employee.payrollNum
+      newEmployee.employeeHireDate = employee.hireDate
+      newEmployee.companyId = employee.companyId
+      newEmployee.departmentId = employee.departmentId
+      newEmployee.positionId = employee.positionId
+      newEmployee.businessUnitId = businessUnitId
+
+      if (employeeType?.employeeTypeId) {
+        newEmployee.employeeTypeId = employeeType.employeeTypeId
+      }
+      if (employee.empCode) {
+        const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
+        const existPhoto = await this.verifyExistPhoto(urlPhoto)
+        if (existPhoto) {
+          newEmployee.employeePhoto = urlPhoto
+        }
+      }
+      newEmployee.employeeLastSynchronizationAt = new Date()
+
+      // Guardar empleado
+      await newEmployee.save()
+
+      // Asignar usuarios responsables
+      await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
+
+      return newEmployee
+    } catch (error) {
+      // Si hay error y tenemos un personId, eliminarlo
+      if (personIdToDelete) {
+        try {
+          await this.deletePersonById(personIdToDelete)
+        } catch (deleteError) {
+          console.error('Error eliminando persona huérfana:', deleteError)
+        }
+      }
+      throw error
     }
-    newEmployee.employeeLastSynchronizationAt = new Date()
-    await newEmployee.save()
-    await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
    /*  await newEmployee.load('employeeType')
     if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
       const user = {
@@ -92,7 +129,6 @@ export default class EmployeeService {
         }
       }
     } */
-    return newEmployee
   }
 
   async syncUpdate(
@@ -241,31 +277,56 @@ export default class EmployeeService {
   }
 
   async create(employee: Employee, usersResponsible: User[]) {
-    const newEmployee = new Employee()
-    newEmployee.employeeFirstName = employee.employeeFirstName
-    newEmployee.employeeLastName = employee.employeeLastName
-    newEmployee.employeeSecondLastName = employee.employeeSecondLastName
-    newEmployee.employeeCode = employee.employeeCode
-    newEmployee.employeePayrollNum = employee.employeePayrollNum
-    newEmployee.employeeHireDate = employee.employeeHireDate
-    newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
-    newEmployee.companyId = employee.companyId
-    newEmployee.departmentId = employee.departmentId
-    newEmployee.positionId = employee.positionId
-    newEmployee.personId = employee.personId
-    newEmployee.businessUnitId = employee.businessUnitId
-    newEmployee.dailySalary = employee.dailySalary || 0
-    newEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
-    newEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
-    newEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
-    newEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
-    newEmployee.employeeTypeId = employee.employeeTypeId
-    newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
-    newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
-    await newEmployee.save()
-    await newEmployee.load('businessUnit')
-    await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
-    return newEmployee
+    // Guardar el personId que viene del frontend
+    const personIdToDelete = employee.personId || null
+
+    try {
+      // Verificar límite de empleados dentro del try-catch
+      const limitCheck = await this.verifyEmployeeLimit(employee.businessUnitId)
+      if (limitCheck.status !== 200) {
+        throw new Error(limitCheck.message)
+      }
+      const newEmployee = new Employee()
+      newEmployee.employeeFirstName = employee.employeeFirstName
+      newEmployee.employeeLastName = employee.employeeLastName
+      newEmployee.employeeSecondLastName = employee.employeeSecondLastName
+      newEmployee.employeeCode = employee.employeeCode
+      newEmployee.employeePayrollNum = employee.employeePayrollNum
+      newEmployee.employeeHireDate = employee.employeeHireDate
+      newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+      newEmployee.companyId = employee.companyId
+      newEmployee.departmentId = employee.departmentId
+      newEmployee.positionId = employee.positionId
+      newEmployee.personId = employee.personId
+      newEmployee.businessUnitId = employee.businessUnitId
+      newEmployee.dailySalary = employee.dailySalary || 0
+      newEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
+      newEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
+      newEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
+      newEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
+      newEmployee.employeeTypeId = employee.employeeTypeId
+      newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
+      newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
+
+      // Guardar empleado
+      await newEmployee.save()
+
+      // Asignar usuarios responsables
+      await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
+
+      await newEmployee.load('businessUnit')
+      return newEmployee
+    } catch (error) {
+      // Si hay error y tenemos un personId, eliminarlo
+      if (personIdToDelete) {
+        try {
+          await this.deletePersonById(personIdToDelete)
+        } catch (deleteError) {
+          console.error('Error eliminando persona huérfana:', deleteError)
+        }
+      }
+      throw error
+    }
   }
 
   async update(currentEmployee: Employee, employee: Employee) {
@@ -315,6 +376,31 @@ export default class EmployeeService {
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
+    return currentEmployee
+  }
+
+  /**
+   * Reactivar un empleado eliminado (soft delete)
+   * @param currentEmployee - Empleado a reactivar
+   * @returns Promise<Employee>
+   */
+  async reactivate(currentEmployee: Employee) {
+    // Verificar límite de empleados antes de reactivar
+    const limitCheck = await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
+    if (limitCheck.status !== 200) {
+      throw new Error(limitCheck.message)
+    }
+
+    // Restaurar el empleado eliminado
+    await currentEmployee.restore()
+
+    // Limpiar el código temporal si existe
+    if (typeof currentEmployee.employeeCode === 'string' && currentEmployee.employeeCode.includes('-IN')) {
+      const originalCode = currentEmployee.employeeCode.split('-IN')[0]
+      currentEmployee.employeeCode = originalCode
+      await currentEmployee.save()
+    }
+
     return currentEmployee
   }
 
@@ -999,7 +1085,23 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .orderBy('shift_exceptions_date', 'asc')
 
-    return vacations ? vacations : []
+      const signatures = await VacationAuthorizationSignature.query()
+      .whereNull('vacation_authorization_signature_deleted_at')
+      .whereIn('shift_exception_id', vacations.map((vacation: ShiftException) => vacation.shiftExceptionId))
+      .orderBy('vacation_authorization_signature_created_at', 'asc')
+
+    const vacationsWithSignatures = vacations.map((vacation) => {
+      const signature = signatures.find((sig: VacationAuthorizationSignature) =>
+        sig.shiftExceptionId === vacation.shiftExceptionId
+      )?.vacationAuthorizationSignatureFile
+
+      return {
+        ...vacation.$attributes, // Solo los atributos del modelo
+        signature: signature || null
+      }
+    })
+
+    return vacationsWithSignatures ? vacationsWithSignatures : [] as (ShiftException & { signature: string })[]
   }
 
   async verifyExistPhoto(url: string) {
@@ -1081,6 +1183,78 @@ export default class EmployeeService {
       .whereHas('person', (personQuery) => {
         personQuery.whereNotNull('person_birthday')
       })
+      .preload('department')
+      .preload('position')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('address')
+      .withTrashed()
+      .andWhere((query) => {
+        query
+          .whereNull('employee_deleted_at')
+          .orWhere('employee_deleted_at', '>=', cutoffDate)
+      })
+      .if(filters.userResponsibleId &&
+        typeof filters.userResponsibleId && filters.userResponsibleId > 0,
+        (query) => {
+          query.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+            userResponsibleEmployeeQuery.where('userId', filters.userResponsibleId!)
+          })
+        }
+      )
+      .orderBy('employee_id')
+
+    return employees
+  }
+
+  async getAnniversary(filters: EmployeeFilterSearchInterface) {
+    const year = filters.year
+    if (!year) {
+      return []
+    }
+    const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const employees = await Employee.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.search, (query) => {
+        query.where((subQuery) => {
+          subQuery
+            .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
+              `%${filters.search.toUpperCase()}%`,
+            ])
+            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereHas('person', (personQuery) => {
+              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+            })
+        })
+      })
+      .if(filters.departmentId, (query) => {
+        query.where('department_id', filters.departmentId)
+      })
+      .if(filters.departmentId && filters.positionId, (query) => {
+        query.where('department_id', filters.departmentId)
+        query.where('position_id', filters.positionId)
+      })
+      .whereNotNull('employee_hire_date')
+      // Solo incluir empleados que empezaron antes del año especificado
+      // Para que puedan cumplir uno o más años en el año consultado
+      .whereRaw('YEAR(employee_hire_date) < ?', [year])
       .preload('department')
       .preload('position')
       .preload('person')
@@ -1489,6 +1663,1128 @@ export default class EmployeeService {
       .replace(/[^a-zA-Z\s]/g, '')
       .toLowerCase()
       .trim()
+  }
+
+
+  /**
+   * Eliminar una persona por su ID
+   * @param personId - ID de la persona a eliminar
+   * @returns Promise<boolean> - true si se eliminó correctamente
+   */
+  async deletePersonById(personId: number): Promise<boolean> {
+    try {
+      const person = await Person.find(personId)
+      if (person) {
+        await person.delete()
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error('Error eliminando persona por ID:', error)
+      return false
+    }
+  }
+
+  /**
+   * Limpiar registros huérfanos de personas que no tienen empleados asociados
+   * Útil para limpiar registros que quedaron de intentos fallidos de creación
+   * @returns Promise<number> - Número de registros eliminados
+   */
+  async cleanupOrphanPersons(): Promise<number> {
+    try {
+      // Buscar personas que no tienen empleados asociados
+      const orphanPersons = await Person.query()
+        .whereNotExists((query) => {
+          query.from('employees')
+            .whereRaw('employees.person_id = persons.person_id')
+            .whereNull('employees.employee_deleted_at')
+        })
+        .whereNotExists((query) => {
+          query.from('customers')
+            .whereRaw('customers.person_id = persons.person_id')
+            .whereNull('customers.customer_deleted_at')
+        })
+        .whereNotExists((query) => {
+          query.from('users')
+            .whereRaw('users.person_id = persons.person_id')
+            .whereNull('users.user_deleted_at')
+        })
+
+      let deletedCount = 0
+      for (const person of orphanPersons) {
+        await person.delete()
+        deletedCount++
+      }
+
+      return deletedCount
+    } catch (error) {
+      console.error('Error cleaning up orphan persons:', error)
+      return 0
+    }
+  }
+
+  /**
+   * Verificar si se puede crear un empleado sin exceder el límite establecido
+   * @param businessUnitId - ID de la unidad de negocio
+   * @returns Promise<{status: number, type: string, title: string, message: string, data: any}>
+   */
+  async verifyEmployeeLimit(businessUnitId: number): Promise<{status: number, type: string, title: string, message: string, data: any}> {
+    try {
+      // Obtener el límite de empleados para la unidad de negocio
+      const employeeLimit = await this.getEmployeeLimitForBusinessUnit(businessUnitId)
+
+      if (employeeLimit === null) {
+        // No hay límite establecido, permitir creación
+        return {
+          status: 200,
+          type: 'success',
+          title: 'Employee limit verification',
+          message: 'No employee limit is set for this business unit',
+          data: { businessUnitId, limit: null }
+        }
+      }
+
+      // Contar empleados activos en la unidad de negocio
+      const activeEmployees = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .where('businessUnitId', businessUnitId)
+      const activeEmployeesCount = activeEmployees.length
+
+      if (activeEmployeesCount >= employeeLimit) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'Employee limit exceeded',
+          message: `Cannot create employee. The business unit has reached its limit of ${employeeLimit} employees. Current count: ${activeEmployeesCount}`,
+          data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
+        }
+      }
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Employee limit verification',
+        message: 'Employee can be created within the established limit',
+        data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
+      }
+    } catch (error) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Error verifying employee limit',
+        message: 'An error occurred while verifying the employee limit',
+        data: { businessUnitId, error: error.message }
+      }
+    }
+  }
+
+  /**
+   * Obtener el límite de empleados para una unidad de negocio específica
+   * @param businessUnitId - ID de la unidad de negocio
+   * @returns Promise<number | null>
+   */
+  private async getEmployeeLimitForBusinessUnit(businessUnitId: number): Promise<number | null> {
+    try {
+      // Obtener la variable de entorno SYSTEM_BUSINESS
+      const systemBusinessEnv = env.get('SYSTEM_BUSINESS', '')
+      if (!systemBusinessEnv) {
+        console.error('SYSTEM_BUSINESS environment variable not found')
+        return null
+      }
+
+      // Convertir la variable de entorno a array de strings
+      const systemBusinessUnits = systemBusinessEnv.split(',').map((unit: string) => unit.trim())
+
+      // Obtener el nombre de la unidad de negocio
+      const businessUnit = await BusinessUnit.find(businessUnitId)
+      if (!businessUnit) {
+        console.error('Business unit not found:', businessUnitId)
+        return null
+      }
+
+      // Buscar el system_setting que contenga la unidad de negocio
+      const systemSettings = await SystemSetting.query()
+        .whereNull('system_setting_deleted_at')
+        .where('system_setting_active', 1)
+        .select('system_setting_id', 'system_setting_business_units')
+
+      let matchingSystemSettingId: number | null = null
+
+      for (const setting of systemSettings) {
+        const settingBusinessUnits = setting.systemSettingBusinessUnits.split(',').map((unit: string) => unit.trim())
+
+        // Verificar si hay coincidencia entre las unidades de negocio
+        const hasMatch = settingBusinessUnits.some((settingUnit: string) =>
+          systemBusinessUnits.includes(settingUnit)
+        )
+
+        if (hasMatch) {
+          matchingSystemSettingId = setting.systemSettingId
+          break
+        }
+      }
+
+      if (!matchingSystemSettingId) {
+        return null
+      }
+
+      // Buscar el límite de empleados activo para el system_setting encontrado
+      const result = await SystemSettingsEmployee.query()
+        .where('is_active', 1)
+        .where('system_setting_id', matchingSystemSettingId)
+        .whereNull('system_setting_employee_deleted_at')
+        .first()
+
+      return result ? result.employeeLimit : null
+    } catch (error) {
+      console.error('Error getting employee limit for business unit:', error)
+      return null
+    }
+  }
+
+  /**
+   * Import employees from Excel file
+   */
+  async importFromExcel(file: any) {
+    const ExcelJSModule = await import('exceljs')
+    const ExcelJS = ExcelJSModule.default
+    const workbook = new ExcelJS.Workbook()
+
+    try {
+      // Leer el archivo Excel
+      await workbook.xlsx.readFile(file.tmpPath)
+      const worksheet = workbook.getWorksheet(1)
+
+      if (!worksheet) {
+        throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
+      }
+
+      // Validar que la primera fila contenga los encabezados esperados
+      const headers = this.validateExcelHeaders(worksheet)
+
+      // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
+      const departments = await Department.query()
+        .whereNull('department_deleted_at')
+        .select('departmentId', 'departmentName')
+
+      const positions = await Position.query()
+        .whereNull('position_deleted_at')
+        .select('positionId', 'positionName')
+
+      const businessUnits = await BusinessUnit.query()
+        .whereNull('business_unit_deleted_at')
+        .where('business_unit_active', 1)
+        .select('businessUnitId', 'businessUnitName')
+
+      // Buscar departamento y posición por defecto
+      const defaultDepartment = departments.find(dept =>
+        dept.departmentName?.toLowerCase().includes('sin departamento')
+      )
+      const defaultPosition = positions.find(pos =>
+        pos.positionName?.toLowerCase().includes('sin posición')
+      )
+
+      // Obtener empleados existentes por número de empleado
+      const existingEmployees = await Employee.query()
+        .whereNull('deletedAt')
+        .preload('person')
+        .select('employeeId', 'employeeCode', 'employeeFirstName', 'employeeLastName', 'employeeSecondLastName', 'personId')
+
+      // Obtener códigos de empleado existentes para generar códigos únicos
+      const existingEmployeeCodes = existingEmployees.map(emp => emp.employeeCode.toString())
+
+      // Verificar límite de empleados (se verificará por unidad de negocio individual)
+
+      const results = {
+        totalRows: 0,
+        processed: 0,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        limitReached: false,
+        errors: [] as string[]
+      }
+
+      // Procesar cada fila del Excel
+      const rows: Array<{ row: any; rowNumber: number }> = []
+      worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
+        if (rowNumber === 1) return // Saltar encabezados
+        rows.push({ row, rowNumber })
+      })
+
+      // Primero, procesar todas las filas para validar y contar empleados nuevos
+      let newEmployeesCount = 0
+      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number }> = []
+
+      for (const { row, rowNumber } of rows) {
+        results.totalRows++
+
+        try {
+          const employeeData = this.extractEmployeeDataFromRow(row, headers)
+
+          // Validar que los datos básicos estén presentes
+          if (!employeeData.firstName && !employeeData.lastName) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: Fila vacía o sin datos de empleado`)
+            continue
+          }
+
+          // Validar datos del empleado
+          const employeeValidation = this.validateEmployeeData(employeeData)
+          if (!employeeValidation.isValid) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${employeeValidation.errors.join(', ')}`)
+            continue
+          }
+
+          // Validar datos de la persona
+          const personValidation = this.validatePersonData(employeeData)
+          if (!personValidation.isValid) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${personValidation.errors.join(', ')}`)
+            continue
+          }
+
+          // Mapear unidad de negocio por nombre
+          const businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+
+          // Buscar empleado existente por número de empleado
+          const existingEmployee = existingEmployees.find(emp =>
+            emp.employeeCode.toString() === employeeData.employeeNumber
+          )
+
+          if (existingEmployee) {
+            // Para empleados existentes, no contamos para el límite
+            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+          } else {
+            // Para empleados nuevos, contamos el total
+            newEmployeesCount++
+            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+          }
+
+        } catch (error: any) {
+          results.skipped++
+          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+        }
+      }
+
+      // Verificar límite general de empleados
+      if (newEmployeesCount > 0) {
+        // Obtener el límite general del sistema (usando la primera unidad de negocio como referencia)
+        const firstBusinessUnit = businessUnits[0]
+        const employeeLimit = firstBusinessUnit ? await this.getEmployeeLimitForBusinessUnit(firstBusinessUnit.businessUnitId) : null
+
+        if (employeeLimit) {
+          const currentTotalCount = await Employee.query()
+            .whereNull('deletedAt')
+            .count('* as total')
+          const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
+
+          if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
+            results.limitReached = true
+            results.errors.push(`Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`)
+          }
+        }
+      }
+
+      // Si se alcanzó el límite, no procesar más empleados nuevos
+      if (results.limitReached) {
+        // Procesar solo empleados existentes (actualizaciones)
+        for (const { rowNumber, employeeData } of validRows) {
+          const existingEmployee = existingEmployees.find(emp =>
+            emp.employeeCode.toString() === employeeData.employeeNumber
+          )
+
+          if (existingEmployee) {
+            try {
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              results.updated++
+              results.processed++
+            } catch (error: any) {
+              results.skipped++
+              results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+            }
+          } else {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+          }
+        }
+      } else {
+        // Procesar todos los empleados (creaciones y actualizaciones)
+        const createdEmployees: Employee[] = [] // Array para almacenar empleados creados
+
+        for (const { rowNumber, employeeData, businessUnitId } of validRows) {
+          try {
+            const payrollBusinessUnitId = businessUnitId // Usar la misma unidad de negocio para nómina
+
+            // Buscar empleado existente por número de empleado
+            const existingEmployee = existingEmployees.find(emp =>
+              emp.employeeCode.toString() === employeeData.employeeNumber
+            )
+
+            if (existingEmployee) {
+              // Actualizar empleado existente
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              results.updated++
+              results.processed++
+            } else {
+              // Generar código de empleado único si no se proporciona
+              let employeeCode = employeeData.employeeNumber
+              if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+                employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+              }
+              existingEmployeeCodes.push(employeeCode)
+
+              // Mapear departamento y posición usando búsqueda por similitud
+              const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+              const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+              // Crear persona
+              const person = await this.createPerson(employeeData)
+
+              // Crear empleado
+              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId, payrollBusinessUnitId, departmentId, positionId, employeeCode)
+
+              // Agregar a la lista de empleados creados para enviar a biométricos
+              createdEmployees.push(newEmployee)
+
+              results.created++
+              results.processed++
+            }
+
+          } catch (error: any) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          }
+        }
+
+        // Enviar empleados creados a la API de biométricos
+        if (createdEmployees.length > 0) {
+          try {
+            const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
+            if (!biometricResult.success) {
+              results.errors.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
+            }
+          } catch (error: any) {
+            results.errors.push(`Error al sincronizar con biométricos: ${error.message}`)
+          }
+        }
+      }
+
+      return results
+
+    } catch (error) {
+      throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
+    }
+  }
+
+  /**
+   * Validar encabezados del Excel
+   */
+  private validateExcelHeaders(worksheet: any) {
+    const expectedHeaders = [
+      'N° de empleado',
+      'Razón social',
+      'Unidad de negocios',
+      'Nombre del empleado',
+      'Apellido Paterno del empleado',
+      'Apellido Materno del empleado',
+      'Fecha de contratación (dd/mm/yyyy)',
+      'Departamento',
+      'Posición',
+      'Salario diario',
+      'Fecha de nacimiento (dd/mm/yyyy)',
+      'CURP',
+      'RFC',
+      'NSS'
+    ]
+
+    const firstRow = worksheet.getRow(1)
+    const headers: string[] = []
+
+    firstRow.eachCell((cell: any, colNumber: number) => {
+      headers[colNumber] = cell.value?.toString() || ''
+    })
+
+    // Verificar que los encabezados coincidan (permitir variaciones menores)
+    const missingHeaders = expectedHeaders.filter(expected =>
+      !headers.some(header => header.toLowerCase().includes(expected.toLowerCase().substring(0, 10)))
+    )
+
+
+    if (missingHeaders.length > 0) {
+      throw new Error(`Faltan los siguientes encabezados: ${missingHeaders.join(', ')}`)
+    }
+
+    return headers
+  }
+
+  /**
+   * Extraer datos del empleado de una fila
+   */
+  private extractEmployeeDataFromRow(row: any, headers: string[]) {
+    const data: any = {}
+
+    row.eachCell((cell: any, colNumber: number) => {
+      const header = headers[colNumber]?.toLowerCase() || ''
+      const value = cell.value?.toString() || ''
+
+
+      if (header.includes('n° de emplead')) {
+        data.employeeNumber = value
+      } else if (header.includes('razón social')) {
+        data.companyName = value
+      } else if (header.includes('unidad de negocios')) {
+        data.businessUnit = value
+      } else if (header.includes('nombre del empleado')) {
+        data.firstName = value
+      } else if (header.includes('apellido paterno del empleado')) {
+        data.lastName = value
+      } else if (header.includes('apellido materno del empleado')) {
+        data.secondLastName = value
+      } else if (header.includes('fecha de contratación')) {
+        data.hireDate = value
+      } else if (header.includes('departamento')) {
+        data.department = value
+      } else if (header.includes('posición')) {
+        data.position = value
+      } else if (header.includes('salario diario')) {
+        data.dailySalary = Number.parseFloat(value) || 0
+      } else if (header.includes('fecha de nacimiento')) {
+        data.birthDate = value
+      } else if (header.includes('curp')) {
+        data.curp = value
+      } else if (header.includes('rfc')) {
+        data.rfc = value
+      } else if (header.includes('nss')) {
+        data.nss = value
+      }
+    })
+
+    return data
+  }
+
+  /**
+   * Actualizar empleado existente
+   */
+  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any) {
+    // Actualizar datos del empleado
+    existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
+    existingEmployee.employeeLastName = employeeData.lastName || existingEmployee.employeeLastName
+    existingEmployee.employeeSecondLastName = employeeData.secondLastName || existingEmployee.employeeSecondLastName
+    const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
+    if (parsedHireDate) {
+      existingEmployee.employeeHireDate = parsedHireDate
+    }
+    existingEmployee.dailySalary = employeeData.dailySalary || existingEmployee.dailySalary
+
+    // Mapear departamento y posición usando búsqueda por similitud
+    existingEmployee.departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+    existingEmployee.positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+    await existingEmployee.save()
+
+    // Actualizar datos de la persona si existe
+    if (existingEmployee.person) {
+      const person = existingEmployee.person
+      person.personFirstname = employeeData.firstName || person.personFirstname
+      person.personLastname = employeeData.lastName || person.personLastname
+      person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
+      person.personCurp = employeeData.curp || person.personCurp
+      person.personRfc = employeeData.rfc || person.personRfc
+      person.personImssNss = employeeData.nss || person.personImssNss
+      const parsedBirthday = this.parseDate(employeeData.birthDate)
+      if (parsedBirthday) {
+        person.personBirthday = parsedBirthday
+      }
+
+      await person.save()
+    }
+  }
+
+  /**
+   * Generar código de empleado único
+   */
+  private generateUniqueEmployeeCode(existingCodes: string[]): string {
+    let attempts = 0
+    let code: string
+
+    do {
+      const randomNumber = Math.floor(Math.random() * 1000).toString().padStart(3, '0')
+      code = `27800${randomNumber}`
+      attempts++
+    } while (existingCodes.includes(code) && attempts < 100)
+
+    if (attempts >= 100) {
+      throw new Error('No se pudo generar un código de empleado único')
+    }
+
+    return code
+  }
+
+  /**
+   * Mapear unidad de negocio por nombre
+   */
+  private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number {
+    if (!businessUnitName) {
+      // Usar la primera unidad de negocio registrada en la base de datos
+      return businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1
+    }
+
+    // Buscar coincidencia exacta primero
+    const exactMatch = businessUnits.find(unit =>
+      unit.businessUnitName?.toLowerCase() === businessUnitName.toLowerCase()
+    )
+
+    if (exactMatch) return exactMatch.businessUnitId
+
+    // Buscar por similitud
+    const similarMatch = this.findMostSimilar(
+      businessUnitName,
+      businessUnits,
+      'businessUnitName',
+      0.6
+    )
+
+    // Usar la primera unidad de negocio registrada como valor por defecto si no se encuentra
+    return similarMatch ? similarMatch.businessUnitId : (businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1)
+  }
+
+  /**
+   * Mapear departamento usando búsqueda por similitud
+   */
+  private mapDepartmentBySimilarity(departmentName: string, departments: any[], defaultDepartment: any): number | null {
+    if (!departmentName) return defaultDepartment ? defaultDepartment.departmentId : null
+
+    // Buscar coincidencia exacta primero
+    const exactMatch = departments.find(dept =>
+      dept.departmentName?.toLowerCase() === departmentName.toLowerCase()
+    )
+
+    if (exactMatch) return exactMatch.departmentId
+
+    // Buscar por similitud
+    const similarMatch = this.findMostSimilar(
+      departmentName,
+      departments,
+      'departmentName',
+      0.6
+    )
+
+    return similarMatch ? similarMatch.departmentId : (defaultDepartment ? defaultDepartment.departmentId : null)
+  }
+
+  /**
+   * Mapear posición usando búsqueda por similitud
+   */
+  private mapPositionBySimilarity(positionName: string, positions: any[], defaultPosition: any): number | null {
+    if (!positionName) return defaultPosition ? defaultPosition.positionId : null
+
+    // Buscar coincidencia exacta primero
+    const exactMatch = positions.find(pos =>
+      pos.positionName?.toLowerCase() === positionName.toLowerCase()
+    )
+
+    if (exactMatch) return exactMatch.positionId
+
+    // Buscar por similitud
+    const similarMatch = this.findMostSimilar(
+      positionName,
+      positions,
+      'positionName',
+      0.6
+    )
+
+    return similarMatch ? similarMatch.positionId : (defaultPosition ? defaultPosition.positionId : null)
+  }
+
+  /**
+   * Crear persona
+   */
+  private async createPerson(employeeData: any) {
+    const person = new Person()
+    person.personFirstname = employeeData.firstName || ''
+    person.personLastname = employeeData.lastName || ''
+    person.personSecondLastname = employeeData.secondLastName || ''
+    person.personCurp = employeeData.curp || ''
+    person.personRfc = employeeData.rfc || ''
+    person.personImssNss = employeeData.nss || ''
+    person.personBirthday = this.parseDate(employeeData.birthDate)
+    person.personGender = '' // No disponible en el Excel
+    person.personPhone = ''
+    person.personEmail = ''
+    person.personPhoneSecondary = ''
+    person.personMaritalStatus = ''
+    person.personPlaceOfBirthCountry = ''
+    person.personPlaceOfBirthState = ''
+    person.personPlaceOfBirthCity = ''
+
+    await person.save()
+    return person
+  }
+
+  /**
+   * Crear empleado
+   */
+  private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string) {
+    const employee = new Employee()
+    employee.employeeCode = employeeCode
+    employee.employeeFirstName = employeeData.firstName || ''
+    employee.employeeLastName = employeeData.lastName || ''
+    employee.employeeSecondLastName = employeeData.secondLastName || ''
+    employee.employeeHireDate = this.parseDateToDateTime(employeeData.hireDate)
+    employee.companyId = 1 // Valor por defecto
+    employee.departmentId = departmentId
+    employee.positionId = positionId
+    employee.personId = personId
+    employee.businessUnitId = businessUnitId
+    employee.dailySalary = employeeData.dailySalary || 0
+    employee.payrollBusinessUnitId = payrollBusinessUnitId
+    employee.employeeAssistDiscriminator = 1
+    employee.employeeTypeId = 1 // Valor por defecto
+    employee.employeeBusinessEmail = ''
+    employee.employeeTypeOfContract = 'Internal'
+    employee.employeeTerminatedDate = null
+    employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeSyncId = 0
+    employee.departmentSyncId = 0
+    employee.positionSyncId = 0
+    employee.employeeLastSynchronizationAt = new Date()
+
+    await employee.save()
+    return employee
+  }
+
+  /**
+   * Parsear fecha desde string
+   */
+  private parseDate(dateString: string): string | null {
+    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+
+    try {
+      // Intentar diferentes formatos de fecha
+      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+
+      for (const format of formats) {
+        try {
+          const parsed = DateTime.fromFormat(dateString, format)
+          if (parsed.isValid) {
+            return parsed.toISODate()
+          }
+        } catch (e) {
+          continue
+        }
+      }
+
+      // Si no funciona con formatos específicos, intentar parse automático
+      const parsed = DateTime.fromISO(dateString)
+      if (parsed.isValid) {
+        return parsed.toISODate()
+      }
+
+      return null
+    } catch (error) {
+      return null
+    }
+  }
+
+  /**
+   * Parsear fecha desde string a DateTime
+   */
+  private parseDateToDateTime(dateString: string): DateTime | null {
+    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+
+    try {
+      // Intentar diferentes formatos de fecha
+      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+
+      for (const format of formats) {
+        try {
+          const parsed = DateTime.fromFormat(dateString, format)
+          if (parsed.isValid) {
+            return parsed
+          }
+        } catch (e) {
+          continue
+        }
+      }
+
+      // Si no funciona con formatos específicos, intentar parse automático
+      const parsed = DateTime.fromISO(dateString)
+      if (parsed.isValid) {
+        return parsed
+      }
+
+      return null
+    } catch (error) {
+      return null
+    }
+  }
+
+  /**
+   * Calcular similitud entre dos strings usando algoritmo de Levenshtein
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    const s1 = str1.toLowerCase().trim()
+    const s2 = str2.toLowerCase().trim()
+
+    if (s1 === s2) return 1.0
+
+    const matrix = []
+    const len1 = s1.length
+    const len2 = s2.length
+
+    for (let i = 0; i <= len2; i++) {
+      matrix[i] = [i]
+    }
+
+    for (let j = 0; j <= len1; j++) {
+      matrix[0][j] = j
+    }
+
+    for (let i = 1; i <= len2; i++) {
+      for (let j = 1; j <= len1; j++) {
+        if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1]
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          )
+        }
+      }
+    }
+
+    const maxLen = Math.max(len1, len2)
+    return maxLen === 0 ? 1.0 : (maxLen - matrix[len2][len1]) / maxLen
+  }
+
+  /**
+   * Buscar el elemento más similar en una lista
+   */
+  private findMostSimilar<T>(
+    searchTerm: string,
+    items: T[],
+    nameField: keyof T,
+    threshold: number = 0.6
+  ): T | null {
+    if (!searchTerm || !items.length) return null
+
+    let bestMatch: T | null = null
+    let bestScore = 0
+
+    for (const item of items) {
+      const itemName = String(item[nameField] || '').trim()
+      if (!itemName) continue
+
+      const score = this.calculateSimilarity(searchTerm, itemName)
+
+      if (score > bestScore && score >= threshold) {
+        bestScore = score
+        bestMatch = item
+      }
+    }
+
+    return bestMatch
+  }
+
+  /**
+   * Validar datos del empleado usando las mismas reglas que los validadores
+   */
+  private validateEmployeeData(employeeData: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+
+    // Validar código de empleado
+    if (!employeeData.employeeNumber || employeeData.employeeNumber.trim().length === 0) {
+      errors.push('El código de empleado es requerido')
+    } else if (employeeData.employeeNumber.length > 200) {
+      errors.push('El código de empleado no puede exceder 200 caracteres')
+    }
+
+    // Validar nombres
+    if (employeeData.firstName && employeeData.firstName.length > 25) {
+      errors.push('El nombre no puede exceder 25 caracteres')
+    }
+
+    if (employeeData.lastName && employeeData.lastName.length > 25) {
+      errors.push('El apellido paterno no puede exceder 25 caracteres')
+    }
+
+    if (employeeData.secondLastName && employeeData.secondLastName.length > 25) {
+      errors.push('El apellido materno no puede exceder 25 caracteres')
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    }
+  }
+
+  /**
+   * Validar datos de la persona usando las mismas reglas que los validadores
+   */
+  private validatePersonData(personData: any): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+
+    // Validar nombre
+    if (!personData.firstName || personData.firstName.trim().length === 0) {
+      errors.push('El nombre de la persona es requerido')
+    } else if (personData.firstName.length > 150) {
+      errors.push('El nombre no puede exceder 150 caracteres')
+    }
+
+    // Validar apellidos
+    if (personData.lastName && personData.lastName.length > 150) {
+      errors.push('El apellido paterno no puede exceder 150 caracteres')
+    }
+
+    if (personData.secondLastName && personData.secondLastName.length > 150) {
+      errors.push('El apellido materno no puede exceder 150 caracteres')
+    }
+
+    // Validar teléfono
+    if (personData.phone && personData.phone.length > 45) {
+      errors.push('El teléfono no puede exceder 45 caracteres')
+    }
+
+    // Validar email
+    if (personData.email && personData.email.length > 200) {
+      errors.push('El email no puede exceder 200 caracteres')
+    }
+
+    // Validar CURP
+    if (personData.curp && personData.curp.length > 45) {
+      errors.push('La CURP no puede exceder 45 caracteres')
+    }
+
+    // Validar RFC
+    if (personData.rfc && personData.rfc.length > 45) {
+      errors.push('El RFC no puede exceder 45 caracteres')
+    }
+
+    // Validar NSS
+    if (personData.nss && personData.nss.length > 45) {
+      errors.push('El NSS no puedesexceder 45 caracteres')
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    }
+  }
+
+  /**
+   * Mapear empleado local al formato de la API de biométricos
+   * Formato basado en la estructura de la base de datos de biométricos
+   */
+  private mapEmployeeToBiometricFormat(employee: Employee): any {
+    const payrollNum = env.get('SYSTEM_BUSINESS', '')
+
+    // Normalizar gender a un solo carácter (M/F) o null
+    let genderValue: string | null = null
+    if (employee.person?.personGender) {
+      const gender = String(employee.person.personGender).trim().toUpperCase()
+      if (gender === 'M' || gender.startsWith('M') || gender.includes('HOMBRE') || gender.includes('MALE')) {
+        genderValue = 'M'
+      } else if (gender === 'F' || gender.startsWith('F') || gender.includes('MUJER') || gender.includes('FEMALE')) {
+        genderValue = 'F'
+      }
+    }
+
+    // Helper para normalizar strings (convertir vacíos a null)
+    const normalizeString = (value: any): string | null => {
+      if (value === null || value === undefined) return null
+      if (typeof value !== 'string') return null
+      const trimmed = value.trim()
+      return trimmed.length > 0 ? trimmed : null
+    }
+
+    // Helper para normalizar fechas (formato YYYY-MM-DD)
+    const normalizeDate = (value: any): string | null => {
+      if (!value) return null
+      // Si es un string, validar formato
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed.length === 0) return null
+        // Si ya está en formato YYYY-MM-DD, retornarlo
+        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+          return trimmed
+        }
+        return trimmed
+      }
+      // Si es un objeto DateTime (Luxon)
+      if (value && typeof value.toISODate === 'function') {
+        return value.toISODate()
+      }
+      // Si es un objeto Date
+      if (value instanceof Date) {
+        const year = value.getFullYear()
+        const month = String(value.getMonth() + 1).padStart(2, '0')
+        const day = String(value.getDate()).padStart(2, '0')
+        return `${year}-${month}-${day}`
+      }
+      return null
+    }
+
+    // Construir el objeto siguiendo el formato de la base de datos de biométricos
+    // Basado en la estructura de la API que acepta correctamente
+    const now = new Date().toISOString()
+
+    const biometricEmployee: any = {
+      // Campos básicos requeridos
+      empCode: employee.employeeCode ? Number(employee.employeeCode) : 0,
+      firstName: normalizeString(employee.employeeFirstName),
+      lastName: normalizeString(employee.employeeLastName),
+      companyId: 1,
+      departmentId: 1,
+      positionId: 1,
+      payrollNum: normalizeString(payrollNum),
+
+      // Campos de timestamps
+      createTime: now,
+      createUser: null,
+      changeTime: now,
+      changeUser: null,
+      updateTime: now,
+
+      // Campos requeridos con valores por defecto
+      status: 0,
+      isAdmin: false,
+      empType: 0,
+      enableAtt: true,
+      enablePayroll: true,
+      enableOvertime: false,
+      enableHoliday: true,
+      deleted: false,
+      reserved: 0,
+      delTag: 0,
+      appStatus: 0,
+      appRole: 0,
+      isActive: true,
+      vacationRule: 0,
+
+      // Campos opcionales - enviar null si no tenemos datos
+      nickname: normalizeString(employee.employeeSecondLastName),
+      gender: genderValue,
+      birthday: normalizeDate(employee.person?.personBirthday),
+      hireDate: normalizeDate(employee.employeeHireDate),
+      email: normalizeString(employee.person?.personEmail),
+      mobile: normalizeString(employee.person?.personPhone),
+      nationalNum: normalizeString(employee.person?.personCurp) || normalizeString(employee.person?.personImssNss),
+      ssn: normalizeString(employee.person?.personRfc),
+      internalEmpNum: null,
+      city: null,
+      lastLogin: null,
+
+      // Campos que deben ser null según especificación
+      accTimezone: null,
+      enrollSn: null
+    }
+
+    // Asegurar que todos los valores undefined se conviertan en null
+    Object.keys(biometricEmployee).forEach(key => {
+      if (biometricEmployee[key] === undefined) {
+        biometricEmployee[key] = null
+      }
+    })
+
+    return biometricEmployee
+  }
+
+  /**
+   * Enviar empleados a la API de biométricos en bulk
+   */
+  async sendEmployeesToBiometrics(employees: Employee[]): Promise<{ success: boolean; message: string; errors?: any[] }> {
+    try {
+      const apiHost = env.get('API_BIOMETRICS_HOST')
+
+      if (!apiHost) {
+        return {
+          success: false,
+          message: 'API_BIOMETRICS_HOST no está configurada en las variables de entorno'
+        }
+      }
+
+      // Cargar relaciones necesarias
+      await Promise.all(employees.map(emp => emp.load('person')))
+
+      // Mapear empleados al formato de la API
+      const biometricEmployees = employees.map(emp => this.mapEmployeeToBiometricFormat(emp))
+
+      // Enviar a la API
+      const apiUrl = `${apiHost}/employees/bulk`
+      const response = await axios.post(apiUrl, {
+        employees: biometricEmployees
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      return {
+        success: true,
+        message: `${employees.length} empleado(s) enviado(s) exitosamente a biométricos`,
+        errors: response.data?.errors || []
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error al enviar empleados a biométricos: ${error.message}`,
+        errors: error.response?.data || []
+      }
+    }
+  }
+
+  /**
+   * Enviar un empleado individual a la API de biométricos
+   */
+  async sendEmployeeToBiometrics(employeeId: number): Promise<{ success: boolean; message: string; error?: any }> {
+    try {
+      const employee = await Employee.query()
+        .where('employeeId', employeeId)
+        .whereNull('deletedAt')
+        .preload('person')
+        .first()
+
+      if (!employee) {
+        return {
+          success: false,
+          message: 'Empleado no encontrado'
+        }
+      }
+
+      const apiHost = env.get('API_BIOMETRICS_HOST')
+
+      if (!apiHost) {
+        return {
+          success: false,
+          message: 'API_BIOMETRICS_HOST no está configurada en las variables de entorno'
+        }
+      }
+
+      // Mapear empleado al formato de la API
+      const biometricEmployee = this.mapEmployeeToBiometricFormat(employee)
+
+      // Enviar a la API
+      const apiUrl = `${apiHost}/employees`
+      await axios.post(apiUrl, biometricEmployee, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+
+      return {
+        success: true,
+        message: 'Empleado enviado exitosamente a biométricos'
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Error al enviar empleado a biométricos: ${error.message}`,
+        error: error.response?.data || error.message
+      }
+    }
   }
 
   /**

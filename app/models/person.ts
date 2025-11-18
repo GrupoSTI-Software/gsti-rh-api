@@ -87,7 +87,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
   declare personGender: string
 
   @column()
-  declare personBirthday: string
+  declare personBirthday: string | null
 
   @column()
   declare personPhone: string

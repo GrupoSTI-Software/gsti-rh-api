@@ -106,7 +106,7 @@ export default class SystemSettingService {
   }
 
   async getPayrollConfig(systemSettingId: number) {
-    
+
     const today = DateTime.local().toFormat('yyyy-LL-dd')
     const systemSettingPayrollConfig = await SystemSettingPayrollConfig
       .query()
@@ -273,6 +273,34 @@ export default class SystemSettingService {
       type: 'success',
       title: 'Birthday emails status updated',
       message: 'The birthday emails status was updated successfully',
+      data: { systemSetting },
+    }
+  }
+
+  async updateAnniversaryEmailsStatus(systemSettingId: number, anniversaryEmailsEnabled: boolean) {
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+      .first()
+
+    if (!systemSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'System setting not found',
+        message: 'The system setting was not found with the entered ID',
+        data: { systemSettingId },
+      }
+    }
+
+    systemSetting.systemSettingAnniversaryEmails = anniversaryEmailsEnabled ? 1 : 0
+    await systemSetting.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Anniversary emails status updated',
+      message: 'The anniversary emails status was updated successfully',
       data: { systemSetting },
     }
   }

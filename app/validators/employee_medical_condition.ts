@@ -19,7 +19,6 @@ export const createEmployeeMedicalConditionValidator = vine.compile(
       return !!medicalConditionType
     }),
     employeeMedicalConditionDiagnosis: vine.string().trim().minLength(1).maxLength(500),
-    employeeMedicalConditionTreatment: vine.string().trim().minLength(0).maxLength(500).optional(),
     employeeMedicalConditionNotes: vine.string().trim().minLength(0).maxLength(1000).optional(),
     employeeMedicalConditionActive: vine.number().in([0, 1]).optional(),
     propertyValues: vine.array(
@@ -49,7 +48,6 @@ export const updateEmployeeMedicalConditionValidator = vine.compile(
       return !!medicalConditionType
     }).optional(),
     employeeMedicalConditionDiagnosis: vine.string().trim().minLength(1).maxLength(500).optional(),
-    employeeMedicalConditionTreatment: vine.string().trim().minLength(0).maxLength(500).optional(),
     employeeMedicalConditionNotes: vine.string().trim().minLength(0).maxLength(1000).optional(),
     employeeMedicalConditionActive: vine.number().in([0, 1]).optional(),
     propertyValues: vine.array(

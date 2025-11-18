@@ -3978,6 +3978,165 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/get-anniversary:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get all anniversaries
+   *     parameters:
+   *       - name: search
+   *         in: query
+   *         required: false
+   *         description: Search
+   *         schema:
+   *           type: string
+   *       - name: departmentId
+   *         in: query
+   *         required: false
+   *         description: DepartmentId
+   *         schema:
+   *           type: integer
+   *       - name: positionId
+   *         in: query
+   *         required: false
+   *         description: PositionId
+   *         schema:
+   *           type: integer
+   *       - name: year
+   *         in: query
+   *         required: true
+   *         description: Year
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Object processed
+   *       '404':
+   *         description: The resource could not be found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async getAnniversary({ auth, request, response, i18n }: HttpContext) {
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
+      }
+      const search = request.input('search')
+      const departmentId = request.input('departmentId')
+      const positionId = request.input('positionId')
+      const year = request.input('year')
+      const filters = {
+        search: search,
+        departmentId: departmentId,
+        positionId: positionId,
+        year: year,
+        userResponsibleId: userResponsibleId,
+      } as EmployeeFilterSearchInterface
+      const employeeService = new EmployeeService(i18n)
+      const employees = await employeeService.getAnniversary(filters)
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employees were found successfully',
+        data: {
+          employees,
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-vacations:
    *   get:
    *     security:
@@ -5514,6 +5673,333 @@ export default class EmployeeController {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/import-excel:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Import employees from Excel file
+   *     description: Import employees from Excel file. The business unit and payroll business unit are automatically detected from the Excel file content using similarity matching.
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               file:
+   *                 type: string
+   *                 format: binary
+   *                 description: Excel file with employee data. Must contain columns for business unit names, department names, and position names.
+   *             required:
+   *               - file
+   *     responses:
+   *       200:
+   *         description: Employees imported successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Response type (success, warning, error)
+   *                 title:
+   *                   type: string
+   *                   description: Response title
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Import results
+   *                   properties:
+   *                     totalRows:
+   *                       type: number
+   *                       description: Total rows processed
+   *                     processed:
+   *                       type: number
+   *                       description: Successfully processed rows
+   *                     created:
+   *                       type: number
+   *                       description: New employees created
+   *                     updated:
+   *                       type: number
+   *                       description: Existing employees updated
+   *                     skipped:
+   *                       type: number
+   *                       description: Rows skipped due to errors
+   *                     limitReached:
+   *                       type: boolean
+   *                       description: Whether employee limit was reached
+   *                     errors:
+   *                       type: array
+   *                       items:
+   *                         type: string
+   *                       description: List of error messages
+   *       400:
+   *         description: Bad request - Invalid file or validation errors
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *       500:
+   *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *                 error:
+   *                   type: string
+   *                   description: Detailed error information
+   */
+  async importFromExcel({ request, response, i18n }: HttpContext) {
+    try {
+      const file = request.file('file')
+
+      if (!file) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Excel file is required',
+        }
+      }
+
+      // Validar que el archivo sea un Excel
+      const allowedExtensions = ['.xlsx', '.xls']
+      const allowedMimeTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls
+        'application/octet-stream' // Fallback para algunos casos
+      ]
+
+      // Verificar por extensión del archivo
+      const fileName = file.clientName || file.tmpPath || ''
+      const fileExtension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'))
+
+      // Verificar por MIME type
+      const mimeType = file.type || ''
+
+      const isValidExtension = allowedExtensions.includes(fileExtension)
+      const isValidMimeType = allowedMimeTypes.includes(mimeType.toLowerCase())
+
+      // Si no pasa la validación básica, intentar validar por contenido
+      if (!isValidExtension && !isValidMimeType) {
+        try {
+          // Intentar leer el archivo con ExcelJS para verificar si es realmente un Excel
+          const ExcelJSModule = await import('exceljs')
+          const ExcelJSLib = ExcelJSModule.default
+          const workbook = new ExcelJSLib.Workbook()
+
+          await workbook.xlsx.readFile(file.tmpPath || '')
+          // Si llega aquí, es un archivo Excel válido
+        } catch (excelError: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: `El archivo debe ser un Excel válido (.xlsx o .xls). Extensión detectada: ${fileExtension}, MIME type: ${mimeType}. Error: ${excelError.message}`,
+          }
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.importFromExcel(file)
+
+      // Determinar el tipo de respuesta basado en los resultados
+      let responseType = 'success'
+      let title = 'Importación completada'
+      let message = ''
+
+      if (result.limitReached) {
+        responseType = 'warning'
+        title = 'Límite de empleados alcanzado'
+        message = `Se alcanzó el límite de empleados. Se crearon ${result.created} empleados, se actualizaron ${result.updated} empleados, y ${result.skipped} no se pudieron procesar.`
+      } else if (result.errors.length > 0) {
+        responseType = 'warning'
+        title = 'Importación completada con advertencias'
+        message = `Se procesaron ${result.processed} empleados: ${result.created} creados, ${result.updated} actualizados. ${result.errors.length} errores encontrados.`
+      } else {
+        message = `Importación exitosa: ${result.created} empleados creados, ${result.updated} empleados actualizados.`
+      }
+
+      response.status(200)
+      return {
+        type: responseType,
+        title: title,
+        message: message,
+        data: result,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred during import',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/inverse-synchronization:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Sincronizar un empleado existente a la API de biométricos
+   *     description: Envía un empleado existente en la base de datos local a la API de biométricos
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               employeeId:
+   *                 type: integer
+   *                 description: ID del empleado a sincronizar
+   *                 required: true
+   *     responses:
+   *       200:
+   *         description: Empleado sincronizado exitosamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Response type (success, error)
+   *                 title:
+   *                   type: string
+   *                   description: Response title
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *       400:
+   *         description: Bad request - ID de empleado requerido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *       404:
+   *         description: Empleado no encontrado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *       500:
+   *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Error type
+   *                 title:
+   *                   type: string
+   *                   description: Error title
+   *                 message:
+   *                   type: string
+   *                   description: Error message
+   *                 error:
+   *                   type: string
+   *                   description: Detailed error information
+   */
+  async inverseSync({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'El ID del empleado es requerido',
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.sendEmployeeToBiometrics(employeeId)
+
+      if (!result.success) {
+        response.status(404)
+        return {
+          type: 'error',
+          title: 'Sincronización fallida',
+          message: result.message,
+          error: result.error,
+        }
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Sincronización exitosa',
+        message: result.message,
+      }
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'Ocurrió un error inesperado al sincronizar el empleado',
         error: error.message,
       }
     }
