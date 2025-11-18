@@ -1207,6 +1207,78 @@ export default class EmployeeService {
     return employees
   }
 
+  async getAnniversary(filters: EmployeeFilterSearchInterface) {
+    const year = filters.year
+    if (!year) {
+      return []
+    }
+    const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const employees = await Employee.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.search, (query) => {
+        query.where((subQuery) => {
+          subQuery
+            .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
+              `%${filters.search.toUpperCase()}%`,
+            ])
+            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereHas('person', (personQuery) => {
+              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+            })
+        })
+      })
+      .if(filters.departmentId, (query) => {
+        query.where('department_id', filters.departmentId)
+      })
+      .if(filters.departmentId && filters.positionId, (query) => {
+        query.where('department_id', filters.departmentId)
+        query.where('position_id', filters.positionId)
+      })
+      .whereNotNull('employee_hire_date')
+      // Solo incluir empleados que empezaron antes del año especificado
+      // Para que puedan cumplir uno o más años en el año consultado
+      .whereRaw('YEAR(employee_hire_date) < ?', [year])
+      .preload('department')
+      .preload('position')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('address')
+      .withTrashed()
+      .andWhere((query) => {
+        query
+          .whereNull('employee_deleted_at')
+          .orWhere('employee_deleted_at', '>=', cutoffDate)
+      })
+      .if(filters.userResponsibleId &&
+        typeof filters.userResponsibleId && filters.userResponsibleId > 0,
+        (query) => {
+          query.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+            userResponsibleEmployeeQuery.where('userId', filters.userResponsibleId!)
+          })
+        }
+      )
+      .orderBy('employee_id')
+
+    return employees
+  }
+
   async getVacations(filters: EmployeeFilterSearchInterface) {
     const shiftExceptionVacation = await ExceptionType.query()
     .whereNull('exception_type_deleted_at')

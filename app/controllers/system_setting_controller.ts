@@ -1479,6 +1479,167 @@ export default class SystemSettingController {
 
   /**
    * @swagger
+   * /api/system-settings/{systemSettingId}/anniversary-emails:
+   *   put:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: update anniversary emails status for system setting
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         schema:
+   *           type: number
+   *         description: System setting id
+   *         required: true
+   *     requestBody:
+   *       content:
+   *          application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               systemSettingAnniversaryEmails:
+   *                 type: boolean
+   *                 description: Enable or disable anniversary emails
+   *                 required: true
+   *                 default: false
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async updateAnniversaryEmailsStatus({ request, response }: HttpContext) {
+    try {
+      const systemSettingId = request.param('systemSettingId')
+      const systemSettingAnniversaryEmails = request.input('systemSettingAnniversaryEmails')
+
+      if (!systemSettingId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The system setting id was not found',
+          data: { systemSettingId },
+        }
+      }
+
+      if (systemSettingAnniversaryEmails === undefined || systemSettingAnniversaryEmails === null) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The systemSettingAnniversaryEmails field is required',
+          data: { systemSettingAnniversaryEmails },
+        }
+      }
+
+      const systemSettingService = new SystemSettingService()
+      const result = await systemSettingService.updateAnniversaryEmailsStatus(
+        systemSettingId,
+        systemSettingAnniversaryEmails
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/system-settings-get-payroll-config:
    *   get:
    *     security:
