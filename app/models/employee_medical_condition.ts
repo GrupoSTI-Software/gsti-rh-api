@@ -26,9 +26,6 @@ import MedicalConditionTypePropertyValue from './medical_condition_type_property
  *         employeeMedicalConditionDiagnosis:
  *           type: string
  *           description: Medical condition diagnosis
- *         employeeMedicalConditionTreatment:
- *           type: string
- *           description: Medical condition treatment
  *         employeeMedicalConditionNotes:
  *           type: string
  *           description: Medical condition notes
@@ -58,9 +55,6 @@ export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDel
 
   @column()
   declare employeeMedicalConditionDiagnosis: string
-
-  @column()
-  declare employeeMedicalConditionTreatment: string
 
   @column()
   declare employeeMedicalConditionNotes: string

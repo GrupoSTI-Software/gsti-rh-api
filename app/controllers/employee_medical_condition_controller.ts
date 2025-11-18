@@ -98,10 +98,6 @@ export default class EmployeeMedicalConditionController {
    *                 type: string
    *                 description: Medical condition diagnosis
    *                 required: true
-   *               employeeMedicalConditionTreatment:
-   *                 type: string
-   *                 description: Medical condition treatment
-   *                 required: false
    *               employeeMedicalConditionNotes:
    *                 type: string
    *                 description: Medical condition notes
@@ -150,7 +146,6 @@ export default class EmployeeMedicalConditionController {
         employeeId: inputs['employeeId'],
         medicalConditionTypeId: inputs['medicalConditionTypeId'],
         employeeMedicalConditionDiagnosis: inputs['employeeMedicalConditionDiagnosis'],
-        employeeMedicalConditionTreatment: inputs['employeeMedicalConditionTreatment'],
         employeeMedicalConditionNotes: inputs['employeeMedicalConditionNotes'],
         employeeMedicalConditionActive: inputs['employeeMedicalConditionActive'] || 1,
       } as EmployeeMedicalCondition
@@ -230,10 +225,6 @@ export default class EmployeeMedicalConditionController {
    *                 type: string
    *                 description: Medical condition diagnosis
    *                 required: false
-   *               employeeMedicalConditionTreatment:
-   *                 type: string
-   *                 description: Medical condition treatment
-   *                 required: false
    *               employeeMedicalConditionNotes:
    *                 type: string
    *                 description: Medical condition notes
@@ -308,7 +299,6 @@ export default class EmployeeMedicalConditionController {
         employeeId: inputs['employeeId'] || currentEmployeeMedicalCondition.employeeId,
         medicalConditionTypeId: inputs['medicalConditionTypeId'] || currentEmployeeMedicalCondition.medicalConditionTypeId,
         employeeMedicalConditionDiagnosis: inputs['employeeMedicalConditionDiagnosis'] || currentEmployeeMedicalCondition.employeeMedicalConditionDiagnosis,
-        employeeMedicalConditionTreatment: inputs['employeeMedicalConditionTreatment'] || currentEmployeeMedicalCondition.employeeMedicalConditionTreatment,
         employeeMedicalConditionNotes: inputs['employeeMedicalConditionNotes'] || currentEmployeeMedicalCondition.employeeMedicalConditionNotes,
         employeeMedicalConditionActive: inputs['employeeMedicalConditionActive'] !== undefined ? inputs['employeeMedicalConditionActive'] : currentEmployeeMedicalCondition.employeeMedicalConditionActive,
       } as EmployeeMedicalCondition
