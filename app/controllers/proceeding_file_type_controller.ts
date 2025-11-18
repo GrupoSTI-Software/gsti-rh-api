@@ -2,7 +2,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import { ProceedingFileTypeFilterSearchInterface } from '../interfaces/proceeding_file_type_filter_search_interface.js'
 import ProceedingFileTypeService from '#services/proceeding_file_type_service'
 import ProceedingFileType from '#models/proceeding_file_type'
-import { createProceedingFileTypeValidator } from '#validators/proceeding_file_type'
+import { createProceedingFileTypeValidator, createEmployeeProceedingFileTypeValidator } from '#validators/proceeding_file_type'
 
 export default class ProceedingFileTypeController {
   /**
@@ -435,6 +435,171 @@ export default class ProceedingFileTypeController {
         title: 'Proceeding file types',
         message: 'The proceeding file type was created successfully',
         data: { proceedingFileType: newProceedingFileType },
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/proceeding-file-types/create-employee-type:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Proceeding File Types
+   *     summary: create new employee proceeding file type with automatic slug generation and business units
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               proceedingFileTypeName:
+   *                 type: string
+   *                 description: Proceeding file type name (slug will be auto-generated)
+   *                 required: true
+   *                 example: "Documentos de Contratación"
+   *               proceedingFileTypeBusinessUnits:
+   *                 type: string
+   *                 description: Business units for the proceeding file type (automatically set from SYSTEM_BUSINESS environment variable)
+   *                 required: false
+   *                 example: "sae,sae-siler,sae-quorum"
+   *               parentId:
+   *                 type: number
+   *                 description: Parent proceeding file type ID (optional)
+   *                 required: false
+   *                 example: 1
+   *               proceedingFileTypeActive:
+   *                 type: boolean
+   *                 description: Proceeding file type status
+   *                 required: false
+   *                 default: true
+   *     responses:
+   *       '201':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *                   properties:
+   *                     proceedingFileType:
+   *                       $ref: '#/components/schemas/ProceedingFileType'
+   *                     proceedingFileTypeProperty:
+   *                       $ref: '#/components/schemas/ProceedingFileTypeProperty'
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '404':
+   *         description: Parent proceeding file type not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async createEmployeeType({ request, response }: HttpContext) {
+    try {
+      // Validar los datos de entrada
+      const data = await request.validateUsing(createEmployeeProceedingFileTypeValidator)
+
+      const proceedingFileTypeService = new ProceedingFileTypeService()
+      const result = await proceedingFileTypeService.createEmployeeType({
+        proceedingFileTypeName: data.proceedingFileTypeName,
+        parentId: data.parentId,
+        proceedingFileTypeActive: data.proceedingFileTypeActive,
+      })
+
+      if (result.status !== 201) {
+        response.status(result.status)
+        return {
+          type: result.type,
+          title: result.title,
+          message: result.message,
+          data: result.data,
+        }
+      }
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Proceeding file type created',
+        message: 'The employee proceeding file type was created successfully with its default property',
+        data: result.data,
       }
     } catch (error) {
       const messageError =

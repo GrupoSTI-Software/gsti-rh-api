@@ -127,7 +127,7 @@ export default class PositionController {
    *                       type: string
    */
 
-  async synchronization({ request, response }: HttpContext) {
+  async synchronization({ request, response, i18n }: HttpContext) {
     try {
       const page = request.input('page', 1)
       const limit = request.input('limit', 200)
@@ -142,7 +142,7 @@ export default class PositionController {
       const apiResponse = await axios.get(apiUrl)
       const data = apiResponse.data.data
       if (data) {
-        const positionService = new PositionService()
+        const positionService = new PositionService(i18n)
         data.sort((a: BiometricPositionInterface, b: BiometricPositionInterface) => a.id - b.id)
         for await (const position of data) {
           await this.verify(position, positionService)
@@ -309,7 +309,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
     try {
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
@@ -327,7 +327,7 @@ export default class PositionController {
         parentPositionId: parentPositionId,
       } as Position
 
-      const positionService = new PositionService()
+      const positionService = new PositionService(i18n)
       const data = await request.validateUsing(createPositionValidator)
       const exist = await positionService.verifyInfoExist(position)
 
@@ -505,7 +505,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       const positionCode = request.input('positionCode')
@@ -547,7 +547,7 @@ export default class PositionController {
           data: { ...position },
         }
       }
-      const positionService = new PositionService()
+      const positionService = new PositionService(i18n)
       const data = await request.validateUsing(updatePositionValidator)
       const exist = await positionService.verifyInfoExist(position)
       if (exist.status !== 200) {
@@ -737,7 +737,7 @@ export default class PositionController {
   //     }
   //   }
   // }
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -780,7 +780,7 @@ export default class PositionController {
         }
       }
       // Si no tiene empleados, proceder con la eliminación
-      const positionService = new PositionService()
+      const positionService = new PositionService(i18n)
       const deletePosition = await positionService.delete(currentPosition)
       if (deletePosition) {
         response.status(201)
@@ -900,7 +900,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -913,7 +913,7 @@ export default class PositionController {
         }
       }
 
-      const positionService = new PositionService()
+      const positionService = new PositionService(i18n)
       const showPosition = await positionService.show(positionId)
 
       if (!showPosition) {
@@ -1036,9 +1036,9 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async get({ response }: HttpContext) {
+  async get({ response, i18n }: HttpContext) {
     try {
-      const positionService = new PositionService()
+      const positionService = new PositionService(i18n)
       const positions = await positionService.get()
 
       response.status(200)
@@ -1180,7 +1180,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async assignShift({ request, response }: HttpContext) {
+  async assignShift({ request, response, i18n }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       const departmentId = request.input('departmentId')
@@ -1193,7 +1193,7 @@ export default class PositionController {
         applySince: applySince,
       } as PositionShiftFilterInterface
 
-      const positionService = new PositionService()
+      const positionService = new PositionService(i18n)
       const isValidInfo = await positionService.verifyInfoAssignShift(positionShiftFilterInterface)
       if (isValidInfo.status !== 200) {
         return {

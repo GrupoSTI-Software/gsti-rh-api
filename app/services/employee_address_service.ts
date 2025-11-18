@@ -1,8 +1,15 @@
 import Address from '#models/address'
 import Employee from '#models/employee'
 import EmployeeAddress from '#models/employee_address'
+import { I18n } from '@adonisjs/i18n'
 
 export default class EmployeeAddressService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
+
   async create(employeeAddress: EmployeeAddress) {
     const newEmployeeAddress = new EmployeeAddress()
     newEmployeeAddress.employeeId = employeeAddress.employeeId
@@ -49,11 +56,12 @@ export default class EmployeeAddressService {
       .first()
 
     if (!existEmployee && employeeAddress.employeeId) {
+      const entity = this.t('employee')
       return {
         status: 400,
         type: 'warning',
-        title: 'The employee was not found',
-        message: 'The employee was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...employeeAddress },
       }
     }
@@ -64,19 +72,20 @@ export default class EmployeeAddressService {
       .first()
 
     if (!existAddress && employeeAddress.addressId) {
+      const entity = this.t('address')
       return {
         status: 400,
         type: 'warning',
-        title: 'The address was not found',
-        message: 'The address was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...employeeAddress },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...employeeAddress },
     }
   }

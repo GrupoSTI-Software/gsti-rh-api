@@ -50,6 +50,13 @@ export default class EmployeeEmergencyContactService {
     return employeeEmergencyContact ? employeeEmergencyContact : null
   }
 
+  async getByEmployeeId(employeeId: number) {
+    const employeeEmergencyContacts = await EmployeeEmergencyContact.query()
+      .whereNull('employee_emergency_contact_deleted_at')
+      .where('employee_id', employeeId)
+    return employeeEmergencyContacts
+  }
+
   async verifyInfoExist(employeeEmergencyContact: EmployeeEmergencyContact) {
     const existEmployee = await Employee.query()
       .whereNull('employee_deleted_at')

@@ -109,7 +109,8 @@ export default class AirportController {
    *                           airportElevationFt:
    *                             type: number
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const page = request.input('page', 1)
     const limit = request.input('limit', 10)
     const searchText = request.input('searchText', '')
@@ -125,8 +126,8 @@ export default class AirportController {
 
     const formattedResponse = formatResponse(
       'success',
-      'Successfully fetched',
-      'Resources fetched',
+      t('successfully_fetched'),
+      t('resources_fetched'),
       airports.all(),
       {
         total: airports.total,
@@ -251,7 +252,8 @@ export default class AirportController {
    *                     message:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n}: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(createAirportValidator)
 
@@ -259,13 +261,14 @@ export default class AirportController {
       return response
         .status(201)
         .json(
-          formatResponse('success', 'Successfully action', 'Resource created', airport.toJSON())
+          formatResponse('success', t('successfully_action'),
+          t('resource_created'), airport.toJSON())
         )
     } catch (error) {
       return response
         .status(400)
         .json(
-          formatResponse('error', 'Validation error', 'Invalid input, validation error 400', error)
+          formatResponse('error', t('validation_error'), t('invalid_input_validation_error_400'), error)
         )
     }
   }
@@ -331,7 +334,8 @@ export default class AirportController {
    *                     message:
    *                       type: string
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const airport = await Airport.query()
         .where('airportId', params.id)
@@ -341,12 +345,13 @@ export default class AirportController {
       return response
         .status(200)
         .json(
-          formatResponse('success', 'Successfully action', 'Resource fetched', airport.toJSON())
+          formatResponse('success', t('successfully_fetched'),
+          t('resource_fetched'), airport.toJSON())
         )
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Resource not found', 'Airport not found', error))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 
@@ -473,7 +478,8 @@ export default class AirportController {
    *                       type: string
    */
 
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(updateAirportValidator)
       const airport = await Airport.query()
@@ -487,18 +493,19 @@ export default class AirportController {
       return response
         .status(200)
         .json(
-          formatResponse('success', 'Successfully action', 'Resource updated', airport.toJSON())
+          formatResponse('success', t('successfully_action'),
+          t('resource_updated'), airport.toJSON())
         )
     } catch (error) {
       if (error.code === 'E_ROW_NOT_FOUND') {
         return response
           .status(404)
-          .json(formatResponse('error', 'Resource not found', 'Airport not found', error))
+          .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
       }
       return response
         .status(400)
         .json(
-          formatResponse('error', 'Validation error', 'Invalid input, validation error 400', error)
+          formatResponse('error', t('validation_error'), t('invalid_input_validation_error_400'), error)
         )
     }
   }
@@ -538,7 +545,8 @@ export default class AirportController {
    *                     message:
    *                       type: string
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response,i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const airport = await Airport.query()
         .where('airportId', params.id)
@@ -550,11 +558,11 @@ export default class AirportController {
 
       return response
         .status(200)
-        .json(formatResponse('success', 'Successfully action', 'Resource deleted', {}))
+        .json(formatResponse('success', t('successfully_action'), t('resource_deleted'), {}))
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Resource not found', 'Airport not found', error))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 }

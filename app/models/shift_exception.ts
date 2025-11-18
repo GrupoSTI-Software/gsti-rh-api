@@ -1,11 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import Employee from './employee.js'
 import ExceptionType from './exception_type.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import VacationSetting from './vacation_setting.js'
+import VacationAuthorizationSignature from './vacation_authorization_signature.js'
+import type { HasMany } from '@adonisjs/lucid/types/relations'
 /**
  * @swagger
  * components:
@@ -141,6 +143,9 @@ export default class ShiftException extends compose(BaseModel, SoftDeletes) {
 
   @column.dateTime({ columnName: 'shift_exceptions_deleted_at' })
   declare deletedAt: DateTime | null
+
+  @hasMany(() => VacationAuthorizationSignature)
+  declare vacationAuthorizationSignatures: HasMany<typeof VacationAuthorizationSignature>
 
   @belongsTo(() => Employee, {
     foreignKey: 'employeeId',

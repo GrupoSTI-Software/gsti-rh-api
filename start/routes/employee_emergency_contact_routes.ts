@@ -16,6 +16,10 @@ router
       '/:employeeEmergencyContactId',
       '#controllers/employee_emergency_contact_controller.show'
     )
+    router.get(
+      '/employee/:employeeId',
+      '#controllers/employee_emergency_contact_controller.getByEmployeeId'
+    )
   })
   .prefix('/api/employee-emergency-contacts')
   .use(middleware.auth())

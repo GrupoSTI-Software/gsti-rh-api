@@ -1,8 +1,15 @@
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
 import Position from '#models/position'
+import { I18n } from '@adonisjs/i18n'
 
 export default class DepartmentPositionService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
+
   async syncCreate(departmentId: number, positionId: number) {
     const newDepartmentPosition = new DepartmentPosition()
     newDepartmentPosition.departmentId = departmentId
@@ -50,11 +57,12 @@ export default class DepartmentPositionService {
       .first()
 
     if (!existDepartment && departmentPosition.departmentId) {
+      const entity = this.t('department')
       return {
         status: 400,
         type: 'warning',
-        title: 'The department was not found',
-        message: 'The department was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...departmentPosition },
       }
     }
@@ -65,19 +73,20 @@ export default class DepartmentPositionService {
       .first()
 
     if (!existPosition && departmentPosition.positionId) {
+      const entity = this.t('position')
       return {
         status: 400,
         type: 'warning',
-        title: 'The position was not found',
-        message: 'The position was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { ...departmentPosition },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...departmentPosition },
     }
   }
@@ -93,19 +102,20 @@ export default class DepartmentPositionService {
       .where('position_id', departmentPosition.positionId)
       .first()
     if (existDepartmentPosition) {
+      const entity = `${this.t('relation')} ${this.t('department')} - ${this.t('position')}`
       return {
         status: 400,
         type: 'warning',
-        title: 'The relation department-position already exists',
-        message: `The relation department-position resource cannot be ${action} because the relation is already assigned`,
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_relation_is_already_assigned_to_another_register')}`,
         data: { ...departmentPosition },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...departmentPosition },
     }
   }

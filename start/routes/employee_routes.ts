@@ -46,6 +46,7 @@ router
       '/:employeeId/export-excel',
       '#controllers/employee_controller.exportShiftExceptionsToExcel'
     )
+    router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
 
   })
   .prefix('/api/employees')

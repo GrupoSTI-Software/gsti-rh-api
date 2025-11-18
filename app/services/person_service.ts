@@ -5,8 +5,16 @@ import BiometricEmployeeInterface from '../interfaces/biometric_employee_interfa
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
+import { I18n } from '@adonisjs/i18n'
 
 export default class PersonService {
+
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.i18n = i18n
+  }
+
   async syncCreate(employee: BiometricEmployeeInterface) {
     const newPerson = new Person()
     newPerson.personFirstname = employee.firstName
@@ -64,11 +72,11 @@ export default class PersonService {
       if (newPerson.personBirthday) {
         const birthdayDate = newPerson.personBirthday;
         const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
-        
+
         const currentYear = new Date().getFullYear()
         const month = date.getMonth()
         const day = date.getDate()
-        
+
         let updatedBirthday = new Date(currentYear, month, day)
         if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
           updatedBirthday = new Date(currentYear, 1, 28)
@@ -103,11 +111,11 @@ export default class PersonService {
       if (currentPerson.personBirthday) {
         const birthdayDate = currentPerson.personBirthday;
         const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
-        
+
         const currentYear = new Date().getFullYear()
         const month = date.getMonth()
         const day = date.getDate()
-        
+
         let updatedBirthday = new Date(currentYear, month, day)
         if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
           updatedBirthday = new Date(currentYear, 1, 28)
@@ -117,7 +125,7 @@ export default class PersonService {
       if (personBirthdayPast) {
         const newPersonBirthdayPast = new Date(personBirthdayPast)
         const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
-        const fixedBirthdayString = person.personBirthday.replace('00:000:00', '00:00:00')
+        const fixedBirthdayString = person.personBirthday!.replace('00:000:00', '00:00:00')
 
         const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
         const datePastISO = DateTime.fromJSDate(datePast).toISO()
@@ -267,7 +275,7 @@ export default class PersonService {
         dateEnd: this.formatDate(dateEnd),
         employeeID: employeeId
       }
-      const syncAssistsService = new SyncAssistsService()
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       await syncAssistsService.setDateCalendar(filter)
   }
 

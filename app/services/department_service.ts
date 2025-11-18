@@ -14,8 +14,17 @@ import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import Employee from '#models/employee'
+import { I18n } from '@adonisjs/i18n'
 
 export default class DepartmentService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+  private i18n: I18n
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+    this.i18n = i18n
+  }
+
   async index(departmentsList: Array<number>, filters?: DepartmentIndexFilterInterface) {
     const businessConf = `${env.get('SYSTEM_BUSINESS')}`
     const businessList = businessConf.split(',')
@@ -218,7 +227,7 @@ export default class DepartmentService {
   }
 
   async addPosition(department: Department) {
-    const positionService = new PositionService()
+    const positionService = new PositionService(this.i18n)
     const newPosition: BiometricPositionInterface = {
       id: 0,
       positionName: department.departmentName,
@@ -245,19 +254,20 @@ export default class DepartmentService {
   }
 
   async assignShift(filters: DepartmentShiftFilterInterface) {
-    const employeeShiftService = new EmployeeShiftService()
+    const employeeShiftService = new EmployeeShiftService(this.i18n)
     if (!employeeShiftService.isValidDate(filters.applySince)) {
+      const entity = this.t('date')
       return {
         status: 400,
         type: 'error',
-        title: 'Validation error',
-        message: 'Date is invalid',
+        title: this.t('validation_error'),
+        message: this.t('entity_is_not_valid', { entity }),
         data: null,
       }
     }
     const page = 1
     const limit = 999999999999999
-    const employeeService = new EmployeeService()
+    const employeeService = new EmployeeService(this.i18n)
     const departmentId = filters.departmentId
     const departmentPositions = await DepartmentPosition.query()
       .whereNull('department_position_deleted_at')
@@ -300,8 +310,8 @@ export default class DepartmentService {
     return {
       status: 201,
       type: 'success',
-      title: 'Successfully action',
-      message: 'Resource created',
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
       data: { warnings },
     }
   }
@@ -314,11 +324,12 @@ export default class DepartmentService {
         .first()
 
       if (!existDepartmentParent && department.parentDepartmentId) {
+        const entity = `${this.t('department')}-${this.t('parent')}`
         return {
           status: 400,
           type: 'warning',
-          title: 'The department parent was not found',
-          message: 'The department parent was not found with the entered ID',
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
           data: { ...department },
         }
       }
@@ -326,8 +337,8 @@ export default class DepartmentService {
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...department },
     }
   }
@@ -343,19 +354,21 @@ export default class DepartmentService {
       .first()
 
     if (existCode && department.departmentCode) {
+      const entity = this.t('department')
+      const param = `${this.t('department')} ${this.t('code')}`
       return {
         status: 400,
         type: 'warning',
-        title: 'The department code already exists for another department',
-        message: `The department resource cannot be ${action} because the code is already assigned to another department`,
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
+        message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
         data: { ...department },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...department },
     }
   }
@@ -364,11 +377,12 @@ export default class DepartmentService {
     const departmentId = filter.departmentId
     const shiftId = filter.shiftId
     if (!departmentId) {
+      const entity = this.t('department')
       return {
         status: 400,
         type: 'warning',
-        title: 'The department Id was not found',
-        message: 'Missing data to process',
+        title: this.t('resource'),
+        message: this.t('entity_id_was_not_found', { entity }),
         data: { departmentId },
       }
     }
@@ -377,20 +391,22 @@ export default class DepartmentService {
       .where('department_id', departmentId)
       .first()
     if (!currentDepartment) {
+      const entity = this.t('department')
       return {
         status: 404,
         type: 'warning',
-        title: 'The department was not found',
-        message: 'The department was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { departmentId },
       }
     }
     if (!shiftId) {
+      const entity = this.t('shift')
       return {
         status: 400,
         type: 'warning',
-        title: 'The shift Id was not found',
-        message: 'Missing data to process',
+        title: this.t('resource'),
+        message: this.t('entity_id_was_not_found', { entity }),
         data: { shiftId },
       }
     }
@@ -399,19 +415,20 @@ export default class DepartmentService {
       .where('shift_id', shiftId)
       .first()
     if (!currentShift) {
+      const entity = this.t('shift')
       return {
         status: 404,
         type: 'warning',
-        title: 'The shift was not found',
-        message: 'The shift was not found with the entered ID',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found_with_entered_id', { entity }),
         data: { shiftId },
       }
     }
     return {
       status: 200,
       type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...filter },
     }
   }

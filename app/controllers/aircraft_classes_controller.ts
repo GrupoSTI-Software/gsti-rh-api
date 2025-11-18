@@ -77,7 +77,8 @@ export default class AircraftClassController {
    *                           aircraftClassStatus:
    *                             type: boolean
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const page = request.input('page', 1)
     const limit = request.input('limit', 10)
     const searchText = request.input('searchText', '')
@@ -93,8 +94,8 @@ export default class AircraftClassController {
 
     const formattedResponse = formatResponse(
       'success',
-      'Successfully fetched',
-      'Resources fetched',
+      t('successfully_fetched'),
+      t('resources_fetched'),
       classes.all(),
       {
         total: classes.total,
@@ -227,7 +228,8 @@ export default class AircraftClassController {
    *                     message:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(createAircraftClassValidator)
 
@@ -239,7 +241,7 @@ export default class AircraftClassController {
         } else {
           return response
             .status(500)
-            .json(formatResponse('error', 'Upload error', 'Failed to upload file to S3', bannerUrl))
+            .json(formatResponse('error', t('upload_error'), t('failed_to_upload_file_to_s3'), bannerUrl))
         }
       }
 
@@ -251,8 +253,8 @@ export default class AircraftClassController {
         .json(
           formatResponse(
             'success',
-            'Successfully action',
-            'Resource created',
+            t('successfully_action'),
+            t('resource_created'),
             aircraftClass.toJSON()
           )
         )
@@ -260,7 +262,7 @@ export default class AircraftClassController {
       return response
         .status(400)
         .json(
-          formatResponse('error', 'Validation error', 'Invalid input, validation error 400', error)
+          formatResponse('error', t('validation_error'), t('invalid_input_validation_error_400'), error)
         )
     }
   }
@@ -328,7 +330,8 @@ export default class AircraftClassController {
    *                     message:
    *                       type: string
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftClass = await AircraftClass.query()
         .where('aircraftClassId', params.id)
@@ -339,15 +342,15 @@ export default class AircraftClassController {
         .json(
           formatResponse(
             'success',
-            'Successfully fetched',
-            'Resource fetched',
+            t('successfully_fetched'),
+            t('resource_fetched'),
             aircraftClass.toJSON()
           )
         )
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Not Found', 'Resource not found', 'NO DATA'))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 
@@ -451,7 +454,8 @@ export default class AircraftClassController {
    *                     message:
    *                       type: string
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(updateAircraftClassValidator)
 
@@ -464,7 +468,7 @@ export default class AircraftClassController {
         } else {
           return response
             .status(500)
-            .json(formatResponse('error', 'Upload error', 'Failed to upload file to S3', bannerUrl))
+            .json(formatResponse('error', t('upload_error'), t('failed_to_upload_file_to_s3'), bannerUrl))
         }
       }
       if (data.aircraftClassName) {
@@ -477,8 +481,8 @@ export default class AircraftClassController {
         .json(
           formatResponse(
             'success',
-            'Successfully action',
-            'Resource updated',
+            t('successfully_action'),
+            t('resource_updated'),
             aircraftClass.toJSON()
           )
         )
@@ -486,7 +490,7 @@ export default class AircraftClassController {
       return response
         .status(400)
         .json(
-          formatResponse('error', 'Validation error', 'Invalid input, validation error 400', error)
+          formatResponse('error', t('validation_error'), t('invalid_input_validation_error_400'), error)
         )
     }
   }
@@ -542,18 +546,19 @@ export default class AircraftClassController {
    *                     message:
    *                       type: string
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraftClass = await AircraftClass.findOrFail(params.id)
       aircraftClass.aircraftClassDeletedAt = DateTime.now()
       await aircraftClass.save()
       return response
         .status(200)
-        .json(formatResponse('success', 'Successfully action', 'Resource deleted', {}))
+        .json(formatResponse('success', t('successfully_action'), t('resource_deleted'), {}))
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Not Found', 'Resource not found', error))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 }

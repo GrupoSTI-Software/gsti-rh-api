@@ -89,7 +89,8 @@ export default class AircraftsController {
    *                             type: string
    *                             format: date-time
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const page = request.input('page', 1)
     const limit = request.input('limit', 10)
     const searchText = request.input('searchText', '')
@@ -112,8 +113,8 @@ export default class AircraftsController {
 
     const formattedResponse = formatResponse(
       'success',
-      'Successfully fetched',
-      'Resources fetched',
+      t('successfully_fetched'),
+      t('resources_fetched'),
       aircrafts.all(),
       {
         total: aircrafts.total,
@@ -195,7 +196,8 @@ export default class AircraftsController {
    *                       type: string
    *                       format: date-time
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(createAircraftValidator)
       const aircraft = await Aircraft.create(data)
@@ -221,13 +223,14 @@ export default class AircraftsController {
       return response
         .status(201)
         .json(
-          formatResponse('success', 'Successfully action', 'Resource created', aircraftResponse)
+          formatResponse('success', t('successfully_action'),
+          t('resource_created'), aircraftResponse)
         )
     } catch (error) {
       return response
         .status(400)
         .json(
-          formatResponse('error', 'Validation error', 'Invalid input, validation error 400', error)
+          formatResponse('error', t('validation_error'), t('invalid_input_validation_error_400'), error)
         )
     }
   }
@@ -301,7 +304,8 @@ export default class AircraftsController {
    *       404:
    *         description: "Aircraft not found"
    */
-  async show({ params, response, request }: HttpContext) {
+  async show({ params, response, request, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const date = request.input('date')
       const aircraftQuery = Aircraft.query()
@@ -336,12 +340,13 @@ export default class AircraftsController {
       return response
         .status(200)
         .json(
-          formatResponse('success', 'Successfully fetched', 'Resource fetched', aircraft.toJSON())
+          formatResponse('success', t('successfully_fetched'),
+          t('resource_fetched'), aircraft.toJSON())
         )
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Not Found', 'Resource not found', 'NO DATA'))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 
@@ -430,7 +435,8 @@ export default class AircraftsController {
    *       404:
    *         description: "Aircraft not found"
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const data = await request.validateUsing(updateAircraftValidator)
       const aircraft = await Aircraft.findOrFail(params.id)
@@ -476,14 +482,15 @@ export default class AircraftsController {
       return response
         .status(200)
         .json(
-          formatResponse('success', 'Successfully action', 'Resource updated', aircraftResponse)
+          formatResponse('success', t('successfully_action'),
+          t('resource_updated'), aircraftResponse)
         )
     } catch (error) {
-      console.error('Update Aircraft Error:', error)
+      console.error(t('validation_error'), error)
 
       const errorResponse = {
-        message: 'Validation error',
-        details: error?.message || 'Unknown error',
+        message: t('validation_error'),
+        details: error?.message || t('unknown_error'),
         ...(error?.messages ? { messages: error.messages } : {}),
       }
       return response
@@ -491,8 +498,7 @@ export default class AircraftsController {
         .json(
           formatResponse(
             'error',
-            'Validation error',
-            'Invalid input, validation error 400',
+            t('validation_error'), t('invalid_input_validation_error_400'),
             errorResponse
           )
         )
@@ -530,18 +536,19 @@ export default class AircraftsController {
    *       404:
    *         description: "Aircraft not found"
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const aircraft = await Aircraft.findOrFail(params.id)
       aircraft.aircraftDeletedAt = DateTime.now()
       await aircraft.save()
       return response
         .status(200)
-        .json(formatResponse('success', 'Successfully deleted', 'Resource deleted', 'NO CONTENT'))
+        .json(formatResponse('success', t('successfully_action'), t('resource_deleted'), {}))
     } catch (error) {
       return response
         .status(404)
-        .json(formatResponse('error', 'Not Found', 'Resource not found', 'NO DATA'))
+        .json(formatResponse('error', t('not_found'), t('resource_not_found'), error))
     }
   }
 }

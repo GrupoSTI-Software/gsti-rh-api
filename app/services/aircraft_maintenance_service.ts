@@ -7,6 +7,11 @@ import { GenericFilterSearchInterface } from '../interfaces/generic_filter_searc
 // Importa aquí otros modelos si necesitas verificar datos (ej. Customer, Pilot, etc.)
 
 export default class AircraftMaintenanceService {
+  private t: (key: string,params?: { [key: string]: string | number }) => string
+
+  constructor(i18n: any) {
+    this.t = i18n.formatMessage.bind(i18n)
+  }
   /**
    * Listado de reservations con paginación y/o filtros
    */
@@ -133,49 +138,60 @@ export default class AircraftMaintenanceService {
     // Aquí podrías verificar si la FK customerId existe, etc.
     // O si existe el pilotPicId, pilotSicId, etc.
     // verify that the customer exists
-    const aircraft = await Aircraft.findOrFail(aircraftMaintenance.aircraftId)
+    const aircraft = await Aircraft.query()
+      .whereNull('aircraft_deleted_at')
+      .where('aircraft_id',aircraftMaintenance.aircraftId)
+      .first()
     if (!aircraft) {
+      const entity = this.t('aircraft')
       return {
         status: 400,
         type: 'error',
-        title: 'aircraft not found',
-        message: 'aircraft not found',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found', { entity }),
       }
     }
 
     // verify that the pilotPic exists
-    const maintenanceType = await MaintenanceType.findOrFail(aircraftMaintenance.maintenanceTypeId)
+    const maintenanceType = await MaintenanceType.query()
+      .whereNull('maintenance_type_deleted_at')
+      .where('maintenance_type_id',aircraftMaintenance.maintenanceTypeId).first()
     if (!maintenanceType) {
+      const entity = this.t('maintenance_type')
       return {
         status: 400,
         type: 'error',
-        title: 'Maintenance Type not found',
-        message: 'Maintenance Type not found',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found', { entity }),
       }
     }
     // verify that the pilotSic exists
-    const aircraftMaintenanceStatus = await AircraftMaintenanceStatus.findOrFail(
-      aircraftMaintenance.aircraftMaintenanceStatusId
-    )
+    const aircraftMaintenanceStatus = await AircraftMaintenanceStatus.query()
+      .whereNull('aircraft_maintenance_status_deleted_at')
+      .where('aircraft_maintenance_status_id',aircraftMaintenance.aircraftMaintenanceStatusId)
+      .first()
     if (!aircraftMaintenanceStatus) {
+      const entity = this.t('aircraft_maintenance_status')
       return {
         status: 400,
         type: 'error',
-        title: 'Aircraft Maintenance Status not found',
-        message: 'Aircraft Maintenance Status not found',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found', { entity }),
       }
     }
 
     // verify that the flightAttendant exists
-    const aircraftMaintenanceUrgencyLevel = await AircraftMaintenanceUrgencyLevel.findOrFail(
-      aircraftMaintenance.maintenanceUrgencyLevelId
-    )
+    const aircraftMaintenanceUrgencyLevel = await AircraftMaintenanceUrgencyLevel.query()
+      .whereNull('maintenance_urgency_level_deleted_at')
+      .where('maintenance_urgency_level_id',aircraftMaintenance.maintenanceUrgencyLevelId)
+      .first()
     if (!aircraftMaintenanceUrgencyLevel) {
+      const entity = this.t('aircraft_maintenance_urgency_level')
       return {
         status: 400,
         type: 'error',
-        title: 'Aircraft Maintenance Urgency Level not found',
-        message: 'Aircraft Maintenance Urgency Level not found',
+        title: this.t('entity_was_not_found', { entity }),
+        message: this.t('entity_was_not_found', { entity }),
       }
     }
 
@@ -187,8 +203,8 @@ export default class AircraftMaintenanceService {
       return {
         status: 400,
         type: 'error',
-        title: 'Start date is after end date',
-        message: 'Start date is after end date',
+        title: this.t('start_date_is_after_end_date'),
+        message: this.t('start_date_is_after_end_date'),
       }
     }
     let dateStartString = aircraftMaintenance.aircraftMaintenanceStartDate.toString()
@@ -210,16 +226,16 @@ export default class AircraftMaintenanceService {
       return {
         status: 400,
         type: 'error',
-        title: 'Already exist maintenance in the same date',
-        message: 'Already exist maintenance in the same date',
+        title: this.t('already_exist_maintenance_in_the_same_date'),
+        message: this.t('already_exist_maintenance_in_the_same_date'),
       }
     }
 
     return {
       status: 200,
       type: 'success',
-      title: 'Info verified successfully',
-      message: 'Info verified successfully',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
       data: { ...aircraftMaintenance },
     }
   }

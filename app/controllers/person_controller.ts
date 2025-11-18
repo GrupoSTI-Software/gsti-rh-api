@@ -116,7 +116,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, i18n }: HttpContext) {
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -126,7 +126,7 @@ export default class PersonController {
         page: page,
         limit: limit,
       } as PersonFilterSearchInterface
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       const persons = await personService.index(filters)
       response.status(200)
       return {
@@ -297,7 +297,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
     try {
       const personFirstname = request.input('personFirstname')
       const personLastname = request.input('personLastname')
@@ -324,7 +324,7 @@ export default class PersonController {
         personRfc: personRfc,
         personImssNss: personImssNss,
       } as Person
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       await request.validateUsing(createPersonValidator)
       const newPerson = await personService.create(person)
       if (newPerson) {
@@ -505,7 +505,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
     try {
       const personId = request.param('personId')
       const personFirstname = request.input('personFirstname')
@@ -566,7 +566,7 @@ export default class PersonController {
           data: { ...person },
         }
       }
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       const data = await request.validateUsing(updatePersonValidator)
       const verifyInfo = await personService.verifyInfo(person)
       if (verifyInfo.status !== 200) {
@@ -700,7 +700,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     try {
       const personId = request.param('personId')
       if (!personId) {
@@ -725,7 +725,7 @@ export default class PersonController {
           data: { personId },
         }
       }
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       const deletePerson = await personService.delete(currentPerson)
       if (deletePerson) {
         response.status(201)
@@ -846,7 +846,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
     try {
       const personId = request.param('personId')
       if (!personId) {
@@ -858,7 +858,7 @@ export default class PersonController {
           data: { personId },
         }
       }
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       const showPerson = await personService.show(personId)
       if (!showPerson) {
         response.status(404)
@@ -987,7 +987,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async getEmployee({ request, response }: HttpContext) {
+  async getEmployee({ request, response, i18n }: HttpContext) {
     try {
       const personId = request.param('personId')
       if (!personId) {
@@ -999,7 +999,7 @@ export default class PersonController {
           data: { personId },
         }
       }
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       const employee = await personService.getEmployee(personId)
       if (!employee) {
         response.status(404)
@@ -1132,11 +1132,11 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async getPlacesOfBirth({ request, response }: HttpContext) {
+  async getPlacesOfBirth({ request, response, i18n }: HttpContext) {
     try {
       const search = request.input('search')
       const field = request.input('field')
-      const personService = new PersonService()
+      const personService = new PersonService(i18n)
       const places = await personService.getPlacesOfBirth(search, field)
       response.status(200)
       return {

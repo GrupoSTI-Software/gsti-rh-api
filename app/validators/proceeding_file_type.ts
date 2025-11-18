@@ -17,3 +17,11 @@ export const updateProceedingFileTypeValidator = vine.compile(
     proceedingFileTypeActive: vine.boolean().optional(),
   })
 )
+
+export const createEmployeeProceedingFileTypeValidator = vine.compile(
+  vine.object({
+    proceedingFileTypeName: vine.string().trim().minLength(1).maxLength(100),
+    parentId: vine.number().optional(),
+    proceedingFileTypeActive: vine.boolean().optional(),
+  })
+)
