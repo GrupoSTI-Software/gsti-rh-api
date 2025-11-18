@@ -5803,7 +5803,7 @@ export default class EmployeeController {
    *                   type: string
    *                   description: Detailed error information
    */
-  async inverseSync({ request, response }: HttpContext) {
+  async inverseSync({ request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
 
@@ -5816,7 +5816,7 @@ export default class EmployeeController {
         }
       }
 
-      const employeeService = new EmployeeService()
+      const employeeService = new EmployeeService(i18n)
       const result = await employeeService.sendEmployeeToBiometrics(employeeId)
 
       if (!result.success) {
