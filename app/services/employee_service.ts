@@ -27,7 +27,7 @@ import VacationAuthorizationSignature from '#models/vacation_authorization_signa
 import SystemSettingsEmployee from '#models/system_settings_employee'
 import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
-
+import ExcelJS from 'exceljs'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -1846,8 +1846,6 @@ export default class EmployeeService {
    * Import employees from Excel file
    */
   async importFromExcel(file: any) {
-    const ExcelJSModule = await import('exceljs')
-    const ExcelJS = ExcelJSModule.default
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -3166,4 +3164,197 @@ export default class EmployeeService {
     // Por defecto, ordenamiento ascendente
     return 'asc'
   }
+/**
+ * Generar plantilla de Excel para importación masiva de empleados
+ * Incluye dropdowns dinámicos para departamentos y sus posiciones asociadas
+ */
+async generateImportTemplate(): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Empleados')
+
+  // Obtener unidades de negocio activas
+  const businessUnits = await BusinessUnit.query()
+    .where('business_unit_active', 1)
+    .whereNull('business_unit_deleted_at')
+    .orderBy('business_unit_name')
+    .select('businessUnitName')
+
+  const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
+
+  // Obtener departamentos activos con sus posiciones
+  const departments = await Department.query()
+    .whereNull('department_deleted_at')
+    .preload('departmentPositions', (query) => {
+      query.preload('position', (posQuery) => {
+        posQuery.whereNull('position_deleted_at')
+        posQuery.where('position_active', 1)
+      })
+    })
+    .orderBy('department_name')
+
+  const departmentNames = departments.map(dept => dept.departmentName).filter(Boolean)
+
+  // ==============================
+  //   HOJA OCULTA PARA DROPDOWNS
+  // ==============================
+  const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
+
+  // Unidades de negocio → Columna A (A1:A...)
+  businessUnitNames.forEach((name, i) => {
+    listSheet.getCell(i + 1, 1).value = name
+  })
+
+  // Departamentos → Columna B (B1:B...)
+  departmentNames.forEach((name, i) => {
+    listSheet.getCell(i + 1, 2).value = name
+  })
+
+  // ==============================
+  //   MAPEO DEPARTAMENTO-POSICIONES
+  //   Columnas C (Departamento) y D (Posición)
+  // ==============================
+  let currentRow = 1
+
+  departments.forEach((dept) => {
+    const deptName = dept.departmentName
+    if (!deptName) return
+
+    const positions = dept.departmentPositions
+      .map(dp => dp.position?.positionName)
+      .filter(Boolean)
+
+    // Escribir departamento y sus posiciones
+    positions.forEach((posName) => {
+      listSheet.getCell(currentRow, 3).value = deptName
+      listSheet.getCell(currentRow, 4).value = posName
+      currentRow++
+    })
+  })
+
+  // Rango para validación
+  const businessUnitRange = `Listas!$A$1:$A$${businessUnitNames.length}`
+  const departmentRange = `Listas!$B$1:$B$${departmentNames.length}`
+
+  // ==============================
+  //       ENCABEZADOS
+  // ==============================
+  const headers = [
+    'Identificador de nómina',
+    'Unidad de negocio de trabajo',
+    'Unidad de negocio de nómina',
+    'Nombre del empleado',
+    'Apellido paterno del empleado',
+    'Apellido materno del empleado',
+    'Fecha de contratación (yyyy/mm/dd)',
+    'Departamento',
+    'Posición',
+    'Salario diario',
+    'Fecha de nacimiento (dd/mm/yyyy)',
+    'CURP',
+    'RFC',
+    'NSS'
+  ]
+
+  const headerRow = worksheet.addRow(headers)
+  headerRow.height = 30
+
+  const headerColor = 'D6FFDC'
+  const headerTextColor = '001A04'
+
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: headerColor }
+    }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } }
+    }
+  })
+
+  // ==============================
+  //     ANCHO DE COLUMNAS
+  // ==============================
+  const columnWidths = [25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20]
+  columnWidths.forEach((width, index) => {
+    worksheet.getColumn(index + 1).width = width
+  })
+
+  // ==============================
+  //    VALIDACIONES (DROPDOWNS)
+  // ==============================
+  for (let row = 2; row <= 1000; row++) {
+    // Unidad de negocio de trabajo (columna B)
+    worksheet.getCell(row, 2).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [businessUnitRange],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione una unidad de negocio válida'
+    }
+
+    // Unidad de negocio de nómina (columna C)
+    worksheet.getCell(row, 3).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [businessUnitRange],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione una unidad de negocio válida'
+    }
+
+    // Departamento (columna H)
+    worksheet.getCell(row, 8).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [departmentRange],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione un departamento válido'
+    }
+
+    // Posición (columna I) - DROPDOWN DINÁMICO usando INDIRECT con rango filtrado
+    // Esta fórmula busca en la hoja Listas todas las posiciones que corresponden al departamento seleccionado
+    const positionFormula = `INDIRECT("Listas!$D$"&MATCH(H${row},Listas!$C:$C,0)&":$D$"&(MATCH(H${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,H${row})-1))`
+
+    worksheet.getCell(row, 9).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [positionFormula],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Primero seleccione un departamento válido'
+    }
+  }
+
+  // ==============================
+  //       FORMATOS DE COLUMNA
+  // ==============================
+  worksheet.getColumn(7).numFmt = 'yyyy/mm/dd' // Fecha contratación
+  worksheet.getColumn(11).numFmt = 'dd/mm/yyyy' // Fecha nacimiento
+  worksheet.getColumn(10).numFmt = '#,##0.00' // Salario diario
+
+  // ==============================
+  //     CONGELAR ENCABEZADOS
+  // ==============================
+  worksheet.views = [
+    { state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }
+  ]
+
+  // ==============================
+  //       GENERAR ARCHIVO
+  // ==============================
+  const buffer = await workbook.xlsx.writeBuffer()
+  return Buffer.from(buffer)
+}
 }
