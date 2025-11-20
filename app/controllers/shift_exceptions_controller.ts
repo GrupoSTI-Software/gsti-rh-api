@@ -886,6 +886,7 @@ export default class ShiftExceptionController {
           ? DateTime.fromJSDate(new Date(shiftExceptionsDate)).setZone('UTC')
           : null
       }
+      const shiftExceptionsDateISO = shiftExceptionsDate ? shiftExceptionsDate.toISODate() : null
       if (!exceptionTypeId) {
         response.status(400)
         return {
@@ -913,6 +914,28 @@ export default class ShiftExceptionController {
 
       const shiftExceptionCheckInTime = request.input('shiftExceptionCheckInTime')
       const shiftExceptionCheckOutTime = request.input('shiftExceptionCheckOutTime')
+      const employeeIdsInput = request.input('employeeIds')
+      const departmentIdInput = request.input('departmentId')
+      const positionIdInput = request.input('positionId')
+
+      const employeeIds = Array.isArray(employeeIdsInput)
+        ? Array.from(new Set(
+          employeeIdsInput
+            .map((id) => {
+              const parsed = Number(id)
+              return Number.isFinite(parsed) ? parsed : null
+            })
+            .filter((id): id is number => !!id && id > 0)
+        ))
+        : []
+
+      const departmentId = departmentIdInput !== undefined && departmentIdInput !== null && departmentIdInput !== ''
+        ? Number(departmentIdInput)
+        : null
+
+      const positionId = positionIdInput !== undefined && positionIdInput !== null && positionIdInput !== ''
+        ? Number(positionIdInput)
+        : null
 
       const shiftExceptionsSaved = [] as Array<ShiftException>
       const shiftExceptionsError = [] as Array<ShiftExceptionGeneralErrorInterface>
@@ -926,20 +949,34 @@ export default class ShiftExceptionController {
 
       const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
-      const employees = await Employee.query()
+      const employeesQuery = Employee.query()
         .whereIn('businessUnitId', businessUnitsList)
         .preload('person')
         .orderBy('employee_id')
+
+      if (employeeIds.length > 0) {
+        employeesQuery.whereIn('employee_id', employeeIds)
+      } else {
+        if (departmentId) {
+          employeesQuery.where('department_id', departmentId)
+        }
+        if (positionId) {
+          employeesQuery.where('position_id', positionId)
+        }
+      }
+
+      const employees = await employeesQuery
       const results = await Promise.allSettled(
         employees.map(async (employee) => {
           const shiftException = {
               employeeId: employee.employeeId,
               shiftExceptionsDescription: shiftExceptionsDescription,
-                shiftExceptionsDate: shiftExceptionsDate.toISODate(),
-                exceptionTypeId: exceptionTypeId, shiftExceptionCheckInTime: shiftExceptionCheckInTime,
-                shiftExceptionCheckOutTime: shiftExceptionCheckOutTime ? shiftExceptionCheckOutTime : null,
-                shiftExceptionEnjoymentOfSalary: 1
-                } as ShiftException
+              shiftExceptionsDate: shiftExceptionsDateISO,
+              exceptionTypeId: exceptionTypeId,
+              shiftExceptionCheckInTime: shiftExceptionCheckInTime,
+              shiftExceptionCheckOutTime: shiftExceptionCheckOutTime ? shiftExceptionCheckOutTime : null,
+              shiftExceptionEnjoymentOfSalary: 1
+            } as ShiftException
 
           try {
             const shiftExceptionService = new ShiftExceptionService(i18n)
@@ -949,7 +986,7 @@ export default class ShiftExceptionController {
               return {
                 success: false,
                 data: {
-                  shiftExceptionsDate: shiftExceptionsDate.toISODate(),
+                  shiftExceptionsDate: shiftExceptionsDateISO,
                   employee,
                   error: verifyInfo.message,
                 },
@@ -993,7 +1030,7 @@ export default class ShiftExceptionController {
             return {
               success: false,
               data: {
-                shiftExceptionsDate: shiftExceptionsDate.toISODate(),
+                shiftExceptionsDate: shiftExceptionsDateISO,
                 employee,
                 error: error.message,
               },
@@ -1016,8 +1053,8 @@ export default class ShiftExceptionController {
             })
           }
         } else {
-          shiftExceptionsError.push({
-            shiftExceptionsDate: shiftExceptionsDate.toISODate(),
+            shiftExceptionsError.push({
+              shiftExceptionsDate: shiftExceptionsDateISO,
             employee: {} as Employee,
             error: result.reason?.message || 'Unexpected error',
           })
