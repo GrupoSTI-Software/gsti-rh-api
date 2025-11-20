@@ -191,7 +191,7 @@ export default class EmployeeService {
         query.where((subQuery) => {
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -267,7 +267,7 @@ export default class EmployeeService {
       .preload('address')
       .if(filters.orderBy === 'number', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
-        query.orderByRaw(`CAST(employee_code AS UNSIGNED) ${direction}, employee_code ${direction}`)
+        query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
       })
       .if(filters.orderBy === 'name', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
@@ -1208,7 +1208,7 @@ export default class EmployeeService {
             .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
               `%${filters.search.toUpperCase()}%`,
             ])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -1279,7 +1279,7 @@ export default class EmployeeService {
             .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
               `%${filters.search.toUpperCase()}%`,
             ])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -1355,7 +1355,7 @@ export default class EmployeeService {
             .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
               `%${filters.search.toUpperCase()}%`,
             ])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,

@@ -40,7 +40,7 @@ export default class EmployeeVacationService {
               .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
               ])
-              .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+              .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
               .orWhereHas('person', (personQuery) => {
                 personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                   `%${filters.search.toUpperCase()}%`,
@@ -250,8 +250,8 @@ export default class EmployeeVacationService {
         daysUsed = yearsWorked.data.vacationUsedList ? yearsWorked.data.vacationUsedList.length : 0
       }
       const newRow = {
-        employeeCode: employee.employeeCode.toString(),
-        employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`, 
+        employeeCode: employee.employeePayrollCode?.toString() || '',
+        employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
         department: employee.department ? employee.department.departmentName : '',
         position: employee.position ? employee.position.positionName : '',
         employeeHireDate: employee.employeeHireDate
@@ -316,7 +316,7 @@ export default class EmployeeVacationService {
               .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
               ])
-              .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+              .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
               .orWhereHas('person', (personQuery) => {
                 personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                   `%${filters.search.toUpperCase()}%`,
@@ -394,29 +394,29 @@ export default class EmployeeVacationService {
         error: error.message,
       }
     }
-  }  
-  
+  }
+
   async addEmployeesVacationUsed(employees: Employee[], year: number) {
     const rows = [] as EmployeeVacationUsedDaysExcelRowInterface[]
     for await (const employee of employees) {
       let vacationsUsedList = [] as Array<ShiftException>
-    
+
         vacationsUsedList = await ShiftException.query()
           .whereNull('shift_exceptions_deleted_at')
           .where('employee_id', employee.employeeId)
           .whereRaw('YEAR(shift_exceptions_date) = ?', [year ? year : 0])
           .whereNotNull('vacation_setting_id')
           .orderBy('shift_exceptions_date', 'asc')
-  
+
       const vacationsUsed = [] as Array<string>
-     
-        
+
+
         if (vacationsUsedList.length > 0) {
           for await (const shiftException of vacationsUsedList) {
             vacationsUsed.push(this.getDateFromHttp(shiftException.shiftExceptionsDate.toString()))
             const newRow = {
               date: this.getDateFromHttp(shiftException.shiftExceptionsDate.toString()),
-              employeeCode: employee.employeeCode.toString(),
+              employeeCode: employee.employeePayrollCode?.toString() || '',
               employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
               department: employee.department ? employee.department.departmentName : '',
               position: employee.position ? employee.position.positionName : '',
@@ -432,13 +432,13 @@ export default class EmployeeVacationService {
     rows.sort((a, b) => {
       const dateA = new Date(a.date)
       const dateB = new Date(b.date)
-    
+
       if (dateA < dateB) return -1
       if (dateA > dateB) return 1
-    
+
       if (a.employeeCode < b.employeeCode) return -1
       if (a.employeeCode > b.employeeCode) return 1
-    
+
       return 0
     })
     const fillColors = ['9FC5E8', 'CFE2F3']
@@ -564,7 +564,7 @@ export default class EmployeeVacationService {
     columnD.alignment = { vertical: 'middle', horizontal: 'left' }
     const columnE = worksheet.getColumn(5)
     columnE.width = 64
-   
+
     worksheet.views = [
       { state: 'frozen', ySplit: 1 }, // Fija la primera fila
       { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
@@ -605,7 +605,7 @@ export default class EmployeeVacationService {
               .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
               ])
-              .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+              .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
               .orWhereHas('person', (personQuery) => {
                 personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                   `%${filters.search.toUpperCase()}%`,
@@ -675,13 +675,13 @@ export default class EmployeeVacationService {
       for (let year = startYear; year <= end.year; year++) {
         years.push(year)
       }
-      const title = `Vacations Control Summary, ${start.toFormat('DDD')} to ${end.toFormat('DDD')}` 
+      const title = `Vacations Control Summary, ${start.toFormat('DDD')} to ${end.toFormat('DDD')}`
       const sheet = workbook.addWorksheet('Vacations Control Summary')
       await this.addHeadRowSummary(workbook, sheet, title, years)
       const rows = await this.addEmployeesSummary(employees, years)
       await this.addRowToWorkSheetSummary(rows, sheet)
       this.paintBorderAllSummary(sheet, rows.length, years)
-     
+
       // Crear un buffer del archivo Excel
       const buffer = await workbook.xlsx.writeBuffer()
       return {
@@ -732,7 +732,7 @@ export default class EmployeeVacationService {
       'Position',
       'Hire Date',
     ]
-   
+
     // Agregar los encabezados al worksheet
     const headerRow = worksheet.addRow(headers)
     color = '156082'
@@ -749,22 +749,22 @@ export default class EmployeeVacationService {
     const labels = ['Years', 'Vac', 'Used', 'Rest', 'Acc. Disp.']
     let startColIndex = 7
     const rowNumber = 3
-  
+
     for (const year of years) {
       const startColLetter = worksheet.getColumn(startColIndex).letter
       const endColLetter = worksheet.getColumn(startColIndex + 4).letter
       const cellRange = `${startColLetter}${rowNumber}:${endColLetter}${rowNumber}`
-  
+
       for (let i = 0; i < 5; i++) {
         worksheet.getColumn(startColIndex + i).width = 8.43
       }
-  
+
       worksheet.mergeCells(cellRange)
       cell = worksheet.getCell(`${startColLetter}${rowNumber}`)
       cell.value = year
       cell.alignment = { horizontal: 'center', vertical: 'middle' }
       cell.font = { bold: true, color: { argb: 'FFFFFF' } }
-     
+
       color = '156082'
       for (let col = startColIndex; col <= startColIndex + 4; col++) {
         cell = worksheet.getCell(3, col)
@@ -790,11 +790,11 @@ export default class EmployeeVacationService {
       }
       startColIndex += 6
     }
-    
-   
+
+
     const columnA = worksheet.getColumn(1)
     columnA.width = 15
-    
+
     columnA.alignment = { vertical: 'middle', horizontal: 'center' }
     const columnB = worksheet.getColumn(2)
     columnB.width = 40
@@ -808,7 +808,7 @@ export default class EmployeeVacationService {
     const columnE = worksheet.getColumn(5)
     columnE.width = 16
     columnE.alignment = { vertical: 'middle', horizontal: 'center' }
-  
+
     worksheet.views = [
       { state: 'frozen', ySplit: 1 },
       { state: 'frozen', ySplit: 2 },
@@ -824,6 +824,7 @@ export default class EmployeeVacationService {
   async addRowToWorkSheetSummary(rows: EmployeeVacationExcelRowSummaryInterface[], worksheet: ExcelJS.Worksheet) {
     for await (const rowData of rows) {
       const row: (string | number)[] = [
+        rowData.employeePayrollCode,
         rowData.employeeCode,
         rowData.employeeName,
         rowData.department,
@@ -863,14 +864,14 @@ export default class EmployeeVacationService {
           daysVacations = yearsWorked.data.vacationSetting?.vacationSettingVacationDays
             ? yearsWorked.data.vacationSetting?.vacationSettingVacationDays
             : 0
-          daysUsed = yearsWorked.data.vacationUsedList ? yearsWorked.data.vacationUsedList.length : 0 
-        } 
+          daysUsed = yearsWorked.data.vacationUsedList ? yearsWorked.data.vacationUsedList.length : 0
+        }
         const yearinfo = { year: year, years: yearsPassed, daysVacations: daysVacations, daysUsed: daysUsed, daysRest: daysVacations - daysUsed ,daysAccumulateAvailable: 0 } as EmployeeVacationExcelRowSummaryYearInterface
         yearsInfo.push(yearinfo)
       }
-    
+
       const newRow = {
-        employeeCode: employee.employeeCode.toString(),
+        employeeCode: employee.employeePayrollCode?.toString() || '',
         employeeName: `${employee.employeeFirstName} ${employee.employeeLastName}`,
         department: employee.department ? employee.department.departmentName : '',
         position: employee.position ? employee.position.positionName : '',
@@ -931,7 +932,7 @@ export default class EmployeeVacationService {
               vertical: 'middle',
               horizontal: 'center',
             }
-            
+
             if ((j === 3 || j === 4) && rowIndex > 4) {
               let bgColor = 'F2F2F2'
               let color = '969696'
