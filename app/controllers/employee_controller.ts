@@ -535,6 +535,8 @@ export default class EmployeeController {
       const limit = request.input('limit', 100)
       const orderBy = request.input('orderBy')
       const orderDirection = request.input('orderDirection')
+      const shiftStartTime = request.input('shiftStartTime')
+      const shiftEndTime = request.input('shiftEndTime')
 
       const filters = {
         search: search,
@@ -548,6 +550,8 @@ export default class EmployeeController {
         limit: limit,
         orderBy: orderBy,
         orderDirection: orderDirection,
+        shiftStartTime: shiftStartTime,
+        shiftEndTime: shiftEndTime,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)

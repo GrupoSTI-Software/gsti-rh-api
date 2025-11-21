@@ -16,6 +16,8 @@ interface EmployeeFilterSearchInterface {
   userResponsibleId?: number
   orderBy?: 'number' | 'name'
   orderDirection?: 'ascend' | 'descend' | 'Ascendente' | 'Descendente'
+  shiftStartTime?: string
+  shiftEndTime?: string
 }
 
 export type { EmployeeFilterSearchInterface }
