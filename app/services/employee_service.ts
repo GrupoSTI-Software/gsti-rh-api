@@ -38,22 +38,24 @@ export default class EmployeeService {
 
   async syncCreate(employee: BiometricEmployeeInterface) {
     // Guardar el personId que viene del frontend
-    const personIdToDelete = employee.personId || null
+    let personIdToDelete = employee.personId || null
     // const newEmployee = new Employee()
     // const personService = new PersonService(this.i18n)
     // const newPerson = await personService.syncCreate(employee)
     // const employeeType = await EmployeeType.query()
-      // .where('employee_type_slug', 'employee')
-      // .whereNull('employee_type_deleted_at')
-      // .first()
+    //   .where('employee_type_slug', 'employee')
+    //   .whereNull('employee_type_deleted_at')
+    //   .first()
 
     try {
       // Verificar límite de empleados dentro del try-catch
       const businessUnitId = employee.businessUnitId || 1
       const limitCheck = await this.verifyEmployeeLimit(businessUnitId)
+
       if (limitCheck.status !== 200) {
         throw new Error(limitCheck.message)
       }
+
       const newEmployee = new Employee()
 
       const employeeType = await EmployeeType.query()
@@ -64,7 +66,13 @@ export default class EmployeeService {
       // Usar el personId que viene del frontend
       if (employee.personId) {
         newEmployee.personId = employee.personId
+      } else {
+        const personService = new PersonService(this.i18n)
+        const newPerson = await personService.syncCreate(employee)
+        newEmployee.personId = newPerson.personId
+        personIdToDelete = newPerson.personId
       }
+
       newEmployee.employeeSyncId = employee.id
       newEmployee.employeeCode = employee.empCode
       newEmployee.employeeFirstName = employee.firstName
@@ -80,6 +88,7 @@ export default class EmployeeService {
       if (employeeType?.employeeTypeId) {
         newEmployee.employeeTypeId = employeeType.employeeTypeId
       }
+
       if (employee.empCode) {
         const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
         const existPhoto = await this.verifyExistPhoto(urlPhoto)
@@ -87,10 +96,13 @@ export default class EmployeeService {
           newEmployee.employeePhoto = urlPhoto
         }
       }
+
       newEmployee.employeeLastSynchronizationAt = new Date()
 
       // Guardar empleado
       await newEmployee.save()
+
+      await this.updateEmployeeSlug(newEmployee)
 
       // Asignar usuarios responsables
       await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
@@ -107,6 +119,7 @@ export default class EmployeeService {
       }
       throw error
     }
+
    /*  await newEmployee.load('employeeType')
     if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
       const user = {
@@ -165,6 +178,7 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
+    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
@@ -186,7 +200,7 @@ export default class EmployeeService {
         query.where((subQuery) => {
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -262,7 +276,7 @@ export default class EmployeeService {
       .preload('address')
       .if(filters.orderBy === 'number', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
-        query.orderByRaw(`CAST(employee_code AS UNSIGNED) ${direction}, employee_code ${direction}`)
+        query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
       })
       .if(filters.orderBy === 'name', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
@@ -292,6 +306,7 @@ export default class EmployeeService {
       newEmployee.employeeSecondLastName = employee.employeeSecondLastName
       newEmployee.employeeCode = employee.employeeCode
       newEmployee.employeePayrollNum = employee.employeePayrollNum
+      newEmployee.employeePayrollCode = employee.employeePayrollCode
       newEmployee.employeeHireDate = employee.employeeHireDate
       newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
       newEmployee.companyId = employee.companyId
@@ -310,6 +325,8 @@ export default class EmployeeService {
 
       // Guardar empleado
       await newEmployee.save()
+
+      await this.updateEmployeeSlug(newEmployee)
 
       // Asignar usuarios responsables
       await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
@@ -335,6 +352,7 @@ export default class EmployeeService {
     currentEmployee.employeeSecondLastName = employee.employeeSecondLastName
     currentEmployee.employeeCode = employee.employeeCode
     currentEmployee.employeePayrollNum = employee.employeePayrollNum
+    currentEmployee.employeePayrollCode = employee.employeePayrollCode
     currentEmployee.employeeHireDate = employee.employeeHireDate
     currentEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
     currentEmployee.companyId = employee.companyId
@@ -350,6 +368,7 @@ export default class EmployeeService {
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     await currentEmployee.save()
+    await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -377,6 +396,48 @@ export default class EmployeeService {
     await currentEmployee.save()
     await currentEmployee.delete()
     return currentEmployee
+  }
+
+  private async updateEmployeeSlug(employee: Employee) {
+    if (!employee.employeeId) {
+      return
+    }
+
+    const slug = this.generateEmployeeSlug(employee)
+    await Employee.query()
+      .where('employee_id', employee.employeeId)
+      .update({ employee_slug: slug })
+    employee.employeeSlug = slug
+  }
+
+  private generateEmployeeSlug(employee: Employee) {
+    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
+    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
+    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
+    const namePart =
+      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
+
+    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
+    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
+
+    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
+  }
+
+  private normalizeSlugSegment(value?: string | null, fallback = '') {
+    if (!value) {
+      return fallback
+    }
+
+    return value
+      .toString()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9\-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase()
   }
 
   /**
@@ -419,9 +480,9 @@ export default class EmployeeService {
     return employee ? employee : null
   }
 
-  async getByCode(employeeCode: number, userResponsibleId?: number | null) {
+  async getById(employeeId: number, userResponsibleId?: number | null) {
     const employee = await Employee.query()
-      .where('employee_code', employeeCode)
+      .where('employee_id', employeeId)
       .if(userResponsibleId &&
         typeof userResponsibleId && userResponsibleId > 0,
         (query) => {
@@ -1156,7 +1217,7 @@ export default class EmployeeService {
             .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
               `%${filters.search.toUpperCase()}%`,
             ])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -1227,7 +1288,7 @@ export default class EmployeeService {
             .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
               `%${filters.search.toUpperCase()}%`,
             ])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -1303,7 +1364,7 @@ export default class EmployeeService {
             .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
               `%${filters.search.toUpperCase()}%`,
             ])
-            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
             .orWhereHas('person', (personQuery) => {
               personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
                 `%${filters.search.toUpperCase()}%`,
@@ -1548,7 +1609,7 @@ export default class EmployeeService {
       .where('business_unit_active', 1)
       .whereIn('business_unit_slug', businessList)
 
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitName)
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
 
     let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/employees`
     apiUrl = `${apiUrl}?page=${1}`
