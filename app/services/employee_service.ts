@@ -38,22 +38,24 @@ export default class EmployeeService {
 
   async syncCreate(employee: BiometricEmployeeInterface) {
     // Guardar el personId que viene del frontend
-    const personIdToDelete = employee.personId || null
+    let personIdToDelete = employee.personId || null
     // const newEmployee = new Employee()
     // const personService = new PersonService(this.i18n)
     // const newPerson = await personService.syncCreate(employee)
     // const employeeType = await EmployeeType.query()
-      // .where('employee_type_slug', 'employee')
-      // .whereNull('employee_type_deleted_at')
-      // .first()
+    //   .where('employee_type_slug', 'employee')
+    //   .whereNull('employee_type_deleted_at')
+    //   .first()
 
     try {
       // Verificar límite de empleados dentro del try-catch
       const businessUnitId = employee.businessUnitId || 1
       const limitCheck = await this.verifyEmployeeLimit(businessUnitId)
+
       if (limitCheck.status !== 200) {
         throw new Error(limitCheck.message)
       }
+
       const newEmployee = new Employee()
 
       const employeeType = await EmployeeType.query()
@@ -64,7 +66,13 @@ export default class EmployeeService {
       // Usar el personId que viene del frontend
       if (employee.personId) {
         newEmployee.personId = employee.personId
+      } else {
+        const personService = new PersonService(this.i18n)
+        const newPerson = await personService.syncCreate(employee)
+        newEmployee.personId = newPerson.personId
+        personIdToDelete = newPerson.personId
       }
+
       newEmployee.employeeSyncId = employee.id
       newEmployee.employeeCode = employee.empCode
       newEmployee.employeeFirstName = employee.firstName
@@ -80,6 +88,7 @@ export default class EmployeeService {
       if (employeeType?.employeeTypeId) {
         newEmployee.employeeTypeId = employeeType.employeeTypeId
       }
+
       if (employee.empCode) {
         const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
         const existPhoto = await this.verifyExistPhoto(urlPhoto)
@@ -1600,7 +1609,7 @@ export default class EmployeeService {
       .where('business_unit_active', 1)
       .whereIn('business_unit_slug', businessList)
 
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitName)
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
 
     let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/employees`
     apiUrl = `${apiUrl}?page=${1}`

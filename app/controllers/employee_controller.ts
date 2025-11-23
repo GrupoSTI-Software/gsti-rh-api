@@ -5579,7 +5579,7 @@ export default class EmployeeController {
         .where('business_unit_active', 1)
         .whereIn('business_unit_slug', businessList)
 
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitName)
+      const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
       const params = new URLSearchParams()
       params.set('employees', employees.join(','))
 
