@@ -1934,6 +1934,122 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/{employeeId}/photo:
+   *   delete:
+   *     summary: Delete a photo for an employee
+   *     tags:
+   *       - Employees
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: ID of the employee
+   *     responses:
+   *       200:
+   *         description: Photo deleted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Employee data
+   *       400:
+   *         description: Bad Request - No photo to delete
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       404:
+   *         description: Employee not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       500:
+   *         description: Internal Server Error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: object
+   *                   description: Error details
+   */
+  @inject()
+  async deletePhoto(
+    { request, response, i18n }: HttpContext,
+    uploadService: UploadService
+  ) {
+    try {
+      const employeeId = request.param('employeeId')
+
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee Id was not found',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.deleteEmployeePhoto(employeeId, uploadService)
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-work-schedules:
    *   get:
    *     security:
