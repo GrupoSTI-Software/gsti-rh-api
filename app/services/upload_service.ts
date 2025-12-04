@@ -74,20 +74,53 @@ export default class UploadService {
     return temporalURL
   }
 
-  async deleteFile(filePath = '') {
-    if (!filePath) {
+  async deleteFile(fileUrlOrKey = '') {
+    if (!fileUrlOrKey) {
       return { status: 404, data: null, message: 'file_path_not_found' }
     }
-    //
+    let objectKey = fileUrlOrKey;
+
+    if (fileUrlOrKey.includes('digitaloceanspaces.com')) {
+      try {
+        const url = new URL(fileUrlOrKey);
+        const fullPath = url.pathname;
+
+        if (fullPath.startsWith(`/${this.BUCKET_NAME}/`)) {
+          objectKey = fullPath.substring((this.BUCKET_NAME?.length || 0) + 2);
+        } else {
+          return { status: 400, data: null, message: 'invalid_url_format' }
+        }
+      } catch (error) {
+        return { status: 400, data: null, message: 'invalid_url' }
+      }
+    }
+    // Si incluye el bucket name pero no es URL completa
+    else if (fileUrlOrKey.startsWith(this.BUCKET_NAME + '/')) {
+      objectKey = fileUrlOrKey.substring((this.BUCKET_NAME?.length || 0) + 1);
+    } else {
+      return { status: 400, data: null, message: 'invalid_url_format' }
+    }
+
+    objectKey = decodeURIComponent(objectKey);
+
+
+
     const s3 = new AWS.S3(this.s3Config)
-    //
-    var params = {
+    const params = {
       Bucket: this.BUCKET_NAME,
-      Key: filePath,
+      Key: objectKey,
     } as S3.Types.DeleteObjectRequest
-    //
-    const delResponse = await s3.deleteObject(params).promise()
-    //
-    return { status: 200, data: delResponse, message: 'file_deleted_successfully' }
+
+    try {
+      await s3.headObject(params).promise()
+      const delResponse = await s3.deleteObject(params).promise()
+      return { status: 200, data: delResponse, message: 'file_deleted_successfully' }
+    } catch (error: any) {
+      if (error.code === 'NotFound') {
+        return { status: 404, data: null, message: 'file_not_found' }
+      }
+      return { status: 500, data: null, message: `delete_failed: ${error.message}` }
+    } finally {
+    }
   }
 }

@@ -421,6 +421,89 @@ export default class EmployeeService {
       .first()
   }
 
+  async deleteEmployeePhoto(employeeId: number, uploadService: any) {
+    const currentEmployee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!currentEmployee) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Employee not found',
+        message: 'The employee was not found with the entered ID',
+        data: { employeeId },
+      }
+    }
+
+    if (!currentEmployee.employeePhoto) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'No photo to delete',
+        message: 'The employee does not have a photo to delete',
+        data: { employeeId },
+      }
+    }
+
+    try {
+      // Extraer la key de S3 desde la URL completa
+      const photoUrl = currentEmployee.employeePhoto
+      let fileKey = photoUrl
+
+      // Si es una URL completa, extraer la key
+      if (photoUrl && (photoUrl.includes('http://') || photoUrl.includes('https://'))) {
+        try {
+          const url = new URL(photoUrl)
+          // La key de S3 es el pathname sin el primer slash
+          const pathname = url.pathname
+          // Remover el primer slash si existe
+          fileKey = pathname.startsWith('/') ? pathname.substring(1) : pathname
+        } catch (error) {
+          // Si no se puede parsear como URL, intentar extraer el nombre del archivo
+          const path = await import('node:path')
+          const Env = await import('#start/env')
+          const fileNameWithExt = decodeURIComponent(path.default.basename(photoUrl))
+          fileKey = `${Env.default.get('AWS_ROOT_PATH')}/employees/${fileNameWithExt}`
+        }
+      }
+
+      // Eliminar el archivo de S3
+      const deleteResult = await uploadService.deleteFile(fileKey)
+
+      if (deleteResult.status !== 200) {
+        return {
+          status: 500,
+          type: 'error',
+          title: 'Error deleting photo',
+          message: 'Error deleting photo from storage',
+          data: { employeeId, error: deleteResult.message },
+        }
+      }
+
+      // Actualizar el empleado para eliminar la referencia a la foto
+      currentEmployee.employeePhoto = null
+      await currentEmployee.save()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Photo deleted',
+        message: 'The employee photo was deleted successfully',
+        data: { employee: currentEmployee },
+      }
+    } catch (error: any) {
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error occurred while deleting the photo',
+        data: { employeeId, error: error.message },
+      }
+    }
+  }
+
   async delete(currentEmployee: Employee) {
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
