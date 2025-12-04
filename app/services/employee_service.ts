@@ -1975,7 +1975,7 @@ export default class EmployeeService {
 
       // Primero, procesar todas las filas para validar y contar empleados nuevos
       let newEmployeesCount = 0
-      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number }> = []
+      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null }> = []
 
       for (const { row, rowNumber } of rows) {
         results.totalRows++
@@ -2006,8 +2006,30 @@ export default class EmployeeService {
             continue
           }
 
-          // Mapear unidad de negocio por nombre
-          const businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          // Mapear unidad de negocio de trabajo por nombre
+          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
+          if (businessUnitId === null && businessUnits.length > 0) {
+            businessUnitId = businessUnits[0].businessUnitId
+          }
+
+          // Mapear unidad de negocio de nómina por nombre
+          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
+          // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
+          if (payrollBusinessUnitId === null && businessUnits.length > 0) {
+            payrollBusinessUnitId = businessUnits[0].businessUnitId
+          }
+
+          // Si no se especifica unidad de negocio de trabajo, usar la de nómina como fallback
+          // Si tampoco hay de nómina, usar la primera de la base de datos
+          const finalBusinessUnitId = businessUnitId || payrollBusinessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
+          const finalPayrollBusinessUnitId = payrollBusinessUnitId || businessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
+
+          if (finalBusinessUnitId === null) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: No se pudo determinar la unidad de negocio`)
+            continue
+          }
 
           // Buscar empleado existente por número de empleado
           const existingEmployee = existingEmployees.find(emp =>
@@ -2016,11 +2038,11 @@ export default class EmployeeService {
 
           if (existingEmployee) {
             // Para empleados existentes, no contamos para el límite
-            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
           } else {
             // Para empleados nuevos, contamos el total
             newEmployeesCount++
-            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
           }
 
         } catch (error: any) {
@@ -2051,14 +2073,14 @@ export default class EmployeeService {
       // Si se alcanzó el límite, no procesar más empleados nuevos
       if (results.limitReached) {
         // Procesar solo empleados existentes (actualizaciones)
-        for (const { rowNumber, employeeData } of validRows) {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           const existingEmployee = existingEmployees.find(emp =>
             emp.employeeCode.toString() === employeeData.employeeNumber
           )
 
           if (existingEmployee) {
             try {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
               results.updated++
               results.processed++
             } catch (error: any) {
@@ -2074,10 +2096,8 @@ export default class EmployeeService {
         // Procesar todos los empleados (creaciones y actualizaciones)
         const createdEmployees: Employee[] = [] // Array para almacenar empleados creados
 
-        for (const { rowNumber, employeeData, businessUnitId } of validRows) {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           try {
-            const payrollBusinessUnitId = businessUnitId // Usar la misma unidad de negocio para nómina
-
             // Buscar empleado existente por número de empleado
             const existingEmployee = existingEmployees.find(emp =>
               emp.employeeCode.toString() === employeeData.employeeNumber
@@ -2085,7 +2105,7 @@ export default class EmployeeService {
 
             if (existingEmployee) {
               // Actualizar empleado existente
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
               results.updated++
               results.processed++
             } else {
@@ -2104,7 +2124,7 @@ export default class EmployeeService {
               const person = await this.createPerson(employeeData)
 
               // Crear empleado
-              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId, payrollBusinessUnitId, departmentId, positionId, employeeCode)
+              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode)
 
               // Agregar a la lista de empleados creados para enviar a biométricos
               createdEmployees.push(newEmployee)
@@ -2134,9 +2154,23 @@ export default class EmployeeService {
 
       return results
 
-    } catch (error) {
+    } catch (error: any) {
+      // Si es un error de validación de cabeceras, propagarlo tal cual
+      if (error.isHeaderValidationError) {
+        throw error
+      }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
     }
+  }
+
+  /**
+   * Clase de error personalizada para errores de validación de cabeceras
+   */
+  private createHeaderValidationError(message: string): Error {
+    const error = new Error(message)
+    ;(error as any).isHeaderValidationError = true
+    ;(error as any).statusCode = 400
+    return error
   }
 
   /**
@@ -2144,13 +2178,13 @@ export default class EmployeeService {
    */
   private validateExcelHeaders(worksheet: any) {
     const expectedHeaders = [
-      'N° de empleado',
-      'Razón social',
-      'Unidad de negocios',
+      'Identificador de nómina',
+      'Unidad de negocio de trabajo',
+      'Unidad de negocio de nómina',
       'Nombre del empleado',
-      'Apellido Paterno del empleado',
-      'Apellido Materno del empleado',
-      'Fecha de contratación (dd/mm/yyyy)',
+      'Apellido paterno del empleado',
+      'Apellido materno del empleado',
+      'Fecha de contratación (yyyy/mm/dd)',
       'Departamento',
       'Posición',
       'Salario diario',
@@ -2164,17 +2198,154 @@ export default class EmployeeService {
     const headers: string[] = []
 
     firstRow.eachCell((cell: any, colNumber: number) => {
-      headers[colNumber] = cell.value?.toString() || ''
+      const cellValue = cell.value
+      if (cellValue !== null && cellValue !== undefined) {
+        headers[colNumber] = String(cellValue).trim()
+      } else {
+        headers[colNumber] = ''
+      }
     })
 
-    // Verificar que los encabezados coincidan (permitir variaciones menores)
-    const missingHeaders = expectedHeaders.filter(expected =>
-      !headers.some(header => header.toLowerCase().includes(expected.toLowerCase().substring(0, 10)))
+    // Filtrar cabeceras vacías y asegurar que todos los elementos sean strings válidos
+    const nonEmptyHeaders = headers.filter((h): h is string =>
+      h !== undefined && h !== null && typeof h === 'string' && h.trim() !== ''
     )
 
+    if (nonEmptyHeaders.length === 0) {
+      throw this.createHeaderValidationError('El archivo Excel no contiene cabeceras en la primera fila')
+    }
+
+    // Verificar que los encabezados coincidan
+    const missingHeaders: string[] = []
+    const incorrectHeaders: Array<{ found: string; expected: string }> = []
+
+    // Filtrar headers válidos (no undefined, null o vacíos)
+    const validHeaders = headers.filter((header): header is string =>
+      header !== undefined && header !== null && typeof header === 'string' && header.trim() !== ''
+    )
+
+    // Mapa para rastrear qué headers ya fueron asignados
+    const usedHeaders = new Set<string>()
+
+    for (const expected of expectedHeaders) {
+      const expectedLower = expected.toLowerCase().trim()
+
+      // Primero buscar coincidencia exacta
+      let foundHeader = validHeaders.find(header => {
+        if (!header || typeof header !== 'string') return false
+        const headerLower = header.toLowerCase().trim()
+        return headerLower === expectedLower && !usedHeaders.has(headerLower)
+      })
+
+      // Si no hay coincidencia exacta, buscar coincidencia parcial
+      // Pero ser más estricto para evitar falsos positivos
+      if (!foundHeader) {
+        // Calcular el mejor match basado en similitud
+        let bestMatch: { header: string; score: number } | null = null
+
+        for (const header of validHeaders) {
+          if (!header || typeof header !== 'string') continue
+          const headerLower = header.toLowerCase().trim()
+          if (usedHeaders.has(headerLower)) continue
+
+          // Calcular similitud
+          let score = 0
+
+          // Si es una coincidencia exacta (después de normalizar espacios)
+          const normalizedHeader = headerLower.replace(/\s+/g, ' ').trim()
+          const normalizedExpected = expectedLower.replace(/\s+/g, ' ').trim()
+          if (normalizedHeader === normalizedExpected) {
+            score = 100
+          } else {
+            // Verificar si el header contiene palabras clave importantes del esperado
+            const expectedWords = normalizedExpected.split(' ').filter(w => w.length > 3)
+            const headerWords = normalizedHeader.split(' ').filter(w => w.length > 3)
+
+            // Contar palabras coincidentes
+            const matchingWords = expectedWords.filter(ew =>
+              headerWords.some(hw => hw === ew || hw.includes(ew) || ew.includes(hw))
+            )
+
+            // Calcular score basado en porcentaje de palabras coincidentes
+            if (expectedWords.length > 0) {
+              score = (matchingWords.length / expectedWords.length) * 100
+            }
+
+            // Penalizar si hay palabras importantes que no coinciden
+            // Especialmente para headers similares como "trabajo" vs "nómina"
+            if (normalizedExpected.includes('trabajo') && !normalizedHeader.includes('trabajo')) {
+              score = 0
+            }
+            if (normalizedExpected.includes('nómina') && !normalizedHeader.includes('nómina')) {
+              score = 0
+            }
+          }
+
+          // Solo considerar matches con score > 70%
+          if (score > 70 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { header, score }
+          }
+        }
+
+        if (bestMatch) {
+          foundHeader = bestMatch.header
+        }
+      }
+
+      if (!foundHeader) {
+        missingHeaders.push(expected)
+      } else {
+        // Marcar el header como usado
+        const foundLower = foundHeader.toLowerCase().trim()
+        usedHeaders.add(foundLower)
+
+        // Solo marcar como incorrecto si la diferencia es significativa
+        // (no solo espacios o mayúsculas/minúsculas)
+        if (foundLower !== expectedLower) {
+          // Verificar si la diferencia es solo en espacios o formato
+          const normalizedFound = foundLower.replace(/\s+/g, ' ').trim()
+          const normalizedExpected = expectedLower.replace(/\s+/g, ' ').trim()
+
+          // Si después de normalizar espacios son iguales, no es un error
+          if (normalizedFound !== normalizedExpected) {
+            incorrectHeaders.push({ found: foundHeader, expected })
+          }
+        }
+      }
+    }
+
+    // Construir mensaje de error detallado
+    const errorMessages: string[] = []
 
     if (missingHeaders.length > 0) {
-      throw new Error(`Faltan los siguientes encabezados: ${missingHeaders.join(', ')}`)
+      errorMessages.push(`Faltan los siguientes encabezados requeridos: ${missingHeaders.join(', ')}`)
+    }
+
+    if (incorrectHeaders.length > 0) {
+      const incorrectList = incorrectHeaders.map(inc => `"${inc.found}" (debería ser "${inc.expected}")`).join(', ')
+      errorMessages.push(`Los siguientes encabezados están incorrectos: ${incorrectList}`)
+    }
+
+    // Verificar si hay cabeceras adicionales no esperadas (opcional, solo como advertencia)
+    const unexpectedHeaders = validHeaders.filter(header => {
+      if (!header || typeof header !== 'string' || header.trim() === '') return false
+      return !expectedHeaders.some(expected => {
+        const headerLower = header.toLowerCase().trim()
+        const expectedLower = expected.toLowerCase().trim()
+        return headerLower === expectedLower ||
+               headerLower.includes(expectedLower.substring(0, 10)) ||
+               expectedLower.includes(headerLower.substring(0, 10))
+      })
+    })
+
+    if (unexpectedHeaders.length > 0 && errorMessages.length === 0) {
+      // Si solo hay cabeceras inesperadas pero no faltan las requeridas, es una advertencia
+      // pero no un error crítico
+    }
+
+    if (errorMessages.length > 0) {
+      const fullMessage = `Error en las cabeceras del archivo Excel:\n${errorMessages.join('\n')}`
+      throw this.createHeaderValidationError(fullMessage)
     }
 
     return headers
@@ -2188,15 +2359,19 @@ export default class EmployeeService {
 
     row.eachCell((cell: any, colNumber: number) => {
       const header = headers[colNumber]?.toLowerCase() || ''
-      const value = cell.value?.toString() || ''
+      // Para fechas, preservar el valor original (puede ser número de Excel o string)
+      // Para otros campos, convertir a string
+      const isDateField = header.includes('fecha')
+      const rawValue = cell.value
+      const value = isDateField ? (rawValue !== null && rawValue !== undefined ? rawValue : '') : (rawValue?.toString() || '')
 
 
-      if (header.includes('n° de emplead')) {
+      if (header.includes('identificador de nómina')) {
         data.employeeNumber = value
-      } else if (header.includes('razón social')) {
-        data.companyName = value
-      } else if (header.includes('unidad de negocios')) {
+      } else if (header.includes('unidad de negocio de trabajo')) {
         data.businessUnit = value
+      } else if (header.includes('unidad de negocio de nómina')) {
+        data.payrollBusinessUnit = value
       } else if (header.includes('nombre del empleado')) {
         data.firstName = value
       } else if (header.includes('apellido paterno del empleado')) {
@@ -2204,15 +2379,54 @@ export default class EmployeeService {
       } else if (header.includes('apellido materno del empleado')) {
         data.secondLastName = value
       } else if (header.includes('fecha de contratación')) {
-        data.hireDate = value
+        // Las fechas deben venir en formato yyyy/mm/dd para insertarse directamente
+        // Intentar obtener el texto formateado de la celda primero
+        const cellText = cell.text ? cell.text.trim() : null
+        const stringValue = rawValue ? rawValue.toString().trim() : null
+
+        // Priorizar formato yyyy/mm/dd o yyyy-mm-dd
+        if (cellText && cellText.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
+          data.hireDate = cellText
+        } else if (stringValue && stringValue.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
+          data.hireDate = stringValue
+        } else if (rawValue instanceof Date) {
+          data.hireDate = rawValue
+        } else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
+          data.hireDate = rawValue.value
+        } else {
+          data.hireDate = rawValue || cellText
+        }
       } else if (header.includes('departamento')) {
         data.department = value
       } else if (header.includes('posición')) {
         data.position = value
       } else if (header.includes('salario diario')) {
-        data.dailySalary = Number.parseFloat(value) || 0
+        data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
       } else if (header.includes('fecha de nacimiento')) {
-        data.birthDate = value
+        // Manejar diferentes formatos que ExcelJS puede devolver
+        // Intentar primero obtener el texto formateado de la celda (ej: "16/08/2021")
+        const cellText = cell.text ? cell.text.trim() : null
+
+        if (rawValue instanceof Date) {
+          data.birthDate = rawValue
+        } else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
+          // Si es un objeto con propiedad value (formato de ExcelJS)
+          data.birthDate = rawValue.value
+        } else if (cellText && cellText.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/)) {
+          // Si hay texto formateado que parece una fecha (dd/mm/yyyy), usarlo
+          data.birthDate = cellText
+        } else if (typeof rawValue === 'number') {
+          // Si es un número, podría ser una fecha serial de Excel
+          // Las fechas de Excel son números >= 1 (1 = 1900-01-01)
+          // Fechas razonables están entre 1 y 1000000 (aproximadamente hasta el año 4738)
+          if (rawValue >= 1 && rawValue <= 1000000) {
+            data.birthDate = rawValue // Pasar el número serial para que se convierta
+          } else {
+            data.birthDate = rawValue
+          }
+        } else {
+          data.birthDate = rawValue || cellText // Usar valor original o texto formateado
+        }
       } else if (header.includes('curp')) {
         data.curp = value
       } else if (header.includes('rfc')) {
@@ -2228,20 +2442,39 @@ export default class EmployeeService {
   /**
    * Actualizar empleado existente
    */
-  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any) {
+  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any, businessUnitId: number | null, payrollBusinessUnitId: number | null) {
     // Actualizar datos del empleado
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
     existingEmployee.employeeLastName = employeeData.lastName || existingEmployee.employeeLastName
     existingEmployee.employeeSecondLastName = employeeData.secondLastName || existingEmployee.employeeSecondLastName
-    const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
-    if (parsedHireDate) {
-      existingEmployee.employeeHireDate = parsedHireDate
+
+    // Actualizar fecha de contratación - asegurarse de que se guarde correctamente
+    if (employeeData.hireDate) {
+      const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
+      if (parsedHireDate) {
+        existingEmployee.employeeHireDate = parsedHireDate
+      }
     }
+
     existingEmployee.dailySalary = employeeData.dailySalary || existingEmployee.dailySalary
 
+    // Actualizar unidades de negocio si se proporcionan
+    if (businessUnitId !== null) {
+      existingEmployee.businessUnitId = businessUnitId
+    }
+    if (payrollBusinessUnitId !== null) {
+      existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
+    }
+
     // Mapear departamento y posición usando búsqueda por similitud
-    existingEmployee.departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-    existingEmployee.positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+    const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+    if (departmentId !== null) {
+      existingEmployee.departmentId = departmentId
+    }
+    const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+    if (positionId !== null) {
+      existingEmployee.positionId = positionId
+    }
 
     await existingEmployee.save()
 
@@ -2286,29 +2519,31 @@ export default class EmployeeService {
   /**
    * Mapear unidad de negocio por nombre
    */
-  private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number {
-    if (!businessUnitName) {
-      // Usar la primera unidad de negocio registrada en la base de datos
-      return businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1
+  private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number | null {
+    if (!businessUnitName || businessUnitName.trim() === '') {
+      return null
     }
 
-    // Buscar coincidencia exacta primero
+    const normalizedSearch = businessUnitName.trim().toLowerCase()
+
+    // Buscar coincidencia exacta primero (case-insensitive)
     const exactMatch = businessUnits.find(unit =>
-      unit.businessUnitName?.toLowerCase() === businessUnitName.toLowerCase()
+      unit.businessUnitName?.trim().toLowerCase() === normalizedSearch
     )
 
     if (exactMatch) return exactMatch.businessUnitId
 
-    // Buscar por similitud
+    // Buscar por similitud con umbral más alto (0.8 en lugar de 0.6)
     const similarMatch = this.findMostSimilar(
       businessUnitName,
       businessUnits,
       'businessUnitName',
-      0.6
+      0.8
     )
 
-    // Usar la primera unidad de negocio registrada como valor por defecto si no se encuentra
-    return similarMatch ? similarMatch.businessUnitId : (businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1)
+    // No usar valor por defecto - retornar null si no se encuentra
+    // Esto permitirá que el error se maneje apropiadamente
+    return similarMatch ? similarMatch.businessUnitId : null
   }
 
   /**
@@ -2393,7 +2628,15 @@ export default class EmployeeService {
     employee.employeeFirstName = employeeData.firstName || ''
     employee.employeeLastName = employeeData.lastName || ''
     employee.employeeSecondLastName = employeeData.secondLastName || ''
-    employee.employeeHireDate = this.parseDateToDateTime(employeeData.hireDate)
+
+    // Asegurarse de que la fecha de contratación se guarde correctamente
+    if (employeeData.hireDate) {
+      const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
+      if (parsedHireDate) {
+        employee.employeeHireDate = parsedHireDate
+      }
+    }
+
     employee.companyId = 1 // Valor por defecto
     employee.departmentId = departmentId
     employee.positionId = positionId
@@ -2417,69 +2660,182 @@ export default class EmployeeService {
   }
 
   /**
-   * Parsear fecha desde string
+   * Parsear fecha desde string, número o Date
    */
-  private parseDate(dateString: string): string | null {
-    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+  private parseDate(dateString: string | number | Date): string | null {
+    if (!dateString) return null
 
-    try {
-      // Intentar diferentes formatos de fecha
-      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+    let parsedDateTime: DateTime | null = null
 
-      for (const format of formats) {
-        try {
-          const parsed = DateTime.fromFormat(dateString, format)
-          if (parsed.isValid) {
-            return parsed.toISODate()
-          }
-        } catch (e) {
-          continue
-        }
-      }
-
-      // Si no funciona con formatos específicos, intentar parse automático
-      const parsed = DateTime.fromISO(dateString)
-      if (parsed.isValid) {
-        return parsed.toISODate()
-      }
-
-      return null
-    } catch (error) {
-      return null
+    // Si es un objeto Date de JavaScript (ExcelJS puede devolverlo así)
+    if (dateString instanceof Date) {
+      parsedDateTime = DateTime.fromJSDate(dateString)
     }
+    // Si es un número (fecha serial de Excel), convertirla
+    else if (typeof dateString === 'number') {
+      // Excel cuenta los días desde el 1 de enero de 1900 (día 1)
+      // La fecha base de Excel es 1899-12-30
+      // Excel tiene un bug: considera 1900 como año bisiesto
+      const excelEpoch = DateTime.fromObject({ year: 1899, month: 12, day: 30 })
+
+      // Calcular la fecha sumando los días
+      parsedDateTime = excelEpoch.plus({ days: Math.floor(dateString) })
+
+      // Ajuste para el bug de Excel: si la fecha es >= 60 (1 de marzo de 1900), restar 1 día
+      // Esto es porque Excel cuenta incorrectamente el 29 de febrero de 1900
+      if (dateString >= 60) {
+        parsedDateTime = parsedDateTime.minus({ days: 1 })
+      }
+    } else {
+      const dateStr = dateString.toString().trim()
+      if (dateStr === '' || dateStr === 'null' || dateStr === 'undefined') return null
+
+      try {
+        // Priorizar formato dd/mm/yyyy ya que es el formato esperado del Excel
+        // Intentar primero con formatos específicos de DD/MM/YYYY
+        const formats = [
+          'DD/MM/YYYY',  // 16/08/2021, 08/01/2024
+          'D/M/YYYY',    // 8/1/2024, 16/8/2021
+          'DD/MM/YY',    // 16/08/21
+          'D/M/YY',      // 8/1/24
+          'YYYY-MM-DD',  // 2021-08-16
+          'MM/DD/YYYY'   // Fallback para formato americano
+        ]
+
+        for (const format of formats) {
+          try {
+            parsedDateTime = DateTime.fromFormat(dateStr, format)
+            if (parsedDateTime.isValid) {
+              // Validar que la fecha parseada sea razonable (entre 1900 y 2100)
+              const year = parsedDateTime.year
+              if (year >= 1900 && year <= 2100) {
+                break
+              } else {
+                parsedDateTime = null
+              }
+            }
+          } catch (e) {
+            continue
+          }
+        }
+
+        // Si no funcionó con formatos específicos, intentar parse automático
+        if (!parsedDateTime || !parsedDateTime.isValid) {
+          parsedDateTime = DateTime.fromISO(dateStr)
+          // Validar que la fecha parseada sea razonable
+          if (parsedDateTime.isValid) {
+            const year = parsedDateTime.year
+            if (year < 1900 || year > 2100) {
+              parsedDateTime = null
+            }
+          }
+        }
+      } catch (error) {
+        return null
+      }
+    }
+
+    // Convertir a string ISO (YYYY-MM-DD) para personBirthday
+    if (parsedDateTime && parsedDateTime.isValid) {
+      return parsedDateTime.toISODate()
+    }
+
+    return null
   }
 
   /**
-   * Parsear fecha desde string a DateTime
+   * Parsear fecha desde string, número o Date a DateTime
+   * Para hireDate: prioriza formato yyyy/mm/dd o yyyy-mm-dd
    */
-  private parseDateToDateTime(dateString: string): DateTime | null {
-    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+  private parseDateToDateTime(dateString: string | number | Date): DateTime | null {
+    if (!dateString) return null
 
-    try {
-      // Intentar diferentes formatos de fecha
-      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+    let parsedDateTime: DateTime | null = null
 
-      for (const format of formats) {
-        try {
-          const parsed = DateTime.fromFormat(dateString, format)
-          if (parsed.isValid) {
-            return parsed
-          }
-        } catch (e) {
-          continue
-        }
-      }
-
-      // Si no funciona con formatos específicos, intentar parse automático
-      const parsed = DateTime.fromISO(dateString)
-      if (parsed.isValid) {
-        return parsed
-      }
-
-      return null
-    } catch (error) {
-      return null
+    // Si es un objeto Date de JavaScript (ExcelJS puede devolverlo así)
+    if (dateString instanceof Date) {
+      parsedDateTime = DateTime.fromJSDate(dateString)
     }
+    // Si es un número (fecha serial de Excel), convertirla
+    else if (typeof dateString === 'number') {
+      // Excel cuenta los días desde el 1 de enero de 1900 (día 1)
+      // La fecha base de Excel es 1899-12-30
+      // Excel tiene un bug: considera 1900 como año bisiesto
+      const excelEpoch = DateTime.fromObject({ year: 1899, month: 12, day: 30 })
+      parsedDateTime = excelEpoch.plus({ days: Math.floor(dateString) })
+
+      // Ajuste para el bug de Excel: si la fecha es >= 60 (1 de marzo de 1900), restar 1 día
+      if (dateString >= 60) {
+        parsedDateTime = parsedDateTime.minus({ days: 1 })
+      }
+    } else {
+      const dateStr = dateString.toString().trim()
+      if (dateStr === '' || dateStr === 'null' || dateStr === 'undefined') return null
+
+      try {
+        // Priorizar formato yyyy/mm/dd o yyyy-mm-dd para insertar directamente
+        // Normalizar separadores: convertir / a - para ISO
+        const normalizedDate = dateStr.replace(/\//g, '-')
+
+        // Intentar primero con formato YYYY-MM-DD (ISO)
+        if (normalizedDate.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+          parsedDateTime = DateTime.fromFormat(normalizedDate, 'yyyy-MM-dd')
+          if (parsedDateTime.isValid) {
+            const year = parsedDateTime.year
+            if (year >= 1900 && year <= 2100) {
+              // Retornar directamente si es válido
+              return parsedDateTime.startOf('day')
+            }
+          }
+        }
+
+        // Si no funcionó, intentar otros formatos como fallback
+        const formats = [
+          'yyyy/MM/dd',   // 2021/08/16, 2024/01/08
+          'yyyy-M-d',     // 2021-8-16, 2024-1-8
+          'DD/MM/YYYY',   // 16/08/2021 (fallback)
+          'D/M/YYYY',     // 8/1/2024 (fallback)
+          'YYYY-MM-DD',   // 2021-08-16 (alternativo)
+        ]
+
+        for (const format of formats) {
+          try {
+            parsedDateTime = DateTime.fromFormat(dateStr, format)
+            if (parsedDateTime.isValid) {
+              const year = parsedDateTime.year
+              if (year >= 1900 && year <= 2100) {
+                break
+              } else {
+                parsedDateTime = null
+              }
+            }
+          } catch (e) {
+            continue
+          }
+        }
+
+        // Si no funcionó con formatos específicos, intentar parse automático ISO
+        if (!parsedDateTime || !parsedDateTime.isValid) {
+          parsedDateTime = DateTime.fromISO(normalizedDate)
+          if (parsedDateTime.isValid) {
+            const year = parsedDateTime.year
+            if (year < 1900 || year > 2100) {
+              parsedDateTime = null
+            }
+          }
+        }
+      } catch (error) {
+        return null
+      }
+    }
+
+    // Retornar DateTime para employeeHireDate
+    if (parsedDateTime && parsedDateTime.isValid) {
+      // Asegurarse de que la hora sea medianoche (00:00:00) para consistencia con la BD
+      return parsedDateTime.startOf('day')
+    }
+
+    return null
   }
 
   /**

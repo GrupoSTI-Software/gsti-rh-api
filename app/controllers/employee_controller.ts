@@ -5864,7 +5864,17 @@ export default class EmployeeController {
         message: message,
         data: result,
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Detectar errores de validación de cabeceras
+      if (error.isHeaderValidationError || error.statusCode === 400) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación de cabeceras',
+          message: error.message || 'Las cabeceras del archivo Excel no son correctas',
+        }
+      }
+
       response.status(500)
       return {
         type: 'error',
