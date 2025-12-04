@@ -27,7 +27,7 @@ import VacationAuthorizationSignature from '#models/vacation_authorization_signa
 import SystemSettingsEmployee from '#models/system_settings_employee'
 import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
-
+import ExcelJS from 'exceljs'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -1907,8 +1907,6 @@ export default class EmployeeService {
    * Import employees from Excel file
    */
   async importFromExcel(file: any) {
-    const ExcelJSModule = await import('exceljs')
-    const ExcelJS = ExcelJSModule.default
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -1973,7 +1971,73 @@ export default class EmployeeService {
         rows.push({ row, rowNumber })
       })
 
-      // Primero, procesar todas las filas para validar y contar empleados nuevos
+      // Encabezados requeridos para validación
+      const requiredHeaders = [
+        'Identificador de nómina',
+        'Unidad de negocio de trabajo',
+        'Unidad de negocio de nómina',
+        'Nombre del empleado',
+        'Apellido paterno del empleado'
+      ]
+
+      // Validar que todos los encabezados requeridos estén presentes
+      const missingRequiredHeaders: string[] = []
+      for (const requiredHeader of requiredHeaders) {
+        const requiredLower = requiredHeader.toLowerCase().trim()
+        const found = headers.some(header => {
+          if (!header || typeof header !== 'string') return false
+          const headerLower = header.toLowerCase().trim()
+          return headerLower === requiredLower ||
+                 headerLower.includes(requiredLower.substring(0, 10)) ||
+                 requiredLower.includes(headerLower.substring(0, 10))
+        })
+        if (!found) {
+          missingRequiredHeaders.push(requiredHeader)
+        }
+      }
+
+      if (missingRequiredHeaders.length > 0) {
+        throw this.createHeaderValidationError(
+          `Faltan los siguientes encabezados requeridos: ${missingRequiredHeaders.join(', ')}`
+        )
+      }
+
+      // Primero, validar que TODOS los registros tengan los campos requeridos
+      // Si falta alguno, invalidar todo el archivo
+      for (const { row, rowNumber } of rows) {
+        const employeeData = this.extractEmployeeDataFromRow(row, headers)
+
+        // Validar campos requeridos
+        const requiredFieldsErrors: string[] = []
+
+        if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
+          requiredFieldsErrors.push('Identificador de nómina')
+        }
+        if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
+          requiredFieldsErrors.push('Unidad de negocio de trabajo')
+        }
+        if (!employeeData.payrollBusinessUnit || employeeData.payrollBusinessUnit.toString().trim() === '') {
+          requiredFieldsErrors.push('Unidad de negocio de nómina')
+        }
+        if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
+          requiredFieldsErrors.push('Nombre del empleado')
+        }
+        if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
+          requiredFieldsErrors.push('Apellido paterno del empleado')
+        }
+
+        // Si falta algún campo requerido, invalidar todo el archivo inmediatamente
+        if (requiredFieldsErrors.length > 0) {
+          throw this.createHeaderValidationError(
+            'El archivo Excel contiene registros con campos requeridos faltantes. ' +
+            `Fila ${rowNumber} falta: ${requiredFieldsErrors.join(', ')}. ` +
+            'Todos los registros deben tener los campos requeridos completos.'
+          )
+        }
+      }
+
+      // Si llegamos aquí, todos los registros tienen los campos requeridos
+      // Ahora procesar todas las filas para validar y contar empleados nuevos
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null }> = []
 
@@ -2194,6 +2258,15 @@ export default class EmployeeService {
       'NSS'
     ]
 
+    // Encabezados requeridos que deben estar presentes
+    const requiredHeaders = [
+      'Identificador de nómina',
+      'Unidad de negocio de trabajo',
+      'Unidad de negocio de nómina',
+      'Nombre del empleado',
+      'Apellido paterno del empleado'
+    ]
+
     const firstRow = worksheet.getRow(1)
     const headers: string[] = []
 
@@ -2341,6 +2414,24 @@ export default class EmployeeService {
     if (unexpectedHeaders.length > 0 && errorMessages.length === 0) {
       // Si solo hay cabeceras inesperadas pero no faltan las requeridas, es una advertencia
       // pero no un error crítico
+    }
+
+    // Validar que los encabezados requeridos estén presentes
+    const foundRequiredHeaders: string[] = []
+    for (const requiredHeader of requiredHeaders) {
+      const requiredLower = requiredHeader.toLowerCase().trim()
+      const found = validHeaders.some(header => {
+        if (!header || typeof header !== 'string') return false
+        const headerLower = header.toLowerCase().trim()
+        return headerLower === requiredLower ||
+               headerLower.includes(requiredLower.substring(0, 10)) ||
+               requiredLower.includes(headerLower.substring(0, 10))
+      })
+      if (found) {
+        foundRequiredHeaders.push(requiredHeader)
+      } else {
+        errorMessages.push(`Falta el encabezado requerido: "${requiredHeader}"`)
+      }
     }
 
     if (errorMessages.length > 0) {
@@ -3227,4 +3318,315 @@ export default class EmployeeService {
     // Por defecto, ordenamiento ascendente
     return 'asc'
   }
+/**
+ * Calcular la luminosidad de un color hexadecimal
+ * @param hexColor - Color en formato hex (con o sin #, con o sin alpha)
+ * @returns number - Luminosidad entre 0 (oscuro) y 255 (claro)
+ */
+private calculateColorLuminosity(hexColor: string): number {
+  try {
+    // Remover # y alpha si existen
+    let color = hexColor.replace('#', '').toUpperCase()
+    // Si tiene 8 caracteres (ARGB), quitar los primeros 2 (alpha)
+    if (color.length === 8) {
+      color = color.substring(2)
+    }
+    // Si tiene 6 caracteres, usarlo directamente
+    if (color.length !== 6) {
+      return 128 // Valor por defecto si el formato no es válido
+    }
+
+    // Convertir hex a RGB
+    const r = Number.parseInt(color.substring(0, 2), 16)
+    const g = Number.parseInt(color.substring(2, 4), 16)
+    const b = Number.parseInt(color.substring(4, 6), 16)
+
+    // Calcular luminosidad usando la fórmula estándar
+    // 0.299*R + 0.587*G + 0.114*B
+    const luminosity = 0.299 * r + 0.587 * g + 0.114 * b
+
+    return luminosity
+  } catch (error) {
+    return 128 // Valor por defecto en caso de error
+  }
+}
+
+/**
+ * Determinar el color del texto basado en la luminosidad del fondo
+ * @param backgroundColor - Color de fondo en formato ARGB
+ * @returns string - Color del texto en formato ARGB ('FFFFFFFF' para blanco, 'FF001A04' para oscuro)
+ */
+private getTextColorForBackground(backgroundColor: string): string {
+  // Extraer el color hex sin el alpha para calcular luminosidad
+  const hexColor = backgroundColor.length === 8 ? backgroundColor.substring(2) : backgroundColor
+  const luminosity = this.calculateColorLuminosity(hexColor)
+
+  // Si la luminosidad es menor a 128, el color es oscuro, usar texto blanco
+  // Si es mayor o igual a 128, el color es claro, usar texto oscuro
+  return luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
+}
+
+/**
+ * Obtener el color de la unidad de negocio activa desde SystemSetting
+ * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
+ */
+private async getActiveBusinessUnitColor(): Promise<string> {
+  try {
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    if (!businessConf) {
+      return 'FFD6FFDC' // Color por defecto si no hay configuración (ARGB)
+    }
+
+    const businessList = businessConf.split(',').map((unit: string) => unit.trim())
+
+    const systemSettings = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+
+    for (const systemSetting of systemSettings) {
+      if (systemSetting.systemSettingBusinessUnits) {
+        const units = systemSetting.systemSettingBusinessUnits
+          .split(',')
+          .map((unit: string) => unit.trim())
+
+        const hasMatch = businessList.some((businessUnit: string) =>
+          units.includes(businessUnit)
+        )
+
+        if (hasMatch && systemSetting.systemSettingSidebarColor) {
+          // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
+          let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
+          // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
+          if (color.length === 6) {
+            color = 'FF' + color
+          }
+          // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
+          return color
+        }
+      }
+    }
+
+    return 'FFD6FFDC' // Color por defecto si no se encuentra (ARGB)
+  } catch (error) {
+    console.error('Error obteniendo color de unidad de negocio:', error)
+    return 'FFD6FFDC' // Color por defecto en caso de error (ARGB)
+  }
+}
+
+/**
+ * Generar plantilla de Excel para importación masiva de empleados
+ * Incluye dropdowns dinámicos para departamentos y sus posiciones asociadas
+ */
+async generateImportTemplate(): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Empleados')
+
+  // Obtener el color de la unidad de negocio activa
+  const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+
+  // Obtener unidades de negocio activas
+  const businessUnits = await BusinessUnit.query()
+    .where('business_unit_active', 1)
+    .whereNull('business_unit_deleted_at')
+    .orderBy('business_unit_name')
+    .select('businessUnitName')
+
+  const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
+
+  // Obtener departamentos activos con sus posiciones
+  const departments = await Department.query()
+    .whereNull('department_deleted_at')
+    .preload('departmentPositions', (query) => {
+      query.preload('position', (posQuery) => {
+        posQuery.whereNull('position_deleted_at')
+        posQuery.where('position_active', 1)
+      })
+    })
+    .orderBy('department_name')
+
+  const departmentNames = departments.map(dept => dept.departmentName).filter(Boolean)
+
+  // ==============================
+  //   HOJA OCULTA PARA DROPDOWNS
+  // ==============================
+  const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
+
+  // Unidades de negocio → Columna A (A1:A...)
+  businessUnitNames.forEach((name, i) => {
+    listSheet.getCell(i + 1, 1).value = name
+  })
+
+  // Departamentos → Columna B (B1:B...)
+  departmentNames.forEach((name, i) => {
+    listSheet.getCell(i + 1, 2).value = name
+  })
+
+  // ==============================
+  //   MAPEO DEPARTAMENTO-POSICIONES
+  //   Columnas C (Departamento) y D (Posición)
+  // ==============================
+  let currentRow = 1
+
+  departments.forEach((dept) => {
+    const deptName = dept.departmentName
+    if (!deptName) return
+
+    const positions = dept.departmentPositions
+      .map(dp => dp.position?.positionName)
+      .filter(Boolean)
+
+    // Escribir departamento y sus posiciones
+    positions.forEach((posName) => {
+      listSheet.getCell(currentRow, 3).value = deptName
+      listSheet.getCell(currentRow, 4).value = posName
+      currentRow++
+    })
+  })
+
+  // Rango para validación
+  const businessUnitRange = `Listas!$A$1:$A$${businessUnitNames.length}`
+  const departmentRange = `Listas!$B$1:$B$${departmentNames.length}`
+
+  // ==============================
+  //       ENCABEZADOS
+  // ==============================
+  const headers = [
+    'Identificador de nómina',
+    'Unidad de negocio de trabajo',
+    'Unidad de negocio de nómina',
+    'Nombre del empleado',
+    'Apellido paterno del empleado',
+    'Apellido materno del empleado',
+    'Fecha de contratación (yyyy/mm/dd)',
+    'Departamento',
+    'Posición',
+    'Salario diario',
+    'Fecha de nacimiento (dd/mm/yyyy)',
+    'CURP',
+    'RFC',
+    'NSS'
+  ]
+
+  // Encabezados requeridos (índices 0-4)
+  const requiredHeaders = [
+    'Identificador de nómina',
+    'Unidad de negocio de trabajo',
+    'Unidad de negocio de nómina',
+    'Nombre del empleado',
+    'Apellido paterno del empleado'
+  ]
+
+  const headerRow = worksheet.addRow(headers)
+  headerRow.height = 30
+
+  const requiredHeaderColor = activeBusinessUnitColor // Color de la unidad de negocio activa (formato ARGB)
+  const optionalHeaderColor = 'FFD6D6D6' // Gris claro para opcionales (formato ARGB)
+
+  // Determinar el color del texto para encabezados requeridos basado en la luminosidad del fondo
+  const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
+  const optionalHeaderTextColor = 'FF001A04' // Texto oscuro para opcionales (formato ARGB)
+
+  headerRow.eachCell((cell, colNumber) => {
+    const headerIndex = colNumber - 1
+    const headerValue = headers[headerIndex]
+    const isRequired = requiredHeaders.includes(headerValue)
+
+    const backgroundColor = isRequired ? requiredHeaderColor : optionalHeaderColor
+    const textColor = isRequired ? requiredHeaderTextColor : optionalHeaderTextColor
+
+    cell.font = { bold: true, size: 9, color: { argb: textColor } }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: backgroundColor }
+    }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } }
+    }
+  })
+
+  // ==============================
+  //     ANCHO DE COLUMNAS
+  // ==============================
+  const columnWidths = [25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20]
+  columnWidths.forEach((width, index) => {
+    worksheet.getColumn(index + 1).width = width
+  })
+
+  // ==============================
+  //    VALIDACIONES (DROPDOWNS)
+  // ==============================
+  for (let row = 2; row <= 1000; row++) {
+    // Unidad de negocio de trabajo (columna B)
+    worksheet.getCell(row, 2).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [businessUnitRange],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione una unidad de negocio válida'
+    }
+
+    // Unidad de negocio de nómina (columna C)
+    worksheet.getCell(row, 3).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [businessUnitRange],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione una unidad de negocio válida'
+    }
+
+    // Departamento (columna H)
+    worksheet.getCell(row, 8).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [departmentRange],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione un departamento válido'
+    }
+
+    // Posición (columna I) - DROPDOWN DINÁMICO usando INDIRECT con rango filtrado
+    // Esta fórmula busca en la hoja Listas todas las posiciones que corresponden al departamento seleccionado
+    const positionFormula = `INDIRECT("Listas!$D$"&MATCH(H${row},Listas!$C:$C,0)&":$D$"&(MATCH(H${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,H${row})-1))`
+
+    worksheet.getCell(row, 9).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [positionFormula],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Primero seleccione un departamento válido'
+    }
+  }
+
+  // ==============================
+  //       FORMATOS DE COLUMNA
+  // ==============================
+  worksheet.getColumn(7).numFmt = 'yyyy/mm/dd' // Fecha contratación
+  worksheet.getColumn(11).numFmt = 'dd/mm/yyyy' // Fecha nacimiento
+  worksheet.getColumn(10).numFmt = '#,##0.00' // Salario diario
+
+  // ==============================
+  //     CONGELAR ENCABEZADOS
+  // ==============================
+  worksheet.views = [
+    { state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }
+  ]
+
+  // ==============================
+  //       GENERAR ARCHIVO
+  // ==============================
+  const buffer = await workbook.xlsx.writeBuffer()
+  return Buffer.from(buffer)
+}
 }

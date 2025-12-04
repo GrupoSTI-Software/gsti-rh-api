@@ -3095,6 +3095,52 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/template-excel:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Generar plantilla de Excel para importación masiva de empleados
+   *     description: Genera un archivo Excel con los encabezados necesarios y dropdowns para facilitar la importación masiva de empleados
+   *     produces:
+   *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   *     responses:
+   *       200:
+   *         description: Plantilla de Excel generada exitosamente
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       500:
+   *         description: Error al generar la plantilla
+   */
+  async getTemplateExcel({ response, i18n }: HttpContext) {
+    try {
+      const employeeService = new EmployeeService(i18n)
+      const buffer = await employeeService.generateImportTemplate()
+
+      response.header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      response.header('Content-Disposition', 'attachment; filename=plantilla-importacion-empleados.xlsx')
+      response.status(200)
+      response.send(buffer)
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error',
+        message: 'Error al generar la plantilla de Excel',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/{employeeId}/reactivate:
    *   put:
    *     security:
