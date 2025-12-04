@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import Position from '#models/position'
 import { cuid } from '@adonisjs/core/helpers'
 import BiometricDepartmentInterface from '../interfaces/biometric_department_interface.js'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
@@ -15,6 +16,11 @@ import BusinessUnit from '#models/business_unit'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import Employee from '#models/employee'
 import { I18n } from '@adonisjs/i18n'
+import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
+import type {
+  HasManyQueryBuilderContract,
+  RelationQueryBuilderContract,
+} from '@adonisjs/lucid/types/relations'
 
 export default class DepartmentService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -88,13 +94,13 @@ export default class DepartmentService {
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
-    const departments = await Department.query()
+    const departmentsQuery = Department.query()
       .whereIn('businessUnitId', businessUnitsList)
       .where('departmentId', '<>', 999)
       .whereNull('parentDepartmentId')
       .orderBy('departmentName', 'asc')
-      .preload('departments')
-      .preload('departmentPositions')
+    this.preloadDepartmentHierarchy(departmentsQuery)
+    const departments = await departmentsQuery
 
     // const departments = await Department.query()
     //   .whereIn('businessUnitId', businessUnitsList)
@@ -238,6 +244,37 @@ export default class DepartmentService {
     }
     const position = await positionService.syncCreate(newPosition)
     return position ? position.positionId : 0
+  }
+
+  private preloadDepartmentHierarchy(
+    query:
+      | ModelQueryBuilderContract<typeof Department, Department>
+      | HasManyQueryBuilderContract<typeof Department, Department>
+  ) {
+    query.preload('departments', (childQuery) => {
+      childQuery.orderBy('departmentName', 'asc')
+      this.preloadDepartmentHierarchy(childQuery)
+    })
+    query.preload('departmentPositions', (departmentPositionQuery) => {
+      departmentPositionQuery.preload('position', (positionQuery) => {
+        this.preloadPositionHierarchy(positionQuery)
+      })
+    })
+  }
+
+  private preloadPositionHierarchy(
+    query:
+      | ModelQueryBuilderContract<typeof Position, Position>
+      | RelationQueryBuilderContract<typeof Position, Position>
+      | HasManyQueryBuilderContract<typeof Position, Position>
+  ) {
+    query.preload('parentPosition')
+    query.preload('employees', (employeeQuery) => {
+      employeeQuery.preload('person')
+    })
+    query.preload('positions', (childPositionQuery) => {
+      this.preloadPositionHierarchy(childPositionQuery)
+    })
   }
 
   async show(departmentId: number) {
