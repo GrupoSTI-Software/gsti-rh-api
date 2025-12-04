@@ -191,6 +191,20 @@ export default class EmployeeService {
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
+    const normalizeTime = (time?: string | null): string | null => {
+      if (!time) {
+        return null
+      }
+      const trimmed = time.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length === 5 ? `${trimmed}:00` : trimmed
+    }
+
+    const shiftStartTime = normalizeTime(filters.shiftStartTime ?? null)
+    const shiftEndTime = normalizeTime(filters.shiftEndTime ?? null)
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
@@ -230,6 +244,22 @@ export default class EmployeeService {
       .if(filters.departmentId  && filters.departmentId > 0 && filters.positionId  && filters.positionId > 0, (query) => {
         query.where('department_id', filters.departmentId)
         query.where('position_id', filters.positionId)
+      })
+      .if(shiftStartTime || shiftEndTime, (query) => {
+        query.whereHas('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          employeeShiftQuery.whereHas('shift', (shiftQuery) => {
+            if (shiftStartTime) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTime])
+            }
+            if (shiftEndTime) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTime]
+              )
+            }
+          })
+        })
       })
       .if(filters.ignoreDiscriminated === 1, (query) => {
         query.where('employeeAssistDiscriminator', 0)
