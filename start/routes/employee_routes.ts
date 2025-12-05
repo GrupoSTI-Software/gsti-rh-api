@@ -4,6 +4,7 @@ import { middleware } from '#start/kernel'
 router
   .group(() => {
     router.get('/employee-generate-excel', '#controllers/employee_controller.getExcel')
+    router.get('/shift-assignment-template', '#controllers/employee_controller.getShiftAssignmentTemplate')
     router.get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
     router.get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
     router.get('/get-birthday', '#controllers/employee_controller.getBirthday')

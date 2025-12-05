@@ -27,6 +27,9 @@ import VacationAuthorizationSignature from '#models/vacation_authorization_signa
 import SystemSettingsEmployee from '#models/system_settings_employee'
 import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
+import Shift from '#models/shift'
+import SystemSettingService from './system_setting_service.js'
+import sharp from 'sharp'
 
 export default class EmployeeService {
 
@@ -2871,4 +2874,500 @@ export default class EmployeeService {
     // Por defecto, ordenamiento ascendente
     return 'asc'
   }
+
+  /**
+   * Calcular la luminosidad de un color hexadecimal
+   * @param hexColor - Color en formato hex (con o sin #, con o sin alpha)
+   * @returns number - Luminosidad entre 0 (oscuro) y 255 (claro)
+   */
+  private calculateColorLuminosity(hexColor: string): number {
+    try {
+      // Remover # y alpha si existen
+      let color = hexColor.replace('#', '').toUpperCase()
+      // Si tiene 8 caracteres (ARGB), quitar los primeros 2 (alpha)
+      if (color.length === 8) {
+        color = color.substring(2)
+      }
+      // Si tiene 6 caracteres, usarlo directamente
+      if (color.length !== 6) {
+        return 128 // Valor por defecto si el formato no es válido
+      }
+
+      // Convertir hex a RGB
+      const r = Number.parseInt(color.substring(0, 2), 16)
+      const g = Number.parseInt(color.substring(2, 4), 16)
+      const b = Number.parseInt(color.substring(4, 6), 16)
+
+      // Calcular luminosidad usando la fórmula estándar
+      // 0.299*R + 0.587*G + 0.114*B
+      const luminosity = 0.299 * r + 0.587 * g + 0.114 * b
+
+      return luminosity
+    } catch (error) {
+      return 128 // Valor por defecto en caso de error
+    }
+  }
+
+  /**
+   * Determinar el color del texto basado en la luminosidad del fondo
+   * @param backgroundColor - Color de fondo en formato ARGB
+   * @returns string - Color del texto en formato ARGB ('FFFFFFFF' para blanco, 'FF001A04' para oscuro)
+   */
+  private getTextColorForBackground(backgroundColor: string): string {
+    // Extraer el color hex sin el alpha para calcular luminosidad
+    const hexColor = backgroundColor.length === 8 ? backgroundColor.substring(2) : backgroundColor
+    const luminosity = this.calculateColorLuminosity(hexColor)
+
+    // Si la luminosidad es menor a 128, el color es oscuro, usar texto blanco
+    // Si es mayor o igual a 128, el color es claro, usar texto oscuro
+    return luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
+  }
+
+  /**
+   * Obtener el color de la unidad de negocio activa desde SystemSetting
+   * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
+   */
+  private async getActiveBusinessUnitColor(): Promise<string> {
+    try {
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      if (!businessConf) {
+        return 'FFD6FFDC' // Color por defecto si no hay configuración (ARGB)
+      }
+
+      const businessList = businessConf.split(',').map((unit: string) => unit.trim())
+
+      const systemSettings = await SystemSetting.query()
+        .whereNull('system_setting_deleted_at')
+        .where('system_setting_active', 1)
+
+      for (const systemSetting of systemSettings) {
+        if (systemSetting.systemSettingBusinessUnits) {
+          const units = systemSetting.systemSettingBusinessUnits
+            .split(',')
+            .map((unit: string) => unit.trim())
+
+          const hasMatch = businessList.some((businessUnit: string) =>
+            units.includes(businessUnit)
+          )
+
+          if (hasMatch && systemSetting.systemSettingSidebarColor) {
+            // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
+            let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
+            // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
+            if (color.length === 6) {
+              color = 'FF' + color
+            }
+            // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
+            return color
+          }
+        }
+      }
+
+      return 'FFD6FFDC' // Color por defecto si no se encuentra (ARGB)
+    } catch (error) {
+      console.error('Error obteniendo color de unidad de negocio:', error)
+      return 'FFD6FFDC' // Color por defecto en caso de error (ARGB)
+    }
+  }
+
+  /**
+   * Obtener el logo del systemSetting
+   */
+  private async getLogo(): Promise<string> {
+    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+    const systemSettingService = new SystemSettingService()
+    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+    if (systemSettingActive?.systemSettingLogo) {
+      imageLogo = systemSettingActive.systemSettingLogo
+    }
+    return imageLogo
+  }
+
+  /**
+   * Agregar logo al worksheet
+   */
+  private async addImageLogo(workbook: any, worksheet: any, imageLogo: string) {
+    try {
+      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
+      const imageBuffer = imageResponse.data
+
+      const metadata = await sharp(imageBuffer).metadata()
+      const imageWidth = metadata.width ? metadata.width : 0
+      const imageHeight = metadata.height ? metadata.height : 0
+
+      const targetWidth = 139
+      const targetHeight = 49
+      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
+
+      const adjustedWidth = imageWidth * scale
+      const adjustedHeight = imageHeight * scale
+
+      const imageId = workbook.addImage({
+        buffer: imageBuffer,
+        extension: 'png',
+      })
+
+      worksheet.addImage(imageId, {
+        tl: { col: 0.28, row: 0.7 },
+        ext: { width: adjustedWidth, height: adjustedHeight },
+      })
+    } catch (error) {
+      console.error('Error loading logo:', error)
+    }
+  }
+
+  /**
+   * Generar plantilla de Excel para asignación de turnos
+   * Genera una plantilla dinámica con fechas, empleados, posiciones y turnos
+   * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
+   * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
+   * @returns Promise<Buffer> - Buffer del archivo Excel generado
+   */
+  /**
+ * Generar plantilla de Excel para asignación de turnos
+ * Genera una plantilla dinámica con fechas, empleados, posiciones y turnos
+ * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
+ * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
+ * @returns Promise<Buffer> - Buffer del archivo Excel generado
+ */
+/**
+ * Generar plantilla de Excel para asignación de turnos
+ * Genera una plantilla dinámica con fechas, empleados, posiciones y turnos
+ * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
+ * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
+ * @returns Promise<Buffer> - Buffer del archivo Excel generado
+ */
+async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promise<Buffer> {
+  const ExcelJSModule = await import('exceljs')
+  const ExcelJS = ExcelJSModule.default
+
+  const HolidaysModule = await import('date-holidays')
+  const Holidays = HolidaysModule.default
+  const hd = new Holidays('MX')
+
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
+
+  // Obtener el color de la unidad de negocio activa
+  const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+
+  // Obtener logo y agregarlo
+  const logoUrl = await this.getLogo()
+  await this.addImageLogo(workbook, worksheet, logoUrl)
+
+  // Convertir fechas a DateTime
+  const startDateTime = DateTime.fromISO(startDate)
+  const endDateTime = DateTime.fromISO(endDate)
+
+  if (!startDateTime.isValid || !endDateTime.isValid) {
+    throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
+  }
+
+  if (startDateTime > endDateTime) {
+    throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
+  }
+
+  // Generar array de fechas
+  const dates: DateTime[] = []
+  let currentDate = startDateTime
+  while (currentDate <= endDateTime) {
+    dates.push(currentDate)
+    currentDate = currentDate.plus({ days: 1 })
+  }
+
+  // ✅ OBTENER DÍAS FESTIVOS DE MÉXICO usando date-holidays
+  const holidayDates = new Set<string>()
+  try {
+    const startYear = startDateTime.year
+    const endYear = endDateTime.year
+
+    // Obtener festivos para todos los años en el rango
+    for (let year = startYear; year <= endYear; year++) {
+      const yearHolidays = hd.getHolidays(year)
+
+      yearHolidays.forEach((holiday: any) => {
+        // Solo considerar días festivos públicos (public holidays)
+        if (holiday.type === 'public') {
+          // Convertir la fecha del festivo a formato yyyy-MM-dd
+          const holidayDate = DateTime.fromJSDate(holiday.start).toFormat('yyyy-MM-dd')
+          holidayDates.add(holidayDate)
+        }
+      })
+    }
+
+  } catch (error) {
+    console.warn('Error obteniendo días festivos de México:', error)
+  }
+
+  // Obtener empleados activos con sus posiciones
+  const employees = await Employee.query()
+    .whereNull('deletedAt')
+    .preload('position', (query) => {
+      query.whereNull('position_deleted_at')
+      query.where('position_active', 1)
+    })
+    .preload('department', (query) => {
+      query.whereNull('department_deleted_at')
+    })
+    .orderBy('employeeFirstName')
+    .orderBy('employeeLastName')
+
+  // Obtener turnos activos
+  const shifts = await Shift.query()
+    .whereNull('shift_deleted_at')
+    .orderBy('shiftName')
+
+  // ==============================
+  //   HOJA OCULTA PARA DROPDOWNS
+  // ==============================
+  const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
+
+  // Empleados → Columna A (A1:A...) - Formato: ID|Nombre Completo
+  employees.forEach((employee, i) => {
+    const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+    listSheet.getCell(i + 1, 1).value = `${employee.employeeId}|${fullName}`
+  })
+
+  // Turnos y opciones adicionales → Columna B (B1:B...)
+  let shiftRow = 1
+  shifts.forEach((shift) => {
+    // Formatear turno con horas si están disponibles
+    let shiftDisplay = shift.shiftName
+    if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
+      try {
+        const startTime = String(shift.shiftTimeStart).trim()
+        // Manejar diferentes formatos de tiempo (HH:mm, HH:mm:ss, etc.)
+        const timeParts = startTime.split(':')
+        if (timeParts.length >= 2) {
+          const hours = Number.parseInt(timeParts[0], 10)
+          const minutes = Number.parseInt(timeParts[1], 10)
+
+          // Validar que las horas y minutos sean números válidos
+          if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+            const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+            const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+            const endTime = shiftEndTime.toFormat('HH:mm')
+            // Formatear hora de inicio para mostrar solo HH:mm
+            const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+            shiftDisplay = `${formattedStartTime} to ${endTime} - Rest (NA)`
+          }
+        }
+      } catch (error) {
+        // Si hay error al procesar el tiempo, usar solo el nombre del turno
+        console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
+      }
+    }
+    listSheet.getCell(shiftRow, 2).value = shiftDisplay
+    shiftRow++
+  })
+  // Agregar opciones adicionales
+  listSheet.getCell(shiftRow++, 2).value = 'vacaciones'
+  listSheet.getCell(shiftRow++, 2).value = 'Día de descanso'
+  listSheet.getCell(shiftRow++, 2).value = 'Día festivo'
+  const totalShiftOptions = shiftRow - 1
+
+  // Mapeo Empleado-Posición → Columnas C (ID Empleado), D (Nombre), E (Posición)
+  let currentRow = 1
+  employees.forEach((employee) => {
+    const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+    const positionName = employee.position?.positionName || 'Sin posición'
+    listSheet.getCell(currentRow, 3).value = employee.employeeId
+    listSheet.getCell(currentRow, 4).value = fullName
+    listSheet.getCell(currentRow, 5).value = positionName
+    currentRow++
+  })
+
+  // Rangos para validación
+  const shiftRange = `Listas!$B$1:$B$${totalShiftOptions}`
+
+  // Número máximo de filas para empleados (100 filas vacías)
+  const maxRows = 100
+
+  // ==============================
+  //       TÍTULO Y ENCABEZADOS
+  // ==============================
+  // Fila del título (después del logo)
+  worksheet.getRow(1).height = 60
+  const titleRow = worksheet.addRow([''])
+  titleRow.height = 30
+  worksheet.mergeCells(`A2:${String.fromCharCode(65 + 2 + dates.length)}2`)
+  titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+  titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+
+  // Fila vacía
+  // Primera fila de encabezados (fechas)
+  const headerRow1 = ['ID. Empleado', 'Empleado', 'Posición']
+  dates.forEach((date) => {
+    const dateStr = date.toFormat('dd/MM/yyyy')
+    headerRow1.push(dateStr)
+  })
+  const row1 = worksheet.addRow(headerRow1)
+  row1.height = 30
+
+  // Segunda fila de encabezados (días de la semana)
+  const headerRow2 = ['', '', '']
+  dates.forEach((date) => {
+    const dayName = date.toFormat('cccc', { locale: 'es' })
+    headerRow2.push(dayName)
+  })
+  const row2 = worksheet.addRow(headerRow2)
+  row2.height = 30
+
+  const headerColor = activeBusinessUnitColor
+  const headerTextColor = this.getTextColorForBackground(headerColor)
+  const subHeaderColor = 'FF4472C4' // Azul más claro para la segunda fila
+  const subHeaderTextColor = 'FFFFFFFF' // Blanco para la segunda fila
+
+  // Aplicar formato a la primera fila de encabezados
+  row1.eachCell((cell) => {
+    cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: headerColor }
+    }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } }
+    }
+  })
+
+  // Aplicar formato a la segunda fila de encabezados (días de la semana)
+  row2.eachCell((cell, colNum) => {
+    if (colNum > 3) {
+      cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: subHeaderColor }
+      }
+    } else {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: headerColor }
+      }
+      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+    }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } }
+    }
+  })
+
+  // ==============================
+  //     ANCHO DE COLUMNAS
+  // ==============================
+  worksheet.getColumn(1).width = 15 // ID. Empleado
+  worksheet.getColumn(2).width = 35 // Empleado
+  // Columna Posición con ajuste automático de texto (wrap text)
+  worksheet.getColumn(3).width = 30 // Posición
+  worksheet.getColumn(3).alignment = { wrapText: true }
+
+  // Aplicar ancho estándar a todas las columnas de fechas
+  for (let col = 4; col <= 3 + dates.length; col++) {
+    worksheet.getColumn(col).width = 20
+  }
+
+  // ==============================
+  //    VALIDACIONES (DROPDOWNS) Y FILAS VACÍAS
+  // ==============================
+  // Crear filas vacías (sin empleados pre-cargados)
+  const startDataRow = 5 // Después de los encabezados (fila 4 es la segunda fila de encabezados)
+
+  for (let row = startDataRow; row <= startDataRow + maxRows - 1; row++) {
+    // ID. Empleado (columna A) - Fórmula para extraer ID del dropdown
+    const idFormula = `IFERROR(VALUE(LEFT(B${row},FIND("|",B${row}&"|")-1)),"")`
+    worksheet.getCell(row, 1).value = { formula: idFormula }
+
+    // Empleado (columna B) - Dropdown con validación para no repetir
+    // Usar fórmula para validar que no se repita el empleado
+    const employeeValidationFormula = `Listas!$A$1:$A$${employees.length}`
+    worksheet.getCell(row, 2).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [employeeValidationFormula],
+      errorStyle: 'warning',
+      showErrorMessage: true,
+      errorTitle: 'Valor inválido',
+      error: 'Seleccione un empleado válido'
+    }
+
+    // Posición (columna C) - Auto-completar basado en empleado usando fórmula
+    // Extraer nombre del empleado y buscar su posición
+    const employeeNameFormula = `IFERROR(MID(B${row},FIND("|",B${row}&"|")+1,LEN(B${row})),"")`
+    const positionFormula = `IFERROR(VLOOKUP(${employeeNameFormula},Listas!$D:$E,2,FALSE),"")`
+    worksheet.getCell(row, 3).value = { formula: positionFormula }
+
+    // Aplicar formato a las primeras 3 columnas
+    for (let col = 1; col <= 3; col++) {
+      worksheet.getCell(row, col).alignment = {
+        vertical: 'middle',
+        horizontal: col === 3 ? 'left' : 'center', // Posición alineada a la izquierda
+        wrapText: true
+      }
+      worksheet.getCell(row, col).border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    }
+
+    // Columnas de fechas (desde columna D)
+    dates.forEach((date, dateIndex) => {
+      const colNumber = 4 + dateIndex
+      const dateStr = date.toFormat('yyyy-MM-dd')
+      const isHoliday = holidayDates.has(dateStr)
+
+      // Si es día festivo, poner "Día festivo" directamente como texto
+      if (isHoliday) {
+        worksheet.getCell(row, colNumber).value = 'Día festivo'
+      }
+
+      // Dropdown para turnos
+      worksheet.getCell(row, colNumber).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [shiftRange],
+        errorStyle: 'warning',
+        showErrorMessage: true,
+        errorTitle: 'Valor inválido',
+        error: 'Seleccione un turno válido o deje vacío'
+      }
+
+      // Aplicar formato de celda
+      worksheet.getCell(row, colNumber).alignment = {
+        vertical: 'middle',
+        horizontal: 'center',
+        wrapText: true
+      }
+      worksheet.getCell(row, colNumber).border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+  }
+
+  // ==============================
+  //     CONGELAR ENCABEZADOS
+  // ==============================
+  worksheet.views = [
+    { state: 'frozen', ySplit: 4, xSplit: 3, topLeftCell: 'D5', activeCell: 'D5' }
+  ]
+
+  // ==============================
+  //       GENERAR ARCHIVO
+  // ==============================
+  const buffer = await workbook.xlsx.writeBuffer()
+  return Buffer.from(buffer)
+}
 }
