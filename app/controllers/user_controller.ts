@@ -15,6 +15,8 @@ import { LogAuthentication } from '../interfaces/MongoDB/log_authentication.js'
 import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
+import EmployeeDevice from '#models/employee_device'
+import EmployeeDeviceService from '#services/employee_device_service'
 
 export default class UserController {
   /**
@@ -42,6 +44,31 @@ export default class UserController {
    *                 type: string
    *                 description: User password
    *                 default: ''
+   *               deviceToken:
+   *                 type: string
+   *                 description: Device token
+   *                 default: ''
+   *                 required: false
+   *               deviceModel:
+   *                 type: string
+   *                 description: Device model
+   *                 default: ''
+   *                 required: false
+   *               deviceBrand:
+   *                 type: string
+   *                 description: Device brand
+   *                 default: ''
+   *                 required: false
+   *               deviceType:
+   *                 type: string
+   *                 description: Device type
+   *                 default: ''
+   *                 required: false
+   *               deviceOs:
+   *                 type: string
+   *                 description: Device os
+   *                 default: ''
+   *                 required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -125,6 +152,7 @@ export default class UserController {
    */
   async login({ request, response, i18n }: HttpContext) {
     try {
+      const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
       const user = await User.query().where('user_email', userEmail).where('user_active', 1).first()
@@ -135,9 +163,70 @@ export default class UserController {
           type: 'warning',
           title: 'Login',
           message: 'Incorrect email or password',
-          data: { user: {} },
+          data: { user: {} }
         }
       }
+
+      if (deviceToken) {
+        const currentUser = await User.query()
+          .where('user_id', user.userId)
+          .preload('person', (query) => query.preload('employee'))
+          .first()
+
+        const currentEmployee = currentUser?.person?.employee
+
+        if (!currentEmployee) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Login',
+            message: 'Employee not found',
+            data: { user: {} }
+          }
+        }
+
+        const employeeDevice = await EmployeeDevice.query()
+          .where('employee_device_token', deviceToken)
+          .whereNull('employee_device_deleted_at')
+          .first()
+
+        if (employeeDevice && employeeDevice.employeeId !== currentEmployee.employeeId) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Login',
+            message: 'This device is already associated with another employee.',
+            data: { user: {} }
+          }
+        }
+
+        // Crear o verificar dispositivo si no existe
+        if (!employeeDevice) {
+          const deviceData = {
+            employeeDeviceToken: deviceToken,
+            employeeDeviceModel: request.input('deviceModel'),
+            employeeDeviceBrand: request.input('deviceBrand'),
+            employeeDeviceType: request.input('deviceType'),
+            employeeDeviceOs: request.input('deviceOs'),
+            employeeId: currentEmployee.employeeId
+          } as EmployeeDevice
+
+          const employeeDeviceService = new EmployeeDeviceService(i18n)
+          const verifyInfo = await employeeDeviceService.verifyInfoExist(deviceData)
+
+          if (verifyInfo.status !== 200) {
+            response.status(verifyInfo.status)
+            return {
+              type: verifyInfo.type,
+              title: verifyInfo.title,
+              message: verifyInfo.message,
+              data: { user: {} }
+            }
+          }
+
+          await employeeDeviceService.create(deviceData)
+        }
+       }
 
       await ApiToken.query().where('tokenable_id', user.userId).delete()
 
