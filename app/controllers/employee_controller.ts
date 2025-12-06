@@ -6147,4 +6147,168 @@ export default class EmployeeController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/employees/import-shift-assignments:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Importar asignaciones de turnos desde archivo Excel
+   *     description: |
+   *       Importa las asignaciones de turnos desde un archivo Excel generado con la plantilla.
+   *       Solo procesa las filas que tengan un código de empleado en la primera columna.
+   *       Las celdas vacías se ignoran.
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               file:
+   *                 type: string
+   *                 format: binary
+   *                 description: Archivo Excel con asignaciones de turnos (generado con la plantilla)
+   *             required:
+   *               - file
+   *     responses:
+   *       200:
+   *         description: Asignaciones importadas exitosamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                   example: Importación completada
+   *                 message:
+   *                   type: string
+   *                   example: Las asignaciones de turnos se importaron correctamente
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     totalRows:
+   *                       type: number
+   *                       description: Total de filas procesadas
+   *                     processed:
+   *                       type: number
+   *                       description: Filas procesadas exitosamente
+   *                     created:
+   *                       type: number
+   *                       description: Registros nuevos creados
+   *                     updated:
+   *                       type: number
+   *                       description: Registros actualizados
+   *                     skipped:
+   *                       type: number
+   *                       description: Filas omitidas
+   *                     errors:
+   *                       type: array
+   *                       items:
+   *                         type: string
+   *                       description: Lista de errores encontrados
+   *       400:
+   *         description: Archivo no proporcionado o inválido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Validation error
+   *                 message:
+   *                   type: string
+   *                   example: Excel file is required
+   *       500:
+   *         description: Error interno del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Error al importar
+   *                 message:
+   *                   type: string
+   *                   example: Ocurrió un error al procesar el archivo Excel
+   *                 error:
+   *                   type: string
+   */
+  async importShiftAssignments({ auth, request, response, i18n }: HttpContext) {
+    try {
+      await auth.check()
+
+      const file = request.file('file')
+
+      if (!file) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Excel file is required',
+        }
+      }
+
+      // Validar que el archivo sea un Excel
+      const allowedExtensions = ['.xlsx', '.xls']
+      const allowedMimeTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+        'application/vnd.ms-excel', // .xls
+        'application/octet-stream' // Fallback para algunos casos
+      ]
+
+      const fileName = file.clientName || file.tmpPath || ''
+      const fileExtension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'))
+      const mimeType = file.type || ''
+
+      const isValidExtension = allowedExtensions.includes(fileExtension)
+      const isValidMimeType = allowedMimeTypes.includes(mimeType.toLowerCase())
+
+      if (!isValidExtension && !isValidMimeType) {
+        try {
+          const ExcelJSModule = await import('exceljs')
+          const ExcelJSLib = ExcelJSModule.default
+          const workbook = new ExcelJSLib.Workbook()
+          await workbook.xlsx.readFile(file.tmpPath || '')
+        } catch (excelError: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: `El archivo debe ser un Excel válido (.xlsx o .xls). Error: ${excelError.message}`,
+          }
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.importShiftAssignmentsFromExcel(file)
+
+      response.status(result.status)
+      return result
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'Ocurrió un error inesperado al importar las asignaciones',
+        error: error.message,
+      }
+    }
+  }
 }
