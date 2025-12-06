@@ -1,4 +1,3 @@
-import Zone from '#models/zone'
 import vine from '@vinejs/vine'
 
 export const createZoneValidator = vine.compile(
