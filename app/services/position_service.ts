@@ -1,5 +1,6 @@
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
+import DepartmentPosition from '#models/department_position'
 import EmployeeShift from '#models/employee_shift'
 import Position from '#models/position'
 import Shift from '#models/shift'
@@ -90,6 +91,7 @@ export default class PositionService {
   }
 
   async delete(currentPosition: Position) {
+    await DepartmentPosition.query().where('position_id', currentPosition.positionId).delete()
     await currentPosition.delete()
     return currentPosition
   }

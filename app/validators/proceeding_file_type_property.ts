@@ -3,7 +3,7 @@ import vine from '@vinejs/vine'
 export const createProceedingFileTypePropertyValidator = vine.compile(
   vine.object({
     proceedingFileTypePropertyName: vine.string().trim().minLength(1).maxLength(100),
-    proceedingFileTypePropertyType: vine.enum(['Text', 'File', 'Currency', 'Decimal', 'Number']),
+    proceedingFileTypePropertyType: vine.enum(['Text', 'File', 'Currency', 'Decimal', 'Number', 'Date']),
     proceedingFileTypePropertyCategoryName: vine.string().trim().maxLength(100).optional(),
     proceedingFileTypeId: vine.number().positive(),
   })
@@ -12,7 +12,7 @@ export const createProceedingFileTypePropertyValidator = vine.compile(
 export const updateProceedingFileTypePropertyValidator = vine.compile(
   vine.object({
     proceedingFileTypePropertyName: vine.string().trim().minLength(1).maxLength(100),
-    proceedingFileTypePropertyType: vine.enum(['Text', 'File', 'Currency', 'Decimal', 'Number']),
+    proceedingFileTypePropertyType: vine.enum(['Text', 'File', 'Currency', 'Decimal', 'Number', 'Date']),
     proceedingFileTypePropertyCategoryName: vine.string().trim().maxLength(100).optional(),
   })
 )
@@ -23,7 +23,7 @@ export const createMultipleProceedingFileTypePropertiesValidator = vine.compile(
     properties: vine.array(
       vine.object({
         proceedingFileTypePropertyName: vine.string().trim().minLength(1).maxLength(100),
-        proceedingFileTypePropertyType: vine.enum(['Text', 'File', 'Currency', 'Decimal', 'Number']),
+        proceedingFileTypePropertyType: vine.enum(['Text', 'File', 'Currency', 'Decimal', 'Number', 'Date']),
         proceedingFileTypePropertyCategoryName: vine.string().trim().maxLength(100).optional(),
       })
     ).minLength(1),
