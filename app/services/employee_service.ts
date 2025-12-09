@@ -1286,6 +1286,101 @@ export default class EmployeeService {
     return vacationsWithSignatures ? vacationsWithSignatures : [] as (ShiftException & { signature: string })[]
   }
 
+  /**
+   * Obtiene el vacationSettingId correcto y valida vacaciones disponibles
+   * para una fecha específica. Si no hay disponibles en el año actual,
+   * busca en años anteriores.
+   * @param employee - Empleado
+   * @param vacationDate - Fecha de la vacación
+   * @returns Objeto con vacationSettingId y disponibilidad, o null si no hay disponibles
+   */
+  private async getAvailableVacationSetting(
+    employee: Employee,
+    vacationDate: DateTime
+  ): Promise<{ vacationSettingId: number; year: number } | null> {
+    if (!employee.employeeHireDate) {
+      return null
+    }
+
+    const vacationYear = vacationDate.year
+    const start = DateTime.fromISO(employee.employeeHireDate.toString())
+
+    if (!start.isValid) {
+      return null
+    }
+
+    const employeeType = await EmployeeType.query()
+      .whereNull('employee_type_deleted_at')
+      .where('employee_type_id', employee.employeeTypeId)
+      .first()
+
+    let employeeIsCrew = false
+    if (employeeType) {
+      if (
+        employeeType.employeeTypeSlug === 'pilot' ||
+        employeeType.employeeTypeSlug === 'flight-attendant'
+      ) {
+        employeeIsCrew = true
+      }
+    }
+
+    const month = start.month
+    const day = start.day
+
+    let currentYear = vacationYear
+    const startYear = start.year
+    const maxYearsToCheck = 5
+
+    for (let i = 0; i < maxYearsToCheck; i++) {
+      const checkYear = currentYear - i
+      if (checkYear < startYear) {
+        break
+      }
+
+      const yearsPassed = checkYear - startYear
+      if (yearsPassed < 0) {
+        continue
+      }
+
+      const checkFormattedDate = DateTime.fromObject({
+        year: checkYear,
+        month: month,
+        day: day,
+      }).toFormat('yyyy-MM-dd')
+
+      const vacationSetting = await VacationSetting.query()
+        .whereNull('vacation_setting_deleted_at')
+        .where('vacation_setting_years_of_service', yearsPassed)
+        .where('vacation_setting_apply_since', '<=', checkFormattedDate)
+        .if(employeeIsCrew, (query) => {
+          query.where('vacation_setting_crew', 1)
+        })
+        .orderBy('vacation_setting_years_of_service', 'desc')
+        .first()
+
+      if (!vacationSetting) {
+        continue
+      }
+
+      const vacationsUsed = await ShiftException.query()
+        .whereNull('shift_exceptions_deleted_at')
+        .where('vacation_setting_id', vacationSetting.vacationSettingId)
+        .where('employee_id', employee.employeeId)
+
+      const daysUsed = vacationsUsed.length
+      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+
+      if (daysAvailable > 0) {
+        return {
+          vacationSettingId: vacationSetting.vacationSettingId,
+          year: checkYear,
+        }
+      }
+    }
+
+    return null
+  }
+
   async verifyExistPhoto(url: string) {
     try {
       const response = await axios.head(url)
@@ -4359,6 +4454,24 @@ async importShiftAssignmentsFromExcel(file: any) {
           const shiftExceptionService = new ShiftExceptionService(this.i18n)
 
           try {
+            let vacationSettingId: number | null = null
+
+            if (exceptionTypeSlug === 'vacation') {
+              const availableVacation = await this.getAvailableVacationSetting(
+                employee,
+                date
+              )
+
+              if (!availableVacation) {
+                results.errors.push(
+                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: No hay vacaciones disponibles para el empleado`
+                )
+                continue
+              }
+
+              vacationSettingId = availableVacation.vacationSettingId
+            }
+
             const shiftException = {
               employeeId: employeeId,
               exceptionTypeId: exceptionTypeId,
@@ -4368,7 +4481,7 @@ async importShiftAssignmentsFromExcel(file: any) {
               shiftExceptionCheckInTime: null,
               shiftExceptionCheckOutTime: null,
               shiftExceptionTimeByTime: null,
-              vacationSettingId: null,
+              vacationSettingId: vacationSettingId,
               workDisabilityPeriodId: null,
             } as ShiftException
 
