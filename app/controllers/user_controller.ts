@@ -202,6 +202,21 @@ export default class UserController {
 
         // Crear o verificar dispositivo si no existe
         if (!employeeDevice) {
+          const employeeDeviceActive = await EmployeeDevice.query()
+            .where('employee_id', currentEmployee.employeeId)
+            .where('employeeDeviceActive', 1)
+            .whereNull('employee_device_deleted_at')
+            .first()
+          if (employeeDeviceActive) {
+            response.status(400)
+            return {
+              type: 'warning',
+              title: 'Login',
+              message: 'This account is already registered on another device. Please contact your manager to activate access on this new device.',
+              data: { user: {} }
+            }
+          }
+
           const deviceData = {
             employeeDeviceToken: deviceToken,
             employeeDeviceModel: request.input('deviceModel'),
