@@ -3239,7 +3239,7 @@ export default class EmployeeController {
   async getTemplateExcel({ response, i18n }: HttpContext) {
     try {
       const employeeService = new EmployeeService(i18n)
-      const buffer = await employeeService.generateImportTemplate()
+      const buffer = await employeeService.generateEmployeeImportTemplate()
 
       response.header(
         'Content-Type',
