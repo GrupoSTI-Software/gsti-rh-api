@@ -15,6 +15,7 @@ import EmployeeChildren from './employee_children.js'
 import EmployeeEmergencyContact from './employee_emergency_contact.js'
 import EmployeeShiftChange from './employee_shift_changes.js'
 import UserResponsibleEmployee from './user_responsible_employee.js'
+import EmployeeShift from './employee_shift.js'
 
 /**
  * @swagger
@@ -141,7 +142,7 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   declare employeeWorkSchedule: string
 
   @column()
-  declare employeePhoto: string
+  declare employeePhoto: string | null
 
   @column.date()
   declare employeeHireDate: DateTime | null
@@ -292,4 +293,12 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare userResponsibleEmployee: HasMany<typeof UserResponsibleEmployee>
+
+  @hasMany(() => EmployeeShift, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employe_shifts_deleted_at')
+    },
+  })
+  declare employeeShifts: HasMany<typeof EmployeeShift>
 }

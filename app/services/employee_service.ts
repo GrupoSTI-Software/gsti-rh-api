@@ -34,6 +34,7 @@ import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
 
+import ExcelJS from 'exceljs'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -197,6 +198,20 @@ export default class EmployeeService {
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
+    const normalizeTime = (time?: string | null): string | null => {
+      if (!time) {
+        return null
+      }
+      const trimmed = time.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length === 5 ? `${trimmed}:00` : trimmed
+    }
+
+    const shiftStartTime = normalizeTime(filters.shiftStartTime ?? null)
+    const shiftEndTime = normalizeTime(filters.shiftEndTime ?? null)
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
@@ -236,6 +251,22 @@ export default class EmployeeService {
       .if(filters.departmentId  && filters.departmentId > 0 && filters.positionId  && filters.positionId > 0, (query) => {
         query.where('department_id', filters.departmentId)
         query.where('position_id', filters.positionId)
+      })
+      .if(shiftStartTime || shiftEndTime, (query) => {
+        query.whereHas('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          employeeShiftQuery.whereHas('shift', (shiftQuery) => {
+            if (shiftStartTime) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTime])
+            }
+            if (shiftEndTime) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTime]
+              )
+            }
+          })
+        })
       })
       .if(filters.ignoreDiscriminated === 1, (query) => {
         query.where('employeeAssistDiscriminator', 0)
@@ -395,6 +426,89 @@ export default class EmployeeService {
       .preload('position')
       .where('employee_id', employeeId)
       .first()
+  }
+
+  async deleteEmployeePhoto(employeeId: number, uploadService: any) {
+    const currentEmployee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!currentEmployee) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Employee not found',
+        message: 'The employee was not found with the entered ID',
+        data: { employeeId },
+      }
+    }
+
+    if (!currentEmployee.employeePhoto) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'No photo to delete',
+        message: 'The employee does not have a photo to delete',
+        data: { employeeId },
+      }
+    }
+
+    try {
+      // Extraer la key de S3 desde la URL completa
+      const photoUrl = currentEmployee.employeePhoto
+      let fileKey = photoUrl
+
+      // Si es una URL completa, extraer la key
+      if (photoUrl && (photoUrl.includes('http://') || photoUrl.includes('https://'))) {
+        try {
+          const url = new URL(photoUrl)
+          // La key de S3 es el pathname sin el primer slash
+          const pathname = url.pathname
+          // Remover el primer slash si existe
+          fileKey = pathname.startsWith('/') ? pathname.substring(1) : pathname
+        } catch (error) {
+          // Si no se puede parsear como URL, intentar extraer el nombre del archivo
+          const path = await import('node:path')
+          const Env = await import('#start/env')
+          const fileNameWithExt = decodeURIComponent(path.default.basename(photoUrl))
+          fileKey = `${Env.default.get('AWS_ROOT_PATH')}/employees/${fileNameWithExt}`
+        }
+      }
+
+      // Eliminar el archivo de S3
+      const deleteResult = await uploadService.deleteFile(fileKey)
+
+      if (deleteResult.status !== 200) {
+        return {
+          status: 500,
+          type: 'error',
+          title: 'Error deleting photo',
+          message: 'Error deleting photo from storage',
+          data: { employeeId, error: deleteResult.message },
+        }
+      }
+
+      // Actualizar el empleado para eliminar la referencia a la foto
+      currentEmployee.employeePhoto = null
+      await currentEmployee.save()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Photo deleted',
+        message: 'The employee photo was deleted successfully',
+        data: { employee: currentEmployee },
+      }
+    } catch (error: any) {
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error occurred while deleting the photo',
+        data: { employeeId, error: error.message },
+      }
+    }
   }
 
   async delete(currentEmployee: Employee) {
@@ -1913,8 +2027,6 @@ export default class EmployeeService {
    * Import employees from Excel file
    */
   async importFromExcel(file: any) {
-    const ExcelJSModule = await import('exceljs')
-    const ExcelJS = ExcelJSModule.default
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -1979,9 +2091,75 @@ export default class EmployeeService {
         rows.push({ row, rowNumber })
       })
 
-      // Primero, procesar todas las filas para validar y contar empleados nuevos
+      // Encabezados requeridos para validación
+      const requiredHeaders = [
+        'Identificador de nómina',
+        'Unidad de negocio de trabajo',
+        'Unidad de negocio de nómina',
+        'Nombre del empleado',
+        'Apellido paterno del empleado'
+      ]
+
+      // Validar que todos los encabezados requeridos estén presentes
+      const missingRequiredHeaders: string[] = []
+      for (const requiredHeader of requiredHeaders) {
+        const requiredLower = requiredHeader.toLowerCase().trim()
+        const found = headers.some(header => {
+          if (!header || typeof header !== 'string') return false
+          const headerLower = header.toLowerCase().trim()
+          return headerLower === requiredLower ||
+                 headerLower.includes(requiredLower.substring(0, 10)) ||
+                 requiredLower.includes(headerLower.substring(0, 10))
+        })
+        if (!found) {
+          missingRequiredHeaders.push(requiredHeader)
+        }
+      }
+
+      if (missingRequiredHeaders.length > 0) {
+        throw this.createHeaderValidationError(
+          `Faltan los siguientes encabezados requeridos: ${missingRequiredHeaders.join(', ')}`
+        )
+      }
+
+      // Primero, validar que TODOS los registros tengan los campos requeridos
+      // Si falta alguno, invalidar todo el archivo
+      for (const { row, rowNumber } of rows) {
+        const employeeData = this.extractEmployeeDataFromRow(row, headers)
+
+        // Validar campos requeridos
+        const requiredFieldsErrors: string[] = []
+
+        if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
+          requiredFieldsErrors.push('Identificador de nómina')
+        }
+        if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
+          requiredFieldsErrors.push('Unidad de negocio de trabajo')
+        }
+        if (!employeeData.payrollBusinessUnit || employeeData.payrollBusinessUnit.toString().trim() === '') {
+          requiredFieldsErrors.push('Unidad de negocio de nómina')
+        }
+        if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
+          requiredFieldsErrors.push('Nombre del empleado')
+        }
+        if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
+          requiredFieldsErrors.push('Apellido paterno del empleado')
+        }
+
+        // Si falta algún campo requerido, invalidar todo el archivo inmediatamente
+        if (requiredFieldsErrors.length > 0) {
+          throw this.createHeaderValidationError(
+            'El archivo Excel contiene registros con campos requeridos faltantes. ' +
+            `Fila ${rowNumber} falta: ${requiredFieldsErrors.join(', ')}. ` +
+            'Todos los registros deben tener los campos requeridos completos.'
+          )
+        }
+      }
+
+      // Si llegamos aquí, todos los registros tienen los campos requeridos
+      // Ahora procesar todas las filas para validar y contar empleados nuevos
       let newEmployeesCount = 0
-      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number }> = []
+      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null }> = []
 
       for (const { row, rowNumber } of rows) {
         results.totalRows++
@@ -2012,8 +2190,30 @@ export default class EmployeeService {
             continue
           }
 
-          // Mapear unidad de negocio por nombre
-          const businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          // Mapear unidad de negocio de trabajo por nombre
+          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
+          if (businessUnitId === null && businessUnits.length > 0) {
+            businessUnitId = businessUnits[0].businessUnitId
+          }
+
+          // Mapear unidad de negocio de nómina por nombre
+          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
+          // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
+          if (payrollBusinessUnitId === null && businessUnits.length > 0) {
+            payrollBusinessUnitId = businessUnits[0].businessUnitId
+          }
+
+          // Si no se especifica unidad de negocio de trabajo, usar la de nómina como fallback
+          // Si tampoco hay de nómina, usar la primera de la base de datos
+          const finalBusinessUnitId = businessUnitId || payrollBusinessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
+          const finalPayrollBusinessUnitId = payrollBusinessUnitId || businessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
+
+          if (finalBusinessUnitId === null) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: No se pudo determinar la unidad de negocio`)
+            continue
+          }
 
           // Buscar empleado existente por número de empleado
           const existingEmployee = existingEmployees.find(emp =>
@@ -2022,11 +2222,11 @@ export default class EmployeeService {
 
           if (existingEmployee) {
             // Para empleados existentes, no contamos para el límite
-            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
           } else {
             // Para empleados nuevos, contamos el total
             newEmployeesCount++
-            validRows.push({ row, rowNumber, employeeData, businessUnitId })
+            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
           }
 
         } catch (error: any) {
@@ -2057,14 +2257,14 @@ export default class EmployeeService {
       // Si se alcanzó el límite, no procesar más empleados nuevos
       if (results.limitReached) {
         // Procesar solo empleados existentes (actualizaciones)
-        for (const { rowNumber, employeeData } of validRows) {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           const existingEmployee = existingEmployees.find(emp =>
             emp.employeeCode.toString() === employeeData.employeeNumber
           )
 
           if (existingEmployee) {
             try {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
               results.updated++
               results.processed++
             } catch (error: any) {
@@ -2080,10 +2280,8 @@ export default class EmployeeService {
         // Procesar todos los empleados (creaciones y actualizaciones)
         const createdEmployees: Employee[] = [] // Array para almacenar empleados creados
 
-        for (const { rowNumber, employeeData, businessUnitId } of validRows) {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           try {
-            const payrollBusinessUnitId = businessUnitId // Usar la misma unidad de negocio para nómina
-
             // Buscar empleado existente por número de empleado
             const existingEmployee = existingEmployees.find(emp =>
               emp.employeeCode.toString() === employeeData.employeeNumber
@@ -2091,7 +2289,7 @@ export default class EmployeeService {
 
             if (existingEmployee) {
               // Actualizar empleado existente
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
               results.updated++
               results.processed++
             } else {
@@ -2110,7 +2308,7 @@ export default class EmployeeService {
               const person = await this.createPerson(employeeData)
 
               // Crear empleado
-              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId, payrollBusinessUnitId, departmentId, positionId, employeeCode)
+              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode)
 
               // Agregar a la lista de empleados creados para enviar a biométricos
               createdEmployees.push(newEmployee)
@@ -2140,9 +2338,23 @@ export default class EmployeeService {
 
       return results
 
-    } catch (error) {
+    } catch (error: any) {
+      // Si es un error de validación de cabeceras, propagarlo tal cual
+      if (error.isHeaderValidationError) {
+        throw error
+      }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
     }
+  }
+
+  /**
+   * Clase de error personalizada para errores de validación de cabeceras
+   */
+  private createHeaderValidationError(message: string): Error {
+    const error = new Error(message)
+    ;(error as any).isHeaderValidationError = true
+    ;(error as any).statusCode = 400
+    return error
   }
 
   /**
@@ -2150,13 +2362,13 @@ export default class EmployeeService {
    */
   private validateExcelHeaders(worksheet: any) {
     const expectedHeaders = [
-      'N° de empleado',
-      'Razón social',
-      'Unidad de negocios',
+      'Identificador de nómina',
+      'Unidad de negocio de trabajo',
+      'Unidad de negocio de nómina',
       'Nombre del empleado',
-      'Apellido Paterno del empleado',
-      'Apellido Materno del empleado',
-      'Fecha de contratación (dd/mm/yyyy)',
+      'Apellido paterno del empleado',
+      'Apellido materno del empleado',
+      'Fecha de contratación (yyyy/mm/dd)',
       'Departamento',
       'Posición',
       'Salario diario',
@@ -2166,21 +2378,185 @@ export default class EmployeeService {
       'NSS'
     ]
 
+    // Encabezados requeridos que deben estar presentes
+    const requiredHeaders = [
+      'Identificador de nómina',
+      'Unidad de negocio de trabajo',
+      'Unidad de negocio de nómina',
+      'Nombre del empleado',
+      'Apellido paterno del empleado'
+    ]
+
     const firstRow = worksheet.getRow(1)
     const headers: string[] = []
 
     firstRow.eachCell((cell: any, colNumber: number) => {
-      headers[colNumber] = cell.value?.toString() || ''
+      const cellValue = cell.value
+      if (cellValue !== null && cellValue !== undefined) {
+        headers[colNumber] = String(cellValue).trim()
+      } else {
+        headers[colNumber] = ''
+      }
     })
 
-    // Verificar que los encabezados coincidan (permitir variaciones menores)
-    const missingHeaders = expectedHeaders.filter(expected =>
-      !headers.some(header => header.toLowerCase().includes(expected.toLowerCase().substring(0, 10)))
+    // Filtrar cabeceras vacías y asegurar que todos los elementos sean strings válidos
+    const nonEmptyHeaders = headers.filter((h): h is string =>
+      h !== undefined && h !== null && typeof h === 'string' && h.trim() !== ''
     )
 
+    if (nonEmptyHeaders.length === 0) {
+      throw this.createHeaderValidationError('El archivo Excel no contiene cabeceras en la primera fila')
+    }
+
+    // Verificar que los encabezados coincidan
+    const missingHeaders: string[] = []
+    const incorrectHeaders: Array<{ found: string; expected: string }> = []
+
+    // Filtrar headers válidos (no undefined, null o vacíos)
+    const validHeaders = headers.filter((header): header is string =>
+      header !== undefined && header !== null && typeof header === 'string' && header.trim() !== ''
+    )
+
+    // Mapa para rastrear qué headers ya fueron asignados
+    const usedHeaders = new Set<string>()
+
+    for (const expected of expectedHeaders) {
+      const expectedLower = expected.toLowerCase().trim()
+
+      // Primero buscar coincidencia exacta
+      let foundHeader = validHeaders.find(header => {
+        if (!header || typeof header !== 'string') return false
+        const headerLower = header.toLowerCase().trim()
+        return headerLower === expectedLower && !usedHeaders.has(headerLower)
+      })
+
+      // Si no hay coincidencia exacta, buscar coincidencia parcial
+      // Pero ser más estricto para evitar falsos positivos
+      if (!foundHeader) {
+        // Calcular el mejor match basado en similitud
+        let bestMatch: { header: string; score: number } | null = null
+
+        for (const header of validHeaders) {
+          if (!header || typeof header !== 'string') continue
+          const headerLower = header.toLowerCase().trim()
+          if (usedHeaders.has(headerLower)) continue
+
+          // Calcular similitud
+          let score = 0
+
+          // Si es una coincidencia exacta (después de normalizar espacios)
+          const normalizedHeader = headerLower.replace(/\s+/g, ' ').trim()
+          const normalizedExpected = expectedLower.replace(/\s+/g, ' ').trim()
+          if (normalizedHeader === normalizedExpected) {
+            score = 100
+          } else {
+            // Verificar si el header contiene palabras clave importantes del esperado
+            const expectedWords = normalizedExpected.split(' ').filter(w => w.length > 3)
+            const headerWords = normalizedHeader.split(' ').filter(w => w.length > 3)
+
+            // Contar palabras coincidentes
+            const matchingWords = expectedWords.filter(ew =>
+              headerWords.some(hw => hw === ew || hw.includes(ew) || ew.includes(hw))
+            )
+
+            // Calcular score basado en porcentaje de palabras coincidentes
+            if (expectedWords.length > 0) {
+              score = (matchingWords.length / expectedWords.length) * 100
+            }
+
+            // Penalizar si hay palabras importantes que no coinciden
+            // Especialmente para headers similares como "trabajo" vs "nómina"
+            if (normalizedExpected.includes('trabajo') && !normalizedHeader.includes('trabajo')) {
+              score = 0
+            }
+            if (normalizedExpected.includes('nómina') && !normalizedHeader.includes('nómina')) {
+              score = 0
+            }
+          }
+
+          // Solo considerar matches con score > 70%
+          if (score > 70 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { header, score }
+          }
+        }
+
+        if (bestMatch) {
+          foundHeader = bestMatch.header
+        }
+      }
+
+      if (!foundHeader) {
+        missingHeaders.push(expected)
+      } else {
+        // Marcar el header como usado
+        const foundLower = foundHeader.toLowerCase().trim()
+        usedHeaders.add(foundLower)
+
+        // Solo marcar como incorrecto si la diferencia es significativa
+        // (no solo espacios o mayúsculas/minúsculas)
+        if (foundLower !== expectedLower) {
+          // Verificar si la diferencia es solo en espacios o formato
+          const normalizedFound = foundLower.replace(/\s+/g, ' ').trim()
+          const normalizedExpected = expectedLower.replace(/\s+/g, ' ').trim()
+
+          // Si después de normalizar espacios son iguales, no es un error
+          if (normalizedFound !== normalizedExpected) {
+            incorrectHeaders.push({ found: foundHeader, expected })
+          }
+        }
+      }
+    }
+
+    // Construir mensaje de error detallado
+    const errorMessages: string[] = []
 
     if (missingHeaders.length > 0) {
-      throw new Error(`Faltan los siguientes encabezados: ${missingHeaders.join(', ')}`)
+      errorMessages.push(`Faltan los siguientes encabezados requeridos: ${missingHeaders.join(', ')}`)
+    }
+
+    if (incorrectHeaders.length > 0) {
+      const incorrectList = incorrectHeaders.map(inc => `"${inc.found}" (debería ser "${inc.expected}")`).join(', ')
+      errorMessages.push(`Los siguientes encabezados están incorrectos: ${incorrectList}`)
+    }
+
+    // Verificar si hay cabeceras adicionales no esperadas (opcional, solo como advertencia)
+    const unexpectedHeaders = validHeaders.filter(header => {
+      if (!header || typeof header !== 'string' || header.trim() === '') return false
+      return !expectedHeaders.some(expected => {
+        const headerLower = header.toLowerCase().trim()
+        const expectedLower = expected.toLowerCase().trim()
+        return headerLower === expectedLower ||
+               headerLower.includes(expectedLower.substring(0, 10)) ||
+               expectedLower.includes(headerLower.substring(0, 10))
+      })
+    })
+
+    if (unexpectedHeaders.length > 0 && errorMessages.length === 0) {
+      // Si solo hay cabeceras inesperadas pero no faltan las requeridas, es una advertencia
+      // pero no un error crítico
+    }
+
+    // Validar que los encabezados requeridos estén presentes
+    const foundRequiredHeaders: string[] = []
+    for (const requiredHeader of requiredHeaders) {
+      const requiredLower = requiredHeader.toLowerCase().trim()
+      const found = validHeaders.some(header => {
+        if (!header || typeof header !== 'string') return false
+        const headerLower = header.toLowerCase().trim()
+        return headerLower === requiredLower ||
+               headerLower.includes(requiredLower.substring(0, 10)) ||
+               requiredLower.includes(headerLower.substring(0, 10))
+      })
+      if (found) {
+        foundRequiredHeaders.push(requiredHeader)
+      } else {
+        errorMessages.push(`Falta el encabezado requerido: "${requiredHeader}"`)
+      }
+    }
+
+    if (errorMessages.length > 0) {
+      const fullMessage = `Error en las cabeceras del archivo Excel:\n${errorMessages.join('\n')}`
+      throw this.createHeaderValidationError(fullMessage)
     }
 
     return headers
@@ -2194,15 +2570,19 @@ export default class EmployeeService {
 
     row.eachCell((cell: any, colNumber: number) => {
       const header = headers[colNumber]?.toLowerCase() || ''
-      const value = cell.value?.toString() || ''
+      // Para fechas, preservar el valor original (puede ser número de Excel o string)
+      // Para otros campos, convertir a string
+      const isDateField = header.includes('fecha')
+      const rawValue = cell.value
+      const value = isDateField ? (rawValue !== null && rawValue !== undefined ? rawValue : '') : (rawValue?.toString() || '')
 
 
-      if (header.includes('n° de emplead')) {
+      if (header.includes('identificador de nómina')) {
         data.employeeNumber = value
-      } else if (header.includes('razón social')) {
-        data.companyName = value
-      } else if (header.includes('unidad de negocios')) {
+      } else if (header.includes('unidad de negocio de trabajo')) {
         data.businessUnit = value
+      } else if (header.includes('unidad de negocio de nómina')) {
+        data.payrollBusinessUnit = value
       } else if (header.includes('nombre del empleado')) {
         data.firstName = value
       } else if (header.includes('apellido paterno del empleado')) {
@@ -2210,15 +2590,54 @@ export default class EmployeeService {
       } else if (header.includes('apellido materno del empleado')) {
         data.secondLastName = value
       } else if (header.includes('fecha de contratación')) {
-        data.hireDate = value
+        // Las fechas deben venir en formato yyyy/mm/dd para insertarse directamente
+        // Intentar obtener el texto formateado de la celda primero
+        const cellText = cell.text ? cell.text.trim() : null
+        const stringValue = rawValue ? rawValue.toString().trim() : null
+
+        // Priorizar formato yyyy/mm/dd o yyyy-mm-dd
+        if (cellText && cellText.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
+          data.hireDate = cellText
+        } else if (stringValue && stringValue.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
+          data.hireDate = stringValue
+        } else if (rawValue instanceof Date) {
+          data.hireDate = rawValue
+        } else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
+          data.hireDate = rawValue.value
+        } else {
+          data.hireDate = rawValue || cellText
+        }
       } else if (header.includes('departamento')) {
         data.department = value
       } else if (header.includes('posición')) {
         data.position = value
       } else if (header.includes('salario diario')) {
-        data.dailySalary = Number.parseFloat(value) || 0
+        data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
       } else if (header.includes('fecha de nacimiento')) {
-        data.birthDate = value
+        // Manejar diferentes formatos que ExcelJS puede devolver
+        // Intentar primero obtener el texto formateado de la celda (ej: "16/08/2021")
+        const cellText = cell.text ? cell.text.trim() : null
+
+        if (rawValue instanceof Date) {
+          data.birthDate = rawValue
+        } else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
+          // Si es un objeto con propiedad value (formato de ExcelJS)
+          data.birthDate = rawValue.value
+        } else if (cellText && cellText.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/)) {
+          // Si hay texto formateado que parece una fecha (dd/mm/yyyy), usarlo
+          data.birthDate = cellText
+        } else if (typeof rawValue === 'number') {
+          // Si es un número, podría ser una fecha serial de Excel
+          // Las fechas de Excel son números >= 1 (1 = 1900-01-01)
+          // Fechas razonables están entre 1 y 1000000 (aproximadamente hasta el año 4738)
+          if (rawValue >= 1 && rawValue <= 1000000) {
+            data.birthDate = rawValue // Pasar el número serial para que se convierta
+          } else {
+            data.birthDate = rawValue
+          }
+        } else {
+          data.birthDate = rawValue || cellText // Usar valor original o texto formateado
+        }
       } else if (header.includes('curp')) {
         data.curp = value
       } else if (header.includes('rfc')) {
@@ -2234,20 +2653,39 @@ export default class EmployeeService {
   /**
    * Actualizar empleado existente
    */
-  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any) {
+  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any, businessUnitId: number | null, payrollBusinessUnitId: number | null) {
     // Actualizar datos del empleado
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
     existingEmployee.employeeLastName = employeeData.lastName || existingEmployee.employeeLastName
     existingEmployee.employeeSecondLastName = employeeData.secondLastName || existingEmployee.employeeSecondLastName
-    const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
-    if (parsedHireDate) {
-      existingEmployee.employeeHireDate = parsedHireDate
+
+    // Actualizar fecha de contratación - asegurarse de que se guarde correctamente
+    if (employeeData.hireDate) {
+      const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
+      if (parsedHireDate) {
+        existingEmployee.employeeHireDate = parsedHireDate
+      }
     }
+
     existingEmployee.dailySalary = employeeData.dailySalary || existingEmployee.dailySalary
 
+    // Actualizar unidades de negocio si se proporcionan
+    if (businessUnitId !== null) {
+      existingEmployee.businessUnitId = businessUnitId
+    }
+    if (payrollBusinessUnitId !== null) {
+      existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
+    }
+
     // Mapear departamento y posición usando búsqueda por similitud
-    existingEmployee.departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-    existingEmployee.positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+    const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+    if (departmentId !== null) {
+      existingEmployee.departmentId = departmentId
+    }
+    const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+    if (positionId !== null) {
+      existingEmployee.positionId = positionId
+    }
 
     await existingEmployee.save()
 
@@ -2292,29 +2730,31 @@ export default class EmployeeService {
   /**
    * Mapear unidad de negocio por nombre
    */
-  private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number {
-    if (!businessUnitName) {
-      // Usar la primera unidad de negocio registrada en la base de datos
-      return businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1
+  private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number | null {
+    if (!businessUnitName || businessUnitName.trim() === '') {
+      return null
     }
 
-    // Buscar coincidencia exacta primero
+    const normalizedSearch = businessUnitName.trim().toLowerCase()
+
+    // Buscar coincidencia exacta primero (case-insensitive)
     const exactMatch = businessUnits.find(unit =>
-      unit.businessUnitName?.toLowerCase() === businessUnitName.toLowerCase()
+      unit.businessUnitName?.trim().toLowerCase() === normalizedSearch
     )
 
     if (exactMatch) return exactMatch.businessUnitId
 
-    // Buscar por similitud
+    // Buscar por similitud con umbral más alto (0.8 en lugar de 0.6)
     const similarMatch = this.findMostSimilar(
       businessUnitName,
       businessUnits,
       'businessUnitName',
-      0.6
+      0.8
     )
 
-    // Usar la primera unidad de negocio registrada como valor por defecto si no se encuentra
-    return similarMatch ? similarMatch.businessUnitId : (businessUnits.length > 0 ? businessUnits[0].businessUnitId : 1)
+    // No usar valor por defecto - retornar null si no se encuentra
+    // Esto permitirá que el error se maneje apropiadamente
+    return similarMatch ? similarMatch.businessUnitId : null
   }
 
   /**
@@ -2399,7 +2839,15 @@ export default class EmployeeService {
     employee.employeeFirstName = employeeData.firstName || ''
     employee.employeeLastName = employeeData.lastName || ''
     employee.employeeSecondLastName = employeeData.secondLastName || ''
-    employee.employeeHireDate = this.parseDateToDateTime(employeeData.hireDate)
+
+    // Asegurarse de que la fecha de contratación se guarde correctamente
+    if (employeeData.hireDate) {
+      const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
+      if (parsedHireDate) {
+        employee.employeeHireDate = parsedHireDate
+      }
+    }
+
     employee.companyId = 1 // Valor por defecto
     employee.departmentId = departmentId
     employee.positionId = positionId
@@ -2423,69 +2871,182 @@ export default class EmployeeService {
   }
 
   /**
-   * Parsear fecha desde string
+   * Parsear fecha desde string, número o Date
    */
-  private parseDate(dateString: string): string | null {
-    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+  private parseDate(dateString: string | number | Date): string | null {
+    if (!dateString) return null
 
-    try {
-      // Intentar diferentes formatos de fecha
-      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+    let parsedDateTime: DateTime | null = null
 
-      for (const format of formats) {
-        try {
-          const parsed = DateTime.fromFormat(dateString, format)
-          if (parsed.isValid) {
-            return parsed.toISODate()
-          }
-        } catch (e) {
-          continue
-        }
-      }
-
-      // Si no funciona con formatos específicos, intentar parse automático
-      const parsed = DateTime.fromISO(dateString)
-      if (parsed.isValid) {
-        return parsed.toISODate()
-      }
-
-      return null
-    } catch (error) {
-      return null
+    // Si es un objeto Date de JavaScript (ExcelJS puede devolverlo así)
+    if (dateString instanceof Date) {
+      parsedDateTime = DateTime.fromJSDate(dateString)
     }
+    // Si es un número (fecha serial de Excel), convertirla
+    else if (typeof dateString === 'number') {
+      // Excel cuenta los días desde el 1 de enero de 1900 (día 1)
+      // La fecha base de Excel es 1899-12-30
+      // Excel tiene un bug: considera 1900 como año bisiesto
+      const excelEpoch = DateTime.fromObject({ year: 1899, month: 12, day: 30 })
+
+      // Calcular la fecha sumando los días
+      parsedDateTime = excelEpoch.plus({ days: Math.floor(dateString) })
+
+      // Ajuste para el bug de Excel: si la fecha es >= 60 (1 de marzo de 1900), restar 1 día
+      // Esto es porque Excel cuenta incorrectamente el 29 de febrero de 1900
+      if (dateString >= 60) {
+        parsedDateTime = parsedDateTime.minus({ days: 1 })
+      }
+    } else {
+      const dateStr = dateString.toString().trim()
+      if (dateStr === '' || dateStr === 'null' || dateStr === 'undefined') return null
+
+      try {
+        // Priorizar formato dd/mm/yyyy ya que es el formato esperado del Excel
+        // Intentar primero con formatos específicos de DD/MM/YYYY
+        const formats = [
+          'DD/MM/YYYY',  // 16/08/2021, 08/01/2024
+          'D/M/YYYY',    // 8/1/2024, 16/8/2021
+          'DD/MM/YY',    // 16/08/21
+          'D/M/YY',      // 8/1/24
+          'YYYY-MM-DD',  // 2021-08-16
+          'MM/DD/YYYY'   // Fallback para formato americano
+        ]
+
+        for (const format of formats) {
+          try {
+            parsedDateTime = DateTime.fromFormat(dateStr, format)
+            if (parsedDateTime.isValid) {
+              // Validar que la fecha parseada sea razonable (entre 1900 y 2100)
+              const year = parsedDateTime.year
+              if (year >= 1900 && year <= 2100) {
+                break
+              } else {
+                parsedDateTime = null
+              }
+            }
+          } catch (e) {
+            continue
+          }
+        }
+
+        // Si no funcionó con formatos específicos, intentar parse automático
+        if (!parsedDateTime || !parsedDateTime.isValid) {
+          parsedDateTime = DateTime.fromISO(dateStr)
+          // Validar que la fecha parseada sea razonable
+          if (parsedDateTime.isValid) {
+            const year = parsedDateTime.year
+            if (year < 1900 || year > 2100) {
+              parsedDateTime = null
+            }
+          }
+        }
+      } catch (error) {
+        return null
+      }
+    }
+
+    // Convertir a string ISO (YYYY-MM-DD) para personBirthday
+    if (parsedDateTime && parsedDateTime.isValid) {
+      return parsedDateTime.toISODate()
+    }
+
+    return null
   }
 
   /**
-   * Parsear fecha desde string a DateTime
+   * Parsear fecha desde string, número o Date a DateTime
+   * Para hireDate: prioriza formato yyyy/mm/dd o yyyy-mm-dd
    */
-  private parseDateToDateTime(dateString: string): DateTime | null {
-    if (!dateString || dateString.trim() === '' || dateString === 'null' || dateString === 'undefined') return null
+  private parseDateToDateTime(dateString: string | number | Date): DateTime | null {
+    if (!dateString) return null
 
-    try {
-      // Intentar diferentes formatos de fecha
-      const formats = ['DD/MM/YYYY', 'DD/MM/YY', 'MM/DD/YYYY', 'YYYY-MM-DD']
+    let parsedDateTime: DateTime | null = null
 
-      for (const format of formats) {
-        try {
-          const parsed = DateTime.fromFormat(dateString, format)
-          if (parsed.isValid) {
-            return parsed
-          }
-        } catch (e) {
-          continue
-        }
-      }
-
-      // Si no funciona con formatos específicos, intentar parse automático
-      const parsed = DateTime.fromISO(dateString)
-      if (parsed.isValid) {
-        return parsed
-      }
-
-      return null
-    } catch (error) {
-      return null
+    // Si es un objeto Date de JavaScript (ExcelJS puede devolverlo así)
+    if (dateString instanceof Date) {
+      parsedDateTime = DateTime.fromJSDate(dateString)
     }
+    // Si es un número (fecha serial de Excel), convertirla
+    else if (typeof dateString === 'number') {
+      // Excel cuenta los días desde el 1 de enero de 1900 (día 1)
+      // La fecha base de Excel es 1899-12-30
+      // Excel tiene un bug: considera 1900 como año bisiesto
+      const excelEpoch = DateTime.fromObject({ year: 1899, month: 12, day: 30 })
+      parsedDateTime = excelEpoch.plus({ days: Math.floor(dateString) })
+
+      // Ajuste para el bug de Excel: si la fecha es >= 60 (1 de marzo de 1900), restar 1 día
+      if (dateString >= 60) {
+        parsedDateTime = parsedDateTime.minus({ days: 1 })
+      }
+    } else {
+      const dateStr = dateString.toString().trim()
+      if (dateStr === '' || dateStr === 'null' || dateStr === 'undefined') return null
+
+      try {
+        // Priorizar formato yyyy/mm/dd o yyyy-mm-dd para insertar directamente
+        // Normalizar separadores: convertir / a - para ISO
+        const normalizedDate = dateStr.replace(/\//g, '-')
+
+        // Intentar primero con formato YYYY-MM-DD (ISO)
+        if (normalizedDate.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+          parsedDateTime = DateTime.fromFormat(normalizedDate, 'yyyy-MM-dd')
+          if (parsedDateTime.isValid) {
+            const year = parsedDateTime.year
+            if (year >= 1900 && year <= 2100) {
+              // Retornar directamente si es válido
+              return parsedDateTime.startOf('day')
+            }
+          }
+        }
+
+        // Si no funcionó, intentar otros formatos como fallback
+        const formats = [
+          'yyyy/MM/dd',   // 2021/08/16, 2024/01/08
+          'yyyy-M-d',     // 2021-8-16, 2024-1-8
+          'DD/MM/YYYY',   // 16/08/2021 (fallback)
+          'D/M/YYYY',     // 8/1/2024 (fallback)
+          'YYYY-MM-DD',   // 2021-08-16 (alternativo)
+        ]
+
+        for (const format of formats) {
+          try {
+            parsedDateTime = DateTime.fromFormat(dateStr, format)
+            if (parsedDateTime.isValid) {
+              const year = parsedDateTime.year
+              if (year >= 1900 && year <= 2100) {
+                break
+              } else {
+                parsedDateTime = null
+              }
+            }
+          } catch (e) {
+            continue
+          }
+        }
+
+        // Si no funcionó con formatos específicos, intentar parse automático ISO
+        if (!parsedDateTime || !parsedDateTime.isValid) {
+          parsedDateTime = DateTime.fromISO(normalizedDate)
+          if (parsedDateTime.isValid) {
+            const year = parsedDateTime.year
+            if (year < 1900 || year > 2100) {
+              parsedDateTime = null
+            }
+          }
+        }
+      } catch (error) {
+        return null
+      }
+    }
+
+    // Retornar DateTime para employeeHireDate
+    if (parsedDateTime && parsedDateTime.isValid) {
+      // Asegurarse de que la hora sea medianoche (00:00:00) para consistencia con la BD
+      return parsedDateTime.startOf('day')
+    }
+
+    return null
   }
 
   /**
@@ -3020,360 +3581,560 @@ export default class EmployeeService {
   }
 
   /**
+   * Generar plantilla de Excel para importación masiva de empleados
+   * Incluye dropdowns dinámicos para departamentos y sus posiciones asociadas
+   */
+  async generateImportTemplate(): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Empleados')
+
+    // Obtener el color de la unidad de negocio activa
+    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+
+    // Obtener unidades de negocio activas
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereNull('business_unit_deleted_at')
+      .orderBy('business_unit_name')
+      .select('businessUnitName')
+
+    const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
+
+    // Obtener departamentos activos con sus posiciones
+    const departments = await Department.query()
+      .whereNull('department_deleted_at')
+      .preload('departmentPositions', (query) => {
+        query.preload('position', (posQuery) => {
+          posQuery.whereNull('position_deleted_at')
+          posQuery.where('position_active', 1)
+        })
+      })
+      .orderBy('department_name')
+
+    const departmentNames = departments.map(dept => dept.departmentName).filter(Boolean)
+
+    // ==============================
+    //   HOJA OCULTA PARA DROPDOWNS
+    // ==============================
+    const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
+
+    // Unidades de negocio → Columna A (A1:A...)
+    businessUnitNames.forEach((name, i) => {
+      listSheet.getCell(i + 1, 1).value = name
+    })
+
+    // Departamentos → Columna B (B1:B...)
+    departmentNames.forEach((name, i) => {
+      listSheet.getCell(i + 1, 2).value = name
+    })
+
+    // ==============================
+    //   MAPEO DEPARTAMENTO-POSICIONES
+    //   Columnas C (Departamento) y D (Posición)
+    // ==============================
+    let currentRow = 1
+
+    departments.forEach((dept) => {
+      const deptName = dept.departmentName
+      if (!deptName) return
+
+      const positions = dept.departmentPositions
+        .map(dp => dp.position?.positionName)
+        .filter(Boolean)
+
+      // Escribir departamento y sus posiciones
+      positions.forEach((posName) => {
+        listSheet.getCell(currentRow, 3).value = deptName
+        listSheet.getCell(currentRow, 4).value = posName
+        currentRow++
+      })
+    })
+
+    // Rango para validación
+    const businessUnitRange = `Listas!$A$1:$A$${businessUnitNames.length}`
+    const departmentRange = `Listas!$B$1:$B$${departmentNames.length}`
+
+    // ==============================
+    //       ENCABEZADOS
+    // ==============================
+    const headers = [
+      'Identificador de nómina',
+      'Unidad de negocio de trabajo',
+      'Unidad de negocio de nómina',
+      'Nombre del empleado',
+      'Apellido paterno del empleado',
+      'Apellido materno del empleado',
+      'Fecha de contratación (yyyy/mm/dd)',
+      'Departamento',
+      'Posición',
+      'Salario diario',
+      'Fecha de nacimiento (dd/mm/yyyy)',
+      'CURP',
+      'RFC',
+      'NSS'
+    ]
+
+    // Encabezados requeridos (índices 0-4)
+    const requiredHeaders = [
+      'Identificador de nómina',
+      'Unidad de negocio de trabajo',
+      'Unidad de negocio de nómina',
+      'Nombre del empleado',
+      'Apellido paterno del empleado'
+    ]
+
+    const headerRow = worksheet.addRow(headers)
+    headerRow.height = 30
+
+    const requiredHeaderColor = activeBusinessUnitColor // Color de la unidad de negocio activa (formato ARGB)
+    const optionalHeaderColor = 'FFD6D6D6' // Gris claro para opcionales (formato ARGB)
+
+    // Determinar el color del texto para encabezados requeridos basado en la luminosidad del fondo
+    const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
+    const optionalHeaderTextColor = 'FF001A04' // Texto oscuro para opcionales (formato ARGB)
+
+    headerRow.eachCell((cell, colNumber) => {
+      const headerIndex = colNumber - 1
+      const headerValue = headers[headerIndex]
+      const isRequired = requiredHeaders.includes(headerValue)
+
+      const backgroundColor = isRequired ? requiredHeaderColor : optionalHeaderColor
+      const textColor = isRequired ? requiredHeaderTextColor : optionalHeaderTextColor
+
+      cell.font = { bold: true, size: 9, color: { argb: textColor } }
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: backgroundColor }
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // ==============================
+    //     ANCHO DE COLUMNAS
+    // ==============================
+    const columnWidths = [25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20]
+    columnWidths.forEach((width, index) => {
+      worksheet.getColumn(index + 1).width = width
+    })
+
+    // ==============================
+    //    VALIDACIONES (DROPDOWNS)
+    // ==============================
+    for (let row = 2; row <= 1000; row++) {
+      // Unidad de negocio de trabajo (columna B)
+      worksheet.getCell(row, 2).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [businessUnitRange],
+        errorStyle: 'warning',
+        showErrorMessage: true,
+        errorTitle: 'Valor inválido',
+        error: 'Seleccione una unidad de negocio válida'
+      }
+
+      // Unidad de negocio de nómina (columna C)
+      worksheet.getCell(row, 3).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [businessUnitRange],
+        errorStyle: 'warning',
+        showErrorMessage: true,
+        errorTitle: 'Valor inválido',
+        error: 'Seleccione una unidad de negocio válida'
+      }
+
+      // Departamento (columna H)
+      worksheet.getCell(row, 8).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [departmentRange],
+        errorStyle: 'warning',
+        showErrorMessage: true,
+        errorTitle: 'Valor inválido',
+        error: 'Seleccione un departamento válido'
+      }
+
+      // Posición (columna I) - DROPDOWN DINÁMICO usando INDIRECT con rango filtrado
+      // Esta fórmula busca en la hoja Listas todas las posiciones que corresponden al departamento seleccionado
+      const positionFormula = `INDIRECT("Listas!$D$"&MATCH(H${row},Listas!$C:$C,0)&":$D$"&(MATCH(H${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,H${row})-1))`
+
+      worksheet.getCell(row, 9).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [positionFormula],
+        errorStyle: 'warning',
+        showErrorMessage: true,
+        errorTitle: 'Valor inválido',
+        error: 'Primero seleccione un departamento válido'
+      }
+    }
+
+    // ==============================
+    //       FORMATOS DE COLUMNA
+    // ==============================
+    worksheet.getColumn(7).numFmt = 'yyyy/mm/dd' // Fecha contratación
+    worksheet.getColumn(11).numFmt = 'dd/mm/yyyy' // Fecha nacimiento
+    worksheet.getColumn(10).numFmt = '#,##0.00' // Salario diario
+
+    // ==============================
+    //     CONGELAR ENCABEZADOS
+    // ==============================
+    worksheet.views = [
+      { state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }
+    ]
+
+    // ==============================
+    //       GENERAR ARCHIVO
+    // ==============================
+    const buffer = await workbook.xlsx.writeBuffer()
+    return Buffer.from(buffer)
+  }
+
+  /**
    * Generar plantilla de Excel para asignación de turnos
    * Genera una plantilla dinámica con fechas, empleados, posiciones y turnos
    * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
    * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
    * @returns Promise<Buffer> - Buffer del archivo Excel generado
    */
-  /**
- * Generar plantilla de Excel para asignación de turnos
- * Genera una plantilla dinámica con fechas, empleados, posiciones y turnos
- * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
- * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
- * @returns Promise<Buffer> - Buffer del archivo Excel generado
- */
-/**
- * Generar plantilla de Excel para asignación de turnos
- * Genera una plantilla dinámica con fechas, empleados, posiciones y turnos
- * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
- * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
- * @returns Promise<Buffer> - Buffer del archivo Excel generado
- */
-async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promise<Buffer> {
-  const ExcelJSModule = await import('exceljs')
-  const ExcelJS = ExcelJSModule.default
+  async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promise<Buffer> {
+    const HolidaysModule = await import('date-holidays')
+    const Holidays = HolidaysModule.default
+    const hd = new Holidays('MX')
 
-  const HolidaysModule = await import('date-holidays')
-  const Holidays = HolidaysModule.default
-  const hd = new Holidays('MX')
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
 
-  const workbook = new ExcelJS.Workbook()
-  const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
+    // Obtener el color de la unidad de negocio activa
+    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
 
-  // Obtener el color de la unidad de negocio activa
-  const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+    // Obtener logo y agregarlo
+    const logoUrl = await this.getLogo()
+    await this.addImageLogo(workbook, worksheet, logoUrl)
 
-  // Obtener logo y agregarlo
-  const logoUrl = await this.getLogo()
-  await this.addImageLogo(workbook, worksheet, logoUrl)
+    // Convertir fechas a DateTime
+    const startDateTime = DateTime.fromISO(startDate)
+    const endDateTime = DateTime.fromISO(endDate)
 
-  // Convertir fechas a DateTime
-  const startDateTime = DateTime.fromISO(startDate)
-  const endDateTime = DateTime.fromISO(endDate)
-
-  if (!startDateTime.isValid || !endDateTime.isValid) {
-    throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
-  }
-
-  if (startDateTime > endDateTime) {
-    throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
-  }
-
-  // Generar array de fechas
-  const dates: DateTime[] = []
-  let currentDate = startDateTime
-  while (currentDate <= endDateTime) {
-    dates.push(currentDate)
-    currentDate = currentDate.plus({ days: 1 })
-  }
-
-  // OBTENER DÍAS FESTIVOS DE MÉXICO usando date-holidays
-  const holidayDates = new Set<string>()
-  try {
-    const startYear = startDateTime.year
-    const endYear = endDateTime.year
-
-    // Obtener festivos para todos los años en el rango
-    for (let year = startYear; year <= endYear; year++) {
-      const yearHolidays = hd.getHolidays(year)
-
-      yearHolidays.forEach((holiday: any) => {
-        // Solo considerar días festivos públicos (public holidays)
-        if (holiday.type === 'public') {
-          // Convertir la fecha del festivo a formato yyyy-MM-dd
-          const holidayDate = DateTime.fromJSDate(holiday.start).toFormat('yyyy-MM-dd')
-          holidayDates.add(holidayDate)
-        }
-      })
+    if (!startDateTime.isValid || !endDateTime.isValid) {
+      throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
     }
 
-  } catch (error) {
-    console.warn('Error obteniendo días festivos de México:', error)
-  }
+    if (startDateTime > endDateTime) {
+      throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
+    }
 
-  // Obtener empleados activos con sus posiciones
-  const employees = await Employee.query()
-    .whereNull('deletedAt')
-    .preload('position', (query) => {
-      query.whereNull('position_deleted_at')
-      query.where('position_active', 1)
-    })
-    .preload('department', (query) => {
-      query.whereNull('department_deleted_at')
-    })
-    .orderBy('employeeFirstName')
-    .orderBy('employeeLastName')
+    // Generar array de fechas
+    const dates: DateTime[] = []
+    let currentDate = startDateTime
+    while (currentDate <= endDateTime) {
+      dates.push(currentDate)
+      currentDate = currentDate.plus({ days: 1 })
+    }
 
-  // Obtener turnos activos
-  const shifts = await Shift.query()
-    .whereNull('shift_deleted_at')
-    .orderBy('shiftName')
+    // OBTENER DÍAS FESTIVOS DE MÉXICO usando date-holidays
+    const holidayDates = new Set<string>()
+    try {
+      const startYear = startDateTime.year
+      const endYear = endDateTime.year
 
-  // ==============================
-  //   HOJA OCULTA PARA DROPDOWNS
-  // ==============================
-  const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
+      // Obtener festivos para todos los años en el rango
+      for (let year = startYear; year <= endYear; year++) {
+        const yearHolidays = hd.getHolidays(year)
 
-  // Empleados → Columna A (A1:A...) - Formato: ID|Nombre Completo
-  employees.forEach((employee, i) => {
-    const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
-    listSheet.getCell(i + 1, 1).value = `${employee.employeeCode || 'Sin código'}|${fullName}`
-  })
-
-  // Turnos y opciones adicionales → Columna B (B1:B...)
-  let shiftRow = 1
-  shifts.forEach((shift) => {
-    // Formatear turno con horas si están disponibles
-    let shiftDisplay = shift.shiftName
-    if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
-      try {
-        const startTime = String(shift.shiftTimeStart).trim()
-        // Manejar diferentes formatos de tiempo (HH:mm, HH:mm:ss, etc.)
-        const timeParts = startTime.split(':')
-        if (timeParts.length >= 2) {
-          const hours = Number.parseInt(timeParts[0], 10)
-          const minutes = Number.parseInt(timeParts[1], 10)
-
-          // Validar que las horas y minutos sean números válidos
-          if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-            const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-            const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
-            const endTime = shiftEndTime.toFormat('HH:mm')
-            // Formatear hora de inicio para mostrar solo HH:mm
-            const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-            shiftDisplay = `${formattedStartTime} to ${endTime} - Rest (NA)`
+        yearHolidays.forEach((holiday: any) => {
+          // Solo considerar días festivos públicos (public holidays)
+          if (holiday.type === 'public') {
+            // Convertir la fecha del festivo a formato yyyy-MM-dd
+            const holidayDate = DateTime.fromJSDate(holiday.start).toFormat('yyyy-MM-dd')
+            holidayDates.add(holidayDate)
           }
+        })
+      }
+
+    } catch (error) {
+      console.warn('Error obteniendo días festivos de México:', error)
+    }
+
+    // Obtener empleados activos con sus posiciones
+    const employees = await Employee.query()
+      .whereNull('deletedAt')
+      .preload('position', (query) => {
+        query.whereNull('position_deleted_at')
+        query.where('position_active', 1)
+      })
+      .preload('department', (query) => {
+        query.whereNull('department_deleted_at')
+      })
+      .orderBy('employeeFirstName')
+      .orderBy('employeeLastName')
+
+    // Obtener turnos activos
+    const shifts = await Shift.query()
+      .whereNull('shift_deleted_at')
+      .orderBy('shiftName')
+
+    // ==============================
+    //   HOJA OCULTA PARA DROPDOWNS
+    // ==============================
+    const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
+
+    // Empleados → Columna A (A1:A...) - Formato: ID|Nombre Completo
+    employees.forEach((employee, i) => {
+      const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+      listSheet.getCell(i + 1, 1).value = `${employee.employeeCode || 'Sin código'}|${fullName}`
+    })
+
+    // Turnos y opciones adicionales → Columna B (B1:B...)
+    let shiftRow = 1
+    shifts.forEach((shift) => {
+      // Formatear turno con horas si están disponibles
+      let shiftDisplay = shift.shiftName
+      if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
+        try {
+          const startTime = String(shift.shiftTimeStart).trim()
+          // Manejar diferentes formatos de tiempo (HH:mm, HH:mm:ss, etc.)
+          const timeParts = startTime.split(':')
+          if (timeParts.length >= 2) {
+            const hours = Number.parseInt(timeParts[0], 10)
+            const minutes = Number.parseInt(timeParts[1], 10)
+
+            // Validar que las horas y minutos sean números válidos
+            if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+              const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+              const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+              const endTime = shiftEndTime.toFormat('HH:mm')
+              // Formatear hora de inicio para mostrar solo HH:mm
+              const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+              shiftDisplay = `${formattedStartTime} to ${endTime} - Rest (NA)`
+            }
+          }
+        } catch (error) {
+          // Si hay error al procesar el tiempo, usar solo el nombre del turno
+          console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
         }
-      } catch (error) {
-        // Si hay error al procesar el tiempo, usar solo el nombre del turno
-        console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
       }
-    }
-    listSheet.getCell(shiftRow, 2).value = shiftDisplay
-    shiftRow++
-  })
-  // Agregar opciones adicionales
-  listSheet.getCell(shiftRow++, 2).value = 'vacaciones'
-  listSheet.getCell(shiftRow++, 2).value = 'Día de descanso'
-  listSheet.getCell(shiftRow++, 2).value = 'Día festivo'
-  const totalShiftOptions = shiftRow - 1
+      listSheet.getCell(shiftRow, 2).value = shiftDisplay
+      shiftRow++
+    })
+    // Agregar opciones adicionales
+    listSheet.getCell(shiftRow++, 2).value = 'vacaciones'
+    listSheet.getCell(shiftRow++, 2).value = 'Día de descanso'
+    listSheet.getCell(shiftRow++, 2).value = 'Día festivo'
+    const totalShiftOptions = shiftRow - 1
 
-  // Mapeo Empleado-Posición → Columnas C (Código Empleado), D (Nombre), E (Posición)
-  let currentRow = 1
-  employees.forEach((employee) => {
-    const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
-    const positionName = employee.position?.positionName || 'Sin posición'
-    listSheet.getCell(currentRow, 3).value = employee.employeeCode || 'Sin código'
-    listSheet.getCell(currentRow, 4).value = fullName
-    listSheet.getCell(currentRow, 5).value = positionName
-    currentRow++
-  })
+    // Mapeo Empleado-Posición → Columnas C (Código Empleado), D (Nombre), E (Posición)
+    let currentRow = 1
+    employees.forEach((employee) => {
+      const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+      const positionName = employee.position?.positionName || 'Sin posición'
+      listSheet.getCell(currentRow, 3).value = employee.employeeCode || 'Sin código'
+      listSheet.getCell(currentRow, 4).value = fullName
+      listSheet.getCell(currentRow, 5).value = positionName
+      currentRow++
+    })
 
-  // Rangos para validación
-  const shiftRange = `Listas!$B$1:$B$${totalShiftOptions}`
+    // Rangos para validación
+    const shiftRange = `Listas!$B$1:$B$${totalShiftOptions}`
 
-  // Número máximo de filas para empleados (100 filas vacías)
-  const maxRows = 100
+    // Número máximo de filas para empleados (100 filas vacías)
+    const maxRows = 100
 
-  // ==============================
-  //       TÍTULO Y ENCABEZADOS
-  // ==============================
-  // Fila del título (después del logo)
-  worksheet.getRow(1).height = 60
-  const titleRow = worksheet.addRow([''])
-  titleRow.height = 30
-  worksheet.mergeCells(`A2:${String.fromCharCode(65 + 2 + dates.length)}2`)
-  titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
-  titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+    // ==============================
+    //       TÍTULO Y ENCABEZADOS
+    // ==============================
+    // Fila del título (después del logo)
+    worksheet.getRow(1).height = 60
+    const titleRow = worksheet.addRow([''])
+    titleRow.height = 30
+    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 2 + dates.length)}2`)
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
 
-  // Fila vacía
-  // Primera fila de encabezados (fechas)
-  const headerRow1 = ['ID. Empleado', 'Empleado', 'Posición']
-  dates.forEach((date) => {
-    const dateStr = date.toFormat('dd/MM/yyyy')
-    headerRow1.push(dateStr)
-  })
-  const row1 = worksheet.addRow(headerRow1)
-  row1.height = 30
+    // Fila vacía
+    // Primera fila de encabezados (fechas)
+    const headerRow1 = ['ID. Empleado', 'Empleado', 'Posición']
+    dates.forEach((date) => {
+      const dateStr = date.toFormat('dd/MM/yyyy')
+      headerRow1.push(dateStr)
+    })
+    const row1 = worksheet.addRow(headerRow1)
+    row1.height = 30
 
-  // Segunda fila de encabezados (días de la semana)
-  const headerRow2 = ['', '', '']
-  dates.forEach((date) => {
-    const dayName = date.toFormat('cccc', { locale: 'es' })
-    headerRow2.push(dayName)
-  })
-  const row2 = worksheet.addRow(headerRow2)
-  row2.height = 30
+    // Segunda fila de encabezados (días de la semana)
+    const headerRow2 = ['', '', '']
+    dates.forEach((date) => {
+      const dayName = date.toFormat('cccc', { locale: 'es' })
+      headerRow2.push(dayName)
+    })
+    const row2 = worksheet.addRow(headerRow2)
+    row2.height = 30
 
-  const headerColor = activeBusinessUnitColor
-  const headerTextColor = this.getTextColorForBackground(headerColor)
-  const subHeaderColor = 'FF4472C4' // Azul más claro para la segunda fila
-  const subHeaderTextColor = 'FFFFFFFF' // Blanco para la segunda fila
+    const headerColor = activeBusinessUnitColor
+    const headerTextColor = this.getTextColorForBackground(headerColor)
+    const subHeaderColor = 'FF4472C4' // Azul más claro para la segunda fila
+    const subHeaderTextColor = 'FFFFFFFF' // Blanco para la segunda fila
 
-  // Aplicar formato a la primera fila de encabezados
-  row1.eachCell((cell) => {
-    cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: headerColor }
-    }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF000000' } },
-      left: { style: 'thin', color: { argb: 'FF000000' } },
-      bottom: { style: 'thin', color: { argb: 'FF000000' } },
-      right: { style: 'thin', color: { argb: 'FF000000' } }
-    }
-  })
-
-  // Aplicar formato a la segunda fila de encabezados (días de la semana)
-  row2.eachCell((cell, colNum) => {
-    if (colNum > 3) {
-      cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: subHeaderColor }
-      }
-    } else {
+    // Aplicar formato a la primera fila de encabezados
+    row1.eachCell((cell) => {
+      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: headerColor }
       }
-      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
-    }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF000000' } },
-      left: { style: 'thin', color: { argb: 'FF000000' } },
-      bottom: { style: 'thin', color: { argb: 'FF000000' } },
-      right: { style: 'thin', color: { argb: 'FF000000' } }
-    }
-  })
-
-  // ==============================
-  //     ANCHO DE COLUMNAS
-  // ==============================
-  worksheet.getColumn(1).width = 15 // ID. Empleado
-  worksheet.getColumn(2).width = 35 // Empleado
-  // Columna Posición con ajuste automático de texto (wrap text)
-  worksheet.getColumn(3).width = 30 // Posición
-  worksheet.getColumn(3).alignment = { wrapText: true }
-
-  // Aplicar ancho estándar a todas las columnas de fechas
-  for (let col = 4; col <= 3 + dates.length; col++) {
-    worksheet.getColumn(col).width = 20
-  }
-
-  // ==============================
-  //    VALIDACIONES (DROPDOWNS) Y FILAS VACÍAS
-  // ==============================
-  // Crear filas vacías (sin empleados pre-cargados)
-  const startDataRow = 5 // Después de los encabezados (fila 4 es la segunda fila de encabezados)
-
-  for (let row = startDataRow; row <= startDataRow + maxRows - 1; row++) {
-    // ID. Empleado (columna A) - Fórmula para extraer código del empleado del dropdown
-    // El formato en el dropdown es "Código|Nombre Completo"
-    const codeFormula = `IFERROR(LEFT(B${row},FIND("|",B${row}&"|")-1),"")`
-    worksheet.getCell(row, 1).value = { formula: codeFormula }
-
-    // Empleado (columna B) - Dropdown con validación para no repetir
-    // Usar fórmula para validar que no se repita el empleado
-    const employeeValidationFormula = `Listas!$A$1:$A$${employees.length}`
-    worksheet.getCell(row, 2).dataValidation = {
-      type: 'list',
-      allowBlank: true,
-      formulae: [employeeValidationFormula],
-      errorStyle: 'warning',
-      showErrorMessage: true,
-      errorTitle: 'Valor inválido',
-      error: 'Seleccione un empleado válido'
-    }
-
-    // Posición (columna C) - Auto-completar basado en empleado usando fórmula
-    // Extraer nombre del empleado y buscar su posición
-    const employeeNameFormula = `IFERROR(MID(B${row},FIND("|",B${row}&"|")+1,LEN(B${row})),"")`
-    const positionFormula = `IFERROR(VLOOKUP(${employeeNameFormula},Listas!$D:$E,2,FALSE),"")`
-    worksheet.getCell(row, 3).value = { formula: positionFormula }
-
-    // Aplicar formato a las primeras 3 columnas
-    for (let col = 1; col <= 3; col++) {
-      worksheet.getCell(row, col).alignment = {
-        vertical: 'middle',
-        horizontal: col === 3 ? 'left' : 'center', // Posición alineada a la izquierda
-        wrapText: true
-      }
-      worksheet.getCell(row, col).border = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'thin', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
-      }
-    }
-
-    // Columnas de fechas (desde columna D)
-    dates.forEach((date, dateIndex) => {
-      const colNumber = 4 + dateIndex
-      const dateStr = date.toFormat('yyyy-MM-dd')
-      const isHoliday = holidayDates.has(dateStr)
-
-      // Si es día festivo, poner "Día festivo" directamente como texto
-      if (isHoliday) {
-        worksheet.getCell(row, colNumber).value = 'Día festivo'
-      }
-
-      // Dropdown para turnos
-      worksheet.getCell(row, colNumber).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [shiftRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione un turno válido o deje vacío'
-      }
-
-      // Aplicar formato de celda
-      worksheet.getCell(row, colNumber).alignment = {
-        vertical: 'middle',
-        horizontal: 'center',
-        wrapText: true
-      }
-      worksheet.getCell(row, colNumber).border = {
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
         top: { style: 'thin', color: { argb: 'FF000000' } },
         left: { style: 'thin', color: { argb: 'FF000000' } },
         bottom: { style: 'thin', color: { argb: 'FF000000' } },
         right: { style: 'thin', color: { argb: 'FF000000' } }
       }
     })
+
+    // Aplicar formato a la segunda fila de encabezados (días de la semana)
+    row2.eachCell((cell, colNum) => {
+      if (colNum > 3) {
+        cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: subHeaderColor }
+        }
+      } else {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: headerColor }
+        }
+        cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // ==============================
+    //     ANCHO DE COLUMNAS
+    // ==============================
+    worksheet.getColumn(1).width = 15 // ID. Empleado
+    worksheet.getColumn(2).width = 35 // Empleado
+    // Columna Posición con ajuste automático de texto (wrap text)
+    worksheet.getColumn(3).width = 30 // Posición
+    worksheet.getColumn(3).alignment = { wrapText: true }
+
+    // Aplicar ancho estándar a todas las columnas de fechas
+    for (let col = 4; col <= 3 + dates.length; col++) {
+      worksheet.getColumn(col).width = 20
+    }
+
+    // ==============================
+    //    VALIDACIONES (DROPDOWNS) Y FILAS VACÍAS
+    // ==============================
+    // Crear filas vacías (sin empleados pre-cargados)
+    const startDataRow = 5 // Después de los encabezados (fila 4 es la segunda fila de encabezados)
+
+    for (let row = startDataRow; row <= startDataRow + maxRows - 1; row++) {
+      // ID. Empleado (columna A) - Fórmula para extraer código del empleado del dropdown
+      // El formato en el dropdown es "Código|Nombre Completo"
+      const codeFormula = `IFERROR(LEFT(B${row},FIND("|",B${row}&"|")-1),"")`
+      worksheet.getCell(row, 1).value = { formula: codeFormula }
+
+      // Empleado (columna B) - Dropdown con validación para no repetir
+      // Usar fórmula para validar que no se repita el empleado
+      const employeeValidationFormula = `Listas!$A$1:$A$${employees.length}`
+      worksheet.getCell(row, 2).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [employeeValidationFormula],
+        errorStyle: 'warning',
+        showErrorMessage: true,
+        errorTitle: 'Valor inválido',
+        error: 'Seleccione un empleado válido'
+      }
+
+      // Posición (columna C) - Auto-completar basado en empleado usando fórmula
+      // Extraer nombre del empleado y buscar su posición
+      const employeeNameFormula = `IFERROR(MID(B${row},FIND("|",B${row}&"|")+1,LEN(B${row})),"")`
+      const positionFormula = `IFERROR(VLOOKUP(${employeeNameFormula},Listas!$D:$E,2,FALSE),"")`
+      worksheet.getCell(row, 3).value = { formula: positionFormula }
+
+      // Aplicar formato a las primeras 3 columnas
+      for (let col = 1; col <= 3; col++) {
+        worksheet.getCell(row, col).alignment = {
+          vertical: 'middle',
+          horizontal: col === 3 ? 'left' : 'center', // Posición alineada a la izquierda
+          wrapText: true
+        }
+        worksheet.getCell(row, col).border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+      }
+
+      // Columnas de fechas (desde columna D)
+      dates.forEach((date, dateIndex) => {
+        const colNumber = 4 + dateIndex
+        const dateStr = date.toFormat('yyyy-MM-dd')
+        const isHoliday = holidayDates.has(dateStr)
+
+        // Si es día festivo, poner "Día festivo" directamente como texto
+        if (isHoliday) {
+          worksheet.getCell(row, colNumber).value = 'Día festivo'
+        }
+
+        // Dropdown para turnos
+        worksheet.getCell(row, colNumber).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [shiftRange],
+          errorStyle: 'warning',
+          showErrorMessage: true,
+          errorTitle: 'Valor inválido',
+          error: 'Seleccione un turno válido o deje vacío'
+        }
+
+        // Aplicar formato de celda
+        worksheet.getCell(row, colNumber).alignment = {
+          vertical: 'middle',
+          horizontal: 'center',
+          wrapText: true
+        }
+        worksheet.getCell(row, colNumber).border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+      })
+    }
+
+    // ==============================
+    //     CONGELAR ENCABEZADOS
+    // ==============================
+    worksheet.views = [
+      { state: 'frozen', ySplit: 4, xSplit: 3, topLeftCell: 'D5', activeCell: 'D5' }
+    ]
+
+    // ==============================
+    //       GENERAR ARCHIVO
+    // ==============================
+    const buffer = await workbook.xlsx.writeBuffer()
+    return Buffer.from(buffer)
   }
-
-  // ==============================
-  //     CONGELAR ENCABEZADOS
-  // ==============================
-  worksheet.views = [
-    { state: 'frozen', ySplit: 4, xSplit: 3, topLeftCell: 'D5', activeCell: 'D5' }
-  ]
-
-  // ==============================
-  //       GENERAR ARCHIVO
-  // ==============================
-  const buffer = await workbook.xlsx.writeBuffer()
-  return Buffer.from(buffer)
-}
 
   /**
    * Importar asignaciones de turnos desde archivo Excel
@@ -3382,8 +4143,6 @@ async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promi
    * @returns Promise con resultados de la importación
    */
   async importShiftAssignmentsFromExcel(file: any) {
-    const ExcelJSModule = await import('exceljs')
-    const ExcelJS = ExcelJSModule.default
     const workbook = new ExcelJS.Workbook()
 
     try {
