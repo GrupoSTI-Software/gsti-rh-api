@@ -199,6 +199,15 @@ export default class UserController {
             data: { user: {} }
           }
         }
+        if (employeeDevice && employeeDevice.employeeDeviceActive !== 1 && employeeDevice.employeeId === currentEmployee.employeeId) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Login',
+            message: 'This device is not active.',
+            data: { user: {} }
+          }
+        }
 
         // Crear o verificar dispositivo si no existe
         if (!employeeDevice) {
