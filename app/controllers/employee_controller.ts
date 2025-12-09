@@ -535,6 +535,8 @@ export default class EmployeeController {
       const limit = request.input('limit', 100)
       const orderBy = request.input('orderBy')
       const orderDirection = request.input('orderDirection')
+      const shiftStartTime = request.input('shiftStartTime')
+      const shiftEndTime = request.input('shiftEndTime')
 
       const filters = {
         search: search,
@@ -548,6 +550,8 @@ export default class EmployeeController {
         limit: limit,
         orderBy: orderBy,
         orderDirection: orderDirection,
+        shiftStartTime: shiftStartTime,
+        shiftEndTime: shiftEndTime,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)
@@ -1934,6 +1938,122 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/{employeeId}/photo:
+   *   delete:
+   *     summary: Delete a photo for an employee
+   *     tags:
+   *       - Employees
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: ID of the employee
+   *     responses:
+   *       200:
+   *         description: Photo deleted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Employee data
+   *       400:
+   *         description: Bad Request - No photo to delete
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       404:
+   *         description: Employee not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       500:
+   *         description: Internal Server Error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: object
+   *                   description: Error details
+   */
+  @inject()
+  async deletePhoto(
+    { request, response, i18n }: HttpContext,
+    uploadService: UploadService
+  ) {
+    try {
+      const employeeId = request.param('employeeId')
+
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee Id was not found',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const result = await employeeService.deleteEmployeePhoto(employeeId, uploadService)
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-work-schedules:
    *   get:
    *     security:
@@ -3090,6 +3210,52 @@ export default class EmployeeController {
         message: 'Error generating Excel file',
         error: error.message,
       })
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/template-excel:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Generar plantilla de Excel para importación masiva de empleados
+   *     description: Genera un archivo Excel con los encabezados necesarios y dropdowns para facilitar la importación masiva de empleados
+   *     produces:
+   *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   *     responses:
+   *       200:
+   *         description: Plantilla de Excel generada exitosamente
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       500:
+   *         description: Error al generar la plantilla
+   */
+  async getTemplateExcel({ response, i18n }: HttpContext) {
+    try {
+      const employeeService = new EmployeeService(i18n)
+      const buffer = await employeeService.generateImportTemplate()
+
+      response.header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      response.header('Content-Disposition', 'attachment; filename=plantilla-importacion-empleados.xlsx')
+      response.status(200)
+      response.send(buffer)
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error',
+        message: 'Error al generar la plantilla de Excel',
+        error: error.message,
+      }
     }
   }
 
@@ -5864,7 +6030,17 @@ export default class EmployeeController {
         message: message,
         data: result,
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Detectar errores de validación de cabeceras
+      if (error.isHeaderValidationError || error.statusCode === 400) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación de cabeceras',
+          message: error.message || 'Las cabeceras del archivo Excel no son correctas',
+        }
+      }
+
       response.status(500)
       return {
         type: 'error',
