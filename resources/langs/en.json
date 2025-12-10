@@ -5,6 +5,8 @@
   "employee": "Employee",
   "department": "Department",
   "departments": "Departments",
+  "zone": "Zone",
+  "zones": "Zones",
   "position": "Position",
   "assist": "Assist",
   "assist_register": "assist register",
