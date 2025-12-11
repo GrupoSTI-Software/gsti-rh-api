@@ -4003,9 +4003,19 @@ async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promi
     console.warn('Error obteniendo días festivos de la base de datos:', error)
   }
 
-  // Obtener empleados activos con sus posiciones
+  // Obtener unidades de negocio del ENV
+  const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+  const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+  const businessUnits = await BusinessUnit.query()
+    .where('business_unit_active', 1)
+    .whereIn('business_unit_slug', businessList)
+
+  const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+
+  // Obtener empleados activos con sus posiciones (solo de las unidades de negocio del ENV)
   const employees = await Employee.query()
     .whereNull('deletedAt')
+    .whereIn('businessUnitId', businessUnitsList)
     .preload('position', (query) => {
       query.whereNull('position_deleted_at')
       query.where('position_active', 1)
@@ -4020,6 +4030,13 @@ async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promi
   const shifts = await Shift.query()
     .whereNull('shift_deleted_at')
     .orderBy('shiftName')
+
+  // Obtener tipos de excepciones masivas
+  const massiveExceptionTypes = await ExceptionType.query()
+    .whereNull('exception_type_deleted_at')
+    .where('exceptionTypeCanMasive', true)
+    .where('exceptionTypeActive', 1)
+    .orderBy('exceptionTypeTypeName')
 
   // ==============================
   //   HOJA OCULTA PARA DROPDOWNS
@@ -4055,8 +4072,11 @@ async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promi
   })
   // Agregar opciones adicionales
   listSheet.getCell(shiftRow++, 1).value = 'vacaciones'
-  listSheet.getCell(shiftRow++, 1).value = 'Día de descanso'
   listSheet.getCell(shiftRow++, 1).value = 'Día festivo'
+  // Agregar tipos de excepciones masivas
+  massiveExceptionTypes.forEach((exceptionType) => {
+    listSheet.getCell(shiftRow++, 1).value = exceptionType.exceptionTypeTypeName
+  })
   const totalShiftOptions = shiftRow - 1
 
   // Rangos para validación
@@ -4359,21 +4379,31 @@ async importShiftAssignmentsFromExcel(file: any) {
       }
     })
 
-    const specialOptions = ['vacaciones', 'día de descanso', 'día festivo', 'dia de descanso', 'dia festivo']
+    const specialOptions = ['vacaciones', 'día festivo', 'dia festivo']
 
+    // Obtener todos los tipos de excepciones para mapeo
     const exceptionTypes = await ExceptionType.query()
       .whereNull('exception_type_deleted_at')
-      .select('exceptionTypeId', 'exceptionTypeSlug')
+      .select('exceptionTypeId', 'exceptionTypeSlug', 'exceptionTypeTypeName', 'exceptionTypeCanMasive')
 
     const exceptionTypeMap = new Map<string, number>()
     exceptionTypes.forEach((exceptionType) => {
       exceptionTypeMap.set(exceptionType.exceptionTypeSlug, exceptionType.exceptionTypeId)
     })
 
+    // Mapa de nombres de excepciones masivas a sus IDs
+    const massiveExceptionTypeMap = new Map<string, number>()
+    exceptionTypes.forEach((exceptionType) => {
+      if (exceptionType.exceptionTypeCanMasive) {
+        const typeName = exceptionType.exceptionTypeTypeName?.toLowerCase().trim()
+        if (typeName) {
+          massiveExceptionTypeMap.set(typeName, exceptionType.exceptionTypeId)
+        }
+      }
+    })
+
     const specialOptionToSlug: Record<string, string> = {
       'vacaciones': 'vacation',
-      'día de descanso': 'rest-day',
-      'dia de descanso': 'rest-day',
       'día festivo': 'absence-from-work',
       'dia festivo': 'absence-from-work'
     }
@@ -4432,11 +4462,68 @@ async importShiftAssignmentsFromExcel(file: any) {
         let shiftId: number | null = null
         let isSpecialOption = false
         let exceptionTypeSlug: string | null = null
+        let isMassiveException = false
+        let massiveExceptionTypeId: number | null = null
+
+        // Verificar si es una excepción masiva
+        massiveExceptionTypeId = massiveExceptionTypeMap.get(shiftNameLower) || null
+        if (massiveExceptionTypeId) {
+          isMassiveException = true
+        }
 
         // Verificar si es una opción especial
         if (specialOptions.includes(shiftNameLower)) {
           isSpecialOption = true
           exceptionTypeSlug = specialOptionToSlug[shiftNameLower] || null
+        }
+
+        // Si es una excepción masiva, crear excepción
+        if (isMassiveException && massiveExceptionTypeId) {
+          const dateStr = date.toFormat('yyyy-MM-dd')
+          const shiftExceptionService = new ShiftExceptionService(this.i18n)
+
+          try {
+            const shiftException = {
+              employeeId: employeeId,
+              exceptionTypeId: massiveExceptionTypeId,
+              shiftExceptionsDate: dateStr,
+              shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
+              shiftExceptionEnjoymentOfSalary: 0,
+              shiftExceptionCheckInTime: null,
+              shiftExceptionCheckOutTime: null,
+              shiftExceptionTimeByTime: null,
+              vacationSettingId: null,
+              workDisabilityPeriodId: null,
+            } as ShiftException
+
+            const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+
+            if (verifyInfo.status !== 200) {
+              const existingException = await ShiftException.query()
+                .whereNull('shift_exceptions_deleted_at')
+                .where('employeeId', employeeId)
+                .where('shiftExceptionsDate', dateStr)
+                .where('exceptionTypeId', massiveExceptionTypeId)
+                .first()
+
+              if (!existingException) {
+                results.errors.push(
+                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+                )
+                continue
+              }
+            } else {
+              await shiftExceptionService.create(shiftException)
+            }
+
+            processedAny = true
+            results.created++
+          } catch (error: any) {
+            results.errors.push(
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
+            )
+          }
+          continue
         }
 
         // Si es una opción especial, crear excepción

@@ -53,6 +53,10 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         exceptionTypeActive:
  *           type: number
  *           description: Status active
+ *         exceptionTypeCanMasive:
+ *           type: boolean
+ *           description: Can be massive
+ *           nullable: true
  *         exceptionTypeCreatedAt:
  *           type: string
  *           format: date-time
@@ -84,6 +88,7 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         exceptionTypeNeedPeriodInDays: 1
  *         exceptionTypeNeedPeriodInHours: 1
  *         exceptionTypeActive: 1
+ *         exceptionTypeCanMasive: 0
  *         exceptionTypeCreatedAt: '2024-06-20T12:00:00Z'
  *         exceptionTypeUpdatedAt: '2024-06-20T13:00:00Z'
  *         exceptionTypeDeletedAt: null
@@ -126,6 +131,9 @@ export default class ExceptionType extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare exceptionTypeActive: number
+
+  @column()
+  declare exceptionTypeCanMasive: boolean
 
   @column.dateTime({ autoCreate: true })
   declare exceptionTypeCreatedAt: DateTime
