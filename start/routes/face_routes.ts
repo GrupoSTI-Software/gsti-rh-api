@@ -1,3 +1,4 @@
+import { middleware } from '#start/kernel'
 import router from '@adonisjs/core/services/router'
 
 router
@@ -5,3 +6,4 @@ router
     router.post('/', '#controllers/face_controller.verify')
   })
   .prefix('/api/verify-face')
+  .use(middleware.auth())

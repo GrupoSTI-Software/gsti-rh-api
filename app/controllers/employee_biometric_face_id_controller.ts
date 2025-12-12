@@ -173,8 +173,7 @@ export default class EmployeeBiometricFaceIdController {
       const fileName = `${new Date().getTime()}_${photo.clientName || 'biometric_face'}`
 
       // Subir la foto al S3
-      const photoUrl = await uploadService.fileUpload(photo, 'employee-biometric-faces', fileName)
-
+      const photoUrl = await uploadService.fileUpload(photo, 'employee-biometric-faces', fileName, 'private')
       if (!photoUrl || photoUrl === 'file_not_found' || photoUrl === 'S3Producer.fileUpload') {
         response.status(500)
         return {
@@ -386,8 +385,7 @@ export default class EmployeeBiometricFaceIdController {
       const fileName = `${new Date().getTime()}_${photo.clientName || 'biometric_face'}`
 
       // Subir la nueva foto al S3
-      const photoUrl = await uploadService.fileUpload(photo, 'employee-biometric-faces', fileName)
-
+      const photoUrl = await uploadService.fileUpload(photo, 'employee-biometric-faces', fileName, 'private')
       if (!photoUrl || photoUrl === 'file_not_found' || photoUrl === 'S3Producer.fileUpload') {
         response.status(500)
         return {
@@ -654,7 +652,11 @@ export default class EmployeeBiometricFaceIdController {
    *                 error:
    *                   type: string
    */
-  async getPhoto({ request, response }: HttpContext) {
+  @inject()
+  async getPhoto(
+    { request, response }: HttpContext,
+    uploadService: UploadService
+  ) {
     try {
       const employeeId = request.param('employeeId')
 
@@ -698,6 +700,11 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
 
+      const photoUrl = await uploadService.getDownloadLink(biometricFaceId.employeeBiometricFaceIdPhotoUrl)
+      if (typeof photoUrl === 'string') {
+        biometricFaceId.employeeBiometricFaceIdPhotoUrl = photoUrl
+      }
+      
       response.status(200)
       return {
         type: 'success',
