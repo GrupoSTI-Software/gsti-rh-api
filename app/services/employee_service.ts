@@ -3900,7 +3900,11 @@ export default class EmployeeService {
  * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
-async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promise<Buffer> {
+async generateShiftAssignmentTemplate(
+  startDate: string,
+  endDate: string,
+  employeeIds?: number[]
+): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
   const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
@@ -4013,9 +4017,16 @@ async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promi
   const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
   // Obtener empleados activos con sus posiciones (solo de las unidades de negocio del ENV)
-  const employees = await Employee.query()
+  let employeesQuery = Employee.query()
     .whereNull('deletedAt')
     .whereIn('businessUnitId', businessUnitsList)
+
+  // Filtrar por IDs de empleados si se proporcionan
+  if (employeeIds && employeeIds.length > 0) {
+    employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+  }
+
+  const employees = await employeesQuery
     .preload('position', (query) => {
       query.whereNull('position_deleted_at')
       query.where('position_active', 1)
