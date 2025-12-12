@@ -3039,7 +3039,7 @@ export default class AssistsService {
       titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:H2')
+      worksheet.mergeCells('A2:I2')
 
       // Período
       color = '366092'
@@ -3052,10 +3052,11 @@ export default class AssistsService {
       }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
-      worksheet.mergeCells('A3:H3')
+      worksheet.mergeCells('A3:I3')
 
       // Headers
       const headerRow = worksheet.addRow([
+        'ID Empleado',
         'Empleado',
         'Departamento',
         'Posición',
@@ -3138,6 +3139,7 @@ export default class AssistsService {
           const checkOutTime = exception.shiftExceptionCheckOutTime || ''
 
           worksheet.addRow([
+            employee.employeePayrollCode,
             employeeName,
             departmentName,
             positionName,
@@ -3172,6 +3174,7 @@ export default class AssistsService {
               const description = `Período: ${periodStart.toFormat('yyyy-MM-dd')} a ${periodEnd.toFormat('yyyy-MM-dd')}`
 
               worksheet.addRow([
+                employee.employeePayrollCode,
                 employeeName,
                 departmentName,
                 positionName,
@@ -3190,6 +3193,7 @@ export default class AssistsService {
 
       // Ajustar ancho de columnas
       worksheet.columns = [
+        { width: 25 }, // ID de Empleado
         { width: 25 }, // Empleado
         { width: 20 }, // Departamento
         { width: 20 }, // Posición
