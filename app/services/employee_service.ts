@@ -360,6 +360,7 @@ export default class EmployeeService {
       newEmployee.employeeTypeId = employee.employeeTypeId
       newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
       newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
+      newEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
 
       // Guardar empleado
       await newEmployee.save()
@@ -405,6 +406,7 @@ export default class EmployeeService {
     currentEmployee.employeeTypeId = employee.employeeTypeId
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
+    currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
     await currentEmployee.save()
     await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
@@ -2957,6 +2959,7 @@ export default class EmployeeService {
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
     employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeAuthorizeAnyZones = 0
     employee.employeeSyncId = 0
     employee.departmentSyncId = 0
     employee.positionSyncId = 0

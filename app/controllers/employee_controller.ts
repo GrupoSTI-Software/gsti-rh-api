@@ -691,6 +691,11 @@ export default class EmployeeController {
    *                 description: If true, the employee is not considered on report consecutive faults
    *                 required: true
    *                 default: 0
+   *               employeeAuthorizeAnyZones:
+   *                 type: boolean
+   *                 description: If true, the employee is authorized to any zones
+   *                 required: true
+   *                 default: 0
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -805,6 +810,7 @@ export default class EmployeeController {
       const dailySalary = request.input('dailySalary') || 0
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
+      const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
       const employee = {
         employeeId: 0,
         employeeFirstName: employeeFirstName,
@@ -827,6 +833,7 @@ export default class EmployeeController {
         employeeAssistDiscriminator: employeeAssistDiscriminator,
         employeeTypeOfContract: employeeTypeOfContract,
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
+        employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
       } as Employee
       if (!employee.departmentId || employee.departmentId.toString() === '0') {
         const department = await Department.query()
@@ -1026,6 +1033,11 @@ export default class EmployeeController {
    *                 description: If true, the employee is not considered on report consecutive faults
    *                 required: true
    *                 default: 0
+   *               employeeAuthorizeAnyZones:
+   *                 type: boolean
+   *                 description: If true, the employee is authorized to any zones
+   *                 required: true
+   *                 default: 0
    *               employeeTerminatedDate:
    *                 type: string
    *                 format: date
@@ -1137,6 +1149,7 @@ export default class EmployeeController {
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
+      const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
 
       let employeeTerminatedDate = request.input('employeeTerminatedDate')
       employeeTerminatedDate = employeeTerminatedDate ? (employeeTerminatedDate.split('T')[0] + ' 00:000:00').replace('"', '') : null
@@ -1162,6 +1175,7 @@ export default class EmployeeController {
         employeeAssistDiscriminator: employeeAssistDiscriminator,
         employeeTypeOfContract: employeeTypeOfContract,
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
+        employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
         employeeTerminatedDate: employeeTerminatedDate,
       } as Employee
 
