@@ -1,4 +1,4 @@
-import { loadFaceApi } from '#start/face_api'
+// import { loadFaceApi } from '#start/face_api'
 import type { ApplicationService } from '@adonisjs/core/types'
 
 export default class AppProvider {
@@ -24,7 +24,7 @@ export default class AppProvider {
    */
   async ready() {
     await import('../start/socket.js')
-    await loadFaceApi() 
+    // await loadFaceApi()
   }
 
   /**
