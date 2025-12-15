@@ -6228,6 +6228,13 @@ export default class EmployeeController {
    *           type: string
    *         description: Array opcional de IDs de empleados separados por comas para filtrar el template (ejemplo: "1,2,3")
    *         example: "1,2,3"
+   *       - in: query
+   *         name: isReport
+   *         required: false
+   *         schema:
+   *           type: boolean
+   *         description: Si es true, genera un reporte mostrando los turnos asignados actuales con colores (solo lectura). Si es false o no se proporciona, genera un template editable.
+   *         example: true
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -6285,6 +6292,10 @@ export default class EmployeeController {
       const startDate = request.input('startDate')
       const endDate = request.input('endDate')
       const employeeIdsParam = request.input('employeeIds')
+      const isReportParam = request.input('isReport')
+
+      // Convertir isReport a boolean
+      const isReport = isReportParam === 'true' || isReportParam === true
 
       // Validar que las fechas sean proporcionadas
       if (!startDate || !endDate) {
@@ -6365,7 +6376,8 @@ export default class EmployeeController {
       const buffer = await employeeService.generateShiftAssignmentTemplate(
         startDate,
         endDate,
-        employeeIds
+        employeeIds,
+        isReport
       )
 
       // Configurar headers para la descarga del archivo

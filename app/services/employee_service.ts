@@ -34,6 +34,7 @@ import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
 import Holiday from '#models/holiday'
+import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
 export default class EmployeeService {
@@ -3903,7 +3904,8 @@ export default class EmployeeService {
 async generateShiftAssignmentTemplate(
   startDate: string,
   endDate: string,
-  employeeIds?: number[]
+  employeeIds?: number[],
+  isReport?: boolean
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4189,10 +4191,126 @@ async generateShiftAssignmentTemplate(
   // ==============================
   const startDataRow = 5 // Después de los encabezados
 
+  // Si es modo reporte, cargar calendarios de asistencia
+  let employeeCalendarsMap = new Map<number, Map<string, { shiftId: number | null; shiftName: string | null; isVacation: boolean; isHoliday: boolean; exceptionType?: string }>>()
+
+  if (isReport) {
+    const employeeIdsList = employees.map(emp => emp.employeeId)
+    if (employeeIdsList.length > 0) {
+      const calendars = await EmployeeAssistCalendar.query()
+        .whereIn('employeeId', employeeIdsList)
+        .whereBetween('day', [startDate, endDate])
+        .whereNull('deletedAt')
+        .preload('dateShift')
+
+      calendars.forEach((calendar) => {
+        const empId = calendar.employeeId
+        const day = calendar.day
+
+        if (!employeeCalendarsMap.has(empId)) {
+          employeeCalendarsMap.set(empId, new Map())
+        }
+
+        const dayMap = employeeCalendarsMap.get(empId)!
+        let shiftName: string | null = null
+        let shiftId: number | null = calendar.shiftId
+
+        if (calendar.isVacationDate) {
+          shiftName = 'vacaciones'
+        } else if (calendar.isHoliday) {
+          shiftName = 'Día festivo'
+        } else if (calendar.dateShift) {
+          shiftName = calendar.dateShift.shiftName
+          if (calendar.dateShift.shiftTimeStart && calendar.dateShift.shiftActiveHours && typeof calendar.dateShift.shiftActiveHours === 'number') {
+            try {
+              const startTime = String(calendar.dateShift.shiftTimeStart).trim()
+              const timeParts = startTime.split(':')
+              if (timeParts.length >= 2) {
+                const hours = Number.parseInt(timeParts[0], 10)
+                const minutes = Number.parseInt(timeParts[1], 10)
+                if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                  const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                  const shiftEndTime = shiftStartTime.plus({ hours: calendar.dateShift.shiftActiveHours })
+                  const endTime = shiftEndTime.toFormat('HH:mm')
+                  const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+                  shiftName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                }
+              }
+            } catch (error) {
+              // Usar el nombre del turno por defecto
+            }
+          }
+        }
+
+        dayMap.set(day, {
+          shiftId,
+          shiftName,
+          isVacation: calendar.isVacationDate || false,
+          isHoliday: calendar.isHoliday || false
+        })
+      })
+    }
+  }
+
+  // Función para generar color basado en ID del turno
+  const getShiftColor = (shiftId: number | null): string => {
+    if (!shiftId) return 'FFFFFFFF'
+    // Generar un color consistente basado en el ID
+    const hue = (shiftId * 137.508) % 360 // Golden angle approximation
+    const saturation = 50 + (shiftId % 30) // Entre 50-80%
+    const lightness = 75 + (shiftId % 15) // Entre 75-90% para colores claros
+
+    // Convertir HSL a RGB
+    const h = hue / 360
+    const s = saturation / 100
+    const l = lightness / 100
+
+    const c = (1 - Math.abs(2 * l - 1)) * s
+    const x = c * (1 - Math.abs((h * 6) % 2 - 1))
+    const m = l - c / 2
+
+    let r = 0
+    let g = 0
+    let b = 0
+    if (h < 1/6) {
+      r = c
+      g = x
+      b = 0
+    } else if (h < 2/6) {
+      r = x
+      g = c
+      b = 0
+    } else if (h < 3/6) {
+      r = 0
+      g = c
+      b = x
+    } else if (h < 4/6) {
+      r = 0
+      g = x
+      b = c
+    } else if (h < 5/6) {
+      r = x
+      g = 0
+      b = c
+    } else {
+      r = c
+      g = 0
+      b = x
+    }
+
+    const R = Math.round((r + m) * 255)
+    const G = Math.round((g + m) * 255)
+    const B = Math.round((b + m) * 255)
+
+    return `FF${R.toString(16).padStart(2, '0')}${G.toString(16).padStart(2, '0')}${B.toString(16).padStart(2, '0')}`.toUpperCase()
+  }
+
   employees.forEach((employee, index) => {
     const row = startDataRow + index
+    worksheet.getRow(row).height = 45 
     const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
     const positionName = employee.position?.positionName || 'Sin posición'
+
 
     // ID Empleado (BD) - Columna A (oculta)
     worksheet.getCell(row, 1).value = employee.employeeId
@@ -4225,6 +4343,9 @@ async generateShiftAssignmentTemplate(
       }
     }
 
+    // Obtener calendario del empleado si es modo reporte
+    const employeeCalendar = isReport ? employeeCalendarsMap.get(employee.employeeId) : null
+
     // Columnas de fechas (desde columna E)
     dates.forEach((date, dateIndex) => {
       const colNumber = 5 + dateIndex
@@ -4244,22 +4365,49 @@ async generateShiftAssignmentTemplate(
         right: { style: 'thin', color: { argb: 'FF000000' } }
       }
 
-      if (isHoliday) {
-        // Si es día festivo, solo poner "Día festivo" y proteger la celda
-        worksheet.getCell(row, colNumber).value = 'Día festivo'
+      if (isReport) {
+        // MODO REPORTE: Mostrar turnos asignados con colores
+        const dayData = employeeCalendar?.get(dateStr)
+        let cellValue = ''
+        let cellColor = 'FFFFFFFF'
+
+        if (isHoliday || dayData?.isHoliday) {
+          cellValue = 'Día festivo'
+          cellColor = 'FFE0E0E0' // Gris claro para días festivos
+        } else if (dayData?.isVacation) {
+          cellValue = 'vacaciones'
+          cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
+        } else if (dayData?.shiftName) {
+          cellValue = dayData.shiftName
+          cellColor = getShiftColor(dayData.shiftId)
+        }
+
+        worksheet.getCell(row, colNumber).value = cellValue
+        worksheet.getCell(row, colNumber).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: cellColor }
+        }
         worksheet.getCell(row, colNumber).protection = { locked: true }
       } else {
-        // Si NO es día festivo, agregar dropdown para turnos (editable)
-        worksheet.getCell(row, colNumber).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [shiftRange],
-          errorStyle: 'warning',
-          showErrorMessage: true,
-          errorTitle: 'Valor inválido',
-          error: 'Seleccione un turno válido o deje vacío'
+        // MODO TEMPLATE: Comportamiento normal (editable)
+        if (isHoliday) {
+          // Si es día festivo, solo poner "Día festivo" y proteger la celda
+          worksheet.getCell(row, colNumber).value = 'Día festivo'
+          worksheet.getCell(row, colNumber).protection = { locked: true }
+        } else {
+          // Si NO es día festivo, agregar dropdown para turnos (editable)
+          worksheet.getCell(row, colNumber).dataValidation = {
+            type: 'list',
+            allowBlank: true,
+            formulae: [shiftRange],
+            errorStyle: 'warning',
+            showErrorMessage: true,
+            errorTitle: 'Valor inválido',
+            error: 'Seleccione un turno válido o deje vacío'
+          }
+          worksheet.getCell(row, colNumber).protection = { locked: false }
         }
-        worksheet.getCell(row, colNumber).protection = { locked: false }
       }
     })
   })
@@ -4272,21 +4420,38 @@ async generateShiftAssignmentTemplate(
   // ==============================
   //     PROTEGER HOJA
   // ==============================
-  // Proteger la hoja pero permitir editar las celdas de turnos
-  await worksheet.protect('', {
-    selectLockedCells: true,
-    selectUnlockedCells: true,
-    formatCells: false,
-    formatColumns: false,
-    formatRows: false,
-    insertColumns: false,
-    insertRows: false,
-    deleteColumns: false,
-    deleteRows: false,
-    sort: false,
-    autoFilter: false,
-    pivotTables: false
-  })
+  // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
+  if (isReport) {
+    await worksheet.protect('', {
+      selectLockedCells: true,
+      selectUnlockedCells: false,
+      formatCells: false,
+      formatColumns: false,
+      formatRows: false,
+      insertColumns: false,
+      insertRows: false,
+      deleteColumns: false,
+      deleteRows: false,
+      sort: false,
+      autoFilter: false,
+      pivotTables: false
+    })
+  } else {
+    await worksheet.protect('', {
+      selectLockedCells: true,
+      selectUnlockedCells: true,
+      formatCells: false,
+      formatColumns: false,
+      formatRows: false,
+      insertColumns: false,
+      insertRows: false,
+      deleteColumns: false,
+      deleteRows: false,
+      sort: false,
+      autoFilter: false,
+      pivotTables: false
+    })
+  }
 
   // ==============================
   //     CONGELAR ENCABEZADOS
