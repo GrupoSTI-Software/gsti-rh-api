@@ -33,6 +33,7 @@ export default class EmployeeZoneService {
     const employeeZone = await EmployeeZone.query()
       .whereNull('employee_zone_deleted_at')
       .where('employee_zone_id', employeeZoneId)
+      .preload('zone')
       .first()
     return employeeZone ? employeeZone : null
   }

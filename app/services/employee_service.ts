@@ -36,6 +36,7 @@ import ShiftExceptionService from './shift_exception_service.js'
 import Holiday from '#models/holiday'
 
 import ExcelJS from 'exceljs'
+import EmployeeZone from '#models/employee_zone'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -1417,6 +1418,18 @@ export default class EmployeeService {
 
     return employeeBanks ? employeeBanks : []
   }
+
+  async getZones(employeeId: number) {
+    const employeeZones = await EmployeeZone.query()
+      .whereNull('employee_zone_deleted_at')
+      .where('employee_id', employeeId)
+      .preload('zone')
+      .orderBy('employee_id')
+      .paginate(1, 9999999)
+
+    return employeeZones ? employeeZones : []
+  }
+
 
   async getBirthday(filters: EmployeeFilterSearchInterface) {
     const year = filters.year
