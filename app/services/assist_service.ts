@@ -1964,6 +1964,7 @@ export default class AssistsService {
     newAssist.assistAreaAlias = assist.assistAreaAlias
     newAssist.assistLongitude = assist.assistLongitude
     newAssist.assistLatitude = assist.assistLatitude
+    newAssist.assistPrecision = assist.assistPrecision
     newAssist.assistUploadTime = assist.assistUploadTime
     newAssist.assistEmpId = assist.assistEmpId
     newAssist.assistTerminalId = assist.assistTerminalId
