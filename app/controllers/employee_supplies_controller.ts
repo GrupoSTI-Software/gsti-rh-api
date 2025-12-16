@@ -157,6 +157,13 @@ export default class EmployeeSuppliesController {
  *                 type: string
  *                 enum: [active, retired, shipping]
  *                 description: Assignment status
+ *               employeeSupplyAssignamentDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Assignament date for the assignment (optional, can be null to remove)
+ *               employeeSupplyAdditions:
+ *                 type: string
+ *                 description: Additions for the assignment (optional, can be null to remove)
  *     responses:
  *       201:
    *         description: Employee supply assignment created successfully
@@ -217,6 +224,13 @@ export default class EmployeeSuppliesController {
  *                 type: string
  *                 enum: [active, retired, shipping]
  *                 description: Assignment status
+ *               employeeSupplyAdditions:
+ *                 type: string
+ *                 description: Additions for the assignment (optional, can be null to remove)
+ *               employeeSupplyAssignamentDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Assignament date for the assignment (optional, can be null to remove)
  *     responses:
  *       200:
    *         description: Employee supply assignment updated successfully
