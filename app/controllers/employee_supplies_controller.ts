@@ -249,6 +249,16 @@ export default class EmployeeSuppliesController {
   async update({ params, request, response }: HttpContext) {
     try {
       const data = await request.validateUsing(updateEmployeeSupplieValidator)
+      const body = request.body()
+
+      if ('employeeSupplyExpirationDate' in body) {
+        data.employeeSupplyExpirationDate =
+          body.employeeSupplyExpirationDate === null ||
+          body.employeeSupplyExpirationDate === ''
+            ? null
+            : body.employeeSupplyExpirationDate
+      }
+
       const employeeSupply = await EmployeeSupplieService.update(params.id, data)
 
       return StandardResponseFormatter.success(response, employeeSupply
