@@ -20,7 +20,7 @@ export default class LaborLawHoursController {
    *       '400':
    *         description: The parameters entered are invalid
    */
-  async index({ response, i18n }: HttpContext) {
+  async index({ response }: HttpContext) {
     try {
       const laborLawHoursService = new LaborLawHoursService()
       const laborLawHours = await laborLawHoursService.index()
@@ -57,7 +57,7 @@ export default class LaborLawHoursController {
    *       '200':
    *         description: Resource processed successfully
    */
-  async getActive({ response, i18n }: HttpContext) {
+  async getActive({ response }: HttpContext) {
     try {
       const laborLawHoursService = new LaborLawHoursService()
       const laborLawHour = await laborLawHoursService.getActive()
@@ -108,7 +108,7 @@ export default class LaborLawHoursController {
    *       '201':
    *         description: Resource processed successfully
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store({ request, response }: HttpContext) {
     try {
       const laborLawHour = {
         laborLawHoursHoursPerWeek: request.input('laborLawHoursHoursPerWeek'),
@@ -170,7 +170,7 @@ export default class LaborLawHoursController {
    *       '201':
    *         description: Resource processed successfully
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ request, response }: HttpContext) {
     try {
       const laborLawHoursId = request.param('laborLawHoursId')
       const currentLaborLawHour = await LaborLawHour.query()
@@ -234,7 +234,7 @@ export default class LaborLawHoursController {
    *       '201':
    *         description: Resource processed successfully
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ request, response }: HttpContext) {
     try {
       const laborLawHoursId = request.param('laborLawHoursId')
       const currentLaborLawHour = await LaborLawHour.query()
@@ -291,7 +291,7 @@ export default class LaborLawHoursController {
    *       '200':
    *         description: Resource processed successfully
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ request, response }: HttpContext) {
     try {
       const laborLawHoursId = request.param('laborLawHoursId')
       const laborLawHoursService = new LaborLawHoursService()
