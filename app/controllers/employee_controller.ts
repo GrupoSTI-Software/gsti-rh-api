@@ -6221,6 +6221,20 @@ export default class EmployeeController {
    *           format: date
    *         description: Fecha de fin del rango (formato: yyyy-MM-dd)
    *         example: "2025-11-16"
+   *       - in: query
+   *         name: employeeIds
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: Array opcional de IDs de empleados separados por comas para filtrar el template (ejemplo: "1,2,3")
+   *         example: "1,2,3"
+   *       - in: query
+   *         name: isReport
+   *         required: false
+   *         schema:
+   *           type: boolean
+   *         description: Si es true, genera un reporte mostrando los turnos asignados actuales con colores (solo lectura). Si es false o no se proporciona, genera un template editable.
+   *         example: true
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -6277,6 +6291,11 @@ export default class EmployeeController {
 
       const startDate = request.input('startDate')
       const endDate = request.input('endDate')
+      const employeeIdsParam = request.input('employeeIds')
+      const isReportParam = request.input('isReport')
+
+      // Convertir isReport a boolean
+      const isReport = isReportParam === 'true' || isReportParam === true
 
       // Validar que las fechas sean proporcionadas
       if (!startDate || !endDate) {
@@ -6299,8 +6318,67 @@ export default class EmployeeController {
         }
       }
 
+      // Parsear employeeIds si se proporciona
+      let employeeIds: number[] | undefined
+      if (employeeIdsParam) {
+        try {
+          // Si es un array (cuando se usa employeeIds[]=1&employeeIds[]=2)
+          if (Array.isArray(employeeIdsParam)) {
+            employeeIds = employeeIdsParam.map((id) => {
+              const numId = typeof id === 'string' ? Number.parseInt(id, 10) : id
+              if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                throw new Error('IDs inválidos')
+              }
+              return numId
+            })
+          } else if (typeof employeeIdsParam === 'string') {
+            // Si es una cadena separada por comas (ejemplo: "1,2,3")
+            employeeIds = employeeIdsParam
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length > 0)
+              .map((id) => {
+                const numId = Number.parseInt(id, 10)
+                if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                  throw new Error('IDs inválidos')
+                }
+                return numId
+              })
+          } else {
+            // Si es un número único
+            const numId = typeof employeeIdsParam === 'number' ? employeeIdsParam : Number.parseInt(String(employeeIdsParam), 10)
+            if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+              throw new Error('ID inválido')
+            }
+            employeeIds = [numId]
+          }
+
+          // Validar que al menos haya un ID válido
+          if (!employeeIds || employeeIds.length === 0) {
+            response.status(400)
+            return {
+              type: 'error',
+              title: 'Validation error',
+              message: 'employeeIds debe contener al menos un ID válido',
+            }
+          }
+        } catch (error: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: 'employeeIds debe ser una cadena de números separados por comas (ejemplo: "1,2,3") o un número',
+          }
+        }
+      }
+
       const employeeService = new EmployeeService(i18n)
-      const buffer = await employeeService.generateShiftAssignmentTemplate(startDate, endDate)
+      const buffer = await employeeService.generateShiftAssignmentTemplate(
+        startDate,
+        endDate,
+        employeeIds,
+        isReport
+      )
 
       // Configurar headers para la descarga del archivo
       response.header(
