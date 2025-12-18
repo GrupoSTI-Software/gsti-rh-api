@@ -37,6 +37,7 @@ import Holiday from '#models/holiday'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
+import EmployeeZone from '#models/employee_zone'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -361,6 +362,7 @@ export default class EmployeeService {
       newEmployee.employeeTypeId = employee.employeeTypeId
       newEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
       newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
+      newEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
 
       // Guardar empleado
       await newEmployee.save()
@@ -406,6 +408,7 @@ export default class EmployeeService {
     currentEmployee.employeeTypeId = employee.employeeTypeId
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
+    currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
     await currentEmployee.save()
     await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
@@ -1416,6 +1419,18 @@ export default class EmployeeService {
 
     return employeeBanks ? employeeBanks : []
   }
+
+  async getZones(employeeId: number) {
+    const employeeZones = await EmployeeZone.query()
+      .whereNull('employee_zone_deleted_at')
+      .where('employee_id', employeeId)
+      .preload('zone')
+      .orderBy('employee_id')
+      .paginate(1, 9999999)
+
+    return employeeZones ? employeeZones : []
+  }
+
 
   async getBirthday(filters: EmployeeFilterSearchInterface) {
     const year = filters.year
@@ -2958,6 +2973,7 @@ export default class EmployeeService {
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
     employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeAuthorizeAnyZones = 0
     employee.employeeSyncId = 0
     employee.departmentSyncId = 0
     employee.positionSyncId = 0
