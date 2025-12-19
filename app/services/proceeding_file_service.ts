@@ -11,9 +11,10 @@ import { ProceedingFileTypeEmailExpiredAndExpiringInterface } from '../interface
 import { SetProceedingFileToEmailInterface } from '../interfaces/set_proceeding_file_to_email_interface.js'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
+import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
 
 export default class ProceedingFileService {
-  async create(proceedingFile: ProceedingFile) {
+  async create(proceedingFile: ProceedingFile, employeeId?: number | null) {
     const newProceedingFile = new ProceedingFile()
     newProceedingFile.proceedingFileName = proceedingFile.proceedingFileName
     newProceedingFile.proceedingFilePath = proceedingFile.proceedingFilePath
@@ -23,6 +24,14 @@ export default class ProceedingFileService {
     newProceedingFile.proceedingFileUuid = proceedingFile.proceedingFileUuid
     newProceedingFile.proceedingFileObservations = proceedingFile.proceedingFileObservations
     await newProceedingFile.save()
+
+    // Si se proporciona employeeId, crear la relación en la tabla pivote
+    if (employeeId) {
+      const employeeProceedingFileType = new EmployeeProceedingFileType()
+      employeeProceedingFileType.employeeId = employeeId
+      employeeProceedingFileType.proceedingFileTypeId = proceedingFile.proceedingFileTypeId
+      await employeeProceedingFileType.save()
+    }
 
     await newProceedingFile.load('proceedingFileType')
     return newProceedingFile
@@ -438,9 +447,9 @@ export default class ProceedingFileService {
       .where('proceeding_file_type_area_to_use', areaToUse)
       .orderBy('proceeding_file_type_id')
       .select('proceeding_file_type_id')
-  
+
     const proceedingFileTypesIds = proceedingFileTypes.map((item) => item.proceedingFileTypeId)
-    
+
     const proceedingFilesExpired = await ProceedingFile.query()
       .whereNull('proceeding_file_deleted_at')
       .whereIn('proceeding_file_type_id', proceedingFileTypesIds)

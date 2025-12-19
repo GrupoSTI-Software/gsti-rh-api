@@ -486,6 +486,15 @@ export default class ProceedingFileTypeController {
    *                 description: Proceeding file type status
    *                 required: false
    *                 default: true
+   *               proceedingFileTypeIsExclusive:
+   *                 type: boolean
+   *                 description: Indicates if the proceeding file type is exclusive to an employee
+   *                 required: false
+   *                 default: false
+   *               employeeId:
+   *                 type: number
+   *                 description: Employee ID (required when proceedingFileTypeIsExclusive is true)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -577,11 +586,17 @@ export default class ProceedingFileTypeController {
       // Validar los datos de entrada
       const data = await request.validateUsing(createEmployeeProceedingFileTypeValidator)
 
+      // Convertir proceedingFileTypeIsExclusive a booleano si viene como número
+      const isExclusive = request.input('proceedingFileTypeIsExclusive')
+      const proceedingFileTypeIsExclusive = isExclusive === true || isExclusive === 'true' || isExclusive === 1 || isExclusive === '1'
+
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const result = await proceedingFileTypeService.createEmployeeType({
         proceedingFileTypeName: data.proceedingFileTypeName,
         parentId: data.parentId,
         proceedingFileTypeActive: data.proceedingFileTypeActive,
+        proceedingFileTypeIsExclusive: proceedingFileTypeIsExclusive,
+        employeeId: data.employeeId || request.input('employeeId'),
       })
 
       if (result.status !== 201) {
