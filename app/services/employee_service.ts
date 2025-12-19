@@ -4197,6 +4197,7 @@ async generateShiftAssignmentTemplate(
   if (isReport) {
     const employeeIdsList = employees.map(emp => emp.employeeId)
     if (employeeIdsList.length > 0) {
+      // Cargar calendarios de asistencia (datos explícitos guardados)
       const calendars = await EmployeeAssistCalendar.query()
         .whereIn('employeeId', employeeIdsList)
         .whereBetween('day', [startDate, endDate])
@@ -4247,6 +4248,101 @@ async generateShiftAssignmentTemplate(
           shiftName,
           isVacation: calendar.isVacationDate || false,
           isHoliday: calendar.isHoliday || false
+        })
+      })
+
+      // Cargar turnos asignados desde EmployeeShift (basados en applySince)
+      // Obtener todos los turnos asignados que puedan aplicarse en el rango de fechas
+      const employeeShifts = await EmployeeShift.query()
+        .whereIn('employeeId', employeeIdsList)
+        .whereNull('deletedAt')
+        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [endDate])
+        .preload('shift')
+        .orderBy('employe_shifts_apply_since', 'desc')
+
+      // Organizar turnos por empleado para acceso rápido
+      const employeeShiftsMap = new Map<number, EmployeeShift[]>()
+      employeeShifts.forEach((empShift) => {
+        if (!employeeShiftsMap.has(empShift.employeeId)) {
+          employeeShiftsMap.set(empShift.employeeId, [])
+        }
+        employeeShiftsMap.get(empShift.employeeId)!.push(empShift)
+      })
+
+      // Para cada fecha y cada empleado, determinar el turno activo basado en applySince
+      dates.forEach((date) => {
+        const dateStr = date.toFormat('yyyy-MM-dd')
+        const dateDateTime = date.startOf('day')
+
+        employeeIdsList.forEach((empId) => {
+          // Si ya hay un registro en el calendario para esta fecha, no sobrescribir
+          const employeeCalendar = employeeCalendarsMap.get(empId)
+          if (employeeCalendar && employeeCalendar.has(dateStr)) {
+            return
+          }
+
+          // Buscar el turno asignado más reciente que sea <= a esta fecha
+          const assignedShifts = employeeShiftsMap.get(empId) || []
+          let activeShift: EmployeeShift | null = null
+
+          for (const shift of assignedShifts) {
+            let shiftApplySince: DateTime
+            const applySinceValue = shift.employeShiftsApplySince
+            if (applySinceValue instanceof Date) {
+              shiftApplySince = DateTime.fromJSDate(applySinceValue).startOf('day')
+            } else if (typeof applySinceValue === 'string') {
+              shiftApplySince = DateTime.fromISO(applySinceValue).startOf('day')
+            } else {
+              continue
+            }
+
+            if (shiftApplySince.isValid && shiftApplySince <= dateDateTime) {
+              activeShift = shift
+              break // Ya está ordenado desc, el primero que cumpla es el más reciente
+            }
+          }
+
+          // Si encontramos un turno activo, agregarlo al calendario
+          if (activeShift && activeShift.shift) {
+            if (!employeeCalendarsMap.has(empId)) {
+              employeeCalendarsMap.set(empId, new Map())
+            }
+
+            const dayMap = employeeCalendarsMap.get(empId)!
+            let shiftName: string | null = activeShift.shift.shiftName
+            const shiftId: number | null = activeShift.shiftId
+
+            // Formatear el nombre del turno con horario si está disponible
+            if (activeShift.shift.shiftTimeStart && activeShift.shift.shiftActiveHours && typeof activeShift.shift.shiftActiveHours === 'number') {
+              try {
+                const startTime = String(activeShift.shift.shiftTimeStart).trim()
+                const timeParts = startTime.split(':')
+                if (timeParts.length >= 2) {
+                  const hours = Number.parseInt(timeParts[0], 10)
+                  const minutes = Number.parseInt(timeParts[1], 10)
+                  if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                    const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                    const shiftEndTime = shiftStartTime.plus({ hours: activeShift.shift.shiftActiveHours })
+                    const endTime = shiftEndTime.toFormat('HH:mm')
+                    const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+                    shiftName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                  }
+                }
+              } catch (error) {
+                // Usar el nombre del turno por defecto
+              }
+            }
+
+            // Solo agregar si no existe ya un registro para esta fecha
+            if (!dayMap.has(dateStr)) {
+              dayMap.set(dateStr, {
+                shiftId,
+                shiftName,
+                isVacation: false,
+                isHoliday: false
+              })
+            }
+          }
         })
       })
     }
@@ -4307,7 +4403,7 @@ async generateShiftAssignmentTemplate(
 
   employees.forEach((employee, index) => {
     const row = startDataRow + index
-    worksheet.getRow(row).height = 45 
+    worksheet.getRow(row).height = 45
     const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
     const positionName = employee.position?.positionName || 'Sin posición'
 
