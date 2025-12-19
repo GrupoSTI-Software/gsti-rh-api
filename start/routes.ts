@@ -103,6 +103,7 @@ import './routes/medical_condition_type_property_routes.js'
 import './routes/employee_medical_condition_routes.js'
 import './routes/medical_condition_type_property_value_routes.js'
 import './routes/face_routes.js'
+import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
 
 router.get('/', async ({ view }) => {
