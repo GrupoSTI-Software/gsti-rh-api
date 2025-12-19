@@ -18,6 +18,7 @@ interface EmployeeFilterSearchInterface {
   orderDirection?: 'ascend' | 'descend' | 'Ascendente' | 'Descendente'
   shiftStartTime?: string
   shiftEndTime?: string
+  exceptionDate?: string
 }
 
 export type { EmployeeFilterSearchInterface }

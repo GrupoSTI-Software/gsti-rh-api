@@ -537,6 +537,7 @@ export default class EmployeeController {
       const orderDirection = request.input('orderDirection')
       const shiftStartTime = request.input('shiftStartTime')
       const shiftEndTime = request.input('shiftEndTime')
+      const exceptionDate = request.input('exceptionDate')
 
       const filters = {
         search: search,
@@ -552,6 +553,7 @@ export default class EmployeeController {
         orderDirection: orderDirection,
         shiftStartTime: shiftStartTime,
         shiftEndTime: shiftEndTime,
+        exceptionDate: exceptionDate,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)

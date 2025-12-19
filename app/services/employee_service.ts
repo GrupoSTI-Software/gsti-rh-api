@@ -256,6 +256,9 @@ export default class EmployeeService {
       .if(shiftStartTime || shiftEndTime, (query) => {
         query.whereHas('employeeShifts', (employeeShiftQuery) => {
           employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          if (filters.exceptionDate) {
+            employeeShiftQuery.whereRaw('DATE(employe_shifts_apply_since) <= ?', [filters.exceptionDate])
+          }
           employeeShiftQuery.whereHas('shift', (shiftQuery) => {
             if (shiftStartTime) {
               shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTime])
