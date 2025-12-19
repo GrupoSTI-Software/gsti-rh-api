@@ -84,7 +84,7 @@ export default class EmployeeSupplieService {
   static async update(id: number, data: {
     employeeId?: number
     supplyId?: number
-    employeeSupplyExpirationDate?: string
+    employeeSupplyExpirationDate?: string | null
     employeeSupplyStatus?: 'active' | 'retired' | 'shipping'
   }) {
     const employeeSupply = await EmployeeSupplie.findOrFail(id)
@@ -112,16 +112,22 @@ export default class EmployeeSupplieService {
         throw new Error('Supply is not available for assignment')
       }
     }
-
-    // Convert expiration date string to DateTime if provided
-    const updateData: any = { ...data }
+    // Handle expiration date separately to ensure null is set correctly
     if (data.employeeSupplyExpirationDate !== undefined) {
-      updateData.employeeSupplyExpirationDate = data.employeeSupplyExpirationDate
-        ? DateTime.fromISO(data.employeeSupplyExpirationDate)
-        : null
+      if (
+        data.employeeSupplyExpirationDate === null ||
+        data.employeeSupplyExpirationDate === ''
+      ) {
+        employeeSupply.employeeSupplyExpirationDate = null
+      } else {
+        employeeSupply.employeeSupplyExpirationDate =
+          DateTime.fromISO(data.employeeSupplyExpirationDate)
+      }
     }
 
-    employeeSupply.merge(updateData)
+    // Merge other fields
+    const { employeeSupplyExpirationDate, ...otherData } = data
+    employeeSupply.merge(otherData)
     await employeeSupply.save()
 
     return employeeSupply

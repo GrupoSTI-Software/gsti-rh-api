@@ -888,6 +888,11 @@ export default class AssistsController {
    *                 description: Assist latitude
    *                 required: false
    *                 default: ''
+   *               assistPrecision:
+   *                 type: string
+   *                 description: Assist precision
+   *                 required: false
+   *                 default: ''
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -976,6 +981,7 @@ export default class AssistsController {
       let assistPunchTime = request.input('assistPunchTime')
       const assistLongitude = request.input('assistLongitude')
       const assistLatitude = request.input('assistLatitude')
+      const assistPrecision = request.input('assistPrecision')
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeId)
@@ -1017,6 +1023,7 @@ export default class AssistsController {
         assistAreaAlias: '',
         assistLongitude: assistLongitude,
         assistLatitude: assistLatitude,
+        assistPrecision: assistPrecision,
         assistUploadTime: dateTimePunchTime,
         assistEmpId: employeeId,
         assistTerminalId: null,

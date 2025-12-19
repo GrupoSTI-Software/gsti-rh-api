@@ -763,23 +763,28 @@ export default class PositionController {
           data: { positionId },
         }
       }
-      // Verificar si la posición tiene empleados relacionados
-      const relatedEmployeesCount = await currentPosition
+      // Obtener empleados relacionados con la posición
+      const employees = await currentPosition
         .related('employees')
         .query()
         .whereNull('employee_deleted_at')
-        .count('* as total')
-      const totalEmployees = relatedEmployeesCount[0].$extras.total
-      if (totalEmployees > 0) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'Position has related employees',
-          message: 'The position cannot be deleted because it has related employees',
-          data: { positionId, totalEmployees },
+
+      // Si hay empleados, asignarles la posición "Sin posición"
+      if (employees.length > 0) {
+        const defaultPosition = await Position.query()
+          .whereNull('position_deleted_at')
+          .where('position_name', 'Sin posición')
+          .first()
+
+        if (defaultPosition) {
+          for (const employee of employees) {
+            employee.positionId = defaultPosition.positionId
+            await employee.save()
+          }
         }
       }
-      // Si no tiene empleados, proceder con la eliminación
+
+      // Proceder con la eliminación
       const positionService = new PositionService(i18n)
       const deletePosition = await positionService.delete(currentPosition)
       if (deletePosition) {

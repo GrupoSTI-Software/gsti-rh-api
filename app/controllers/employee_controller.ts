@@ -691,6 +691,11 @@ export default class EmployeeController {
    *                 description: If true, the employee is not considered on report consecutive faults
    *                 required: true
    *                 default: 0
+   *               employeeAuthorizeAnyZones:
+   *                 type: boolean
+   *                 description: If true, the employee is authorized to any zones
+   *                 required: true
+   *                 default: 0
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -805,6 +810,7 @@ export default class EmployeeController {
       const dailySalary = request.input('dailySalary') || 0
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
+      const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
       const employee = {
         employeeId: 0,
         employeeFirstName: employeeFirstName,
@@ -827,6 +833,7 @@ export default class EmployeeController {
         employeeAssistDiscriminator: employeeAssistDiscriminator,
         employeeTypeOfContract: employeeTypeOfContract,
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
+        employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
       } as Employee
       if (!employee.departmentId || employee.departmentId.toString() === '0') {
         const department = await Department.query()
@@ -1026,6 +1033,11 @@ export default class EmployeeController {
    *                 description: If true, the employee is not considered on report consecutive faults
    *                 required: true
    *                 default: 0
+   *               employeeAuthorizeAnyZones:
+   *                 type: boolean
+   *                 description: If true, the employee is authorized to any zones
+   *                 required: true
+   *                 default: 0
    *               employeeTerminatedDate:
    *                 type: string
    *                 format: date
@@ -1137,6 +1149,7 @@ export default class EmployeeController {
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
+      const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
 
       let employeeTerminatedDate = request.input('employeeTerminatedDate')
       employeeTerminatedDate = employeeTerminatedDate ? (employeeTerminatedDate.split('T')[0] + ' 00:000:00').replace('"', '') : null
@@ -1162,6 +1175,7 @@ export default class EmployeeController {
         employeeAssistDiscriminator: employeeAssistDiscriminator,
         employeeTypeOfContract: employeeTypeOfContract,
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
+        employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
         employeeTerminatedDate: employeeTerminatedDate,
       } as Employee
 
@@ -3987,6 +4001,148 @@ export default class EmployeeController {
     }
   }
 
+ /**
+   * @swagger
+   * /api/employees/{employeeId}/banks:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get banks by employee id
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async getZones({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee Id was not found',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const showEmployee = await employeeService.show(employeeId)
+
+      if (!showEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered ID',
+          data: { employeeId },
+        }
+      }
+
+      const zones = await employeeService.getZones(employeeId)
+      const coordinates = []
+      for (const zone of zones) {
+        const polygon = JSON.parse(zone.zone.zonePolygon)
+        coordinates.push(polygon.features[0].geometry.coordinates)
+      }
+    
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The zones were found successfully',
+        data: { data: zones, coordinates: coordinates },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
   /**
    * @swagger
    * /api/employees/get-birthday:
@@ -6221,6 +6377,20 @@ export default class EmployeeController {
    *           format: date
    *         description: Fecha de fin del rango (formato: yyyy-MM-dd)
    *         example: "2025-11-16"
+   *       - in: query
+   *         name: employeeIds
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: Array opcional de IDs de empleados separados por comas para filtrar el template (ejemplo: "1,2,3")
+   *         example: "1,2,3"
+   *       - in: query
+   *         name: isReport
+   *         required: false
+   *         schema:
+   *           type: boolean
+   *         description: Si es true, genera un reporte mostrando los turnos asignados actuales con colores (solo lectura). Si es false o no se proporciona, genera un template editable.
+   *         example: true
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -6277,6 +6447,11 @@ export default class EmployeeController {
 
       const startDate = request.input('startDate')
       const endDate = request.input('endDate')
+      const employeeIdsParam = request.input('employeeIds')
+      const isReportParam = request.input('isReport')
+
+      // Convertir isReport a boolean
+      const isReport = isReportParam === 'true' || isReportParam === true
 
       // Validar que las fechas sean proporcionadas
       if (!startDate || !endDate) {
@@ -6299,8 +6474,67 @@ export default class EmployeeController {
         }
       }
 
+      // Parsear employeeIds si se proporciona
+      let employeeIds: number[] | undefined
+      if (employeeIdsParam) {
+        try {
+          // Si es un array (cuando se usa employeeIds[]=1&employeeIds[]=2)
+          if (Array.isArray(employeeIdsParam)) {
+            employeeIds = employeeIdsParam.map((id) => {
+              const numId = typeof id === 'string' ? Number.parseInt(id, 10) : id
+              if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                throw new Error('IDs inválidos')
+              }
+              return numId
+            })
+          } else if (typeof employeeIdsParam === 'string') {
+            // Si es una cadena separada por comas (ejemplo: "1,2,3")
+            employeeIds = employeeIdsParam
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length > 0)
+              .map((id) => {
+                const numId = Number.parseInt(id, 10)
+                if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                  throw new Error('IDs inválidos')
+                }
+                return numId
+              })
+          } else {
+            // Si es un número único
+            const numId = typeof employeeIdsParam === 'number' ? employeeIdsParam : Number.parseInt(String(employeeIdsParam), 10)
+            if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+              throw new Error('ID inválido')
+            }
+            employeeIds = [numId]
+          }
+
+          // Validar que al menos haya un ID válido
+          if (!employeeIds || employeeIds.length === 0) {
+            response.status(400)
+            return {
+              type: 'error',
+              title: 'Validation error',
+              message: 'employeeIds debe contener al menos un ID válido',
+            }
+          }
+        } catch (error: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: 'employeeIds debe ser una cadena de números separados por comas (ejemplo: "1,2,3") o un número',
+          }
+        }
+      }
+
       const employeeService = new EmployeeService(i18n)
-      const buffer = await employeeService.generateShiftAssignmentTemplate(startDate, endDate)
+      const buffer = await employeeService.generateShiftAssignmentTemplate(
+        startDate,
+        endDate,
+        employeeIds,
+        isReport
+      )
 
       // Configurar headers para la descarga del archivo
       response.header(
