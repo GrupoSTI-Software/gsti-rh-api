@@ -210,8 +210,10 @@ export default class EmployeeService {
       return trimmed.length === 5 ? `${trimmed}:00` : trimmed
     }
 
-    const shiftStartTime = normalizeTime(filters.shiftStartTime ?? null)
-    const shiftEndTime = normalizeTime(filters.shiftEndTime ?? null)
+    const shiftStartTimeInit = normalizeTime(filters.shiftStartTimeInit ?? null)
+    const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
+    const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
+    const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
 
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
@@ -253,20 +255,42 @@ export default class EmployeeService {
         query.where('department_id', filters.departmentId)
         query.where('position_id', filters.positionId)
       })
-      .if(shiftStartTime || shiftEndTime, (query) => {
+      .if(shiftStartTimeInit || shiftStartTimeEnd || shiftEndTimeStart || shiftEndTimeEnd, (query) => {
         query.whereHas('employeeShifts', (employeeShiftQuery) => {
           employeeShiftQuery.whereNull('employe_shifts_deleted_at')
           if (filters.exceptionDate) {
             employeeShiftQuery.whereRaw('DATE(employe_shifts_apply_since) <= ?', [filters.exceptionDate])
           }
           employeeShiftQuery.whereHas('shift', (shiftQuery) => {
-            if (shiftStartTime) {
-              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTime])
+            // Filtro por rango de hora de entrada
+            if (shiftStartTimeInit && shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+                .whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            } else if (shiftStartTimeInit) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+            } else if (shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
             }
-            if (shiftEndTime) {
+
+            // Filtro por rango de hora de salida
+            if (shiftEndTimeStart && shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
               shiftQuery.whereRaw(
                 'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
-                [shiftEndTime]
+                [shiftEndTimeEnd]
+              )
+            } else if (shiftEndTimeStart) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+            } else if (shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
               )
             }
           })

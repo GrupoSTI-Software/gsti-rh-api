@@ -535,8 +535,10 @@ export default class EmployeeController {
       const limit = request.input('limit', 100)
       const orderBy = request.input('orderBy')
       const orderDirection = request.input('orderDirection')
-      const shiftStartTime = request.input('shiftStartTime')
-      const shiftEndTime = request.input('shiftEndTime')
+      const shiftStartTimeInit = request.input('shiftStartTimeInit')
+      const shiftStartTimeEnd = request.input('shiftStartTimeEnd')
+      const shiftEndTimeStart = request.input('shiftEndTimeStart')
+      const shiftEndTimeEnd = request.input('shiftEndTimeEnd')
       const exceptionDate = request.input('exceptionDate')
 
       const filters = {
@@ -551,8 +553,10 @@ export default class EmployeeController {
         limit: limit,
         orderBy: orderBy,
         orderDirection: orderDirection,
-        shiftStartTime: shiftStartTime,
-        shiftEndTime: shiftEndTime,
+        shiftStartTimeInit: shiftStartTimeInit,
+        shiftStartTimeEnd: shiftStartTimeEnd,
+        shiftEndTimeStart: shiftEndTimeStart,
+        shiftEndTimeEnd: shiftEndTimeEnd,
         exceptionDate: exceptionDate,
       } as EmployeeFilterSearchInterface
 

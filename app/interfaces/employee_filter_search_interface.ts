@@ -16,8 +16,10 @@ interface EmployeeFilterSearchInterface {
   userResponsibleId?: number
   orderBy?: 'number' | 'name'
   orderDirection?: 'ascend' | 'descend' | 'Ascendente' | 'Descendente'
-  shiftStartTime?: string
-  shiftEndTime?: string
+  shiftStartTimeInit?: string
+  shiftStartTimeEnd?: string
+  shiftEndTimeStart?: string
+  shiftEndTimeEnd?: string
   exceptionDate?: string
 }
 
