@@ -228,10 +228,10 @@ export default class UserController {
 
           const deviceData = {
             employeeDeviceToken: deviceToken,
-            employeeDeviceModel: request.input('deviceModel'),
-            employeeDeviceBrand: request.input('deviceBrand'),
-            employeeDeviceType: request.input('deviceType'),
-            employeeDeviceOs: request.input('deviceOs'),
+            employeeDeviceModel: request.input('deviceModel') || 'Unknown',
+            employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
+            employeeDeviceType: request.input('deviceType') || 'Unknown',
+            employeeDeviceOs: request.input('deviceOs') || 'Unknown',
             employeeId: currentEmployee.employeeId
           } as EmployeeDevice
 
@@ -996,7 +996,7 @@ export default class UserController {
         const userService = new UserService(i18n)
         userService.sendNewPasswordEmail(url, user, userPassword)
       }
-     
+
       response.status(200)
       return {
         type: 'success',
