@@ -102,6 +102,9 @@ import EmployeeShift from './employee_shift.js'
  *          employeeIgnoreConsecutiveAbsences:
  *            type: number
  *            description: Employee ignore consecutive absences
+ *          employeeAuthorizeAnyZones:
+ *            type: number
+ *            description: Employee authorize any zones
  *          employeeCreatedAt:
  *            type: string
  *          employeeUpdatedAt:
@@ -194,6 +197,9 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare employeeIgnoreConsecutiveAbsences: number
+
+  @column()
+  declare employeeAuthorizeAnyZones: number
 
   @column.dateTime({ autoCreate: true })
   declare employeeCreatedAt: DateTime
