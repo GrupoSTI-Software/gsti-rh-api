@@ -14,6 +14,7 @@ export default class ShiftService {
     newShift.shiftAccumulatedFault = shift.shiftAccumulatedFault
     newShift.shiftBusinessUnits = shift.shiftBusinessUnits
     newShift.shiftTemp = shift.shiftTemp
+    newShift.shiftColor = shift.shiftColor || null
     await newShift.save()
 
     return newShift

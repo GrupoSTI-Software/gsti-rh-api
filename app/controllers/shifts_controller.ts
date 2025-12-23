@@ -34,6 +34,8 @@ import ShiftService from '#services/shift_service'
  *                 type: number
  *               shiftTemp:
  *                 type: number
+ *               shiftColor:
+ *                 type: string
  *     responses:
  *       '201':
  *         description: Shift created successfully
@@ -84,6 +86,7 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
+        shiftColor: data.shiftColor || null,
       } as Shift
       const verifyInfo = await shiftService.verifyInfo(shift)
       if (verifyInfo.status !== 200) {
@@ -312,13 +315,15 @@ export default class ShiftController {
    *                 type: number
    *               shiftRestDays:
    *                 type: string
-   *               shiftAccumulatedFault:
-   *                 type: number
-   *               shiftTemp:
-   *                 type: number
-   *     responses:
-   *       '200':
-   *         description: Shift updated successfully
+ *               shiftAccumulatedFault:
+ *                 type: number
+ *               shiftTemp:
+ *                 type: number
+ *               shiftColor:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Shift updated successfully
    *         content:
    *           application/json:
    *             schema:
@@ -342,6 +347,8 @@ export default class ShiftController {
  *                   type: number
  *                 shiftTemp:
  *                   type: number
+ *                 shiftColor:
+ *                   type: string
  *       '400':
    *         description: Invalid input, validation error
    *         content:
@@ -391,6 +398,7 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
+        shiftColor: data.shiftColor || null,
       } as Shift
 
       const verifyInfo = await shiftService.verifyInfo(updateShift)
