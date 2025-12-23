@@ -26,6 +26,8 @@ import ShiftService from '#services/shift_service'
  *                 type: string
  *               shiftActiveHours:
  *                 type: number
+ *               shiftActiveMinutes:
+ *                 type: number
  *               shiftRestDays:
  *                 type: string
  *               shiftAccumulatedFault:
@@ -49,6 +51,8 @@ import ShiftService from '#services/shift_service'
  *                 shiftTimeStart:
  *                   type: string
  *                 shiftActiveHours:
+ *                   type: number
+ *                 shiftActiveMinutes:
  *                   type: number
  *                 shiftRestDays:
  *                   type: string
@@ -74,6 +78,7 @@ export default class ShiftController {
         shiftName: data.shiftName,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
+        shiftActiveMinutes: data.shiftActiveMinutes || 0,
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
@@ -146,12 +151,14 @@ export default class ShiftController {
    *                     type: string
    *                   shiftDayStart:
    *                     type: number
-   *                   shiftTimeStart:
-   *                     type: string
-   *                   shiftActiveHours:
-   *                     type: number
-   *                   shiftRestDays:
-   *                     type: string
+ *                   shiftTimeStart:
+ *                     type: string
+ *                   shiftActiveHours:
+ *                     type: number
+ *                   shiftActiveMinutes:
+ *                     type: number
+ *                   shiftRestDays:
+ *                     type: string
    */
   async index({ request, response }: HttpContext) {
     try {
@@ -323,17 +330,19 @@ export default class ShiftController {
    *                   type: string
    *                 shiftDayStart:
    *                   type: number
-   *                 shiftTimeStart:
-   *                   type: string
-   *                 shiftActiveHours:
-   *                   type: number
-   *                 shiftRestDays:
-   *                   type: string
-   *                 shiftAccumulatedFault:
-   *                   type: number
-   *                 shiftTemp:
-   *                   type: number
-   *       '400':
+ *                 shiftTimeStart:
+ *                   type: string
+ *                 shiftActiveHours:
+ *                   type: number
+ *                 shiftActiveMinutes:
+ *                   type: number
+ *                 shiftRestDays:
+ *                   type: string
+ *                 shiftAccumulatedFault:
+ *                   type: number
+ *                 shiftTemp:
+ *                   type: number
+ *       '400':
    *         description: Invalid input, validation error
    *         content:
    *           application/json:
@@ -372,9 +381,11 @@ export default class ShiftController {
       const businessConf = `${env.get('SYSTEM_BUSINESS')}`
       const shiftService = new ShiftService()
       const updateShift = {
+        shiftId: shift.shiftId,
         shiftName: data.shiftName,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
+        shiftActiveMinutes: data.shiftActiveMinutes || 0,
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),

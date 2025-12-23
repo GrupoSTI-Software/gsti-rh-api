@@ -9,6 +9,7 @@ export const createShiftValidator = vine.compile(
       .maxLength(255),
     shiftTimeStart: vine.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/),
     shiftActiveHours: vine.number().min(1).max(72),
+    shiftActiveMinutes: vine.number().min(0).max(59).optional(),
     shiftRestDays: vine.string().transform((value) => {
       const restDaysArray = value.split(',').map(Number)
       if (!restDaysArray.every((day) => day >= 0 && day <= 15)) {
@@ -34,6 +35,7 @@ export const updateShiftValidator = vine.compile(
         .maxLength(255),
       shiftTimeStart: vine.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/),
       shiftActiveHours: vine.number().min(1).max(72),
+      shiftActiveMinutes: vine.number().min(0).max(59).optional(),
       shiftRestDays: vine.any().transform((value) => {
         const restDaysArray = value.split(',').map(Number)
         if (!restDaysArray.every((day: number) => day >= 0 && day <= 15)) {
