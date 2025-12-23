@@ -416,6 +416,18 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           enum: [ascend, descend]
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Business Unit Id
+   *         schema:
+   *           type: integer
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Payroll Business Unit Id
+   *         schema:
+   *           type: integer
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -537,6 +549,8 @@ export default class EmployeeController {
       const orderDirection = request.input('orderDirection')
       const shiftStartTime = request.input('shiftStartTime')
       const shiftEndTime = request.input('shiftEndTime')
+      const businessUnitId = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
 
       const filters = {
         search: search,
@@ -552,6 +566,8 @@ export default class EmployeeController {
         orderDirection: orderDirection,
         shiftStartTime: shiftStartTime,
         shiftEndTime: shiftEndTime,
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)

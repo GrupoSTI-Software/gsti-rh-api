@@ -18,6 +18,8 @@ interface EmployeeFilterSearchInterface {
   orderDirection?: 'ascend' | 'descend' | 'Ascendente' | 'Descendente'
   shiftStartTime?: string
   shiftEndTime?: string
+  businessUnitId?: number
+  payrollBusinessUnitId?: number
 }
 
 export type { EmployeeFilterSearchInterface }

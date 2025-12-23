@@ -218,6 +218,12 @@ export default class EmployeeService {
       .if(filters.onlyPayroll, (query) => {
         query.whereIn('payrollBusinessUnitId', businessUnitsList)
       })
+      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
+      })
       .if(filters.search, (query) => {
         query.where((subQuery) => {
           subQuery
@@ -3898,6 +3904,8 @@ export default class EmployeeService {
  * Genera una plantilla dinámica con fechas, empleados pre-cargados, posiciones y turnos
  * @param startDate - Fecha de inicio (formato: yyyy-MM-dd)
  * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
+ * @param employeeIds - IDs opcionales de empleados a filtrar
+ * @param isReport - Si es true, genera un reporte con turnos asignados basados en applySince
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
 async generateShiftAssignmentTemplate(startDate: string, endDate: string): Promise<Buffer> {
