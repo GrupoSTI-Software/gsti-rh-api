@@ -12,12 +12,11 @@ let modelsLoading: Promise<void> | null = null
 
 /**
  * Carga los modelos de FaceAPI (solo se cargan una vez)
- * Optimizado: usa TinyFaceDetector para mayor velocidad
+ * @deprecated Usar faceDescriptorCache del servicio para mejor rendimiento
  */
 async function loadModels() {
   if (modelsLoaded) return
 
-  // Evitar cargas paralelas con promise singleton
   if (modelsLoading) {
     await modelsLoading
     return
@@ -28,7 +27,7 @@ async function loadModels() {
 }
 
 async function loadModelsInternal() {
-  // Cargar modelos en paralelo: SSD Mobilenet + Tiny Landmarks para balance velocidad/precisión
+  // Cargar modelos en paralelo
   await Promise.all([
     faceapi.nets.ssdMobilenetv1.loadFromDisk(MODEL_PATH),
     faceapi.nets.faceLandmark68TinyNet.loadFromDisk(MODEL_PATH),
@@ -38,9 +37,8 @@ async function loadModelsInternal() {
 }
 
 /**
- * Detecta rostro y obtiene descriptor de forma optimizada
- * @param imageSource - Buffer o URL de la imagen
- * @returns descriptor facial o null si no se detectó
+ * Detecta rostro y obtiene descriptor
+ * @deprecated Usar faceDescriptorCache.computeDescriptor() para mejor rendimiento
  */
 export async function detectFaceDescriptor(
   imageSource: Buffer | string
@@ -50,10 +48,9 @@ export async function detectFaceDescriptor(
   try {
     const img = await canvas.loadImage(imageSource)
 
-    // SSD Mobilenet + Tiny Landmarks para balance velocidad/precisión
     const detection = await faceapi
       .detectSingleFace(img)
-      .withFaceLandmarks(true) // true = tiny landmarks (más rápido)
+      .withFaceLandmarks(true)
       .withFaceDescriptor()
 
     return detection?.descriptor || null
@@ -72,30 +69,25 @@ export async function loadReferenceImage(referenceImageUrl: string): Promise<boo
     referenceDescriptor = descriptor
     return true
   }
-  console.warn('⚠️ No se detectó rostro en la imagen de referencia')
   return false
 }
 
 /**
  * Carga los modelos de FaceAPI y la imagen de referencia
- * @param referenceImageUrl - URL HTTPS completa de la imagen de referencia o ruta local (opcional)
+ * @deprecated Usar faceDescriptorCache.warmup() para mejor rendimiento
  */
 export async function loadFaceApi(referenceImageUrl?: string) {
   await loadModels()
 
-  // Si no se proporciona URL, usar la ruta local por defecto
   const defaultImagePath = path.join(process.cwd(), 'reference.jpeg')
   const imagePath = referenceImageUrl || defaultImagePath
-
-  if (!referenceImageUrl) {
-    console.warn('⚠️ No se proporcionó URL de imagen de referencia, usando archivo local por defecto')
-  }
 
   await loadReferenceImage(imagePath)
 }
 
 /**
  * Pre-carga los modelos al iniciar la aplicación
+ * @deprecated Usar faceDescriptorCache.warmup() para mejor rendimiento
  */
 export async function preloadModels(): Promise<void> {
   await loadModels()
