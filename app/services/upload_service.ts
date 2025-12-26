@@ -53,13 +53,13 @@ export default class UploadService {
         ContentType: `${file.type}/${file.subtype}`,
       } as S3.Types.PutObjectRequest
       const response = await s3.upload(uploadParams).promise()
-      
+
       // Si el archivo es privado, retornar la Key (ruta del archivo) para guardar en BD
       // La URL temporal se generará bajo demanda con getDownloadLink()
       if (permission === 'private') {
         return response.Key
       }
-      
+
       // Si es público, retornar la URL pública
       return response.Location
     } catch (err) {
@@ -73,7 +73,7 @@ export default class UploadService {
     }
 
     const s3 = new AWS.S3(this.s3Config)
-    
+
     try {
       // Generar URL temporal firmada para archivos privados
       const temporalURL = await s3.getSignedUrl('getObject', {
@@ -81,10 +81,36 @@ export default class UploadService {
         Key: filePath,
         Expires: expireSeconds, // Por defecto 24 horas
       })
-      
+
       return temporalURL
     } catch (error: any) {
       return { status: 500, data: null, message: `get_url_failed: ${error.message}` }
+    }
+  }
+
+  /**
+   * Descarga un archivo directamente desde S3 como Buffer
+   * Más confiable que usar URLs firmadas cuando hay problemas de red
+   */
+  async downloadFileBuffer(filePath: string): Promise<Buffer | null> {
+    if (!filePath || !this.BUCKET_NAME) return null
+
+    const s3 = new AWS.S3(this.s3Config)
+
+    try {
+      const result = await s3
+        .getObject({
+          Bucket: this.BUCKET_NAME as string,
+          Key: filePath,
+        })
+        .promise()
+
+      if (result.Body) {
+        return result.Body as Buffer
+      }
+      return null
+    } catch {
+      return null
     }
   }
 
@@ -94,7 +120,7 @@ export default class UploadService {
    */
   async getDownloadLinks(filePaths: string[], expireSeconds = 60 * 60 * 24): Promise<{ [key: string]: string }> {
     const urls: { [key: string]: string } = {}
-    
+
     for (const filePath of filePaths) {
       if (filePath && typeof filePath === 'string') {
         try {
@@ -109,7 +135,7 @@ export default class UploadService {
         }
       }
     }
-    
+
     return urls
   }
 
