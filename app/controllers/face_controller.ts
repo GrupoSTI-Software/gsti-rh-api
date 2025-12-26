@@ -119,10 +119,7 @@ export default class FaceController {
    *                       type: string
    */
   @inject()
-  async verify(
-    { request, response }: HttpContext,
-    uploadService: UploadService
-  ) {
+  async verify({ request, response }: HttpContext, uploadService: UploadService) {
     const { imageBase64, employeeId } = request.body()
     if (!imageBase64) {
       response.status(400)
@@ -143,7 +140,7 @@ export default class FaceController {
         data: { employeeId, imageBase64 },
       }
     }
-    
+
     try {
       const biometricFaceId = await EmployeeBiometricFaceId.query()
         .where('employee_id', employeeId)
@@ -179,12 +176,22 @@ export default class FaceController {
       // Cargar la imagen de referencia del empleado en el sistema FaceAPI
       const loaded = await loadReferenceImage(referenceImageUrl)
 
-      if (!loaded || !referenceDescriptor) {
+      if (!loaded) {
         response.status(400)
         return {
           type: 'error',
           title: 'Error del servidor',
-          message: 'No se detectó rostro en la imagen de referencia del empleado',
+          message: 'No se detectó rostro en la imagen de referencia del empleado (Not Loaded)',
+          data: { employeeId, imageBase64 },
+        }
+      }
+
+      if (!referenceDescriptor) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error del servidor',
+          message: 'No se detectó rostro en la imagen de referencia del empleado (Not Reference Descriptor)',
           data: { employeeId, imageBase64 },
         }
       }
