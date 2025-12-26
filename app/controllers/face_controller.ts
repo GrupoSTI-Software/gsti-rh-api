@@ -1,13 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { inject } from '@adonisjs/core'
-import * as faceapi from 'face-api.js'
-import canvas from 'canvas'
-import { loadReferenceImage, referenceDescriptor } from '#start/face_api'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import UploadService from '#services/upload_service'
-
-const { Canvas, Image, ImageData } = canvas
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData })
+import { faceDescriptorCache } from '#services/face_descriptor_cache_service'
 
 export default class FaceController {
   /**
@@ -121,113 +116,92 @@ export default class FaceController {
   @inject()
   async verify({ request, response }: HttpContext, uploadService: UploadService) {
     const { imageBase64, employeeId } = request.body()
-    if (!imageBase64) {
-      response.status(400)
-      return {
-        type: 'warning',
-        title: 'Faltan datos para procesar',
-        message: 'Imagen no encontrada',
-        data: { employeeId, imageBase64 },
-      }
-    }
 
-    if (!employeeId) {
+    // Validación temprana
+    if (!imageBase64 || !employeeId) {
       response.status(400)
       return {
         type: 'warning',
         title: 'Faltan datos para procesar',
-        message: 'Id del empleado no encontrado',
-        data: { employeeId, imageBase64 },
+        message: !imageBase64 ? 'Imagen no encontrada' : 'Id del empleado no encontrado',
+        data: { employeeId: employeeId || null },
       }
     }
 
     try {
+      // 1. Convertir base64 a buffer inmediatamente (operación rápida)
+      const imageBuffer = Buffer.from(imageBase64, 'base64')
+
+      // 2. Buscar datos biométricos del empleado (necesario antes de paralelizar)
       const biometricFaceId = await EmployeeBiometricFaceId.query()
         .where('employee_id', employeeId)
         .whereNull('employee_biometric_face_id_deleted_at')
         .first()
 
-      if (!biometricFaceId || !biometricFaceId.employeeBiometricFaceIdPhotoUrl) {
+      if (!biometricFaceId?.employeeBiometricFaceIdPhotoUrl) {
         response.status(400)
         return {
           type: 'warning',
           title: 'Faltan datos para procesar',
           message: 'No se encontró foto biométrica de referencia para este empleado',
-          data: { employeeId, imageBase64 },
+          data: { employeeId },
         }
       }
 
-      // Obtener URL temporal de la foto de referencia
-      const referenceImageUrl = await uploadService.getDownloadLink(
-        biometricFaceId.employeeBiometricFaceIdPhotoUrl,
-        60 * 60
-      )
+      const photoUrl = biometricFaceId.employeeBiometricFaceIdPhotoUrl
 
-      if (typeof referenceImageUrl !== 'string') {
-        response.status(400)
-        return {
-          type: 'error',
-          title: 'Error del servidor',
-          message: 'Error al obtener la imagen de referencia',
-          data: { employeeId, imageBase64 },
-        }
-      }
+      // 3. OPTIMIZACIÓN CLAVE: Ejecutar en PARALELO:
+      //    - Obtener descriptor de referencia (desde caché o S3)
+      //    - Calcular descriptor de la imagen enviada
+      const [referenceDescriptor, inputDescriptor] = await Promise.all([
+        // Obtener descriptor del empleado (con caché LRU)
+        faceDescriptorCache.getEmployeeDescriptor(
+          employeeId,
+          photoUrl,
+          async () => {
+            const url = await uploadService.getDownloadLink(photoUrl, 60 * 60)
+            return typeof url === 'string' ? url : null
+          }
+        ),
+        // Calcular descriptor de la imagen enviada
+        faceDescriptorCache.computeDescriptor(imageBuffer),
+      ])
 
-      // Cargar la imagen de referencia del empleado en el sistema FaceAPI
-      const loaded = await loadReferenceImage(referenceImageUrl)
-
-      if (!loaded) {
-        response.status(400)
-        return {
-          type: 'error',
-          title: 'Error del servidor',
-          message: 'No se detectó rostro en la imagen de referencia del empleado (Not Loaded)',
-          data: { employeeId, imageBase64 },
-        }
-      }
-
+      // Validar que ambos descriptores se obtuvieron correctamente
       if (!referenceDescriptor) {
         response.status(400)
         return {
           type: 'error',
           title: 'Error del servidor',
-          message: 'No se detectó rostro en la imagen de referencia del empleado (Not Reference Descriptor)',
-          data: { employeeId, imageBase64 },
+          message: 'No se detectó rostro en la imagen de referencia del empleado',
+          data: { employeeId },
         }
       }
 
-      // Procesar la imagen enviada para verificación
-      const buffer = Buffer.from(imageBase64, 'base64')
-      const img = await canvas.loadImage(buffer)
-
-      const detection = await faceapi
-        .detectSingleFace(img)
-        .withFaceLandmarks()
-        .withFaceDescriptor()
-
-      if (!detection) {
+      if (!inputDescriptor) {
         response.status(400)
         return {
           type: 'error',
           title: 'Error del servidor',
           message: 'No se detectó rostro en la imagen enviada',
-          data: { employeeId, imageBase64 },
+          data: { employeeId },
         }
       }
 
-      // Comparar los descriptores faciales usando el descriptor de referencia cargado
-      const distance = faceapi.euclideanDistance(
+      // 4. Comparar descriptores (operación muy rápida, ~1ms)
+      const result = faceDescriptorCache.compareDescriptors(
         referenceDescriptor,
-        detection.descriptor
+        inputDescriptor,
+        0.6
       )
-      const match = distance < 0.6 // umbral ajustable
+
       response.status(200)
-      return response.json({
-        match,
-        distance,
-        threshold: 0.6,
-        message: match ? '✅ Misma persona' : '❌ Persona diferente',
-      })
+      return {
+        match: result.match,
+        distance: result.distance,
+        threshold: result.threshold,
+        message: result.match ? '✅ Misma persona' : '❌ Persona diferente',
+      }
     } catch (error: any) {
       response.status(500)
       return {
