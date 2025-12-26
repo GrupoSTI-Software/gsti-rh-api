@@ -1,11 +1,71 @@
 import * as faceapi from 'face-api.js'
 import canvas from 'canvas'
 import path from 'node:path'
+import https from 'node:https'
+import http from 'node:http'
 
 const { Canvas, Image, ImageData } = canvas
 faceapi.env.monkeyPatch({ Canvas, Image, ImageData } as any)
 
 const MODEL_PATH = path.join(process.cwd(), 'models')
+
+/**
+ * Descarga imagen desde URL con timeout configurable
+ * Más robusto que canvas.loadImage para URLs remotas
+ */
+async function downloadImageBuffer(
+  url: string,
+  timeoutMs: number = 30000
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http
+
+    const request = protocol.get(url, { timeout: timeoutMs }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}: Failed to download image`))
+        return
+      }
+
+      const chunks: Uint8Array[] = []
+      res.on('data', (chunk: Uint8Array) => chunks.push(chunk))
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+      res.on('error', reject)
+    })
+
+    request.on('error', reject)
+    request.on('timeout', () => {
+      request.destroy()
+      reject(new Error('Download timeout'))
+    })
+  })
+}
+
+/**
+ * Descarga imagen con reintentos
+ */
+async function downloadWithRetry(
+  url: string,
+  maxRetries: number = 2,
+  timeoutMs: number = 30000
+): Promise<Buffer> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await downloadImageBuffer(url, timeoutMs)
+    } catch (error) {
+      lastError = error as Error
+      console.warn(`Download attempt ${attempt + 1} failed:`, (error as Error).message)
+
+      // Esperar antes de reintentar (backoff exponencial)
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+      }
+    }
+  }
+
+  throw lastError || new Error('Download failed after retries')
+}
 
 /**
  * Estructura de entrada en caché
@@ -120,7 +180,24 @@ class FaceDescriptorCacheService {
     await this.ensureModelsLoaded()
 
     try {
-      const img = await canvas.loadImage(imageSource)
+      let imageBuffer: Buffer
+
+      // Si es una URL, descargar con timeout y reintentos
+      if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
+        imageBuffer = await downloadWithRetry(imageSource, 2, 30000)
+      } else if (typeof imageSource === 'string') {
+        // Ruta local - usar canvas.loadImage directamente
+        const img = await canvas.loadImage(imageSource)
+        const detection = await faceapi
+          .detectSingleFace(img)
+          .withFaceLandmarks(true)
+          .withFaceDescriptor()
+        return detection?.descriptor || null
+      } else {
+        imageBuffer = imageSource
+      }
+
+      const img = await canvas.loadImage(imageBuffer)
 
       // SSD Mobilenet + Tiny Landmarks para mejor balance
       const detection = await faceapi
@@ -138,11 +215,12 @@ class FaceDescriptorCacheService {
   /**
    * Obtiene descriptor de empleado (desde caché o lo calcula)
    * Esta es la función principal optimizada
+   * @param getImageSource - Función que retorna Buffer (descarga S3) o string (URL)
    */
   async getEmployeeDescriptor(
     employeeId: number,
     photoUrl: string,
-    getImageUrl: () => Promise<string | null>
+    getImageSource: () => Promise<string | Buffer | null>
   ): Promise<Float32Array | null> {
     // 1. Intentar obtener del caché
     const cached = this.get(employeeId, photoUrl)
@@ -150,11 +228,11 @@ class FaceDescriptorCacheService {
       return cached
     }
 
-    // 2. Obtener URL de descarga y calcular descriptor
-    const downloadUrl = await getImageUrl()
-    if (!downloadUrl) return null
+    // 2. Obtener imagen (Buffer o URL) y calcular descriptor
+    const imageSource = await getImageSource()
+    if (!imageSource) return null
 
-    const descriptor = await this.computeDescriptor(downloadUrl)
+    const descriptor = await this.computeDescriptor(imageSource)
     if (!descriptor) return null
 
     // 3. Guardar en caché para futuras peticiones

@@ -159,8 +159,9 @@ export default class FaceController {
           employeeId,
           photoUrl,
           async () => {
-            const url = await uploadService.getDownloadLink(photoUrl, 60 * 60)
-            return typeof url === 'string' ? url : null
+            // Descargar directamente desde S3 usando AWS SDK (más confiable que HTTP)
+            const buffer = await uploadService.downloadFileBuffer(photoUrl)
+            return buffer
           }
         ),
         // Calcular descriptor de la imagen enviada

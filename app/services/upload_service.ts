@@ -89,6 +89,32 @@ export default class UploadService {
   }
 
   /**
+   * Descarga un archivo directamente desde S3 como Buffer
+   * Más confiable que usar URLs firmadas cuando hay problemas de red
+   */
+  async downloadFileBuffer(filePath: string): Promise<Buffer | null> {
+    if (!filePath) return null
+
+    const s3 = new AWS.S3(this.s3Config)
+
+    try {
+      const result = await s3
+        .getObject({
+          Bucket: this.BUCKET_NAME,
+          Key: filePath,
+        })
+        .promise()
+
+      if (result.Body) {
+        return result.Body as Buffer
+      }
+      return null
+    } catch (error: any) {
+      return null
+    }
+  }
+
+  /**
    * Genera URLs temporales para múltiples archivos
    * Útil para cuando se obtienen listados de registros con archivos privados
    */
