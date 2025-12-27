@@ -4,7 +4,7 @@ import path from 'node:path'
 import https from 'node:https'
 import http from 'node:http'
 import fs from 'node:fs'
-import logger from '@adonisjs/core/services/logger'
+// import logger from '@adonisjs/core/services/logger'
 
 const { Canvas, Image, ImageData, createCanvas } = canvas
 faceapi.env.monkeyPatch({ Canvas, Image, ImageData } as any)
@@ -152,7 +152,7 @@ class FaceDescriptorCacheService {
   }
 
   private async loadModelsInternal(): Promise<void> {
-    const startTime = Date.now()
+    // const startTime = Date.now()
 
     // Verificar si TinyFaceDetector está disponible
     this.useTinyDetector = CONFIG.USE_TINY_DETECTOR && hasTinyFaceDetector()
@@ -163,17 +163,17 @@ class FaceDescriptorCacheService {
     ]
 
     if (this.useTinyDetector) {
-      logger.info('🚀 Usando TinyFaceDetector (modo rápido)')
+      // logger.info('🚀 Usando TinyFaceDetector (modo rápido)')
       modelsToLoad.push(faceapi.nets.tinyFaceDetector.loadFromDisk(MODEL_PATH))
     } else {
-      logger.info('📦 Usando SSD Mobilenet (modo estándar)')
+      // logger.info('📦 Usando SSD Mobilenet (modo estándar)')
       modelsToLoad.push(faceapi.nets.ssdMobilenetv1.loadFromDisk(MODEL_PATH))
     }
 
     await Promise.all(modelsToLoad)
     this.modelsLoaded = true
 
-    logger.info(`✅ Modelos cargados en ${Date.now() - startTime}ms`)
+    // logger.info(`✅ Modelos cargados en ${Date.now() - startTime}ms`)
   }
 
   /**
@@ -281,7 +281,7 @@ class FaceDescriptorCacheService {
       const detection = await this.detectFace(img)
       return detection?.descriptor || null
     } catch (error) {
-      logger.error({ error }, 'Error computing face descriptor')
+      // logger.error({ error }, 'Error computing face descriptor')
       return null
     }
   }
@@ -345,10 +345,10 @@ class FaceDescriptorCacheService {
    * Llamar esto al iniciar la aplicación para eliminar cold start
    */
   async warmup(): Promise<void> {
-    logger.info('🔥 Iniciando warmup de modelos de reconocimiento facial...')
-    const start = Date.now()
+    // logger.info('🔥 Iniciando warmup de modelos de reconocimiento facial...')
+    // const start = Date.now()
     await this.ensureModelsLoaded()
-    logger.info(`🔥 Warmup completado en ${Date.now() - start}ms`)
+    // logger.info(`🔥 Warmup completado en ${Date.now() - start}ms`)
   }
 }
 
