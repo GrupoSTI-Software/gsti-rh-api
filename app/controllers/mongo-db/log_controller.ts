@@ -3,7 +3,165 @@ import { LogFilterSearchInterface } from '../../interfaces/MongoDB/log_filter_se
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogRequest } from '#models/MongoDB/log_request'
 import LogService from '#services/mongo-db/log_service'
+import ExceptionType from '#models/exception_type'
+
 export default class LogController {
+  /**
+   * @swagger
+   * /api/logs/{entity}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Logs
+   *     summary: Get logs by entity using query parameters
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: entity
+   *         schema:
+   *           type: string
+   *         required: true
+   *         description: The entity/collection name
+   *       - in: query
+   *         name: userId
+   *         schema:
+   *           type: integer
+   *         description: Filter by user id
+   *       - in: query
+   *         name: startDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Start date for filtering (YYYY-MM-DD)
+   *       - in: query
+   *         name: endDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: End date for filtering (YYYY-MM-DD)
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Page number for pagination
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 50
+   *         description: Number of items per page
+   *       - in: query
+   *         name: sortBy
+   *         schema:
+   *           type: string
+   *           default: date
+   *         description: Field to sort by
+   *       - in: query
+   *         name: sortOrder
+   *         schema:
+   *           type: string
+   *           enum: [asc, desc]
+   *           default: desc
+   *         description: Sort order (asc or desc)
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     data:
+   *                       type: array
+   *                     total:
+   *                       type: integer
+   *                     page:
+   *                       type: integer
+   *                     limit:
+   *                       type: integer
+   *                     totalPages:
+   *                       type: integer
+   */
+  async show({ params, request, response }: HttpContext) {
+    try {
+      const entity = params.entity
+      const userId = request.input('userId')
+      const startDate = request.input('startDate')
+      const endDate = request.input('endDate')
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 50)
+      const sortBy = request.input('sortBy', 'date')
+      const sortOrder = request.input('sortOrder', 'desc')
+
+      const filters = {
+        entity: entity,
+        userId: userId || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        page: Number(page),
+        limit: Number(limit),
+        sortBy: sortBy,
+        sortOrder: sortOrder,
+      } as LogFilterSearchInterface
+
+      const logRequest = LogRequest.getInstance()
+      if (!logRequest.isConnected) {
+        await logRequest.dbConnect()
+      }
+      if (!logRequest.isConnected) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Connection error',
+          message:
+            'Could not connect to MongoDB. Please check your environment variables. Set MONGODB_MODE="atlas" or "server", DB_NAME (required), and depending on mode: for atlas set MONGODB_STRING, for server set MONGODB_HOST, MONGODB_PORT (and optionally MONGODB_USER, MONGODB_PASSWORD)',
+          data: { ...filters },
+        }
+      }
+
+      const exists = await logRequest.collectionExists(filters.entity)
+
+      if (!exists) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Model mongo db',
+          message: `Collection ${filters.entity} does not exist in MongoDB`,
+          data: { ...filters },
+        }
+      }
+
+      const result = await LogStore.get(filters)
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Logs',
+        message: 'The logs were found successfully',
+        data: result,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
   /**
    * @swagger
    * /api/logs:
@@ -137,28 +295,51 @@ export default class LogController {
       const startDate = request.input('startDate')
       const endDate = request.input('endDate')
       const otherFilters = request.input('otherFilters')
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 50)
+      const sortBy = request.input('sortBy', 'date')
+      const sortOrder = request.input('sortOrder', 'desc')
+
+      if (!entity) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'The entity parameter is required',
+          data: {},
+        }
+      }
+
       const filters = {
         entity: entity,
-        userId: userId,
-        startDate: startDate,
-        endDate: endDate,
-        otherFilters: otherFilters,
+        userId: userId || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        otherFilters: otherFilters || undefined,
+        page: page,
+        limit: limit,
+        sortBy: sortBy,
+        sortOrder: sortOrder,
       } as LogFilterSearchInterface
 
       const logRequest = LogRequest.getInstance()
       if (!logRequest.isConnected) {
-        logRequest.scheduleReconnect()
+        await logRequest.dbConnect()
+      }
+      if (!logRequest.isConnected) {
         response.status(400)
         return {
-          type: 'warning',
+          type: 'error',
           title: 'Connection error',
-          message: 'Did not connect to mongo.',
+          message:
+            'Could not connect to MongoDB. Please check your environment variables. Set MONGODB_MODE="atlas" or "server", DB_NAME (required), and depending on mode: for atlas set MONGODB_STRING, for server set MONGODB_HOST, MONGODB_PORT (and optionally MONGODB_USER, MONGODB_PASSWORD)',
           data: { ...filters },
         }
       }
       const exists = await logRequest.collectionExists(filters.entity)
 
       if (!exists) {
+        response.status(404)
         return {
           type: 'warning',
           title: 'Model mongo db',
@@ -166,16 +347,14 @@ export default class LogController {
           data: { ...filters },
         }
       }
-      const info = await LogStore.get(filters)
+      const result = await LogStore.get(filters)
 
       response.status(200)
       return {
         type: 'success',
         title: 'Logs',
         message: 'The logs were found successfully',
-        data: {
-          info,
-        },
+        data: result,
       }
     } catch (error) {
       response.status(500)
@@ -326,6 +505,215 @@ export default class LogController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/logs/exceptions/vacations-disabilities:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Logs
+   *     summary: Get logs for exceptions, vacations and disabilities
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: query
+   *         name: userId
+   *         schema:
+   *           type: integer
+   *         description: Filter by user id
+   *       - in: query
+   *         name: startDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Start date for filtering (YYYY-MM-DD)
+   *       - in: query
+   *         name: endDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: End date for filtering (YYYY-MM-DD)
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Page number for pagination
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 50
+   *         description: Number of items per page
+   *       - in: query
+   *         name: sortBy
+   *         schema:
+   *           type: string
+   *           default: date
+   *         description: Field to sort by
+   *       - in: query
+   *         name: sortOrder
+   *         schema:
+   *           type: string
+   *           enum: [asc, desc]
+   *           default: desc
+   *         description: Sort order (asc or desc)
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     data:
+   *                       type: array
+   *                     total:
+   *                       type: integer
+   *                     page:
+   *                       type: integer
+   *                     limit:
+   *                       type: integer
+   *                     totalPages:
+   *                       type: integer
+   */
+  async getExceptionsVacationsDisabilities({
+    request,
+    response,
+  }: HttpContext) {
+    try {
+      const userId = request.input('userId')
+      const startDate = request.input('startDate')
+      const endDate = request.input('endDate')
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 50)
+      const sortBy = request.input('sortBy', 'date')
+      const sortOrder = request.input('sortOrder', 'desc')
+
+      const filter = {
+        userId: userId || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        page: Number(page),
+        limit: Number(limit),
+        sortBy: sortBy,
+        sortOrder: sortOrder,
+      }
+
+      const logRequest = LogRequest.getInstance()
+      if (!logRequest.isConnected) {
+        await logRequest.dbConnect()
+      }
+      if (!logRequest.isConnected) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Connection error',
+          message:
+            'Could not connect to MongoDB. Please check your environment variables. Set MONGODB_MODE="atlas" or "server", DB_NAME (required), and depending on mode: for atlas set MONGODB_STRING, for server set MONGODB_HOST, MONGODB_PORT (and optionally MONGODB_USER, MONGODB_PASSWORD)',
+          data: { ...filter },
+        }
+      }
+
+      const collections = [
+        'log_shift_exceptions',
+        'log_vacations',
+      ]
+
+      const disabilityExceptionType = await ExceptionType.query()
+        .whereNull('exception_type_deleted_at')
+        .where('exception_type_slug', 'falta-por-incapacidad')
+        .first()
+
+      const result = await LogStore.getMultipleCollections(collections, filter)
+
+      const incapacidades = result.data.filter((item: any) => {
+        const current = item.record_current || {}
+        const previous = item.record_previous || {}
+        return (
+          (disabilityExceptionType &&
+            (current.exceptionTypeId ===
+              disabilityExceptionType.exceptionTypeId ||
+              previous.exceptionTypeId ===
+                disabilityExceptionType.exceptionTypeId)) ||
+          current.workDisabilityPeriodId ||
+          previous.workDisabilityPeriodId
+        )
+      })
+
+      const vacaciones = result.data.filter(
+        (item: any) => item._collection === 'log_vacations'
+      )
+
+      const disabilityExceptionTypeId = disabilityExceptionType
+        ? disabilityExceptionType.exceptionTypeId
+        : null
+
+      const excepciones = result.data.filter((item: any) => {
+        if (item._collection === 'log_vacations') {
+          return false
+        }
+        const current = item.record_current || {}
+        const previous = item.record_previous || {}
+        const isDisability =
+          (disabilityExceptionTypeId &&
+            (current.exceptionTypeId === disabilityExceptionTypeId ||
+              previous.exceptionTypeId === disabilityExceptionTypeId)) ||
+          current.workDisabilityPeriodId ||
+          previous.workDisabilityPeriodId
+        return !isDisability
+      })
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Logs',
+        message: 'The logs were found successfully',
+        data: {
+          excepciones: {
+            data: excepciones,
+            total: excepciones.length,
+          },
+          vacaciones: {
+            data: vacaciones,
+            total: vacaciones.length,
+          },
+          incapacidades: {
+            data: incapacidades,
+            total: incapacidades.length,
+          },
+          summary: {
+            totalExcepciones: excepciones.length,
+            totalVacaciones: vacaciones.length,
+            totalIncapacidades: incapacidades.length,
+            totalGeneral: result.total,
+            page: result.page,
+            limit: result.limit,
+            totalPages: result.totalPages,
+          },
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
       }
     }
   }

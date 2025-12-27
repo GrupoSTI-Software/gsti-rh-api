@@ -11,6 +11,8 @@ import { ProceedingFileTypeEmailExpiredAndExpiringInterface } from '../interface
 import { SetProceedingFileToEmailInterface } from '../interfaces/set_proceeding_file_to_email_interface.js'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
+import { LogStore } from '#models/MongoDB/log_store'
+import { LogProceedingFile } from '../interfaces/MongoDB/log_proceeding_file.js'
 
 export default class ProceedingFileService {
   async create(proceedingFile: ProceedingFile) {
@@ -519,5 +521,33 @@ export default class ProceedingFileService {
       proceedingFilesExpired: proceedingFilesExpired ? proceedingFilesExpired : [],
       proceedingFilesExpiring: proceedingFilesExpiring ? proceedingFilesExpiring : [],
     }
+  }
+
+  createActionLog(rawHeaders: string[], action: string) {
+    const date = DateTime.local().setZone('utc').toISO()
+    const userAgent = this.getHeaderValue(rawHeaders, 'User-Agent')
+    const secChUaPlatform = this.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
+    const secChUa = this.getHeaderValue(rawHeaders, 'sec-ch-ua')
+    const origin = this.getHeaderValue(rawHeaders, 'Origin')
+    const logProceedingFile = {
+      action: action,
+      user_agent: userAgent,
+      sec_ch_ua_platform: secChUaPlatform,
+      sec_ch_ua: secChUa,
+      origin: origin,
+      date: date ? date : '',
+    } as LogProceedingFile
+    return logProceedingFile
+  }
+
+  async saveActionOnLog(logProceedingFile: LogProceedingFile) {
+    try {
+      await LogStore.set('log_proceeding_files', logProceedingFile)
+    } catch (err) {}
+  }
+
+  getHeaderValue(headers: Array<string>, headerName: string) {
+    const index = headers.indexOf(headerName)
+    return index !== -1 ? headers[index + 1] : null
   }
 }
