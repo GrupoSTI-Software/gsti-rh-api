@@ -14,7 +14,25 @@ export default class LogController {
    *       - bearerAuth: []
    *     tags:
    *       - Logs
-   *     summary: Get logs by entity using query parameters
+   *     summary: Get logs by entity using query parameters (MongoDB)
+   *     description: |
+   *       Consulta logs almacenados en MongoDB por entidad/colección.
+   *       El sistema utiliza MongoDB para auditoría, registrando todas las acciones
+   *       de los usuarios. Soporta paginación, filtros por fecha, usuario y ordenamiento.
+   *       
+   *       **Colecciones disponibles:**
+   *       - log_request: Navegación y páginas visitadas
+   *       - log_users: Cambios en usuarios
+   *       - log_authentication: Eventos de autenticación
+   *       - log_assist: Cambios en asistencias
+   *       - log_employee_shifts: Asignaciones de turnos
+   *       - log_employee_shift_changes: Cambios de turnos
+   *       - log_shift_exceptions: Excepciones de turnos
+   *       - log_vacations: Vacaciones
+   *       - log_proceeding_files: Archivos de expedientes
+   *       
+   *       **Configuración MongoDB:** Requiere configurar MONGODB_MODE ("atlas" o "server")
+   *       y las variables correspondientes según el modo seleccionado.
    *     produces:
    *       - application/json
    *     parameters:
@@ -68,7 +86,9 @@ export default class LogController {
    *         description: Sort order (asc or desc)
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: |
+   *           Logs obtenidos exitosamente con paginación.
+   *           Cada documento incluye record_previous (estado anterior) y record_current (estado actual).
    *         content:
    *           application/json:
    *             schema:
@@ -76,23 +96,36 @@ export default class LogController {
    *               properties:
    *                 type:
    *                   type: string
+   *                   example: "success"
    *                 title:
    *                   type: string
+   *                   example: "Logs"
    *                 message:
    *                   type: string
+   *                   example: "The logs were found successfully"
    *                 data:
    *                   type: object
    *                   properties:
    *                     data:
    *                       type: array
+   *                       items:
+   *                         type: object
    *                     total:
    *                       type: integer
+   *                       example: 150
    *                     page:
    *                       type: integer
+   *                       example: 1
    *                     limit:
    *                       type: integer
+   *                       example: 50
    *                     totalPages:
    *                       type: integer
+   *                       example: 3
+   *       '400':
+   *         description: Error de conexión a MongoDB. Verifica MONGODB_MODE y variables correspondientes.
+   *       '404':
+   *         description: La colección especificada no existe en MongoDB.
    */
   async show({ params, request, response }: HttpContext) {
     try {
@@ -170,7 +203,11 @@ export default class LogController {
    *       - bearerAuth: []
    *     tags:
    *       - Logs
-   *     summary: get log info by entity
+   *     summary: Get log info by entity (MongoDB) - POST method
+   *     description: |
+   *       Consulta logs almacenados en MongoDB usando método POST.
+   *       Alternativa al método GET que permite enviar filtros complejos en el body.
+   *       Ver documentación del endpoint GET para más detalles sobre colecciones y configuración.
    *     produces:
    *       - application/json
    *     requestBody:
@@ -375,7 +412,11 @@ export default class LogController {
    *       - bearerAuth: []
    *     tags:
    *       - Logs
-   *     summary: create new log request page
+   *     summary: Create new log request page (MongoDB)
+   *     description: |
+   *       Registra una visita a una página/ruta en MongoDB.
+   *       Guarda información del usuario, ruta visitada, headers del navegador y timestamp.
+   *       Se almacena en la colección log_request de MongoDB.
    *     produces:
    *       - application/json
    *     requestBody:
@@ -517,7 +558,19 @@ export default class LogController {
    *       - bearerAuth: []
    *     tags:
    *       - Logs
-   *     summary: Get logs for exceptions, vacations and disabilities
+   *     summary: Get logs for exceptions, vacations and disabilities (MongoDB)
+   *     description: |
+   *       Endpoint especializado que consulta y clasifica logs de excepciones, vacaciones e incapacidades
+   *       desde múltiples colecciones de MongoDB. Combina logs de las colecciones:
+   *       - log_shift_exceptions: Excepciones generales y incapacidades
+   *       - log_vacations: Vacaciones
+   *       
+   *       **Clasificación automática:**
+   *       - Excepciones: Excepciones que no son vacaciones ni incapacidades
+   *       - Vacaciones: Todos los registros de log_vacations
+   *       - Incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
+   *       
+   *       **Configuración MongoDB:** Requiere MONGODB_MODE configurado correctamente.
    *     produces:
    *       - application/json
    *     parameters:
@@ -565,7 +618,11 @@ export default class LogController {
    *         description: Sort order (asc or desc)
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: |
+   *           Logs clasificados en tres categorías: excepciones, vacaciones e incapacidades.
+   *           - excepciones: Excepciones que NO son vacaciones ni incapacidades
+   *           - vacaciones: Registros de log_vacations
+   *           - incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
    *         content:
    *           application/json:
    *             schema:
@@ -573,23 +630,63 @@ export default class LogController {
    *               properties:
    *                 type:
    *                   type: string
+   *                   example: "success"
    *                 title:
    *                   type: string
+   *                   example: "Logs"
    *                 message:
    *                   type: string
+   *                   example: "The logs were found successfully"
    *                 data:
    *                   type: object
    *                   properties:
-   *                     data:
-   *                       type: array
-   *                     total:
-   *                       type: integer
-   *                     page:
-   *                       type: integer
-   *                     limit:
-   *                       type: integer
-   *                     totalPages:
-   *                       type: integer
+   *                     excepciones:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 25
+   *                     vacaciones:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 10
+   *                     incapacidades:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 5
+   *                     summary:
+   *                       type: object
+   *                       properties:
+   *                         totalExcepciones:
+   *                           type: integer
+   *                           example: 25
+   *                         totalVacaciones:
+   *                           type: integer
+   *                           example: 10
+   *                         totalIncapacidades:
+   *                           type: integer
+   *                           example: 5
+   *                         totalGeneral:
+   *                           type: integer
+   *                           example: 40
+   *                         page:
+   *                           type: integer
+   *                         limit:
+   *                           type: integer
+   *                         totalPages:
+   *                           type: integer
+   *       '400':
+   *         description: Error de conexión a MongoDB. Verifica la configuración según el modo.
    */
   async getExceptionsVacationsDisabilities({
     request,
