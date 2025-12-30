@@ -52,4 +52,17 @@ export default await Env.create(new URL('../', import.meta.url), {
   |----------------------------------------------------------
   */
   API_BIOMETRICS_HOST: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables for configuring MongoDB connection
+  |----------------------------------------------------------
+  */
+  MONGODB_MODE: Env.schema.enum.optional(['atlas', 'server'] as const),
+  MONGODB_STRING: Env.schema.string.optional(),
+  MONGODB_HOST: Env.schema.string.optional(),
+  MONGODB_PORT: Env.schema.number.optional(),
+  MONGODB_USER: Env.schema.string.optional(),
+  MONGODB_PASSWORD: Env.schema.string.optional(),
+  MONGODB_DB_NAME: Env.schema.string.optional(),
+  DB_NAME: Env.schema.string.optional(),
 })

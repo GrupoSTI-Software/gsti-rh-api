@@ -157,6 +157,13 @@ export default class EmployeeSuppliesController {
  *                 type: string
  *                 enum: [active, retired, shipping]
  *                 description: Assignment status
+ *               employeeSupplyAssignamentDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Assignament date for the assignment (optional, can be null to remove)
+ *               employeeSupplyAdditions:
+ *                 type: string
+ *                 description: Additions for the assignment (optional, can be null to remove)
  *     responses:
  *       201:
    *         description: Employee supply assignment created successfully
@@ -217,6 +224,13 @@ export default class EmployeeSuppliesController {
  *                 type: string
  *                 enum: [active, retired, shipping]
  *                 description: Assignment status
+ *               employeeSupplyAdditions:
+ *                 type: string
+ *                 description: Additions for the assignment (optional, can be null to remove)
+ *               employeeSupplyAssignamentDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Assignament date for the assignment (optional, can be null to remove)
  *     responses:
  *       200:
    *         description: Employee supply assignment updated successfully
@@ -235,6 +249,16 @@ export default class EmployeeSuppliesController {
   async update({ params, request, response }: HttpContext) {
     try {
       const data = await request.validateUsing(updateEmployeeSupplieValidator)
+      const body = request.body()
+
+      if ('employeeSupplyExpirationDate' in body) {
+        data.employeeSupplyExpirationDate =
+          body.employeeSupplyExpirationDate === null ||
+          body.employeeSupplyExpirationDate === ''
+            ? null
+            : body.employeeSupplyExpirationDate
+      }
+
       const employeeSupply = await EmployeeSupplieService.update(params.id, data)
 
       return StandardResponseFormatter.success(response, employeeSupply

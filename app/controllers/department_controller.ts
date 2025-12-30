@@ -14,6 +14,8 @@ import { DateTime } from 'luxon'
 import UserService from '#services/user_service'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import db from '@adonisjs/lucid/services/db'
+import RoleDepartment from '#models/role_department'
+import Role from '#models/role'
 
 export default class DepartmentController {
   /**
@@ -572,7 +574,7 @@ export default class DepartmentController {
             }
           }
         }
-      
+
 
       const positions = await DepartmentPosition.query()
         .where('department_id', departmentId)
@@ -1264,6 +1266,29 @@ export default class DepartmentController {
       const newDepartment = await departmentService.create(department)
 
       if (newDepartment) {
+        // Asignar automáticamente el departamento a todos los roles activos (excepto root)
+        // para que todos los usuarios puedan verlo inmediatamente después de su creación
+        const activeRoles = await Role.query()
+          .whereNull('role_deleted_at')
+          .where('role_active', 1)
+          .whereNot('role_slug', 'root')
+
+        for (const role of activeRoles) {
+          // Verificar si ya existe la relación para evitar duplicados
+          const existingRoleDepartment = await RoleDepartment.query()
+            .whereNull('role_department_deleted_at')
+            .where('role_id', role.roleId)
+            .where('department_id', newDepartment.departmentId)
+            .first()
+
+          if (!existingRoleDepartment) {
+            const roleDepartment = new RoleDepartment()
+            roleDepartment.roleId = role.roleId
+            roleDepartment.departmentId = newDepartment.departmentId
+            await roleDepartment.save()
+          }
+        }
+
         response.status(201)
         return {
           type: 'success',
@@ -1545,21 +1570,27 @@ export default class DepartmentController {
           data: { departmentId },
         }
       }
-      const relatedEmployeesCount = await currentDepartment
+      // Obtener empleados relacionados con el departamento
+      const employees = await currentDepartment
         .related('employees')
         .query()
         .whereNull('employee_deleted_at')
-        .count('* as total')
-      const totalEmployees = relatedEmployeesCount[0].$extras.total
-      if (totalEmployees > 0) {
-        response.status(206)
-        return {
-          type: 'warning',
-          title: t('department_has_related_employees'),
-          message: t('the_department_cannot_be_deleted_because_it_has_related_employees'),
-          data: { departmentId, totalEmployees },
+
+      // Si hay empleados, asignarles el departamento "Sin Departamento"
+      if (employees.length > 0) {
+        const defaultDepartment = await Department.query()
+          .whereNull('department_deleted_at')
+          .where('department_name', 'Sin departamento')
+          .first()
+
+        if (defaultDepartment) {
+          for (const employee of employees) {
+            employee.departmentId = defaultDepartment.departmentId
+            await employee.save()
+          }
         }
       }
+
       const departmentService = new DepartmentService(i18n)
       const deleteDepartment = await departmentService.delete(currentDepartment)
       if (deleteDepartment) {
@@ -1615,7 +1646,14 @@ export default class DepartmentController {
         .whereNull('employee_deleted_at')
 
       if (employees.length > 0) {
-        const newDepartmentId = 999
+        // Obtener el departamento por defecto "Sin Departamento"
+        const defaultDepartment = await Department.query()
+          .whereNull('department_deleted_at')
+          .where('department_name', 'Sin departamento')
+          .first()
+
+        const newDepartmentId = defaultDepartment ? defaultDepartment.departmentId : 999
+
         for (const employee of employees) {
           employee.departmentId = newDepartmentId
           await employee.save()

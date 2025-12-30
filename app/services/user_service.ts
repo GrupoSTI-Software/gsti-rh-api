@@ -17,6 +17,7 @@ import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import RoleDepartment from '#models/role_department'
 // import BusinessUnit from '#models/business_unit'
 
 export default class UserService {
@@ -216,6 +217,19 @@ export default class UserService {
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
+    // Obtener departamentos asignados directamente al rol del usuario
+    const roleDepartments = await RoleDepartment.query()
+      .whereNull('role_department_deleted_at')
+      .where('role_id', user.roleId)
+      .preload('department', (departmentQuery) => {
+        departmentQuery.whereNull('department_deleted_at')
+      })
+
+    const departmentsFromRole = roleDepartments
+      .filter((rd) => rd.department !== null && businessUnitsList.includes(rd.department.businessUnitId))
+      .map((rd) => rd.department.departmentId)
+
+    // Obtener departamentos a través de empleados relacionados con el usuario
     const employees = await Employee.query()
       .whereNull('employee_deleted_at')
       .whereIn('businessUnitId', businessUnitsList)
@@ -238,9 +252,12 @@ export default class UserService {
       .distinct('departmentId')
       .orderBy('departmentId')
 
-    const departments = employees.flatMap(({ departmentId }) => departmentId !== null ? [departmentId] : [])
+    const departmentsFromEmployees = employees.flatMap(({ departmentId }) => departmentId !== null ? [departmentId] : [])
 
-    return departments
+    // Combinar ambos conjuntos de departamentos y eliminar duplicados
+    const allDepartments = [...new Set([...departmentsFromRole, ...departmentsFromEmployees])]
+
+    return allDepartments
   }
 
   createActionLog(rawHeaders: string[], action: string) {

@@ -21,6 +21,10 @@ interface EmployeeFilterSearchInterface {
   shiftEndTimeStart?: string
   shiftEndTimeEnd?: string
   exceptionDate?: string
+  shiftStartTime?: string
+  shiftEndTime?: string
+  businessUnitId?: number
+  payrollBusinessUnitId?: number
 }
 
 export type { EmployeeFilterSearchInterface }

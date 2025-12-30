@@ -31,6 +31,7 @@ router
 
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
     router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
+    router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')
     router.get('/:employeeId/get-days-work-disability', '#controllers/employee_controller.getDaysWorkDisability')
     router.get('/:employeeId/user-responsible', '#controllers/employee_controller.getUserResponsible')
     router.get('/:employeeId/user-responsible/:userId?', '#controllers/employee_controller.getUserResponsible')
