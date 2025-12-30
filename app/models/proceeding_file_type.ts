@@ -4,6 +4,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import ProceedingFileTypeEmail from './proceeding_file_type_email.js'
+import EmployeeProceedingFileType from './employee_proceeding_file_type.js'
 /**
  * @swagger
  * components:
@@ -65,6 +66,9 @@ export default class ProceedingFileType extends compose(BaseModel, SoftDeletes) 
   @column()
   declare parentId: number | null
 
+  @column()
+  declare proceedingFileTypeIsExclusive: boolean
+
   @column.dateTime({ autoCreate: true })
   declare proceedingFileTypeCreatedAt: DateTime
 
@@ -73,6 +77,11 @@ export default class ProceedingFileType extends compose(BaseModel, SoftDeletes) 
 
   @column.dateTime({ columnName: 'proceeding_file_type_deleted_at' })
   declare deletedAt: DateTime | null
+
+  @hasMany(() => EmployeeProceedingFileType, {
+    foreignKey: 'proceedingFileTypeId',
+  })
+  declare employeeProceedingFileTypes: HasMany<typeof EmployeeProceedingFileType>
 
   @belongsTo(() => ProceedingFileType, {
     foreignKey: 'parentId',
@@ -83,7 +92,11 @@ export default class ProceedingFileType extends compose(BaseModel, SoftDeletes) 
     foreignKey: 'parentId',
     onQuery(query) {
       if (!query.isRelatedSubQuery) {
-        query.preload('children')
+        query.preload('children').preload('employeeProceedingFileTypes', (subQuery) => {
+          subQuery.whereNull('employee_proceeding_file_type_deleted_at').preload('employee', (employeeQuery) => {
+            employeeQuery.preload('person')
+          })
+        })
       }
     },
   })

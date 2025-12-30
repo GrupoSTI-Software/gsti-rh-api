@@ -888,6 +888,11 @@ export default class AssistsController {
    *                 description: Assist latitude
    *                 required: false
    *                 default: ''
+   *               assistPrecision:
+   *                 type: string
+   *                 description: Assist precision
+   *                 required: false
+   *                 default: ''
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -976,6 +981,7 @@ export default class AssistsController {
       let assistPunchTime = request.input('assistPunchTime')
       const assistLongitude = request.input('assistLongitude')
       const assistLatitude = request.input('assistLatitude')
+      const assistPrecision = request.input('assistPrecision')
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeId)
@@ -1017,6 +1023,7 @@ export default class AssistsController {
         assistAreaAlias: '',
         assistLongitude: assistLongitude,
         assistLatitude: assistLatitude,
+        assistPrecision: assistPrecision,
         assistUploadTime: dateTimePunchTime,
         assistEmpId: employeeId,
         assistTerminalId: null,
@@ -1586,6 +1593,18 @@ export default class AssistsController {
    *           format: date
    *         description: End date for the report
    *         example: "2024-01-31"
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Business Unit Id
+   *       - in: query
+   *         name: payrollBusinessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Payroll Business Unit Id
    *     responses:
    *       200:
    *         description: Excel file generated successfully
@@ -1642,6 +1661,8 @@ export default class AssistsController {
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
+      const businessUnitId = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
 
       if (!filterDate || !filterDateEnd) {
         response.status(400)
@@ -1663,6 +1684,8 @@ export default class AssistsController {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
         userResponsibleId: userResponsibleId,
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
       } as PermissionsDatesExcelFilterInterface
 
       const assistService = new AssistsService(i18n)

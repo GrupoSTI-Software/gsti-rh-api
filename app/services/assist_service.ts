@@ -1964,6 +1964,7 @@ export default class AssistsService {
     newAssist.assistAreaAlias = assist.assistAreaAlias
     newAssist.assistLongitude = assist.assistLongitude
     newAssist.assistLatitude = assist.assistLatitude
+    newAssist.assistPrecision = assist.assistPrecision
     newAssist.assistUploadTime = assist.assistUploadTime
     newAssist.assistEmpId = assist.assistEmpId
     newAssist.assistTerminalId = assist.assistTerminalId
@@ -3007,6 +3008,8 @@ export default class AssistsService {
           ignoreDiscriminated: 0,
           ignoreExternal: 1,
           userResponsibleId: userResponsibleId || undefined,
+          businessUnitId: filters.businessUnitId,
+          payrollBusinessUnitId: filters.payrollBusinessUnitId,
         },
         departmentsList
       )
