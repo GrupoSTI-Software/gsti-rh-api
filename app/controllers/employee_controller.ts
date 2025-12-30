@@ -416,6 +416,18 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           enum: [ascend, descend]
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Business Unit Id
+   *         schema:
+   *           type: integer
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Payroll Business Unit Id
+   *         schema:
+   *           type: integer
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -535,8 +547,15 @@ export default class EmployeeController {
       const limit = request.input('limit', 100)
       const orderBy = request.input('orderBy')
       const orderDirection = request.input('orderDirection')
+      const shiftStartTimeInit = request.input('shiftStartTimeInit')
+      const shiftStartTimeEnd = request.input('shiftStartTimeEnd')
+      const shiftEndTimeStart = request.input('shiftEndTimeStart')
+      const shiftEndTimeEnd = request.input('shiftEndTimeEnd')
+      const exceptionDate = request.input('exceptionDate')
       const shiftStartTime = request.input('shiftStartTime')
       const shiftEndTime = request.input('shiftEndTime')
+      const businessUnitId = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
 
       const filters = {
         search: search,
@@ -550,8 +569,15 @@ export default class EmployeeController {
         limit: limit,
         orderBy: orderBy,
         orderDirection: orderDirection,
+        shiftStartTimeInit: shiftStartTimeInit,
+        shiftStartTimeEnd: shiftStartTimeEnd,
+        shiftEndTimeStart: shiftEndTimeStart,
+        shiftEndTimeEnd: shiftEndTimeEnd,
+        exceptionDate: exceptionDate,
         shiftStartTime: shiftStartTime,
         shiftEndTime: shiftEndTime,
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)
@@ -4124,7 +4150,7 @@ export default class EmployeeController {
         const polygon = JSON.parse(zone.zone.zonePolygon)
         coordinates.push(polygon.features[0].geometry.coordinates)
       }
-    
+
       response.status(200)
       return {
         type: 'success',
