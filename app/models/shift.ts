@@ -112,7 +112,7 @@ export default class Shift extends BaseModel {
   declare shiftTemp: number
 
   @column()
-  declare shiftColor: string | null
+  declare shiftColor: string
 
   @column.dateTime({ autoCreate: true })
   declare shiftCreatedAt: DateTime

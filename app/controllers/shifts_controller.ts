@@ -81,7 +81,7 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
-        shiftColor: data.shiftColor || null,
+        shiftColor: data.shiftColor,
       } as Shift
       const verifyInfo = await shiftService.verifyInfo(shift)
       if (verifyInfo.status !== 200) {
@@ -378,6 +378,7 @@ export default class ShiftController {
       const data = await request.validateUsing(updateShiftValidator)
       const businessConf = `${env.get('SYSTEM_BUSINESS')}`
       const shiftService = new ShiftService()
+      const shiftColorInput = request.input('shiftColor')
       const updateShift = {
         shiftId: shift.shiftId,
         shiftName: data.shiftName,
@@ -388,7 +389,9 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
-        shiftColor: data.shiftColor || null,
+        shiftColor: shiftColorInput !== undefined && shiftColorInput !== null
+          ? data.shiftColor
+          : shift.shiftColor,
       } as Shift
 
       const verifyInfo = await shiftService.verifyInfo(updateShift)
@@ -402,7 +405,14 @@ export default class ShiftController {
         }
       }
 
-      shift.merge({ ...data, shiftCalculateFlag: request.input('shiftCalculateFlag') })
+      const mergeData: any = {
+        ...data,
+        shiftCalculateFlag: request.input('shiftCalculateFlag'),
+      }
+      if (shiftColorInput !== undefined && shiftColorInput !== null) {
+        mergeData.shiftColor = data.shiftColor
+      }
+      shift.merge(mergeData)
       await shift.save()
       return response.status(200).json({
         type: 'success',
