@@ -3008,6 +3008,8 @@ export default class AssistsService {
           ignoreDiscriminated: 0,
           ignoreExternal: 1,
           userResponsibleId: userResponsibleId || undefined,
+          businessUnitId: filters.businessUnitId,
+          payrollBusinessUnitId: filters.payrollBusinessUnitId,
         },
         departmentsList
       )
