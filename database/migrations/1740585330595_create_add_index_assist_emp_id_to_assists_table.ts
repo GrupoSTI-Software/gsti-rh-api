@@ -11,7 +11,7 @@ export default class extends BaseSchema {
 
   async down() {
     this.schema.alterTable(this.tableName, (table) => {
-      table.dropIndex('assist_emp_id_index')
+      table.dropIndex('assist_emp_id', 'assist_emp_id_index')
     })
   }
 }
