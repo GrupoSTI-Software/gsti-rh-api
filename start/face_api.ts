@@ -1,9 +1,28 @@
 import * as faceapi from 'face-api.js'
-import canvas from 'canvas'
+import { createCanvas, loadImage, Image } from '@napi-rs/canvas'
 import path from 'node:path'
 
-const { Canvas, Image, ImageData } = canvas
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData } as any)
+// Crear clase ImageData compatible para @napi-rs/canvas
+class NodeImageData {
+  data: Uint8ClampedArray
+  width: number
+  height: number
+
+  constructor(data: Uint8ClampedArray, width: number, height?: number) {
+    this.data = data
+    this.width = height ? width : data.length / 4 / width
+    this.height = height || (data.length / 4 / width)
+  }
+}
+
+// Monkey patch para face-api.js con @napi-rs/canvas
+faceapi.env.monkeyPatch({
+  Canvas: createCanvas(1, 1).constructor as any,
+  Image: Image as any,
+  ImageData: NodeImageData as any,
+  createCanvasElement: () => createCanvas(1, 1),
+  createImageElement: () => new Image(),
+} as any)
 
 const MODEL_PATH = path.join(process.cwd(), 'models')
 export let referenceDescriptor: Float32Array | null = null
@@ -46,7 +65,7 @@ export async function detectFaceDescriptor(
   await loadModels()
 
   try {
-    const img = await canvas.loadImage(imageSource)
+    const img = await loadImage(imageSource)
 
     const detection = await faceapi
       .detectSingleFace(img)
