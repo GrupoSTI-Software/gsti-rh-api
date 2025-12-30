@@ -547,6 +547,11 @@ export default class EmployeeController {
       const limit = request.input('limit', 100)
       const orderBy = request.input('orderBy')
       const orderDirection = request.input('orderDirection')
+      const shiftStartTimeInit = request.input('shiftStartTimeInit')
+      const shiftStartTimeEnd = request.input('shiftStartTimeEnd')
+      const shiftEndTimeStart = request.input('shiftEndTimeStart')
+      const shiftEndTimeEnd = request.input('shiftEndTimeEnd')
+      const exceptionDate = request.input('exceptionDate')
       const shiftStartTime = request.input('shiftStartTime')
       const shiftEndTime = request.input('shiftEndTime')
       const businessUnitId = request.input('businessUnitId')
@@ -564,6 +569,11 @@ export default class EmployeeController {
         limit: limit,
         orderBy: orderBy,
         orderDirection: orderDirection,
+        shiftStartTimeInit: shiftStartTimeInit,
+        shiftStartTimeEnd: shiftStartTimeEnd,
+        shiftEndTimeStart: shiftEndTimeStart,
+        shiftEndTimeEnd: shiftEndTimeEnd,
+        exceptionDate: exceptionDate,
         shiftStartTime: shiftStartTime,
         shiftEndTime: shiftEndTime,
         businessUnitId: businessUnitId,
@@ -4140,7 +4150,7 @@ export default class EmployeeController {
         const polygon = JSON.parse(zone.zone.zonePolygon)
         coordinates.push(polygon.features[0].geometry.coordinates)
       }
-    
+
       response.status(200)
       return {
         type: 'success',
