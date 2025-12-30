@@ -515,7 +515,7 @@ export default class ProceedingFileController {
    *                       type: string
    */
   @inject()
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, auth }: HttpContext) {
     try {
       const proceedingFileService = new ProceedingFileService()
       let inputs = request.all()
@@ -549,6 +549,9 @@ export default class ProceedingFileController {
           data: { proceedingFileId },
         }
       }
+      const previousProceedingFile = JSON.parse(
+        JSON.stringify(currentProceedingFile)
+      )
       const proceedingFileName = inputs['proceedingFileName']
       const proceedingFileTypeId = inputs['proceedingFileTypeId']
       let proceedingFileExpirationAt = request.input('proceedingFileExpirationAt')
@@ -629,6 +632,20 @@ export default class ProceedingFileController {
         currentProceedingFile,
         proceedingFile
       )
+      const rawHeaders = request.request.rawHeaders
+      const userId = auth.user?.userId
+      if (userId) {
+        const logProceedingFile = await proceedingFileService.createActionLog(
+          rawHeaders,
+          'update'
+        )
+        logProceedingFile.user_id = userId
+        logProceedingFile.record_current = JSON.parse(
+          JSON.stringify(updateProceedingFile)
+        )
+        logProceedingFile.record_previous = previousProceedingFile
+        await proceedingFileService.saveActionOnLog(logProceedingFile)
+      }
       response.status(200)
       return {
         type: 'success',
