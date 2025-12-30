@@ -33,10 +33,6 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *           type: number
  *           description: Number of active hours in the shift
  *           nullable: false
- *         shiftActiveMinutes:
- *           type: number
- *           description: Number of active minutes in the shift
- *           nullable: false
  *         shiftRestDays:
  *           type: string
  *           description: Rest days for the shift (comma-separated values)
@@ -71,7 +67,6 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         shiftDayStart: 1
  *         shiftTimeStart: "08:00"
  *         shiftActiveHours: 8
- *         shiftActiveMinutes: 0
  *         shiftRestDays: "0,6"
  *         shiftAccumulatedFault: 1
  *         shiftTemp: 0
@@ -98,9 +93,6 @@ export default class Shift extends BaseModel {
 
   @column()
   declare shiftActiveHours: number
-
-  @column()
-  declare shiftActiveMinutes: number
 
   @column()
   declare shiftRestDays: string
