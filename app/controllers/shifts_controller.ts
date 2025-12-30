@@ -26,8 +26,6 @@ import ShiftService from '#services/shift_service'
  *                 type: string
  *               shiftActiveHours:
  *                 type: number
- *               shiftActiveMinutes:
- *                 type: number
  *               shiftRestDays:
  *                 type: string
  *               shiftAccumulatedFault:
@@ -54,8 +52,6 @@ import ShiftService from '#services/shift_service'
  *                   type: string
  *                 shiftActiveHours:
  *                   type: number
- *                 shiftActiveMinutes:
- *                   type: number
  *                 shiftRestDays:
  *                   type: string
  *                 shiftAccumulatedFault:
@@ -80,7 +76,6 @@ export default class ShiftController {
         shiftName: data.shiftName,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
-        shiftActiveMinutes: data.shiftActiveMinutes || 0,
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
@@ -157,8 +152,6 @@ export default class ShiftController {
  *                   shiftTimeStart:
  *                     type: string
  *                   shiftActiveHours:
- *                     type: number
- *                   shiftActiveMinutes:
  *                     type: number
  *                   shiftRestDays:
  *                     type: string
@@ -339,8 +332,6 @@ export default class ShiftController {
  *                   type: string
  *                 shiftActiveHours:
  *                   type: number
- *                 shiftActiveMinutes:
- *                   type: number
  *                 shiftRestDays:
  *                   type: string
  *                 shiftAccumulatedFault:
@@ -392,7 +383,6 @@ export default class ShiftController {
         shiftName: data.shiftName,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
-        shiftActiveMinutes: data.shiftActiveMinutes || 0,
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),

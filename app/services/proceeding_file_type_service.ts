@@ -2,6 +2,7 @@ import ProceedingFileType from '#models/proceeding_file_type'
 import ProceedingFileTypeProperty from '#models/proceeding_file_type_property'
 import { ProceedingFileTypeFilterSearchInterface } from '../interfaces/proceeding_file_type_filter_search_interface.js'
 import env from '#start/env'
+import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
 
 export default class ProceedingFileTypeService {
   async index(filters: ProceedingFileTypeFilterSearchInterface) {
@@ -48,6 +49,11 @@ export default class ProceedingFileTypeService {
       })
       .whereNull('parent_id')
       .preload('children')
+      .preload('employeeProceedingFileTypes', (query) => {
+        query.whereNull('employee_proceeding_file_type_deleted_at').preload('employee', (employeeQuery) => {
+          employeeQuery.preload('person')
+        })
+      })
       .orderBy('proceeding_file_type_name', 'asc')
     return proceedingFileTypes
   }
@@ -166,6 +172,8 @@ export default class ProceedingFileTypeService {
     proceedingFileTypeName: string
     parentId?: number
     proceedingFileTypeActive?: boolean
+    proceedingFileTypeIsExclusive?: boolean
+    employeeId?: number
   }) {
     try {
       // Validar que el parentId existe si se proporciona
@@ -212,6 +220,17 @@ export default class ProceedingFileTypeService {
       const systemBusinessArray = systemBusiness?.toString().split(',') as Array<string>
       const businessUnitsString = systemBusinessArray.join(',')
 
+      // Validar que si isExclusive es true, employeeId debe estar presente
+      if (data.proceedingFileTypeIsExclusive && !data.employeeId) {
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Validation error',
+          message: 'employeeId is required when proceedingFileTypeIsExclusive is true',
+          data: { proceedingFileTypeIsExclusive: data.proceedingFileTypeIsExclusive, employeeId: data.employeeId },
+        }
+      }
+
       // Crear el nuevo tipo de archivo de procedimiento
       const newProceedingFileType = new ProceedingFileType()
       newProceedingFileType.proceedingFileTypeName = data.proceedingFileTypeName
@@ -220,8 +239,17 @@ export default class ProceedingFileTypeService {
       newProceedingFileType.proceedingFileTypeActive = data.proceedingFileTypeActive ? 1 : 0
       newProceedingFileType.proceedingFileTypeBusinessUnits = businessUnitsString
       newProceedingFileType.parentId = data.parentId || null
+      newProceedingFileType.proceedingFileTypeIsExclusive = data.proceedingFileTypeIsExclusive ? true : false
 
       await newProceedingFileType.save()
+
+      // Si es exclusivo y tiene employeeId, crear la relación en la tabla pivote
+      if (data.proceedingFileTypeIsExclusive && data.employeeId) {
+        const employeeProceedingFileType = new EmployeeProceedingFileType()
+        employeeProceedingFileType.employeeId = data.employeeId
+        employeeProceedingFileType.proceedingFileTypeId = newProceedingFileType.proceedingFileTypeId
+        await employeeProceedingFileType.save()
+      }
 
       // Crear la propiedad por defecto para el nuevo tipo
       const defaultProperty = new ProceedingFileTypeProperty()

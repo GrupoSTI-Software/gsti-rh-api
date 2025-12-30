@@ -25,6 +25,9 @@ import { compose } from '@adonisjs/core/helpers'
  *        assistLatitude:
  *          type: number
  *          format: float
+ *        assistPrecision:
+ *          type: number
+ *          format: float
  *        assistUploadTime:
  *          type: string
  *          format: date-time
@@ -78,6 +81,9 @@ export default class Assist extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare assistLatitude: number
+
+  @column()
+  declare assistPrecision: number
 
   @column.dateTime({ autoCreate: true })
   declare assistUploadTime: DateTime

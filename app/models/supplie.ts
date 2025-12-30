@@ -36,15 +36,6 @@ import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
  *         supplyDeactivationReason:
  *           type: string
  *           description: Supply deactivation reason and reason description
- *           example:
- *             reason: 'Lost'
- *             reasonDescription: 'The supply was lost and not found'
- *             reason: 'Damaged'
- *             reasonDescription: 'The supply was damaged and not usable or repairable'
- *             reason: 'Stolen'
- *             reasonDescription: 'The supply was stolen and not found'
- *             reason: 'Damaged'
- *             reasonDescription: 'The supply is no not longer usable or repairable or maybe its destroyed like in a fire, flood or car accident'
  *         supplyDeactivationDate:
  *           type: string
  *           format: date-time

@@ -49,6 +49,9 @@ export default class DepartmentService {
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
       })
+      .if(!filters?.onlyParents, (query) => {
+        query.whereNotNull('parentDepartmentId')
+      })
       .orderBy('departmentName', 'asc')
 
     return departments

@@ -1,5 +1,6 @@
-// import { loadFaceApi } from '#start/face_api'
 import type { ApplicationService } from '@adonisjs/core/types'
+import { faceDescriptorCache } from '#services/face_descriptor_cache_service'
+import logger from '@adonisjs/core/services/logger'
 
 export default class AppProvider {
   constructor(protected app: ApplicationService) {}
@@ -24,7 +25,12 @@ export default class AppProvider {
    */
   async ready() {
     await import('../start/socket.js')
-    // await loadFaceApi()
+
+    // Pre-cargar modelos de reconocimiento facial para eliminar cold start
+    // Esto se ejecuta en background para no bloquear el inicio del servidor
+    faceDescriptorCache.warmup().catch((err) => {
+      logger.error({ err }, '⚠️ Error precargando modelos faciales')
+    })
   }
 
   /**
