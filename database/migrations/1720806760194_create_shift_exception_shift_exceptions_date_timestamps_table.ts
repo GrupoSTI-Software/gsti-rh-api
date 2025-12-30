@@ -11,7 +11,7 @@ export default class extends BaseSchema {
 
   async down() {
     this.schema.alterTable(this.tableName, (table) => {
-      table.date('shift_exceptions_date').nullable()
+      table.date('shift_exceptions_date').nullable().alter()
     })
   }
 }

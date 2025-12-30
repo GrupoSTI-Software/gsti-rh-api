@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import BusinessUnit from './business_unit.js'
 /**
  * @swagger
  * components:
@@ -18,6 +20,9 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
  *         employeeTypeSlug:
  *           type: string
  *           description: Employee type slug
+ *         businessUnitId:
+ *           type: number
+ *           description: Business unit ID
  *         employeeTypeCreatedAt:
  *           type: string
  *           format: date-time
@@ -32,6 +37,7 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
  *         employeeTypeId: 1
  *         employeeTypeName: "Employee"
  *         employeeTypeSlug: "employee"
+ *         businessUnitId: 1
  *         employeeTypeCreatedAt: '2024-12-05T12:00:00Z'
  *         employeeTypeUpdatedAt: '2024-12-05T13:00:00Z'
  *         employeeTypeDeletedAt: null
@@ -45,6 +51,15 @@ export default class EmployeeType extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare employeeTypeSlug: string
+
+  @column()
+  declare businessUnitId: number
+
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'businessUnitId',
+    localKey: 'businessUnitId',
+  })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
 
   @column.dateTime({ autoCreate: true })
   declare employeeTypeCreatedAt: DateTime

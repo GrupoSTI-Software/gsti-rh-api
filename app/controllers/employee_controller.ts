@@ -4124,7 +4124,7 @@ export default class EmployeeController {
         const polygon = JSON.parse(zone.zone.zonePolygon)
         coordinates.push(polygon.features[0].geometry.coordinates)
       }
-    
+
       response.status(200)
       return {
         type: 'success',
@@ -6367,7 +6367,7 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           format: date
-   *         description: Fecha de inicio del rango (formato: yyyy-MM-dd)
+   *         description: "Fecha de inicio del rango (formato: yyyy-MM-dd)"
    *         example: "2025-11-10"
    *       - in: query
    *         name: endDate
@@ -6375,14 +6375,14 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           format: date
-   *         description: Fecha de fin del rango (formato: yyyy-MM-dd)
+   *         description: "Fecha de fin del rango (formato: yyyy-MM-dd)"
    *         example: "2025-11-16"
    *       - in: query
    *         name: employeeIds
    *         required: false
    *         schema:
    *           type: string
-   *         description: Array opcional de IDs de empleados separados por comas para filtrar el template (ejemplo: "1,2,3")
+   *         description: "Array opcional de IDs de empleados separados por comas para filtrar el template (ejemplo: 1,2,3)"
    *         example: "1,2,3"
    *       - in: query
    *         name: isReport
