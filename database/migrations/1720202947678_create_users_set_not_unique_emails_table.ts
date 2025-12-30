@@ -12,7 +12,8 @@ export default class extends BaseSchema {
 
   async down() {
     this.schema.alterTable(this.tableName, (table) => {
-      table.string('user_email', 200).notNullable().unique()
+      table.string('user_email', 200).notNullable().alter()
+      table.unique(['user_email'])
     })
   }
 }
