@@ -264,7 +264,7 @@ export default class extends BaseSeeder {
       },
       {
         systemModuleId: 19,
-        systemModuleName: 'Matriz de expiraciones',
+        systemModuleName: 'Matriz de vencimientos',
         systemModuleSlug: 'documents-expiration-matrix',
         systemModuleDescription: 'documents expiration matrix',
         systemModules: 1,
