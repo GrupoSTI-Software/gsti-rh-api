@@ -166,6 +166,15 @@ export default class ProceedingFileController {
    *                 description: Proceeding file observations
    *                 required: false
    *                 default: ''
+   *               isExclusive:
+   *                 type: boolean
+   *                 description: Indicates if the proceeding file is exclusive to an employee
+   *                 required: false
+   *                 default: false
+   *               employeeId:
+   *                 type: number
+   *                 description: Employee ID (required when isExclusive is true)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -301,6 +310,8 @@ export default class ProceedingFileController {
       : null
     const proceedingFileActive = inputs['proceedingFileActive']
     const proceedingFileObservations = inputs['proceedingFileObservations']
+    const isExclusive = request.input('isExclusive')
+    const employeeId = request.input('employeeId')
     const proceedingFileUuid = cuid()
     const proceedingFile = {
       proceedingFileName: proceedingFileName,
@@ -328,13 +339,30 @@ export default class ProceedingFileController {
         data: isValidInfo.data,
       }
     }
+    // Validar que si isExclusive es true, employeeId debe estar presente
+    if (isExclusive && (isExclusive === 'true' || isExclusive === true || isExclusive === '1')) {
+      if (!employeeId) {
+        response.status(400)
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Validation error',
+          message: 'employeeId is required when isExclusive is true',
+          data: { isExclusive, employeeId },
+        }
+      }
+    }
     try {
       const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName)
       proceedingFile.proceedingFilePath = fileUrl
       if (!proceedingFile.proceedingFileName) {
         proceedingFile.proceedingFileName = fileName
       }
-      const newProceedingFile = await proceedingFileService.create(proceedingFile)
+      const isExclusiveBool = isExclusive && (isExclusive === 'true' || isExclusive === true || isExclusive === '1')
+      const newProceedingFile = await proceedingFileService.create(
+        proceedingFile,
+        isExclusiveBool ? Number(employeeId) : null
+      )
       response.status(201)
       return {
         type: 'success',
