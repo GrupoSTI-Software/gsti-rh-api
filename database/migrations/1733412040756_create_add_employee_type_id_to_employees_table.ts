@@ -16,6 +16,7 @@ export default class extends BaseSchema {
 
   async down() {
     this.schema.table(this.tableName, (table) => {
+      table.dropForeign(['employee_type_id'])
       table.dropColumn('employee_type_id')
     })
   }

@@ -11,7 +11,7 @@ export default class extends BaseSchema {
 
   async down() {
     this.schema.alterTable(this.tableName, (table) => {
-      table.integer('position_sync_id').notNullable().alter()
+      table.string('position_sync_id', 50).nullable().alter()
     })
   }
 }

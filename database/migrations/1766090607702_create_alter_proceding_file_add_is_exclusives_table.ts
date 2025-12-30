@@ -10,8 +10,11 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    this.schema.alterTable(this.tableName, (table) => {
-      table.dropColumn('proceeding_file_type_is_exclusive')
-    })
+    const hasColumn = await this.schema.hasColumn(this.tableName, 'proceeding_file_type_is_exclusive')
+    if (hasColumn) {
+      this.schema.alterTable(this.tableName, (table) => {
+        table.dropColumn('proceeding_file_type_is_exclusive')
+      })
+    }
   }
 }

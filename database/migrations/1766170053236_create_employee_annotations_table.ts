@@ -23,10 +23,6 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    this.schema.alterTable(this.tableName, (table) => {
-      table.dropForeign('employee_id', 'fk_emp_annotations_emp_id')
-      table.dropForeign('user_id', 'fk_emp_annotations_user_id')
-    })
     this.schema.dropTable(this.tableName)
   }
 }
