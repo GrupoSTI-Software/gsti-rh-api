@@ -11,9 +11,12 @@ import { ProceedingFileTypeEmailExpiredAndExpiringInterface } from '../interface
 import { SetProceedingFileToEmailInterface } from '../interfaces/set_proceeding_file_to_email_interface.js'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
+import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
+import { LogStore } from '#models/MongoDB/log_store'
+import { LogProceedingFile } from '../interfaces/MongoDB/log_proceeding_file.js'
 
 export default class ProceedingFileService {
-  async create(proceedingFile: ProceedingFile) {
+  async create(proceedingFile: ProceedingFile, employeeId?: number | null) {
     const newProceedingFile = new ProceedingFile()
     newProceedingFile.proceedingFileName = proceedingFile.proceedingFileName
     newProceedingFile.proceedingFilePath = proceedingFile.proceedingFilePath
@@ -23,6 +26,14 @@ export default class ProceedingFileService {
     newProceedingFile.proceedingFileUuid = proceedingFile.proceedingFileUuid
     newProceedingFile.proceedingFileObservations = proceedingFile.proceedingFileObservations
     await newProceedingFile.save()
+
+    // Si se proporciona employeeId, crear la relación en la tabla pivote
+    if (employeeId) {
+      const employeeProceedingFileType = new EmployeeProceedingFileType()
+      employeeProceedingFileType.employeeId = employeeId
+      employeeProceedingFileType.proceedingFileTypeId = proceedingFile.proceedingFileTypeId
+      await employeeProceedingFileType.save()
+    }
 
     await newProceedingFile.load('proceedingFileType')
     return newProceedingFile
@@ -438,9 +449,9 @@ export default class ProceedingFileService {
       .where('proceeding_file_type_area_to_use', areaToUse)
       .orderBy('proceeding_file_type_id')
       .select('proceeding_file_type_id')
-  
+
     const proceedingFileTypesIds = proceedingFileTypes.map((item) => item.proceedingFileTypeId)
-    
+
     const proceedingFilesExpired = await ProceedingFile.query()
       .whereNull('proceeding_file_deleted_at')
       .whereIn('proceeding_file_type_id', proceedingFileTypesIds)
@@ -519,5 +530,33 @@ export default class ProceedingFileService {
       proceedingFilesExpired: proceedingFilesExpired ? proceedingFilesExpired : [],
       proceedingFilesExpiring: proceedingFilesExpiring ? proceedingFilesExpiring : [],
     }
+  }
+
+  createActionLog(rawHeaders: string[], action: string) {
+    const date = DateTime.local().setZone('utc').toISO()
+    const userAgent = this.getHeaderValue(rawHeaders, 'User-Agent')
+    const secChUaPlatform = this.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
+    const secChUa = this.getHeaderValue(rawHeaders, 'sec-ch-ua')
+    const origin = this.getHeaderValue(rawHeaders, 'Origin')
+    const logProceedingFile = {
+      action: action,
+      user_agent: userAgent,
+      sec_ch_ua_platform: secChUaPlatform,
+      sec_ch_ua: secChUa,
+      origin: origin,
+      date: date ? date : '',
+    } as LogProceedingFile
+    return logProceedingFile
+  }
+
+  async saveActionOnLog(logProceedingFile: LogProceedingFile) {
+    try {
+      await LogStore.set('log_proceeding_files', logProceedingFile)
+    } catch (err) {}
+  }
+
+  getHeaderValue(headers: Array<string>, headerName: string) {
+    const index = headers.indexOf(headerName)
+    return index !== -1 ? headers[index + 1] : null
   }
 }

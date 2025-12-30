@@ -1,13 +1,32 @@
 import * as faceapi from 'face-api.js'
-import canvas from 'canvas'
+import { createCanvas, loadImage, Image } from '@napi-rs/canvas'
 import path from 'node:path'
 import https from 'node:https'
 import http from 'node:http'
 import fs from 'node:fs'
 // import logger from '@adonisjs/core/services/logger'
 
-const { Canvas, Image, ImageData, createCanvas } = canvas
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData } as any)
+// Crear clase ImageData compatible para @napi-rs/canvas
+class NodeImageData {
+  data: Uint8ClampedArray
+  width: number
+  height: number
+
+  constructor(data: Uint8ClampedArray, width: number, height?: number) {
+    this.data = data
+    this.width = width
+    this.height = height || (data.length / 4 / width)
+  }
+}
+
+// Monkey patch para face-api.js con @napi-rs/canvas
+faceapi.env.monkeyPatch({
+  Canvas: createCanvas(1, 1).constructor as any,
+  Image: Image as any,
+  ImageData: NodeImageData as any,
+  createCanvasElement: () => createCanvas(1, 1),
+  createImageElement: () => new Image(),
+} as any)
 
 const MODEL_PATH = path.join(process.cwd(), 'models')
 
@@ -91,8 +110,8 @@ async function downloadWithRetry(url: string, maxRetries: number = 1, timeoutMs:
  * OPTIMIZACIÓN CLAVE: Redimensiona imagen para procesamiento más rápido
  * Una imagen de 480px es suficiente para detección facial confiable
  */
-async function resizeImageForProcessing(imageBuffer: Buffer): Promise<canvas.Image> {
-  const img = await canvas.loadImage(imageBuffer)
+async function resizeImageForProcessing(imageBuffer: Buffer): Promise<Image> {
+  const img = await loadImage(imageBuffer)
 
   // Si la imagen ya es pequeña, devolverla tal cual
   if (img.width <= CONFIG.MAX_IMAGE_SIZE && img.height <= CONFIG.MAX_IMAGE_SIZE) {
@@ -110,8 +129,8 @@ async function resizeImageForProcessing(imageBuffer: Buffer): Promise<canvas.Ima
   ctx.drawImage(img, 0, 0, newWidth, newHeight)
 
   // Convertir a buffer y cargar de nuevo como imagen
-  const resizedBuffer = resizedCanvas.toBuffer('image/jpeg', { quality: 0.85 })
-  return await canvas.loadImage(resizedBuffer)
+  const resizedBuffer = resizedCanvas.toBuffer('image/jpeg')
+  return await loadImage(resizedBuffer)
 }
 
 /**
@@ -234,7 +253,7 @@ class FaceDescriptorCacheService {
    * OPTIMIZADO: Detecta rostro usando el mejor detector disponible
    * TinyFaceDetector: ~50-100ms | SSD Mobilenet: ~300-800ms
    */
-  private async detectFace(img: canvas.Image): Promise<faceapi.WithFaceDescriptor<faceapi.WithFaceLandmarks<{ detection: faceapi.FaceDetection }, faceapi.FaceLandmarks68>> | undefined> {
+  private async detectFace(img: Image): Promise<faceapi.WithFaceDescriptor<faceapi.WithFaceLandmarks<{ detection: faceapi.FaceDetection }, faceapi.FaceLandmarks68>> | undefined> {
     if (this.useTinyDetector) {
       // TinyFaceDetector es 5-10x más rápido
       const options = new faceapi.TinyFaceDetectorOptions({
@@ -265,7 +284,7 @@ class FaceDescriptorCacheService {
     await this.ensureModelsLoaded()
 
     try {
-      let img: canvas.Image
+      let img: Image
 
       if (typeof imageSource === 'string' && imageSource.startsWith('http')) {
         const imageBuffer = await downloadWithRetry(imageSource, 1, CONFIG.DOWNLOAD_TIMEOUT_MS)
