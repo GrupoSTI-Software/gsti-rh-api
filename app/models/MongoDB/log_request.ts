@@ -16,25 +16,86 @@ export class LogRequest {
     return LogRequest.instance
   }
   async dbConnect() {
-    if (this.isConnected) return
+    if (this.isConnected && mongoose.connection.readyState === 1) return
 
-    const uri = Env.get('MONGODB_USER')
-      ? `mongodb://${Env.get('MONGODB_USER')}:${Env.get('MONGODB_PASSWORD')}@${Env.get('MONGODB_HOST')}:${Env.get('MONGODB_PORT')}/${Env.get('MONGODB_DB_NAME')}`
-      : `mongodb://${Env.get('MONGODB_HOST')}:${Env.get('MONGODB_PORT')}/${Env.get('MONGODB_DB_NAME')}`
+    const mode = Env.get('MONGODB_MODE', 'server')
+    const dbName = Env.get('DB_NAME') || Env.get('MONGODB_DB_NAME')
+
+    if (!dbName) {
+      this.isConnected = false
+      return
+    }
+
+    let uri: string | null = null
+
+    if (mode === 'atlas') {
+      const mongoString = Env.get('MONGODB_STRING')
+      if (!mongoString) {
+        this.isConnected = false
+        return
+      }
+
+      try {
+        if (mongoString.includes('mongodb+srv://')) {
+          const urlParts = mongoString.replace('mongodb+srv://', '').split('@')
+          if (urlParts.length === 2) {
+            const credentials = urlParts[0]
+            const clusterAndParams = urlParts[1].split('/')
+            const cluster = clusterAndParams[0].split('?')[0]
+            uri = `mongodb+srv://${credentials}@${cluster}/${dbName}`
+          } else {
+            const cluster = urlParts[0].split('/')[0].split('?')[0]
+            uri = `mongodb+srv://${cluster}/${dbName}`
+          }
+        } else if (mongoString.includes('mongodb://')) {
+          const url = new URL(mongoString)
+          url.pathname = `/${dbName}`
+          uri = url.toString()
+        } else {
+          this.isConnected = false
+          return
+        }
+      } catch (error) {
+        this.isConnected = false
+        return
+      }
+    } else if (mode === 'server') {
+      const host = Env.get('MONGODB_HOST')
+      const port = Env.get('MONGODB_PORT', 27017)
+      const user = Env.get('MONGODB_USER')
+      const password = Env.get('MONGODB_PASSWORD')
+
+      if (!host) {
+        this.isConnected = false
+        return
+      }
+
+      if (user && password) {
+        uri = `mongodb://${user}:${password}@${host}:${port}/${dbName}`
+      } else {
+        uri = `mongodb://${host}:${port}/${dbName}`
+      }
+    }
+
+    if (!uri) {
+      this.isConnected = false
+      return
+    }
 
     try {
-      await Promise.race([
-        mongoose.connect(uri),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Connection timed out')), this.connectionTimeout)
-        ),
-      ])
-      this.isConnected = true
-      //console.log("se pudo conectar a MongoDB")
+      if (mongoose.connection.readyState === 0) {
+        await Promise.race([
+          mongoose.connect(uri),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Connection timed out')), this.connectionTimeout)
+          ),
+        ])
+      }
+      this.isConnected = mongoose.connection.readyState === 1
     } catch (error) {
-      //console.error("MongoDB conexion error:", error)
       this.isConnected = false
       this.scheduleReconnect()
+      throw error
     }
   }
 

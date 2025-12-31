@@ -13,6 +13,11 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    this.schema.dropTable(this.tableName)
+    this.schema.alterTable(this.tableName, (table) => {
+      table.dropForeign(['employee_id'])
+      table.dropColumn('employee_id')
+      table.integer('person_id').unsigned().notNullable().after('flight_attendant_photo')
+      table.foreign('person_id').references('people.person_id')
+    })
   }
 }

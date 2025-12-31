@@ -1593,6 +1593,18 @@ export default class AssistsController {
    *           format: date
    *         description: End date for the report
    *         example: "2024-01-31"
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Business Unit Id
+   *       - in: query
+   *         name: payrollBusinessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Payroll Business Unit Id
    *     responses:
    *       200:
    *         description: Excel file generated successfully
@@ -1649,6 +1661,8 @@ export default class AssistsController {
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
+      const businessUnitId = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
 
       if (!filterDate || !filterDateEnd) {
         response.status(400)
@@ -1670,6 +1684,8 @@ export default class AssistsController {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
         userResponsibleId: userResponsibleId,
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
       } as PermissionsDatesExcelFilterInterface
 
       const assistService = new AssistsService(i18n)
