@@ -32,6 +32,8 @@ import ShiftService from '#services/shift_service'
  *                 type: number
  *               shiftTemp:
  *                 type: number
+ *               shiftColor:
+ *                 type: string
  *     responses:
  *       '201':
  *         description: Shift created successfully
@@ -79,6 +81,7 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
+        shiftColor: data.shiftColor,
       } as Shift
       const verifyInfo = await shiftService.verifyInfo(shift)
       if (verifyInfo.status !== 200) {
@@ -146,12 +149,12 @@ export default class ShiftController {
    *                     type: string
    *                   shiftDayStart:
    *                     type: number
-   *                   shiftTimeStart:
-   *                     type: string
-   *                   shiftActiveHours:
-   *                     type: number
-   *                   shiftRestDays:
-   *                     type: string
+ *                   shiftTimeStart:
+ *                     type: string
+ *                   shiftActiveHours:
+ *                     type: number
+ *                   shiftRestDays:
+ *                     type: string
    */
   async index({ request, response }: HttpContext) {
     try {
@@ -305,13 +308,15 @@ export default class ShiftController {
    *                 type: number
    *               shiftRestDays:
    *                 type: string
-   *               shiftAccumulatedFault:
-   *                 type: number
-   *               shiftTemp:
-   *                 type: number
-   *     responses:
-   *       '200':
-   *         description: Shift updated successfully
+ *               shiftAccumulatedFault:
+ *                 type: number
+ *               shiftTemp:
+ *                 type: number
+ *               shiftColor:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Shift updated successfully
    *         content:
    *           application/json:
    *             schema:
@@ -323,17 +328,19 @@ export default class ShiftController {
    *                   type: string
    *                 shiftDayStart:
    *                   type: number
-   *                 shiftTimeStart:
-   *                   type: string
-   *                 shiftActiveHours:
-   *                   type: number
-   *                 shiftRestDays:
-   *                   type: string
-   *                 shiftAccumulatedFault:
-   *                   type: number
-   *                 shiftTemp:
-   *                   type: number
-   *       '400':
+ *                 shiftTimeStart:
+ *                   type: string
+ *                 shiftActiveHours:
+ *                   type: number
+ *                 shiftRestDays:
+ *                   type: string
+ *                 shiftAccumulatedFault:
+ *                   type: number
+ *                 shiftTemp:
+ *                   type: number
+ *                 shiftColor:
+ *                   type: string
+ *       '400':
    *         description: Invalid input, validation error
    *         content:
    *           application/json:
@@ -371,7 +378,9 @@ export default class ShiftController {
       const data = await request.validateUsing(updateShiftValidator)
       const businessConf = `${env.get('SYSTEM_BUSINESS')}`
       const shiftService = new ShiftService()
+      const shiftColorInput = request.input('shiftColor')
       const updateShift = {
+        shiftId: shift.shiftId,
         shiftName: data.shiftName,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
@@ -380,6 +389,9 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
+        shiftColor: shiftColorInput !== undefined && shiftColorInput !== null
+          ? data.shiftColor
+          : shift.shiftColor,
       } as Shift
 
       const verifyInfo = await shiftService.verifyInfo(updateShift)
@@ -393,7 +405,14 @@ export default class ShiftController {
         }
       }
 
-      shift.merge({ ...data, shiftCalculateFlag: request.input('shiftCalculateFlag') })
+      const mergeData: any = {
+        ...data,
+        shiftCalculateFlag: request.input('shiftCalculateFlag'),
+      }
+      if (shiftColorInput !== undefined && shiftColorInput !== null) {
+        mergeData.shiftColor = data.shiftColor
+      }
+      shift.merge(mergeData)
       await shift.save()
       return response.status(200).json({
         type: 'success',
