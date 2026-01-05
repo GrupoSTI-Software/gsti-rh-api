@@ -105,6 +105,46 @@ export default class SyncAssistsService {
     this.i18n = i18n
   }
 
+  private handleSkipCheckoutException(checkAssist: AssistDayInterface) {
+    if (!checkAssist?.assist?.dateShift) {
+      return checkAssist
+    }
+
+    //  Verificar si existe excepción con slug "skip-checkout"
+    //  es el tipo de excepcion de turno que omite el check-out sin procesar una falta o fault
+    //  por ejemplo: si el empleado tiene una excepcion de skip-checkout, y no tiene check-out
+    //  se debe asignar el check-out basado en la ultima hora registrada
+    //  si la ultima hora registrada es el propio check-in, no se desplaza automaticamente el registro para marcarlo como "check-out"
+    //  en tal caso se muestra el estatus del check-out como "ontime"
+    //  sin una hora de salida asignada lo cual no asigna ni un solo minuto al tiempo trabajado
+    const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
+    )
+
+    if (!hasSkipCheckoutException) {
+      return checkAssist
+    }
+
+    // Si ya hay checkOut registrado, omitir el proceso
+    if (checkAssist.assist.checkOut) {
+      return checkAssist
+    }
+
+    // Asignar checkOut basado en la última hora registrada
+    // Arbol de prioridad: eatCheckOut > eatCheckIn > checkIn
+    // si no existe ningun registro que no sea el check-in, se maneja el check-out como "ontime"
+    // IMPORTANTE: Hacer copia profunda del objeto para evitar referencias
+    if (checkAssist.assist.checkEatOut) {
+      checkAssist.assist.checkOut = JSON.parse(JSON.stringify(checkAssist.assist.checkEatOut))
+    } else if (checkAssist.assist.checkEatIn) {
+      checkAssist.assist.checkOut = JSON.parse(JSON.stringify(checkAssist.assist.checkEatIn))
+    } else if (checkAssist.assist.checkIn) {
+      checkAssist.assist.checkOut = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
+    }
+
+    return checkAssist
+  }
+
   async getStatusSync(): Promise<AssistStatusResponseDto | null> {
     const assistStatusSync = await this.getAssistStatusSync()
     let lastPageSync = await this.getLastPageSync()
@@ -1038,6 +1078,7 @@ export default class SyncAssistsService {
       this.setCheckInDateTime(dateAssistItem)
       this.setCheckOutDateTime(dateAssistItem)
       this.calculateRawCalendar(dateAssistItem, assistList)
+      this.handleSkipCheckoutException(dateAssistItem) // aqui se llama la logica para manejar el check-out basado en la ultima hora registrada si existe una excepcion de skip-checkout
       this.checkInStatus(dateAssistItem, TOLERANCE_FAULT_MINUTES, TOLERANCE_DELAY_MINUTES, isDiscriminated)
       this.checkOutStatus(dateAssistItem, isDiscriminated)
       this.isSundayBonus(dateAssistItem)
@@ -1697,6 +1738,29 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
+    // Verificar si hay excepción skip-checkout primero
+    const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
+    )
+
+    if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
+      // Si hay excepción skip-checkout, marcar como ontime (no depende de checkInStatus)
+      if (hasSkipCheckoutException) {
+        checkAssist.assist.checkOutStatus = 'ontime'
+        return checkAssist
+      }
+
+      // Si no hay skip-checkout, entonces sí depende de checkInStatus
+      checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
+      return checkAssist
+    }
+
+    // Si hay skip-checkout exception y hay checkOut, siempre marcar como ontime independientemente del tiempo de salida ya que tiene permiso para omitir el check-out 
+    if (hasSkipCheckoutException) {
+      checkAssist.assist.checkOutStatus = 'ontime'
+      return checkAssist
+    }
+
     const hourStart = checkAssist.assist.dateShift.shiftTimeStart
     const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
     const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
@@ -1707,6 +1771,8 @@ export default class SyncAssistsService {
 
     const currentNowTime = DateTime.now().setZone('UTC-6')
 
+    // Esta verificación teoricamente ya no es necesaria porque ya se verificó arriba
+    // Pero la dejo por seguridad
     if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
       checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
       return checkAssist
@@ -1744,7 +1810,6 @@ export default class SyncAssistsService {
 
     if (discriminated) {
       checkAssist.assist.checkOutStatus = ''
-      return checkAssist
     }
 
     return checkAssist
@@ -2230,6 +2295,15 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
+    // Verificar si hay excepción skip-checkout - si existe, no procesar aquí
+    const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
+    )
+
+    if (hasSkipCheckoutException) {
+      return checkAssist
+    }
+
     if (checkAssist.assist.dateShift) {
       if (checkAssist.assist.exceptions.length > 0) {
         const exception = checkAssist.assist.exceptions.find((ex) => ex.shiftExceptionCheckOutTime)
@@ -2269,6 +2343,17 @@ export default class SyncAssistsService {
     if (!checkAssist?.assist?.dateShift) {
       return checkAssist
     }
+
+    // Verificar si hay excepción skip-checkout
+    const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
+    )
+
+    // Si hay skip-checkout exception, no marcar como fault
+    if (hasSkipCheckoutException) {
+      return checkAssist
+    }
+
     if (checkAssist.assist.checkInStatus === 'fault') {
       return checkAssist
     }
