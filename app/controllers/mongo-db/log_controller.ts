@@ -4,6 +4,7 @@ import { LogStore } from '#models/MongoDB/log_store'
 import { LogRequest } from '#models/MongoDB/log_request'
 import LogService from '#services/mongo-db/log_service'
 import ExceptionType from '#models/exception_type'
+import Shift from '#models/shift'
 
 export default class LogController {
   /**
@@ -19,7 +20,7 @@ export default class LogController {
    *       Consulta logs almacenados en MongoDB por entidad/colección.
    *       El sistema utiliza MongoDB para auditoría, registrando todas las acciones
    *       de los usuarios. Soporta paginación, filtros por fecha, usuario y ordenamiento.
-   *       
+   *
    *       **Colecciones disponibles:**
    *       - log_request: Navegación y páginas visitadas
    *       - log_users: Cambios en usuarios
@@ -30,7 +31,7 @@ export default class LogController {
    *       - log_shift_exceptions: Excepciones de turnos
    *       - log_vacations: Vacaciones
    *       - log_proceeding_files: Archivos de expedientes
-   *       
+   *
    *       **Configuración MongoDB:** Requiere configurar MONGODB_MODE ("atlas" o "server")
    *       y las variables correspondientes según el modo seleccionado.
    *     produces:
@@ -558,18 +559,22 @@ export default class LogController {
    *       - bearerAuth: []
    *     tags:
    *       - Logs
-   *     summary: Get logs for exceptions, vacations and disabilities (MongoDB)
+   *     summary: Get logs for exceptions, vacations, disabilities and shift assignments (MongoDB)
    *     description: |
-   *       Endpoint especializado que consulta y clasifica logs de excepciones, vacaciones e incapacidades
-   *       desde múltiples colecciones de MongoDB. Combina logs de las colecciones:
+   *       Endpoint especializado que consulta y clasifica logs de excepciones, vacaciones, incapacidades
+   *       y asignaciones de turnos desde múltiples colecciones de MongoDB. Combina logs de las colecciones:
    *       - log_shift_exceptions: Excepciones generales y incapacidades
    *       - log_vacations: Vacaciones
-   *       
+   *       - log_employee_shifts: Asignaciones y eliminaciones de turnos a empleados
+   *       - log_employee_shift_changes: Cambios de turnos entre empleados
+   *
    *       **Clasificación automática:**
    *       - Excepciones: Excepciones que no son vacaciones ni incapacidades
    *       - Vacaciones: Todos los registros de log_vacations
    *       - Incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
-   *       
+   *       - Asignaciones de turnos: Registros de log_employee_shifts (asignaciones y eliminaciones)
+   *       - Cambios de turnos: Registros de log_employee_shift_changes
+   *
    *       **Configuración MongoDB:** Requiere MONGODB_MODE configurado correctamente.
    *     produces:
    *       - application/json
@@ -619,10 +624,14 @@ export default class LogController {
    *     responses:
    *       '200':
    *         description: |
-   *           Logs clasificados en tres categorías: excepciones, vacaciones e incapacidades.
+   *           Logs clasificados en cinco categorías: excepciones, vacaciones, incapacidades,
+   *           asignaciones de turnos y cambios de turnos.
    *           - excepciones: Excepciones que NO son vacaciones ni incapacidades
    *           - vacaciones: Registros de log_vacations
    *           - incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
+   *           - asignacionesTurnos: Registros de log_employee_shifts (asignaciones y eliminaciones)
+   *           - cambiosTurnos: Registros de log_employee_shift_changes
+   *             (incluye shiftNameFrom y shiftNameTo con los nombres de los turnos)
    *         content:
    *           application/json:
    *             schema:
@@ -664,6 +673,22 @@ export default class LogController {
    *                         total:
    *                           type: integer
    *                           example: 5
+   *                     asignacionesTurnos:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 15
+   *                     cambiosTurnos:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 8
    *                     summary:
    *                       type: object
    *                       properties:
@@ -676,9 +701,15 @@ export default class LogController {
    *                         totalIncapacidades:
    *                           type: integer
    *                           example: 5
+   *                         totalAsignacionesTurnos:
+   *                           type: integer
+   *                           example: 15
+   *                         totalCambiosTurnos:
+   *                           type: integer
+   *                           example: 8
    *                         totalGeneral:
    *                           type: integer
-   *                           example: 40
+   *                           example: 63
    *                         page:
    *                           type: integer
    *                         limit:
@@ -729,6 +760,8 @@ export default class LogController {
       const collections = [
         'log_shift_exceptions',
         'log_vacations',
+        'log_employee_shifts',
+        'log_employee_shift_changes',
       ]
 
       const disabilityExceptionType = await ExceptionType.query()
@@ -764,6 +797,12 @@ export default class LogController {
         if (item._collection === 'log_vacations') {
           return false
         }
+        if (
+          item._collection === 'log_employee_shifts' ||
+          item._collection === 'log_employee_shift_changes'
+        ) {
+          return false
+        }
         const current = item.record_current || {}
         const previous = item.record_previous || {}
         const isDisability =
@@ -774,6 +813,54 @@ export default class LogController {
           previous.workDisabilityPeriodId
         return !isDisability
       })
+
+      const asignacionesTurnos = result.data.filter(
+        (item: any) => item._collection === 'log_employee_shifts'
+      )
+
+      const cambiosTurnos = result.data.filter(
+        (item: any) => item._collection === 'log_employee_shift_changes'
+      )
+
+      let cambiosTurnosEnriquecidos = cambiosTurnos
+
+      if (cambiosTurnos.length > 0) {
+        const shiftIds = new Set<number>()
+        cambiosTurnos.forEach((item: any) => {
+          const current = item.record_current || {}
+          const previous = item.record_previous || {}
+          if (current.shiftIdFrom) shiftIds.add(current.shiftIdFrom)
+          if (current.shiftIdTo) shiftIds.add(current.shiftIdTo)
+          if (previous.shiftIdFrom) shiftIds.add(previous.shiftIdFrom)
+          if (previous.shiftIdTo) shiftIds.add(previous.shiftIdTo)
+        })
+
+        if (shiftIds.size > 0) {
+          const shifts = await Shift.query()
+            .whereIn('shift_id', Array.from(shiftIds))
+            .whereNull('shift_deleted_at')
+
+          const shiftMap = new Map<number, string>()
+          shifts.forEach((shift) => {
+            shiftMap.set(shift.shiftId, shift.shiftName)
+          })
+
+          cambiosTurnosEnriquecidos = cambiosTurnos.map((item: any) => {
+            const current = item.record_current || {}
+            const previous = item.record_previous || {}
+            const enrichedItem = { ...item }
+            enrichedItem.shiftNameFrom =
+              shiftMap.get(current.shiftIdFrom) ||
+              shiftMap.get(previous.shiftIdFrom) ||
+              null
+            enrichedItem.shiftNameTo =
+              shiftMap.get(current.shiftIdTo) ||
+              shiftMap.get(previous.shiftIdTo) ||
+              null
+            return enrichedItem
+          })
+        }
+      }
 
       response.status(200)
       return {
@@ -793,10 +880,20 @@ export default class LogController {
             data: incapacidades,
             total: incapacidades.length,
           },
+          asignacionesTurnos: {
+            data: asignacionesTurnos,
+            total: asignacionesTurnos.length,
+          },
+          cambiosTurnos: {
+            data: cambiosTurnosEnriquecidos,
+            total: cambiosTurnosEnriquecidos.length,
+          },
           summary: {
             totalExcepciones: excepciones.length,
             totalVacaciones: vacaciones.length,
             totalIncapacidades: incapacidades.length,
+            totalAsignacionesTurnos: asignacionesTurnos.length,
+            totalCambiosTurnos: cambiosTurnos.length,
             totalGeneral: result.total,
             page: result.page,
             limit: result.limit,

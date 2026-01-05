@@ -48,6 +48,10 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *           type: number
  *           description: Shift is temp
  *           nullable: true
+ *         shiftColor:
+ *           type: string
+ *           description: Color code for the shift
+ *           nullable: true
  *         shiftCreatedAt:
  *           type: string
  *           format: date-time
@@ -70,6 +74,7 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         shiftRestDays: "0,6"
  *         shiftAccumulatedFault: 1
  *         shiftTemp: 0
+ *         shiftColor: "#e67e22"
  *         shiftCreatedAt: "2024-06-20T12:00:00Z"
  *         shiftUpdatedAt: "2024-06-20T13:00:00Z"
  *         shiftDeletedAt: null
@@ -105,6 +110,9 @@ export default class Shift extends BaseModel {
 
   @column()
   declare shiftTemp: number
+
+  @column()
+  declare shiftColor: string
 
   @column.dateTime({ autoCreate: true })
   declare shiftCreatedAt: DateTime
