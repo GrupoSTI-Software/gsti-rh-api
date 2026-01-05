@@ -170,5 +170,6 @@
   "not_access": "Sin acceso",
   "the_shift_was_assign_to_department_successfully": "El turno fue asignado al departamento exitosamente",
   "the_relation_department_position_has_employees": "La relación departamento-puesto tiene empleados",
-  "the_relation_department_position_has_employees_assigned": "La relación departamento-puesto tiene empleados asignados"
+  "the_relation_department_position_has_employees_assigned": "La relación departamento-puesto tiene empleados asignados",
+  "the_departments_and_positions_were_created_successfully": "Los departamentos y puestos fueron creados exitosamente"
 }
