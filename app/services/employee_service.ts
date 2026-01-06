@@ -3634,6 +3634,27 @@ export default class EmployeeService {
   }
 
   /**
+   * Convertir color hexadecimal a formato ARGB para ExcelJS
+   * @param hexColor - Color en formato hex (con o sin #)
+   * @returns string - Color en formato ARGB (ej: 'FFE67E22')
+   */
+  private hexToArgb(hexColor: string | null | undefined): string {
+    if (!hexColor) return 'FFFFFFFF'
+    // Remover el # si existe
+    let color = hexColor.replace('#', '').toUpperCase()
+    // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
+    if (color.length === 6) {
+      return 'FF' + color
+    }
+    // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
+    if (color.length === 8) {
+      return color
+    }
+    // Color por defecto si el formato no es válido
+    return 'FFFFFFFF'
+  }
+
+  /**
    * Obtener el color de la unidad de negocio activa desde SystemSetting
    * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
    */
@@ -4095,6 +4116,13 @@ async generateShiftAssignmentTemplate(
     .whereNull('shift_deleted_at')
     .orderBy('shiftName')
 
+  // Crear mapa de shiftId -> color para uso en modo reporte
+  const shiftColorMap = new Map<number, string>()
+  shifts.forEach((shift) => {
+    const color = this.hexToArgb(shift.shiftColor)
+    shiftColorMap.set(shift.shiftId, color)
+  })
+
   // Obtener tipos de excepciones masivas
   const massiveExceptionTypes = await ExceptionType.query()
     .whereNull('exception_type_deleted_at')
@@ -4399,15 +4427,19 @@ async generateShiftAssignmentTemplate(
     }
   }
 
-  // Función para generar color basado en ID del turno
+  // Función para obtener color del turno
+  // En modo reporte usa shiftColor, en modo template genera color dinámico
   const getShiftColor = (shiftId: number | null): string => {
     if (!shiftId) return 'FFFFFFFF'
-    // Generar un color consistente basado en el ID
-    const hue = (shiftId * 137.508) % 360 // Golden angle approximation
-    const saturation = 50 + (shiftId % 30) // Entre 50-80%
-    const lightness = 75 + (shiftId % 15) // Entre 75-90% para colores claros
+    // En modo reporte, usar el color del turno de la base de datos
+    if (isReport && shiftColorMap.has(shiftId)) {
+      return shiftColorMap.get(shiftId) || 'FFFFFFFF'
+    }
+    // En modo template o si no hay color definido, generar color dinámico
+    const hue = (shiftId * 137.508) % 360
+    const saturation = 50 + (shiftId % 30)
+    const lightness = 75 + (shiftId % 15)
 
-    // Convertir HSL a RGB
     const h = hue / 360
     const s = saturation / 100
     const l = lightness / 100
@@ -4618,9 +4650,11 @@ async generateShiftAssignmentTemplate(
  * Importar asignaciones de turnos desde archivo Excel
  * Lee el Excel generado por generateShiftAssignmentTemplate y guarda las asignaciones
  * @param file - Archivo Excel subido
+ * @param rawHeaders - Headers de la request para logs
+ * @param userId - ID del usuario para logs
  * @returns Promise con resultados de la importación
  */
-async importShiftAssignmentsFromExcel(file: any) {
+async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number) {
   const workbook = new ExcelJS.Workbook()
 
   try {
@@ -5002,7 +5036,22 @@ async importShiftAssignmentsFromExcel(file: any) {
           }
 
           await employeeShiftService.deleteEmployeeShifts(employeeShift)
-          await EmployeeShift.create(employeeShift)
+          const newEmployeeShift = await EmployeeShift.create(employeeShift)
+
+          // Guardar log en MongoDB si se proporcionan headers y userId
+          if (rawHeaders && userId) {
+            try {
+              const logEmployeeShift =
+                employeeShiftService.createActionLog(rawHeaders, 'store')
+              logEmployeeShift.user_id = userId
+              logEmployeeShift.record_current =
+                JSON.parse(JSON.stringify(newEmployeeShift))
+              await employeeShiftService.saveActionOnLog(logEmployeeShift)
+            } catch (logError) {
+              // Si falla el log, no interrumpir la importación
+              console.warn('Error guardando log de importación:', logError)
+            }
+          }
 
           const dateObj = date.toJSDate()
           await employeeShiftService.updateAssistCalendar(employeeId, dateObj)

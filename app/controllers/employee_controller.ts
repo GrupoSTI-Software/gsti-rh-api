@@ -6733,7 +6733,13 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const result = await employeeService.importShiftAssignmentsFromExcel(file)
+      const rawHeaders = request.request.rawHeaders
+      const userId = auth.user?.userId
+      const result = await employeeService.importShiftAssignmentsFromExcel(
+        file,
+        rawHeaders,
+        userId
+      )
 
       response.status(result.status)
       return result

@@ -67,4 +67,25 @@ export default class EmployeeDeviceService {
     }
   }
 
+  async index(employeeId?: number) {
+    let query = EmployeeDevice.query()
+      .whereNull('employee_device_deleted_at')
+      .orderBy('employee_device_created_at', 'desc')
+
+    if (employeeId) {
+      query = query.where('employee_id', employeeId) as typeof query
+    }
+
+    const employeeDevices = await query
+    return employeeDevices
+  }
+
+  async updateStatus(
+    currentEmployeeDevice: EmployeeDevice,
+    employeeDeviceActive: number
+  ) {
+    currentEmployeeDevice.employeeDeviceActive = employeeDeviceActive
+    await currentEmployeeDevice.save()
+    return currentEmployeeDevice
+  }
 }

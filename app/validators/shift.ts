@@ -22,6 +22,7 @@ export const createShiftValidator = vine.compile(
     }),
     shiftAccumulatedFault: vine.number().min(1),
     shiftTemp: vine.number().optional(),
+    shiftColor: vine.string().maxLength(50).optional(),
   })
 )
 
@@ -47,5 +48,6 @@ export const updateShiftValidator = vine.compile(
       }),
       shiftAccumulatedFault: vine.number().min(1),
       shiftTemp: vine.number().optional(),
+      shiftColor: vine.string().maxLength(50).optional(),
     })
   )
