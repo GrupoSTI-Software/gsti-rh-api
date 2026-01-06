@@ -171,5 +171,7 @@
   "the_shift_was_assign_to_department_successfully": "The shift was assign to department successfully",
   "the_relation_department_position_has_employees": "The relation department-position has employees",
   "the_relation_department_position_has_employees_assigned": "The relation department-position has employees assigned",
-  "the_departments_and_positions_were_created_successfully": "The departments and positions were created successfully"
+  "the_departments_and_positions_were_created_successfully": "The departments and positions were created successfully",
+  "the_information_was_created_successfully": "The information was created successfully",
+  "information": "Information"
 }

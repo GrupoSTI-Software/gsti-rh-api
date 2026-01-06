@@ -1,6 +1,7 @@
 import DepartmentService from '#services/department_service'
 import { HttpContext } from '@adonisjs/core/http'
 import PositionService from '#services/position_service'
+import ShiftService from '#services/shift_service'
 
 export default class EstructureDemoController {
    /**
@@ -109,7 +110,7 @@ export default class EstructureDemoController {
             data: { ...deletePositions },
           }
         }
-        
+
         const departmentService = new DepartmentService(i18n)
         const deleteDepartments = await departmentService.deleteAllDepartments()
         if (deleteDepartments.status !== 200) {
@@ -122,14 +123,14 @@ export default class EstructureDemoController {
           }
         }
 
-        const data = await departmentService.createDepartmentDemo()
-        if (data.status !== 201) {
-          response.status(data.status)
+        const createDepartments = await departmentService.createDepartmentDemo()
+        if (createDepartments.status !== 201) {
+          response.status(createDepartments.status)
           return {
-            type: data.type,
-            title: data.title,
-            message: data.message,
-            data: { ...data },
+            type: createDepartments.type,
+            title: createDepartments.title,
+            message: createDepartments.message,
+            data: { ...createDepartments },
           }
         }
         const createPositions = await positionsService.createPositionDemo()
@@ -142,13 +143,34 @@ export default class EstructureDemoController {
             data: { ...createPositions },
           }
         }
-        
+
+        const shiftService = new ShiftService()
+        const deleteShifts = await shiftService.deleteAllShifts()
+        if (deleteShifts.status !== 200) {
+          response.status(deleteShifts.status)
+          return {
+            type: deleteShifts.type,
+            title: deleteShifts.title,
+            message: deleteShifts.message,
+            data: { ...deleteShifts },
+          }
+        }
+        const createShifts = await shiftService.createShiftDemo()
+        if (createShifts.status !== 201) {
+          response.status(createShifts.status)
+          return {
+            type: createShifts.type,
+            title: createShifts.title,
+            message: createShifts.message,
+            data: { ...createShifts },
+          }
+        }
         response.status(201)
         return {
           type: 'success',
-          title: t('departments'),
-          message: t('the_departments_and_positions_were_created_successfully'),
-          data: { ...data },
+          title: t('information'),
+          message: t('the_information_was_created_successfully'),
+          data: { departments: createDepartments, positions: createPositions, shifts: createShifts },
         }
     } catch (error) {
       response.status(500)
