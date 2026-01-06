@@ -620,6 +620,41 @@ export default class DepartmentService {
   }
 
   /**
+   * Crea un departamento con los datos proporcionados
+   * @param departmentData - Datos del departamento a crear
+   * @param businessUnitId - ID de la unidad de negocio
+   * @param parentDepartmentId - ID del departamento padre (opcional)
+   * @returns Departamento creado
+   */
+  private async createDepartment(
+    departmentData: {
+      code: string
+      name: string
+      alias: string
+      departmentId?: number
+    },
+    businessUnitId: number,
+    parentDepartmentId: number | null = null
+  ): Promise<Department> {
+    const department = new Department()
+    if (departmentData.departmentId) {
+      department.departmentId = departmentData.departmentId
+    }
+    department.departmentCode = departmentData.code
+    department.departmentName = departmentData.name
+    department.departmentAlias = departmentData.alias
+    department.departmentIsDefault = false
+    department.departmentActive = 1
+    department.parentDepartmentId = parentDepartmentId
+    department.companyId = 0
+    department.businessUnitId = businessUnitId
+    department.departmentSyncId = 0
+    department.parentDepartmentSyncId = 0
+    await department.save()
+    return department
+  }
+
+  /**
    * Crea la estructura completa de departamentos según el organigrama organizacional demo
    * 
    * Estructura creada:
@@ -650,195 +685,133 @@ export default class DepartmentService {
       const businessUnitId = businessUnits?.businessUnitId || 0
       const createdDepartments: { [key: string]: Department } = {}
 
-      // 1. Gerencia
-      const management = new Department()
-      management.departmentCode = 'GER-001'
-      management.departmentName = '(D101) Dirección General'
-      management.departmentAlias = 'Dirección General'
-      management.departmentIsDefault = false
-      management.departmentActive = 1
-      management.parentDepartmentId = null
-      management.companyId = 0
-      management.businessUnitId = businessUnitId
-      management.departmentSyncId = 0
-      management.parentDepartmentSyncId = 0
-      await management.save()
-      createdDepartments['GERENCIA'] = management
+      // Array de departamentos a crear (ordenados para que los padres se creen antes que los hijos)
+      const departmentsData = [
+        {
+          key: 'GERENCIA',
+          code: 'GER-001',
+          name: '(D101) Dirección General',
+          alias: 'Dirección General',
+          parentKey: null,
+          departmentId: undefined,
+        },
+        {
+          key: 'Administración',
+          code: 'ADM-001',
+          name: '(G101) Administración',
+          alias: 'Administración',
+          parentKey: 'GERENCIA',
+          departmentId: undefined,
+        },
+        {
+          key: 'Operaciones',
+          code: 'OPE-001',
+          name: '(G101) Operaciones',
+          alias: 'Operaciones',
+          parentKey: 'GERENCIA',
+          departmentId: undefined,
+        },
+        {
+          key: 'Marketing',
+          code: 'MAR-001',
+          name: '(G101) Marketing',
+          alias: 'Marketing',
+          parentKey: 'GERENCIA',
+          departmentId: undefined,
+        },
+        {
+          key: 'Recursos Humanos',
+          code: 'RRHH-001',
+          name: '(G101) Recursos Humanos',
+          alias: 'Recursos Humanos',
+          parentKey: 'Administración',
+          departmentId: undefined,
+        },
+        {
+          key: 'Contabilidad',
+          code: 'CON-001',
+          name: '(G101) Contabilidad',
+          alias: 'Contabilidad',
+          parentKey: 'Administración',
+          departmentId: undefined,
+        },
+        {
+          key: 'Proyectos',
+          code: 'PRO-001',
+          name: '(G101) Proyectos',
+          alias: 'Proyectos',
+          parentKey: 'Administración',
+          departmentId: undefined,
+        },
+        {
+          key: 'Diseño',
+          code: 'DIS-001',
+          name: '(G101) Diseño',
+          alias: 'Diseño',
+          parentKey: 'Proyectos',
+          departmentId: undefined,
+        },
+        {
+          key: 'Prototipos',
+          code: 'PROT-001',
+          name: '(G101) Prototipos',
+          alias: 'Prototipos',
+          parentKey: 'Proyectos',
+          departmentId: undefined,
+        },
+        {
+          key: 'Distribución',
+          code: 'DIS-002',
+          name: '(G101) Distribución',
+          alias: 'Distribución',
+          parentKey: 'Operaciones',
+          departmentId: undefined,
+        },
+        {
+          key: 'Producción',
+          code: 'PROD-001',
+          name: '(G101) Producción',
+          alias: 'Producción',
+          parentKey: 'Operaciones',
+          departmentId: undefined,
+        },
+        {
+          key: 'Investigación de Mercados',
+          code: 'INV-001',
+          name: '(G101) Investigación de Mercados',
+          alias: 'Investigación de Mercados',
+          parentKey: 'Marketing',
+          departmentId: undefined,
+        },
+        {
+          key: 'Sin Departamento',
+          code: 'SIN-001',
+          name: '(D101) Sin Departamento',
+          alias: 'Sin Departamento',
+          parentKey: null,
+          departmentId: 999,
+        },
+      ]
 
-      // 2. Administración
-      const administration = new Department()
-      administration.departmentCode = 'ADM-001'
-      administration.departmentName = '(G101) Administración'
-      administration.departmentAlias = 'Administración'
-      administration.departmentIsDefault = false
-      administration.departmentActive = 1
-      administration.parentDepartmentId = management.departmentId
-      administration.companyId = 0
-      administration.businessUnitId = businessUnitId
-      administration.departmentSyncId = 0
-      administration.parentDepartmentSyncId = 0
-      await administration.save()
-      createdDepartments['Administración'] = administration
+      // Crear todos los departamentos
+      for await(const deptData of departmentsData) {
+        const parentDepartmentId = deptData.parentKey
+          ? createdDepartments[deptData.parentKey]?.departmentId || null
+          : null
 
-      const operations = new Department()
-      operations.departmentCode = 'OPE-001'
-      operations.departmentName = '(G101) Operaciones'
-      operations.departmentAlias = 'Operaciones'
-      operations.departmentIsDefault = false
-      operations.departmentActive = 1
-      operations.parentDepartmentId = management.departmentId
-      operations.companyId = 0
-      operations.businessUnitId = businessUnitId
-      operations.departmentSyncId = 0
-      operations.parentDepartmentSyncId = 0
-      await operations.save()
-      createdDepartments['Operaciones'] = operations
+        const department = await this.createDepartment(
+          {
+            code: deptData.code,
+            name: deptData.name,
+            alias: deptData.alias,
+            departmentId: deptData.departmentId,
+          },
+          businessUnitId,
+          parentDepartmentId
+        )
 
-      const marketing = new Department()
-      marketing.departmentCode = 'MAR-001'
-      marketing.departmentName = '(G101) Marketing'
-      marketing.departmentAlias = 'Marketing'
-      marketing.departmentIsDefault = false
-      marketing.departmentActive = 1
-      marketing.parentDepartmentId = management.departmentId
-      marketing.companyId = 0
-      marketing.businessUnitId = businessUnitId
-      marketing.departmentSyncId = 0
-      marketing.parentDepartmentSyncId = 0
-      await marketing.save()
-      createdDepartments['Marketing'] = marketing
-
-      // 3. Recursos Humanos
-      const hr = new Department()
-      hr.departmentCode = 'RRHH-001'
-      hr.departmentName = '(G101) Recursos Humanos'
-      hr.departmentAlias = 'Recursos Humanos'
-      hr.departmentIsDefault = false
-      hr.departmentActive = 1
-      hr.parentDepartmentId = administration.departmentId
-      hr.companyId = 0
-      hr.businessUnitId = businessUnitId
-      hr.departmentSyncId = 0
-      hr.parentDepartmentSyncId = 0
-      await hr.save()
-      createdDepartments['Recursos Humanos'] = hr
-
-      const accounting = new Department()
-      accounting.departmentCode = 'CON-001'
-        accounting.departmentName = '(G101) Contabilidad'
-      accounting.departmentAlias = 'Contabilidad'
-      accounting.departmentIsDefault = false
-      accounting.departmentActive = 1
-      accounting.parentDepartmentId = administration.departmentId
-      accounting.companyId = 0
-      accounting.businessUnitId = businessUnitId
-      accounting.departmentSyncId = 0
-      accounting.parentDepartmentSyncId = 0
-      await accounting.save()
-      createdDepartments['Contabilidad'] = accounting
-
-      const projects = new Department()
-      projects.departmentCode = 'PRO-001'
-      projects.departmentName = '(G101) Proyectos'
-      projects.departmentAlias = 'Proyectos'
-      projects.departmentIsDefault = false
-      projects.departmentActive = 1
-      projects.parentDepartmentId = administration.departmentId
-      projects.companyId = 0
-      projects.businessUnitId = businessUnitId
-      projects.departmentSyncId = 0
-      projects.parentDepartmentSyncId = 0
-      await projects.save()
-      createdDepartments['Proyectos'] = projects
-
-      // 4. Diseño
-      const design = new Department()
-      design.departmentCode = 'DIS-001'
-      design.departmentName = '(G101) Diseño'
-      design.departmentAlias = 'Diseño'
-      design.departmentIsDefault = false
-      design.departmentActive = 1
-      design.parentDepartmentId = projects.departmentId
-      design.companyId = 0
-      design.businessUnitId = businessUnitId
-      design.departmentSyncId = 0
-      design.parentDepartmentSyncId = 0
-      await design.save()
-      createdDepartments['Diseño'] = design
-
-      const prototypes = new Department()
-      prototypes.departmentCode = 'PROT-001'
-      prototypes.departmentName = '(G101) Prototipos'
-      prototypes.departmentAlias = 'Prototipos'
-      prototypes.departmentIsDefault = false
-      prototypes.departmentActive = 1
-      prototypes.parentDepartmentId = projects.departmentId
-      prototypes.companyId = 0
-      prototypes.businessUnitId = businessUnitId
-      prototypes.departmentSyncId = 0
-      prototypes.parentDepartmentSyncId = 0
-      await prototypes.save()
-      createdDepartments['Prototipos'] = prototypes
-
-      // 5. Distribución
-      const distribution = new Department()
-      distribution.departmentCode = 'DIS-002'
-        distribution.departmentName = '(G101) Distribución'
-      distribution.departmentAlias = 'Distribución'
-      distribution.departmentIsDefault = false
-      distribution.departmentActive = 1
-      distribution.parentDepartmentId = operations.departmentId
-      distribution.companyId = 0
-      distribution.businessUnitId = businessUnitId
-      distribution.departmentSyncId = 0
-      distribution.parentDepartmentSyncId = 0
-      await distribution.save()
-      createdDepartments['Distribución'] = distribution
-
-      const production = new Department()
-      production.departmentCode = 'PROD-001'
-      production.departmentName = '(G101) Producción'
-      production.departmentAlias = 'Producción'
-      production.departmentIsDefault = false
-      production.departmentActive = 1
-      production.parentDepartmentId = operations.departmentId
-      production.companyId = 0
-      production.businessUnitId = businessUnitId
-      production.departmentSyncId = 0
-      production.parentDepartmentSyncId = 0
-      await production.save()
-      createdDepartments['Producción'] = production
-
-      // 6. Investigación de Mercados
-      const research = new Department()
-      research.departmentCode = 'INV-001'
-      research.departmentName = '(G101) Investigación de Mercados'
-      research.departmentAlias = 'Investigación de Mercados'
-      research.departmentIsDefault = false
-      research.departmentActive = 1
-      research.parentDepartmentId = marketing.departmentId
-      research.companyId = 0
-      research.businessUnitId = businessUnitId
-      research.departmentSyncId = 0
-      research.parentDepartmentSyncId = 0
-      await research.save()
-      createdDepartments['Investigación de Mercados'] = research
-
-      // 7. Sin Departamento
-      const withoutDepartment = new Department()
-      withoutDepartment.departmentId = 999
-      withoutDepartment.departmentCode = 'SIN-001'
-      withoutDepartment.departmentName = '(D101) Sin Departamento'
-      withoutDepartment.departmentAlias = 'Sin Departamento'
-      withoutDepartment.departmentIsDefault = false
-      withoutDepartment.departmentActive = 1
-      withoutDepartment.parentDepartmentId = null
-      withoutDepartment.companyId = 0
-      withoutDepartment.businessUnitId = businessUnitId
-      withoutDepartment.departmentSyncId = 0
-      withoutDepartment.parentDepartmentSyncId = 0
-      await withoutDepartment.save()
-      createdDepartments['Sin Departamento'] = withoutDepartment
+        createdDepartments[deptData.key] = department
+      }
 
       // Preparar resumen
       const summary = Object.keys(createdDepartments).map((key) => ({

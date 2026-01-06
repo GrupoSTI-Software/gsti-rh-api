@@ -426,6 +426,59 @@ export default class PositionService {
   }
 
   /**
+   * Crea una posición con los datos proporcionados
+   * @param positionData - Datos de la posición a crear
+   * @param businessUnitId - ID de la unidad de negocio
+   * @param parentPositionId - ID de la posición padre (opcional)
+   * @returns Posición creada
+   */
+  private async createPosition(
+    positionData: {
+      code: string
+      name: string
+      alias: string
+      positionId?: number
+    },
+    businessUnitId: number,
+    parentPositionId: number | null = null
+  ): Promise<Position> {
+    const position = new Position()
+    if (positionData.positionId) {
+      position.positionId = positionData.positionId
+    }
+    position.positionCode = positionData.code
+    position.positionName = positionData.name
+    position.positionAlias = positionData.alias
+    position.positionIsDefault = false
+    position.positionActive = 1
+    position.parentPositionId = parentPositionId
+    position.companyId = 0
+    position.businessUnitId = businessUnitId
+    position.positionSyncId = 0
+    position.parentPositionSyncId = 0
+    await position.save()
+    return position
+  }
+
+  /**
+   * Relaciona una posición con un departamento
+   * @param positionId - ID de la posición
+   * @param departmentId - ID del departamento
+   * @returns Relación creada
+   */
+  private async createDepartmentPositionRelation(
+    positionId: number,
+    departmentId: number
+  ): Promise<DepartmentPosition> {
+    const departmentPosition = new DepartmentPosition()
+    departmentPosition.departmentId = departmentId
+    departmentPosition.positionId = positionId
+    departmentPosition.departmentPositionLastSynchronizationAt = new Date()
+    await departmentPosition.save()
+    return departmentPosition
+  }
+
+  /**
    * Crea las posiciones demo relacionadas a los departamentos según el organigrama organizacional
    * 
    * Estructura de posiciones por departamento:
@@ -458,604 +511,292 @@ export default class PositionService {
       const createdRelations: Array<{ department: string; position: string }> = []
 
       // Find departments
-      const generalManagement = await this.findDepartmentByName('Dirección General')
-      const administration = await this.findDepartmentByName('Administración')
-      const humanResources = await this.findDepartmentByName('Recursos Humanos')
-      const accounting = await this.findDepartmentByName('Contabilidad')
-      const operations = await this.findDepartmentByName('Operaciones')
-      const projects = await this.findDepartmentByName('Proyectos')
-      const design = await this.findDepartmentByName('Diseño')
-      const prototypes = await this.findDepartmentByName('Prototipos')
-      const distribution = await this.findDepartmentByName('Distribución')
-      const production = await this.findDepartmentByName('Producción')
-      const marketing = await this.findDepartmentByName('Marketing')
-      const marketResearch = await this.findDepartmentByName('Investigación de Mercados')
+      const departmentsMap: { [key: string]: Department | null } = {}
+      const departmentNames = [
+        'Dirección General',
+        'Administración',
+        'Recursos Humanos',
+        'Contabilidad',
+        'Operaciones',
+        'Proyectos',
+        'Diseño',
+        'Prototipos',
+        'Distribución',
+        'Producción',
+        'Marketing',
+        'Investigación de Mercados',
+      ]
 
-      // 1. General Management
-      const generalDirector = new Position()
-      generalDirector.positionCode = 'POS-DIR-001'
-      generalDirector.positionName = 'Director general'
-      generalDirector.positionAlias = 'Director general'
-      generalDirector.positionIsDefault = false
-      generalDirector.positionActive = 1
-      generalDirector.parentPositionId = null
-      generalDirector.companyId = 0
-      generalDirector.businessUnitId = businessUnitId
-      generalDirector.positionSyncId = 0
-      generalDirector.parentPositionSyncId = 0
-      await generalDirector.save()
-      createdPositions['Director general'] = generalDirector
-
-      if (generalManagement) {
-        const dp1 = new DepartmentPosition()
-        dp1.departmentId = generalManagement.departmentId
-        dp1.positionId = generalDirector.positionId
-        dp1.departmentPositionLastSynchronizationAt = new Date()
-        await dp1.save()
-        createdRelations.push({ department: 'Dirección General', position: 'Director general' })
+      for await(const deptName of departmentNames) {
+        departmentsMap[deptName] = await this.findDepartmentByName(deptName)
       }
 
-      const managementAssistant = new Position()
-      managementAssistant.positionCode = 'POS-ASD-001'
-      managementAssistant.positionName = 'Asistente de dirección'
-      managementAssistant.positionAlias = 'Asistente de dirección'
-      managementAssistant.positionIsDefault = false
-      managementAssistant.positionActive = 1
-      managementAssistant.parentPositionId = generalDirector.positionId
-      managementAssistant.companyId = 0
-      managementAssistant.businessUnitId = businessUnitId
-      managementAssistant.positionSyncId = 0
-      managementAssistant.parentPositionSyncId = 0
-      await managementAssistant.save()
-      createdPositions['Asistente de dirección'] = managementAssistant
+      // Special case for "Sin Departamento" (ID 999)
+      const withoutDepartment = await Department.query()
+        .where('department_id', 999)
+        .whereNull('department_deleted_at')
+        .first()
+      departmentsMap['Sin Departamento'] = withoutDepartment || null
 
-      if (generalManagement) {
-        const dp2 = new DepartmentPosition()
-        dp2.departmentId = generalManagement.departmentId
-        dp2.positionId = managementAssistant.positionId
-        dp2.departmentPositionLastSynchronizationAt = new Date()
-        await dp2.save()
-        createdRelations.push({ department: 'Dirección General', position: 'Asistente de dirección' })
+      // Array de posiciones a crear (ordenadas para que los padres se creen antes que los hijos)
+      const positionsData = [
+        {
+          key: 'Director general',
+          code: 'POS-DIR-001',
+          name: '(P101) Director general',
+          alias: 'Director general',
+          parentKey: null,
+          departmentName: 'Dirección General',
+          positionId: undefined,
+        },
+        {
+          key: 'Asistente de dirección',
+          code: 'POS-ASD-001',
+          name: '(P101) Asistente de dirección',
+          alias: 'Asistente de dirección',
+          parentKey: 'Director general',
+          departmentName: 'Dirección General',
+          positionId: undefined,
+        },
+        {
+          key: 'Gerente administrativo',
+          code: 'POS-GAD-001',
+          name: '(P101) Gerente administrativo',
+          alias: 'Gerente administrativo',
+          parentKey: null,
+          departmentName: 'Administración',
+          positionId: undefined,
+        },
+        {   
+          key: 'Gerente de recursos humanos',
+          code: 'POS-GRH-001',
+          name: '(P101) Gerente de recursos humanos',
+          alias: 'Gerente de recursos humanos',
+          parentKey: null,
+          departmentName: 'Recursos Humanos',
+          positionId: undefined,
+        },
+        {
+          key: 'Reclutador',
+          code: 'POS-REC-001',
+          name: '(P101) Reclutador',
+          alias: 'Reclutador',
+          parentKey: null,
+          departmentName: 'Recursos Humanos',
+          positionId: undefined,
+        },
+        {
+          key: 'Desarrollador de talento',
+          code: 'POS-DTA-001',
+          name: '(P101) Desarrollador de talento',
+          alias: 'Desarrollador de talento',
+          parentKey: null,
+          departmentName: 'Recursos Humanos',
+          positionId: undefined,
+        },
+        {
+          key: 'Gerente de contabilidad',
+          code: 'POS-GCO-001',
+          name: '(P101) Gerente de contabilidad',
+          alias: 'Gerente de contabilidad',
+          parentKey: null,
+          departmentName: 'Contabilidad',
+          positionId: undefined,
+        },
+        {
+          key: 'Encargado de nóminas',
+          code: 'POS-ENO-001',
+          name: '(P101) Encargado de nóminas',
+          alias: 'Encargado de nóminas',
+          parentKey: null,
+          departmentName: 'Contabilidad',
+          positionId: undefined,
+        },
+        {
+          key: 'Tesorería',
+          code: 'POS-TES-001',
+          name: '(P101) Tesorería',
+          alias: 'Tesorería',
+          parentKey: null,
+          departmentName: 'Contabilidad',
+          positionId: undefined,
+        },
+        {
+          key: 'Director de operaciones',
+          code: 'POS-DOP-001',
+          name: '(P101) Director de operaciones',
+          alias: 'Director de operaciones',
+          parentKey: null,
+          departmentName: 'Operaciones',
+          positionId: undefined,
+        },
+        {
+          key: 'Auxiliar operativo',
+          code: 'POS-AOP-001',
+          name: '(P101) Auxiliar operativo',
+          alias: 'Auxiliar operativo',
+          parentKey: null,
+          departmentName: 'Operaciones',
+          positionId: undefined,
+        },
+        {
+          key: 'Gerente de proyectos',
+          code: 'POS-GPR-001',
+          name: '(P101) Gerente de proyectos',
+          alias: 'Gerente de proyectos',
+          parentKey: null,
+          departmentName: 'Proyectos',
+          positionId: undefined,
+        },
+        {
+          key: 'Project Manager',
+          code: 'POS-PMA-001',
+          name: '(P101) Project Manager',
+          alias: 'Project Manager',
+          parentKey: null,
+          departmentName: 'Proyectos',
+          positionId: undefined,
+        },
+        {
+          key: 'Diseñador gráfico',
+          code: 'POS-DIG-001',
+          name: '(P101) Diseñador gráfico',
+          alias: 'Diseñador gráfico',
+          parentKey: null,
+          departmentName: 'Diseño',
+          positionId: undefined,
+        },
+        {
+          key: 'Diseñador UX',
+          code: 'POS-DUX-001',
+          name: '(P101) Diseñador UX',
+          alias: 'Diseñador UX',
+          parentKey: null,
+          departmentName: 'Diseño',
+          positionId: undefined,
+        },
+        {
+          key: 'Líder de proyecto',
+          code: 'POS-LPR-001',
+          name: '(P101) Líder de proyecto',
+          alias: 'Líder de proyecto',
+          parentKey: null,
+          departmentName: 'Prototipos',
+          positionId: undefined,
+        },
+        {
+          key: 'Supervisor de distribución',
+          code: 'POS-SDI-001',
+          name: '(P101) Supervisor de distribución',
+          alias: 'Supervisor de distribución',
+          parentKey: null,
+          departmentName: 'Distribución',
+          positionId: undefined,
+        },
+        {
+          key: 'Especialista de logística',
+          code: 'POS-ELO-001',
+          name: '(P101) Especialista de logística',
+          alias: 'Especialista de logística',
+          parentKey: null,
+          departmentName: 'Distribución',
+          positionId: undefined,
+        },
+        {
+          key: 'Supervisor de producción',
+          code: 'POS-SPR-001',
+          name: '(P101) Supervisor de producción',
+          alias: 'Supervisor de producción',
+          parentKey: null,
+          departmentName: 'Producción',
+          positionId: undefined,
+        },
+        {
+          key: 'Operador de producción',
+          code: 'POS-OPR-001',
+          name: '(P101) Operador de producción',
+          alias: 'Operador de producción',
+          parentKey: null,
+          departmentName: 'Producción',
+          positionId: undefined,
+        },
+        {
+          key: 'Supervisor de marketing',
+          code: 'POS-SMA-001',
+          name: '(P101) Supervisor de marketing',
+          alias: 'Supervisor de marketing',
+          parentKey: null,
+          departmentName: 'Marketing',
+          positionId: undefined,
+        },
+        {
+          key: 'Content Manager',
+          code: 'POS-CMA-001',
+          name: '(P101) Content Manager',
+          alias: 'Content Manager',
+          parentKey: null,
+          departmentName: 'Marketing',
+          positionId: undefined,
+        },
+        {
+          key: 'Especialista en Relaciones Públicas',
+          code: 'POS-ERP-001',
+          name: '(P101) Especialista en Relaciones Públicas',
+          alias: 'Especialista en Relaciones Públicas',
+          parentKey: null,
+          departmentName: 'Marketing',
+          positionId: undefined,
+        },
+        {
+          key: 'Analista de mercado',
+          code: 'POS-AME-001',
+          name: '(P101) Analista de mercado',
+          alias: 'Analista de mercado',
+          parentKey: null,
+          departmentName: 'Investigación de Mercados',
+          positionId: undefined,
+        },
+        {
+          key: 'Sin posición',
+          code: 'POS-WOP-001',
+          name: '(P101) Sin posición',
+          alias: 'Sin posición',
+          parentKey: null,
+          departmentName: 'Sin Departamento',
+          positionId: 999,
+        },
+      ]
+
+      // Crear todas las posiciones
+      for await (const posData of positionsData) {
+        const parentPositionId = posData.parentKey
+          ? createdPositions[posData.parentKey]?.positionId || null
+          : null
+
+        const position = await this.createPosition(
+          {
+            code: posData.code,
+            name: posData.name,
+            alias: posData.alias,
+            positionId: posData.positionId,
+          },
+          businessUnitId,
+          parentPositionId
+        )
+
+        createdPositions[posData.key] = position
+
+        // Relacionar posición con departamento
+        const department = departmentsMap[posData.departmentName]
+        if (department) {
+          await this.createDepartmentPositionRelation(position.positionId, department.departmentId)
+          createdRelations.push({ department: posData.departmentName, position: posData.name })
+        } else if (posData.departmentName === 'Sin Departamento' && posData.positionId === 999) {
+          // Caso especial para "Sin posición" con departamento ID 999
+          await this.createDepartmentPositionRelation(position.positionId, 999)
+          createdRelations.push({ department: 'Sin departamento', position: posData.name })
+        }
       }
-
-      // 2. Administration
-      const administrativeManager = new Position()
-      administrativeManager.positionCode = 'POS-GAD-001'
-      administrativeManager.positionName = 'Gerente administrativo'
-      administrativeManager.positionAlias = 'Gerente administrativo'
-      administrativeManager.positionIsDefault = false
-      administrativeManager.positionActive = 1
-      administrativeManager.parentPositionId = null
-      administrativeManager.companyId = 0
-      administrativeManager.businessUnitId = businessUnitId
-      administrativeManager.positionSyncId = 0
-      administrativeManager.parentPositionSyncId = 0
-      await administrativeManager.save()
-      createdPositions['Gerente administrativo'] = administrativeManager
-
-      if (administration) {
-        const dp3 = new DepartmentPosition()
-        dp3.departmentId = administration.departmentId
-        dp3.positionId = administrativeManager.positionId
-        dp3.departmentPositionLastSynchronizationAt = new Date()
-        await dp3.save()
-        createdRelations.push({ department: 'Administración', position: 'Gerente administrativo' })
-      }
-
-      // 3. Human Resources
-      const hrManager = new Position()
-      hrManager.positionCode = 'POS-GRH-001'
-      hrManager.positionName = 'Gerente de recursos humanos'
-      hrManager.positionAlias = 'Gerente de recursos humanos'
-      hrManager.positionIsDefault = false
-      hrManager.positionActive = 1
-      hrManager.parentPositionId = null
-      hrManager.companyId = 0
-      hrManager.businessUnitId = businessUnitId
-      hrManager.positionSyncId = 0
-      hrManager.parentPositionSyncId = 0
-      await hrManager.save()
-      createdPositions['Gerente de recursos humanos'] = hrManager
-
-      if (humanResources) {
-        const dp4 = new DepartmentPosition()
-        dp4.departmentId = humanResources.departmentId
-        dp4.positionId = hrManager.positionId
-        dp4.departmentPositionLastSynchronizationAt = new Date()
-        await dp4.save()
-        createdRelations.push({ department: 'Recursos Humanos', position: 'Gerente de recursos humanos' })
-      }
-
-      const recruiter = new Position()
-      recruiter.positionCode = 'POS-REC-001'
-      recruiter.positionName = 'Reclutador'
-      recruiter.positionAlias = 'Reclutador'
-      recruiter.positionIsDefault = false
-      recruiter.positionActive = 1
-      recruiter.parentPositionId = null
-      recruiter.companyId = 0
-      recruiter.businessUnitId = businessUnitId
-      recruiter.positionSyncId = 0
-      recruiter.parentPositionSyncId = 0
-      await recruiter.save()
-      createdPositions['Reclutador'] = recruiter
-
-      if (humanResources) {
-        const dp5 = new DepartmentPosition()
-        dp5.departmentId = humanResources.departmentId
-        dp5.positionId = recruiter.positionId
-        dp5.departmentPositionLastSynchronizationAt = new Date()
-        await dp5.save()
-        createdRelations.push({ department: 'Recursos Humanos', position: 'Reclutador' })
-      }
-
-      const talentDeveloper = new Position()
-      talentDeveloper.positionCode = 'POS-DTA-001'
-      talentDeveloper.positionName = 'Desarrollador de talento'
-      talentDeveloper.positionAlias = 'Desarrollador de talento'
-      talentDeveloper.positionIsDefault = false
-      talentDeveloper.positionActive = 1
-      talentDeveloper.parentPositionId = null
-      talentDeveloper.companyId = 0
-      talentDeveloper.businessUnitId = businessUnitId
-      talentDeveloper.positionSyncId = 0
-      talentDeveloper.parentPositionSyncId = 0
-      await talentDeveloper.save()
-      createdPositions['Desarrollador de talento'] = talentDeveloper
-
-      if (humanResources) {
-        const dp6 = new DepartmentPosition()
-        dp6.departmentId = humanResources.departmentId
-        dp6.positionId = talentDeveloper.positionId
-        dp6.departmentPositionLastSynchronizationAt = new Date()
-        await dp6.save()
-        createdRelations.push({ department: 'Recursos Humanos', position: 'Desarrollador de talento' })
-      }
-
-      // 4. Accounting
-      const accountingManager = new Position()
-      accountingManager.positionCode = 'POS-GCO-001'
-      accountingManager.positionName = 'Gerente de contabilidad'
-      accountingManager.positionAlias = 'Gerente de contabilidad'
-      accountingManager.positionIsDefault = false
-      accountingManager.positionActive = 1
-      accountingManager.parentPositionId = null
-      accountingManager.companyId = 0
-      accountingManager.businessUnitId = businessUnitId
-      accountingManager.positionSyncId = 0
-      accountingManager.parentPositionSyncId = 0
-      await accountingManager.save()
-      createdPositions['Gerente de contabilidad'] = accountingManager
-
-      if (accounting) {
-        const dp7 = new DepartmentPosition()
-        dp7.departmentId = accounting.departmentId
-        dp7.positionId = accountingManager.positionId
-        dp7.departmentPositionLastSynchronizationAt = new Date()
-        await dp7.save()
-        createdRelations.push({ department: 'Contabilidad', position: 'Gerente de contabilidad' })
-      }
-
-      const payrollManager = new Position()
-      payrollManager.positionCode = 'POS-ENO-001'
-      payrollManager.positionName = 'Encargado de nóminas'
-      payrollManager.positionAlias = 'Encargado de nóminas'
-      payrollManager.positionIsDefault = false
-      payrollManager.positionActive = 1
-      payrollManager.parentPositionId = null
-      payrollManager.companyId = 0
-      payrollManager.businessUnitId = businessUnitId
-      payrollManager.positionSyncId = 0
-      payrollManager.parentPositionSyncId = 0
-      await payrollManager.save()
-      createdPositions['Encargado de nóminas'] = payrollManager
-
-      if (accounting) {
-        const dp8 = new DepartmentPosition()
-        dp8.departmentId = accounting.departmentId
-        dp8.positionId = payrollManager.positionId
-        dp8.departmentPositionLastSynchronizationAt = new Date()
-        await dp8.save()
-        createdRelations.push({ department: 'Contabilidad', position: 'Encargado de nóminas' })
-      }
-
-      const treasury = new Position()
-      treasury.positionCode = 'POS-TES-001'
-      treasury.positionName = 'Tesorería'
-      treasury.positionAlias = 'Tesorería'
-      treasury.positionIsDefault = false
-      treasury.positionActive = 1
-      treasury.parentPositionId = null
-      treasury.companyId = 0
-      treasury.businessUnitId = businessUnitId
-      treasury.positionSyncId = 0
-      treasury.parentPositionSyncId = 0
-      await treasury.save()
-      createdPositions['Tesorería'] = treasury
-
-      if (accounting) {
-        const dp9 = new DepartmentPosition()
-        dp9.departmentId = accounting.departmentId
-        dp9.positionId = treasury.positionId
-        dp9.departmentPositionLastSynchronizationAt = new Date()
-        await dp9.save()
-        createdRelations.push({ department: 'Contabilidad', position: 'Tesorería' })
-      }
-
-      // 5. Operations
-      const operationsDirector = new Position()
-      operationsDirector.positionCode = 'POS-DOP-001'
-      operationsDirector.positionName = 'Director de operaciones'
-      operationsDirector.positionAlias = 'Director de operaciones'
-      operationsDirector.positionIsDefault = false
-      operationsDirector.positionActive = 1
-      operationsDirector.parentPositionId = null
-      operationsDirector.companyId = 0
-      operationsDirector.businessUnitId = businessUnitId
-      operationsDirector.positionSyncId = 0
-      operationsDirector.parentPositionSyncId = 0
-      await operationsDirector.save()
-      createdPositions['Director de operaciones'] = operationsDirector
-
-      if (operations) {
-        const dp10 = new DepartmentPosition()
-        dp10.departmentId = operations.departmentId
-        dp10.positionId = operationsDirector.positionId
-        dp10.departmentPositionLastSynchronizationAt = new Date()
-        await dp10.save()
-        createdRelations.push({ department: 'Operaciones', position: 'Director de operaciones' })
-      }
-
-      const operationsAssistant = new Position()
-      operationsAssistant.positionCode = 'POS-AOP-001'
-      operationsAssistant.positionName = 'Auxiliar operativo'
-      operationsAssistant.positionAlias = 'Auxiliar operativo'
-      operationsAssistant.positionIsDefault = false
-      operationsAssistant.positionActive = 1
-      operationsAssistant.parentPositionId = null
-      operationsAssistant.companyId = 0
-      operationsAssistant.businessUnitId = businessUnitId
-      operationsAssistant.positionSyncId = 0
-      operationsAssistant.parentPositionSyncId = 0
-      await operationsAssistant.save()
-      createdPositions['Auxiliar operativo'] = operationsAssistant
-
-      if (operations) {
-        const dp11 = new DepartmentPosition()
-        dp11.departmentId = operations.departmentId
-        dp11.positionId = operationsAssistant.positionId
-        dp11.departmentPositionLastSynchronizationAt = new Date()
-        await dp11.save()
-        createdRelations.push({ department: 'Operaciones', position: 'Auxiliar operativo' })
-      }
-
-      // 6. Projects
-      const projectsManager = new Position()
-      projectsManager.positionCode = 'POS-GPR-001'
-      projectsManager.positionName = 'Gerente de proyectos'
-      projectsManager.positionAlias = 'Gerente de proyectos'
-      projectsManager.positionIsDefault = false
-      projectsManager.positionActive = 1
-      projectsManager.parentPositionId = null
-      projectsManager.companyId = 0
-      projectsManager.businessUnitId = businessUnitId
-      projectsManager.positionSyncId = 0
-      projectsManager.parentPositionSyncId = 0
-      await projectsManager.save()
-      createdPositions['Gerente de proyectos'] = projectsManager
-
-      if (projects) {
-        const dp12 = new DepartmentPosition()
-        dp12.departmentId = projects.departmentId
-        dp12.positionId = projectsManager.positionId
-        dp12.departmentPositionLastSynchronizationAt = new Date()
-        await dp12.save()
-        createdRelations.push({ department: 'Proyectos', position: 'Gerente de proyectos' })
-      }
-
-      const projectManager = new Position()
-      projectManager.positionCode = 'POS-PMA-001'
-      projectManager.positionName = 'Project Manager'
-      projectManager.positionAlias = 'Project Manager'
-      projectManager.positionIsDefault = false
-      projectManager.positionActive = 1
-      projectManager.parentPositionId = null
-      projectManager.companyId = 0
-      projectManager.businessUnitId = businessUnitId
-      projectManager.positionSyncId = 0
-      projectManager.parentPositionSyncId = 0
-      await projectManager.save()
-      createdPositions['Project Manager'] = projectManager
-
-      if (projects) {
-        const dp13 = new DepartmentPosition()
-        dp13.departmentId = projects.departmentId
-        dp13.positionId = projectManager.positionId
-        dp13.departmentPositionLastSynchronizationAt = new Date()
-        await dp13.save()
-        createdRelations.push({ department: 'Proyectos', position: 'Project Manager' })
-      }
-
-      // 7. Design
-      const graphicDesigner = new Position()
-      graphicDesigner.positionCode = 'POS-DIG-001'
-      graphicDesigner.positionName = 'Diseñador gráfico'
-      graphicDesigner.positionAlias = 'Diseñador gráfico'
-      graphicDesigner.positionIsDefault = false
-      graphicDesigner.positionActive = 1
-      graphicDesigner.parentPositionId = null
-      graphicDesigner.companyId = 0
-      graphicDesigner.businessUnitId = businessUnitId
-      graphicDesigner.positionSyncId = 0
-      graphicDesigner.parentPositionSyncId = 0
-      await graphicDesigner.save()
-      createdPositions['Diseñador gráfico'] = graphicDesigner
-
-      if (design) {
-        const dp14 = new DepartmentPosition()
-        dp14.departmentId = design.departmentId
-        dp14.positionId = graphicDesigner.positionId
-        dp14.departmentPositionLastSynchronizationAt = new Date()
-        await dp14.save()
-        createdRelations.push({ department: 'Diseño', position: 'Diseñador gráfico' })
-      }
-
-      const uxDesigner = new Position()
-      uxDesigner.positionCode = 'POS-DUX-001'
-      uxDesigner.positionName = 'Diseñador UX'
-      uxDesigner.positionAlias = 'Diseñador UX'
-      uxDesigner.positionIsDefault = false
-      uxDesigner.positionActive = 1
-      uxDesigner.parentPositionId = null
-      uxDesigner.companyId = 0
-      uxDesigner.businessUnitId = businessUnitId
-      uxDesigner.positionSyncId = 0
-      uxDesigner.parentPositionSyncId = 0
-      await uxDesigner.save()
-      createdPositions['Diseñador UX'] = uxDesigner
-
-      if (design) {
-        const dp15 = new DepartmentPosition()
-        dp15.departmentId = design.departmentId
-        dp15.positionId = uxDesigner.positionId
-        dp15.departmentPositionLastSynchronizationAt = new Date()
-        await dp15.save()
-        createdRelations.push({ department: 'Diseño', position: 'Diseñador UX' })
-      }
-
-      // 8. Prototypes
-      const projectLeader = new Position()
-      projectLeader.positionCode = 'POS-LPR-001'
-      projectLeader.positionName = 'Líder de proyecto'
-      projectLeader.positionAlias = 'Líder de proyecto'
-      projectLeader.positionIsDefault = false
-      projectLeader.positionActive = 1
-      projectLeader.parentPositionId = null
-      projectLeader.companyId = 0
-      projectLeader.businessUnitId = businessUnitId
-      projectLeader.positionSyncId = 0
-      projectLeader.parentPositionSyncId = 0
-      await projectLeader.save()
-      createdPositions['Líder de proyecto'] = projectLeader
-
-      if (prototypes) {
-        const dp16 = new DepartmentPosition()
-        dp16.departmentId = prototypes.departmentId
-        dp16.positionId = projectLeader.positionId
-        dp16.departmentPositionLastSynchronizationAt = new Date()
-        await dp16.save()
-        createdRelations.push({ department: 'Prototipos', position: 'Líder de proyecto' })
-      }
-
-      // 9. Distribution
-      const distributionSupervisor = new Position()
-      distributionSupervisor.positionCode = 'POS-SDI-001'
-      distributionSupervisor.positionName = 'Supervisor de distribución'
-      distributionSupervisor.positionAlias = 'Supervisor de distribución'
-      distributionSupervisor.positionIsDefault = false
-      distributionSupervisor.positionActive = 1
-      distributionSupervisor.parentPositionId = null
-      distributionSupervisor.companyId = 0
-      distributionSupervisor.businessUnitId = businessUnitId
-      distributionSupervisor.positionSyncId = 0
-      distributionSupervisor.parentPositionSyncId = 0
-      await distributionSupervisor.save()
-      createdPositions['Supervisor de distribución'] = distributionSupervisor
-
-      if (distribution) {
-        const dp17 = new DepartmentPosition()
-        dp17.departmentId = distribution.departmentId
-        dp17.positionId = distributionSupervisor.positionId
-        dp17.departmentPositionLastSynchronizationAt = new Date()
-        await dp17.save()
-        createdRelations.push({ department: 'Distribución', position: 'Supervisor de distribución' })
-      }
-
-      const logisticsSpecialist = new Position()
-      logisticsSpecialist.positionCode = 'POS-ELO-001'
-      logisticsSpecialist.positionName = 'Especialista de logística'
-      logisticsSpecialist.positionAlias = 'Especialista de logística'
-      logisticsSpecialist.positionIsDefault = false
-      logisticsSpecialist.positionActive = 1
-      logisticsSpecialist.parentPositionId = null
-      logisticsSpecialist.companyId = 0
-      logisticsSpecialist.businessUnitId = businessUnitId
-      logisticsSpecialist.positionSyncId = 0
-      logisticsSpecialist.parentPositionSyncId = 0
-      await logisticsSpecialist.save()
-      createdPositions['Especialista de logística'] = logisticsSpecialist
-
-      if (distribution) {
-        const dp18 = new DepartmentPosition()
-        dp18.departmentId = distribution.departmentId
-        dp18.positionId = logisticsSpecialist.positionId
-        dp18.departmentPositionLastSynchronizationAt = new Date()
-        await dp18.save()
-        createdRelations.push({ department: 'Distribución', position: 'Especialista de logística' })
-      }
-
-      // 10. Production
-      const productionSupervisor = new Position()
-      productionSupervisor.positionCode = 'POS-SPR-001'
-      productionSupervisor.positionName = 'Supervisor de producción'
-      productionSupervisor.positionAlias = 'Supervisor de producción'
-      productionSupervisor.positionIsDefault = false
-      productionSupervisor.positionActive = 1
-      productionSupervisor.parentPositionId = null
-      productionSupervisor.companyId = 0
-      productionSupervisor.businessUnitId = businessUnitId
-      productionSupervisor.positionSyncId = 0
-      productionSupervisor.parentPositionSyncId = 0
-      await productionSupervisor.save()
-      createdPositions['Supervisor de producción'] = productionSupervisor
-
-      if (production) {
-        const dp19 = new DepartmentPosition()
-        dp19.departmentId = production.departmentId
-        dp19.positionId = productionSupervisor.positionId
-        dp19.departmentPositionLastSynchronizationAt = new Date()
-        await dp19.save()
-        createdRelations.push({ department: 'Producción', position: 'Supervisor de producción' })
-      }
-
-      const productionOperator = new Position()
-      productionOperator.positionCode = 'POS-OPR-001'
-      productionOperator.positionName = 'Operador de producción'
-      productionOperator.positionAlias = 'Operador de producción'
-      productionOperator.positionIsDefault = false
-      productionOperator.positionActive = 1
-      productionOperator.parentPositionId = null
-      productionOperator.companyId = 0
-      productionOperator.businessUnitId = businessUnitId
-      productionOperator.positionSyncId = 0
-      productionOperator.parentPositionSyncId = 0
-      await productionOperator.save()
-      createdPositions['Operador de producción'] = productionOperator
-
-      if (production) {
-        const dp20 = new DepartmentPosition()
-        dp20.departmentId = production.departmentId
-        dp20.positionId = productionOperator.positionId
-        dp20.departmentPositionLastSynchronizationAt = new Date()
-        await dp20.save()
-        createdRelations.push({ department: 'Producción', position: 'Operador de producción' })
-      }
-
-      // 11. Marketing
-      const marketingSupervisor = new Position()
-      marketingSupervisor.positionCode = 'POS-SMA-001'
-      marketingSupervisor.positionName = 'Supervisor de marketing'
-      marketingSupervisor.positionAlias = 'Supervisor de marketing'
-      marketingSupervisor.positionIsDefault = false
-      marketingSupervisor.positionActive = 1
-      marketingSupervisor.parentPositionId = null
-      marketingSupervisor.companyId = 0
-      marketingSupervisor.businessUnitId = businessUnitId
-      marketingSupervisor.positionSyncId = 0
-      marketingSupervisor.parentPositionSyncId = 0
-      await marketingSupervisor.save()
-      createdPositions['Supervisor de marketing'] = marketingSupervisor
-
-      if (marketing) {
-        const dp21 = new DepartmentPosition()
-        dp21.departmentId = marketing.departmentId
-        dp21.positionId = marketingSupervisor.positionId
-        dp21.departmentPositionLastSynchronizationAt = new Date()
-        await dp21.save()
-        createdRelations.push({ department: 'Marketing', position: 'Supervisor de marketing' })
-      }
-
-      const contentManager = new Position()
-      contentManager.positionCode = 'POS-CMA-001'
-      contentManager.positionName = 'Content Manager'
-      contentManager.positionAlias = 'Content Manager'
-      contentManager.positionIsDefault = false
-      contentManager.positionActive = 1
-      contentManager.parentPositionId = null
-      contentManager.companyId = 0
-      contentManager.businessUnitId = businessUnitId
-      contentManager.positionSyncId = 0
-      contentManager.parentPositionSyncId = 0
-      await contentManager.save()
-      createdPositions['Content Manager'] = contentManager
-
-      if (marketing) {
-        const dp22 = new DepartmentPosition()
-        dp22.departmentId = marketing.departmentId
-        dp22.positionId = contentManager.positionId
-        dp22.departmentPositionLastSynchronizationAt = new Date()
-        await dp22.save()
-        createdRelations.push({ department: 'Marketing', position: 'Content Manager' })
-      }
-
-      const prSpecialist = new Position()
-      prSpecialist.positionCode = 'POS-ERP-001'
-      prSpecialist.positionName = 'Especialista en Relaciones Públicas'
-      prSpecialist.positionAlias = 'Especialista en Relaciones Públicas'
-      prSpecialist.positionIsDefault = false
-      prSpecialist.positionActive = 1
-      prSpecialist.parentPositionId = null
-      prSpecialist.companyId = 0
-      prSpecialist.businessUnitId = businessUnitId
-      prSpecialist.positionSyncId = 0
-      prSpecialist.parentPositionSyncId = 0
-      await prSpecialist.save()
-      createdPositions['Especialista en Relaciones Públicas'] = prSpecialist
-
-      if (marketing) {
-        const dp23 = new DepartmentPosition()
-        dp23.departmentId = marketing.departmentId
-        dp23.positionId = prSpecialist.positionId
-        dp23.departmentPositionLastSynchronizationAt = new Date()
-        await dp23.save()
-        createdRelations.push({ department: 'Marketing', position: 'Especialista en Relaciones Públicas' })
-      }
-
-      // 12. Market Research
-      const marketAnalyst = new Position()
-      marketAnalyst.positionCode = 'POS-AME-001'
-      marketAnalyst.positionName = 'Analista de mercado'
-      marketAnalyst.positionAlias = 'Analista de mercado'
-      marketAnalyst.positionIsDefault = false
-      marketAnalyst.positionActive = 1
-      marketAnalyst.parentPositionId = null
-      marketAnalyst.companyId = 0
-      marketAnalyst.businessUnitId = businessUnitId
-      marketAnalyst.positionSyncId = 0
-      marketAnalyst.parentPositionSyncId = 0
-      await marketAnalyst.save()
-      createdPositions['Analista de mercado'] = marketAnalyst
-
-      if (marketResearch) {
-        const dp24 = new DepartmentPosition()
-        dp24.departmentId = marketResearch.departmentId
-        dp24.positionId = marketAnalyst.positionId
-        dp24.departmentPositionLastSynchronizationAt = new Date()
-        await dp24.save()
-        createdRelations.push({ department: 'Investigación de Mercados', position: 'Analista de mercado' })
-      }
-
-      const withOutPosition = new Position()
-      withOutPosition.positionId = 999
-      withOutPosition.positionCode = 'POS-WOP-001'
-      withOutPosition.positionName = 'Sin posición'
-      withOutPosition.positionAlias = 'Sin posición'
-      withOutPosition.positionIsDefault = false
-      withOutPosition.positionActive = 1
-      withOutPosition.parentPositionId = null
-      withOutPosition.companyId = 0
-      withOutPosition.businessUnitId = businessUnitId
-      withOutPosition.positionSyncId = 0
-      withOutPosition.parentPositionSyncId = 0
-      await withOutPosition.save()
-      createdPositions['Sin posición'] = withOutPosition
-      
-      const dp25 = new DepartmentPosition()
-      dp25.departmentId = 999
-      dp25.positionId = withOutPosition.positionId
-      dp25.departmentPositionLastSynchronizationAt = new Date()
-      await dp25.save()
-      createdRelations.push({ department: 'Sin departamento', position: 'Sin posición' })
       
 
       // Preparar resumen

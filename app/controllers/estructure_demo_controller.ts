@@ -5,12 +5,12 @@ import PositionService from '#services/position_service'
 export default class EstructureDemoController {
    /**
    * @swagger
-   * /api/generate-info-demo/departments:
+   * /api/generate-info-demo:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Departments
+   *       - Demo Information
    *     summary: generate info demo
    *     produces:
    *       - application/json
@@ -95,7 +95,7 @@ export default class EstructureDemoController {
    *                     error:
    *                       type: string
    */
-   async generateDepartmentDemo({ response, i18n }: HttpContext) {
+   async generateInformationDemo({ response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
         const positionsService = new PositionService(i18n)
@@ -109,6 +109,7 @@ export default class EstructureDemoController {
             data: { ...deletePositions },
           }
         }
+        
         const departmentService = new DepartmentService(i18n)
         const deleteDepartments = await departmentService.deleteAllDepartments()
         if (deleteDepartments.status !== 200) {
@@ -120,6 +121,7 @@ export default class EstructureDemoController {
             data: { ...deleteDepartments },
           }
         }
+
         const data = await departmentService.createDepartmentDemo()
         if (data.status !== 201) {
           response.status(data.status)

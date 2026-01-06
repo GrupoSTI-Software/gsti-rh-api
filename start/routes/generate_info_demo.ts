@@ -3,7 +3,7 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
-    router.post('/departments', '#controllers/estructure_demo_controller.generateDepartmentDemo')
+    router.post('/', '#controllers/estructure_demo_controller.generateInformationDemo')
   })
   .prefix('/api/generate-info-demo')
   .use(middleware.auth())
