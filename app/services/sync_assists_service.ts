@@ -145,6 +145,187 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
+  /**
+   * Maneja la excepción "skip-checkin" que permite "subir" los registros
+   * cuando no hay registro de entrada real.
+   *
+   * Lógica:
+   * - Si hay 4 registros (checkIn, eatCheckIn, eatCheckOut, checkOut),
+   *   significa que SÍ hubo checkIn real, ignorar excepción
+   * - Si hay 3 registros (checkIn, eatCheckIn, checkOut):
+   *   - checkIn → null
+   *   - checkIn actual → eatCheckIn
+   *   - eatCheckIn actual → eatCheckOut
+   *   - checkOut se mantiene
+   * - Si hay 2 registros, reorganizar según corresponda
+   * - Si hay 1 registro, reorganizar según corresponda
+   *
+   * El checkInStatus se marca como 'ontime' pero checkIn queda null
+   * para "cuadrar mínimo hasta el checkout"
+   *
+   * @private
+   * @param {AssistDayInterface} checkAssist - Objeto del día a procesar
+   * @returns {AssistDayInterface} El mismo objeto modificado con registros desplazados
+   */
+  private handleSkipCheckinException(checkAssist: AssistDayInterface) {
+    if (!checkAssist?.assist?.dateShift) {
+      return checkAssist
+    }
+
+    // Verificar si existe excepción con slug "skip-checkin"
+    const hasSkipCheckinException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
+    )
+
+    if (!hasSkipCheckinException) {
+      return checkAssist
+    }
+
+    // Contar registros disponibles
+    const hasCheckIn = !!checkAssist.assist.checkIn
+    const hasEatCheckIn = !!checkAssist.assist.checkEatIn
+    const hasEatCheckOut = !!checkAssist.assist.checkEatOut
+    const hasCheckOut = !!checkAssist.assist.checkOut
+
+    // Contar total de registros
+    const totalRecords = (hasCheckIn ? 1 : 0) + (hasEatCheckIn ? 1 : 0) +
+                        (hasEatCheckOut ? 1 : 0) + (hasCheckOut ? 1 : 0)
+
+    // Si hay 4 registros, significa que SÍ hubo checkIn real, ignorar excepción
+    if (totalRecords === 4) {
+
+    }
+
+      // Si solo hay 1 registro, NO aplicar excepción (se marcará como falta)
+    if (totalRecords === 1) {
+      // Guardar valores actuales
+      const currentCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
+
+      // Reorganizar: subir registros
+      checkAssist.assist.checkIn = null
+      checkAssist.assist.checkEatIn = null
+      checkAssist.assist.checkEatOut = null
+      checkAssist.assist.checkOut = currentCheckIn
+      return checkAssist
+    }
+
+    // Si no hay ningún registro, no hacer nada
+    if (totalRecords === 0) {
+      return checkAssist
+    }
+
+    // Caso 1: 3 registros (checkIn, eatCheckIn, checkOut)
+    // Reorganizar: checkIn → null, checkIn actual → eatCheckIn, eatCheckIn actual → eatCheckOut, checkOut se mantiene
+    if (totalRecords === 3 && hasCheckIn && hasEatCheckIn && hasCheckOut && !hasEatCheckOut) {
+      // Guardar valores actuales
+      const currentCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
+      const currentEatCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkEatIn))
+
+      // Reorganizar: subir registros
+      checkAssist.assist.checkIn = null
+      checkAssist.assist.checkEatIn = currentCheckIn
+      checkAssist.assist.checkEatOut = currentEatCheckIn
+      // checkOut se mantiene
+      return checkAssist
+    }
+
+    // Caso 2: 3 registros (checkIn, eatCheckIn, eatCheckOut)
+    if (totalRecords === 3 && hasCheckIn && hasEatCheckIn && hasEatCheckOut && !hasCheckOut) {
+      const currentCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
+      const currentEatCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkEatIn))
+      const currentEatCheckOut = JSON.parse(JSON.stringify(checkAssist.assist.checkEatOut))
+
+      checkAssist.assist.checkIn = null
+      checkAssist.assist.checkEatIn = currentCheckIn
+      checkAssist.assist.checkEatOut = currentEatCheckIn
+      checkAssist.assist.checkOut = currentEatCheckOut
+      return checkAssist
+    }
+
+    // Caso 3: 3 registros (eatCheckIn, eatCheckOut, checkOut) - sin checkIn
+    if (totalRecords === 3 && !hasCheckIn && hasEatCheckIn && hasEatCheckOut && hasCheckOut) {
+      // Subir registros: eatCheckOut → eatCheckIn, checkOut → eatCheckOut
+      checkAssist.assist.checkEatIn = JSON.parse(JSON.stringify(checkAssist.assist.checkEatOut))
+      checkAssist.assist.checkEatOut = JSON.parse(JSON.stringify(checkAssist.assist.checkOut))
+      checkAssist.assist.checkOut = null
+      checkAssist.assist.checkIn = null
+      return checkAssist
+    }
+
+    // Caso 4: 2 registros (checkIn, eatCheckIn)
+    if (totalRecords === 2 && hasCheckIn && hasEatCheckIn && !hasEatCheckOut && !hasCheckOut) {
+      const currentCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
+
+      checkAssist.assist.checkIn = null
+      checkAssist.assist.checkEatIn = currentCheckIn
+      checkAssist.assist.checkEatOut = null
+      checkAssist.assist.checkOut = null
+      return checkAssist
+    }
+
+    // Caso 5: 2 registros (checkIn, checkOut)
+    if (totalRecords === 2 && hasCheckIn && hasCheckOut && !hasEatCheckIn && !hasEatCheckOut) {
+      const currentCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
+
+      checkAssist.assist.checkIn = null
+      checkAssist.assist.checkEatIn = currentCheckIn
+      checkAssist.assist.checkEatOut = null
+      // checkOut se mantiene
+      return checkAssist
+    }
+
+    // Caso 6: 2 registros (eatCheckIn, checkOut) - sin checkIn
+    if (totalRecords === 2 && !hasCheckIn && hasEatCheckIn && hasCheckOut && !hasEatCheckOut) {
+      checkAssist.assist.checkEatIn = JSON.parse(JSON.stringify(checkAssist.assist.checkOut))
+      checkAssist.assist.checkOut = null
+      checkAssist.assist.checkIn = null
+      return checkAssist
+    }
+
+    // Caso 7: 2 registros (eatCheckOut, checkOut) - sin checkIn
+    if (totalRecords === 2 && !hasCheckIn && hasEatCheckOut && hasCheckOut && !hasEatCheckIn) {
+      checkAssist.assist.checkEatIn = JSON.parse(JSON.stringify(checkAssist.assist.checkEatOut))
+      checkAssist.assist.checkEatOut = JSON.parse(JSON.stringify(checkAssist.assist.checkOut))
+      checkAssist.assist.checkOut = null
+      checkAssist.assist.checkIn = null
+      return checkAssist
+    }
+
+    // Caso 8: 1 registro (checkIn)
+    if (totalRecords === 1 && hasCheckIn && !hasEatCheckIn && !hasEatCheckOut && !hasCheckOut) {
+      checkAssist.assist.checkIn = null
+      checkAssist.assist.checkEatIn = null
+      checkAssist.assist.checkEatOut = null
+      checkAssist.assist.checkOut = null
+      return checkAssist
+    }
+
+    // Caso 9: 1 registro (eatCheckIn) - sin checkIn
+    if (totalRecords === 1 && !hasCheckIn && hasEatCheckIn && !hasEatCheckOut && !hasCheckOut) {
+      // No hay nada que subir, solo asegurar que checkIn sea null
+      checkAssist.assist.checkIn = null
+      return checkAssist
+    }
+
+    // Caso 10: 1 registro (eatCheckOut) - sin checkIn
+    if (totalRecords === 1 && !hasCheckIn && hasEatCheckOut && !hasEatCheckIn && !hasCheckOut) {
+      checkAssist.assist.checkEatIn = JSON.parse(JSON.stringify(checkAssist.assist.checkEatOut))
+      checkAssist.assist.checkEatOut = null
+      checkAssist.assist.checkIn = null
+      return checkAssist
+    }
+
+    // Caso 11: 1 registro (checkOut) - sin checkIn
+    if (totalRecords === 1 && !hasCheckIn && hasCheckOut && !hasEatCheckIn && !hasEatCheckOut) {
+      checkAssist.assist.checkEatIn = JSON.parse(JSON.stringify(checkAssist.assist.checkOut))
+      checkAssist.assist.checkOut = null
+      checkAssist.assist.checkIn = null
+      return checkAssist
+    }
+
+    return checkAssist
+  }
+
   async getStatusSync(): Promise<AssistStatusResponseDto | null> {
     const assistStatusSync = await this.getAssistStatusSync()
     let lastPageSync = await this.getLastPageSync()
@@ -1078,13 +1259,14 @@ export default class SyncAssistsService {
       this.setCheckInDateTime(dateAssistItem)
       this.setCheckOutDateTime(dateAssistItem)
       this.calculateRawCalendar(dateAssistItem, assistList)
-      this.handleSkipCheckoutException(dateAssistItem) // aqui se llama la logica para manejar el check-out basado en la ultima hora registrada si existe una excepcion de skip-checkout
+      this.handleSkipCheckinException(dateAssistItem)
       this.checkInStatus(dateAssistItem, TOLERANCE_FAULT_MINUTES, TOLERANCE_DELAY_MINUTES, isDiscriminated)
       this.checkOutStatus(dateAssistItem, isDiscriminated)
       this.isSundayBonus(dateAssistItem)
       this.isVacationDate(employeeID, dateAssistItem, employee)
       this.isWorkDisabilityDate(employeeID, dateAssistItem, employee)
       this.validTime(dateAssistItem)
+      this.handleSkipCheckoutException(dateAssistItem) // aqui se llama la logica para manejar el check-out basado en la ultima hora registrada si existe una excepcion de skip-checkout
       this.hasSomeExceptionTimeCheckIn(dateAssistItem, TOLERANCE_DELAY_MINUTES)
       this.hasSomeExceptionTimeCheckOut(dateAssistItem)
       this.hasSomeException(employeeID, dateAssistItem, employee)
@@ -1666,7 +1848,30 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
+    // Verificar si hay excepción skip-checkin
+    const hasSkipCheckinException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
+    )
+
     if (!checkAssist?.assist?.checkIn?.assistPunchTimeUtc) {
+      // Si hay excepción skip-checkin, verificar que haya al menos 2 registros
+      if (hasSkipCheckinException) {
+        // Contar registros disponibles
+        const hasEatCheckIn = !!checkAssist.assist.checkEatIn
+        const hasEatCheckOut = !!checkAssist.assist.checkEatOut
+        const hasCheckOut = !!checkAssist.assist.checkOut
+
+        const totalRecords = (hasEatCheckIn ? 1 : 0) + (hasEatCheckOut ? 1 : 0) + (hasCheckOut ? 1 : 0)
+
+        if (totalRecords >= 1) {
+          checkAssist.assist.checkInStatus = 'ontime'
+          return checkAssist
+        }
+        // si no hay al menos 2 registros, se marca como fault
+        checkAssist.assist.checkInStatus = 'fault'
+        return checkAssist
+      }
+
       checkAssist.assist.checkInStatus = !checkAssist?.assist?.checkOut ? 'fault' : ''
 
       if (discriminated) {
@@ -1699,6 +1904,12 @@ export default class SyncAssistsService {
     const dayTimeToStart = this.getShiftCheckInTimeToStart(checkAssist.day, checkAssist.assist.dateShift)
     const dayCheckInTime = DateTime.fromISO(checkAssist.assist.checkIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
     const diffTime = dayCheckInTime.diff(dayTimeToStart, 'minutes').minutes
+
+    // Si hay skip-checkin exception y hay checkIn, siempre marcar como ontime
+    if (hasSkipCheckinException) {
+      checkAssist.assist.checkInStatus = 'ontime'
+      return checkAssist
+    }
 
     if (diffTime > TOLERANCE_FAULT_MINUTES && !discriminated) {
       if (checkAssist.assist) {
@@ -1734,86 +1945,149 @@ export default class SyncAssistsService {
   }
 
   private checkOutStatus(checkAssist: AssistDayInterface, discriminated?: Boolean) {
-    if (!checkAssist?.assist?.dateShift) {
-      return checkAssist
-    }
+  if (!checkAssist?.assist?.dateShift) {
+    return checkAssist
+  }
 
-    // Verificar si hay excepción skip-checkout primero
-    const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
-      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
-    )
+  // Verificar si hay excepción skip-checkout
+  const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
+    (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
+  )
 
-    if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
-      // Si hay excepción skip-checkout, marcar como ontime (no depende de checkInStatus)
-      if (hasSkipCheckoutException) {
-        checkAssist.assist.checkOutStatus = 'ontime'
-        return checkAssist
-      }
+  // Verificar si hay excepción skip-checkin
+  const hasSkipCheckinException = checkAssist.assist.exceptions.some(
+    (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
+  )
 
-      // Si no hay skip-checkout, entonces sí depende de checkInStatus
-      checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
-      return checkAssist
-    }
-
-    // Si hay skip-checkout exception y hay checkOut, siempre marcar como ontime independientemente del tiempo de salida ya que tiene permiso para omitir el check-out 
+  if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
+    // Si hay excepción skip-checkout, marcar como ontime
     if (hasSkipCheckoutException) {
       checkAssist.assist.checkOutStatus = 'ontime'
       return checkAssist
     }
 
-    const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-    const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-    const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-    const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-    const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-    const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
-    const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+    // Si hay skip-checkin pero no hay checkout, verificar si hay registros "subidos"
+    if (hasSkipCheckinException) {
+      // Buscar el primer registro disponible (ahora en eatCheckIn o eatCheckOut)
+      let firstRecordTime: DateTime | null = null
 
-    const currentNowTime = DateTime.now().setZone('UTC-6')
+      if (checkAssist.assist.checkEatIn) {
+        firstRecordTime = DateTime.fromISO(checkAssist.assist.checkEatIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
+      } else if (checkAssist.assist.checkEatOut) {
+        firstRecordTime = DateTime.fromISO(checkAssist.assist.checkEatOut.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
+      }
 
-    // Esta verificación teoricamente ya no es necesaria porque ya se verificó arriba
-    // Pero la dejo por seguridad
-    if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
-      checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
+      if (firstRecordTime) {
+        // Calcular hora esperada de checkout
+        const hourStart = checkAssist.assist.dateShift.shiftTimeStart
+        const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
+        const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
+        const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
+        const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
+        const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
+        const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+
+        // Si el primer registro es antes de la hora esperada de checkout, es salida anticipada
+        const diffTime = timeToEnd.diff(firstRecordTime, 'minutes').minutes
+        if (diffTime > 0) {
+          checkAssist.assist.checkOutStatus = 'delay' // Salida anticipada
+          return checkAssist
+        }
+      }
+
+      checkAssist.assist.checkOutStatus = ''
       return checkAssist
     }
 
-    const DayTime = DateTime.fromISO(`${checkAssist.assist.checkOut.assistPunchTimeUtc}`, { setZone: true })
-    const checkTime = DayTime.setZone('UTC-6')
-    const checkTimeDateYear = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
-    const checkTimeStringDate = `${checkTime.toFormat('yyyy-LL-dd')}T${checkTimeDateYear}.000-06:00`
-    const timeToCheckOut = DateTime.fromISO(checkTimeStringDate, { setZone: true }).setZone('UTC-6')
-    const diffTime = timeToEnd.diff(timeToCheckOut, 'minutes').minutes
-    const diffTimeNow = currentNowTime.diff(timeToEnd, 'minutes').minutes
-
-    if (diffTime > 0 && diffTimeNow > 0) {
-      if (checkAssist.assist.assitFlatList?.length === 3) {
-        checkAssist.assist.checkEatOut = null
-      }
-
-      if (checkAssist.assist.assitFlatList?.length === 2) {
-        checkAssist.assist.checkEatIn = null
-      }
-    }
-
-    if (diffTime > 10 && (currentNowTime > timeToEnd)) {
-      checkAssist.assist.checkOutStatus = 'delay'
-    }
-
-    if (diffTime <= 10) {
-      checkAssist.assist.checkOutStatus = 'tolerance'
-    }
-
-    if (diffTime <= 0) {
-      checkAssist.assist.checkOutStatus = 'ontime'
-    }
-
-    if (discriminated) {
-      checkAssist.assist.checkOutStatus = ''
-    }
-
+    checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
     return checkAssist
   }
+
+  // Si hay skip-checkout exception y hay checkOut, siempre marcar como ontime
+  if (hasSkipCheckoutException) {
+    checkAssist.assist.checkOutStatus = 'ontime'
+    return checkAssist
+  }
+
+  // Calcular hora esperada de checkout
+  const hourStart = checkAssist.assist.dateShift.shiftTimeStart
+  const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
+  const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
+  const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
+  const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
+  const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
+  const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+
+  const currentNowTime = DateTime.now().setZone('UTC-6')
+
+  // Obtener hora real de checkout
+  const DayTime = DateTime.fromISO(`${checkAssist.assist.checkOut.assistPunchTimeUtc}`, { setZone: true })
+  const checkTime = DayTime.setZone('UTC-6')
+
+  // Si el checkout es del día siguiente, ajustar la comparación
+  const checkOutDay = checkTime.toFormat('yyyy-LL-dd')
+  const expectedDay = checkAssist.day
+
+  let timeToCheckOut: DateTime
+  if (checkOutDay > expectedDay) {
+    // Checkout es del día siguiente, usar la hora del checkout directamente
+    // y comparar con la hora esperada del día actual
+    timeToCheckOut = checkTime
+  } else {
+    // Checkout es del mismo día, usar formato normal
+    const checkTimeDateYear = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
+    const checkTimeStringDate = `${checkTime.toFormat('yyyy-LL-dd')}T${checkTimeDateYear}.000-06:00`
+    timeToCheckOut = DateTime.fromISO(checkTimeStringDate, { setZone: true }).setZone('UTC-6')
+  }
+
+  // Calcular diferencia: tiempo esperado - tiempo real
+  // Si diffTime > 0: salió antes (delay)
+  // Si diffTime <= 0: salió a tiempo o después (ontime)
+  const diffTime = timeToEnd.diff(timeToCheckOut, 'minutes').minutes
+  const diffTimeNow = currentNowTime.diff(timeToEnd, 'minutes').minutes
+
+  // Si hay skip-checkin exception, usar lógica especial
+  if (hasSkipCheckinException) {
+    // Si el checkout es después de la hora esperada (diffTime negativo o cero), es ontime
+    if (diffTime <= 0) {
+      checkAssist.assist.checkOutStatus = 'ontime'
+      return checkAssist
+    }
+    // Si el checkout es antes de la hora esperada (diffTime positivo), es delay (salida anticipada)
+    if (diffTime > 0) {
+      checkAssist.assist.checkOutStatus = 'delay'
+      return checkAssist
+    }
+  }
+
+  if (diffTime > 0 && diffTimeNow > 0) {
+    if (checkAssist.assist.assitFlatList?.length === 3) {
+      checkAssist.assist.checkEatOut = null
+    }
+
+    if (checkAssist.assist.assitFlatList?.length === 2) {
+      checkAssist.assist.checkEatIn = null
+    }
+  }
+
+  if (diffTime > 10 && (currentNowTime > timeToEnd)) {
+    checkAssist.assist.checkOutStatus = 'delay'
+  }
+
+  if (diffTime <= 10) {
+    checkAssist.assist.checkOutStatus = 'tolerance'
+  }
+
+  if (diffTime <= 0) {
+    checkAssist.assist.checkOutStatus = 'ontime'
+  }
+
+  if (discriminated) {
+    checkAssist.assist.checkOutStatus = ''
+  }
+
+  return checkAssist
+}
 
   private setNexCalendarDayCheckIns (assitFlatList: AssistInterface[], checkInDateTime: DateTime): AssistInterface[] {
     const calendarDay: AssistInterface[] = []
@@ -2344,13 +2618,17 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    // Verificar si hay excepción skip-checkout
+    // Verificar si hay excepción skip-checkout o skip-checkin
     const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
       (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
     )
 
-    // Si hay skip-checkout exception, no marcar como fault
-    if (hasSkipCheckoutException) {
+    const hasSkipCheckinException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
+    )
+
+    // Si hay skip-checkout o skip-checkin exception, no marcar como fault y se retorna el check-assist sin cambios
+    if (hasSkipCheckoutException || hasSkipCheckinException) {
       return checkAssist
     }
 
