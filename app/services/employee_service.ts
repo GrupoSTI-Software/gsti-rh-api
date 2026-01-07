@@ -2520,7 +2520,11 @@ export default class EmployeeService {
       'Fecha de nacimiento (dd/mm/yyyy)',
       'CURP',
       'RFC',
-      'NSS'
+      'NSS',
+      'Correo empresa',
+      'Correo personal',
+      'Teléfono Empresa',
+      'Teléfono Personal'
     ]
 
     // Encabezados requeridos que deben estar presentes
@@ -2789,6 +2793,22 @@ export default class EmployeeService {
         data.rfc = value
       } else if (header.includes('nss')) {
         data.nss = value
+      } else if (header.includes('correo empresa')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.businessEmail = cellText || ''
+      } else if (header.includes('correo personal')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.personalEmail = cellText || ''
+      } else if (header.includes('teléfono empresa')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.businessPhone = cellText || ''
+      } else if (header.includes('teléfono personal')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.personalPhone = cellText || ''
       }
     })
 
@@ -2822,6 +2842,14 @@ export default class EmployeeService {
       existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
     }
 
+    // Actualizar correo y teléfono empresa
+    if (employeeData.businessEmail !== undefined) {
+      existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
+    }
+    if (employeeData.businessPhone !== undefined) {
+      existingEmployee.employeeBusinessPhone = employeeData.businessPhone || ''
+    }
+
     // Mapear departamento y posición usando búsqueda por similitud
     const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
     if (departmentId !== null) {
@@ -2846,6 +2874,14 @@ export default class EmployeeService {
       const parsedBirthday = this.parseDate(employeeData.birthDate)
       if (parsedBirthday) {
         person.personBirthday = parsedBirthday
+      }
+
+      // Actualizar correo y teléfono personal
+      if (employeeData.personalEmail !== undefined) {
+        person.personEmail = employeeData.personalEmail || ''
+      }
+      if (employeeData.personalPhone !== undefined) {
+        person.personPhone = employeeData.personalPhone || ''
       }
 
       await person.save()
@@ -2963,8 +2999,8 @@ export default class EmployeeService {
     person.personImssNss = employeeData.nss || ''
     person.personBirthday = this.parseDate(employeeData.birthDate)
     person.personGender = '' // No disponible en el Excel
-    person.personPhone = ''
-    person.personEmail = ''
+    person.personPhone = employeeData.personalPhone || ''
+    person.personEmail = employeeData.personalEmail || ''
     person.personPhoneSecondary = ''
     person.personMaritalStatus = ''
     person.personPlaceOfBirthCountry = ''
@@ -3002,7 +3038,8 @@ export default class EmployeeService {
     employee.payrollBusinessUnitId = payrollBusinessUnitId
     employee.employeeAssistDiscriminator = 1
     employee.employeeTypeId = 1 // Valor por defecto
-    employee.employeeBusinessEmail = ''
+    employee.employeeBusinessEmail = employeeData.businessEmail || ''
+    employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
     employee.employeeIgnoreConsecutiveAbsences = 0
@@ -3838,7 +3875,11 @@ export default class EmployeeService {
       'Fecha de nacimiento (dd/mm/yyyy)',
       'CURP',
       'RFC',
-      'NSS'
+      'NSS',
+      'Correo empresa',
+      'Correo personal',
+      'Teléfono Empresa',
+      'Teléfono Personal'
     ]
 
     // Encabezados requeridos (índices 0-4)
@@ -3886,7 +3927,10 @@ export default class EmployeeService {
     // ==============================
     //     ANCHO DE COLUMNAS
     // ==============================
-    const columnWidths = [25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20]
+    const columnWidths = [
+      25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20,
+      20
+    ]
     columnWidths.forEach((width, index) => {
       worksheet.getColumn(index + 1).width = width
     })

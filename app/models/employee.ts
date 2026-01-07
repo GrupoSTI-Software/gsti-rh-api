@@ -190,6 +190,9 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   declare employeeBusinessEmail: string
 
   @column()
+  declare employeeBusinessPhone: string
+
+  @column()
   declare employeeTypeOfContract: string
 
   @column()
