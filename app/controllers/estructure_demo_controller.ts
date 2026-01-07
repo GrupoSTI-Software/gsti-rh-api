@@ -2,6 +2,7 @@ import DepartmentService from '#services/department_service'
 import { HttpContext } from '@adonisjs/core/http'
 import PositionService from '#services/position_service'
 import ShiftService from '#services/shift_service'
+import EmployeeService from '#services/employee_service'
 
 export default class EstructureDemoController {
    /**
@@ -165,12 +166,23 @@ export default class EstructureDemoController {
             data: { ...createShifts },
           }
         }
+        const employeeService = new EmployeeService(i18n)
+        const deleteEmployees = await employeeService.deleteAllEmployees()
+        if (deleteEmployees.status !== 200) {
+          response.status(deleteEmployees.status)
+          return {
+            type: deleteEmployees.type,
+            title: deleteEmployees.title,
+            message: deleteEmployees.message,
+            data: { ...deleteEmployees },
+          }
+        }
         response.status(201)
         return {
           type: 'success',
           title: t('information'),
           message: t('the_information_was_created_successfully'),
-          data: { departments: createDepartments, positions: createPositions, shifts: createShifts },
+          data: { departments: createDepartments, positions: createPositions, shifts: createShifts, employees: deleteEmployees },
         }
     } catch (error) {
       response.status(500)

@@ -163,7 +163,7 @@ export default class ShiftService {
       shiftTemp: number
       shiftColor: string
     }): Promise<Shift> {
-         const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
     const shift = new Shift()
     shift.shiftName = shiftData.shiftName
     shift.shiftTimeStart = shiftData.shiftTimeStart

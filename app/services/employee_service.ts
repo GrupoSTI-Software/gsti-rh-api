@@ -38,6 +38,18 @@ import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
+import EmployeeAddress from '#models/employee_address'
+import EmployeeSpouse from '#models/employee_spouse'
+import EmployeeChildren from '#models/employee_children'
+import EmployeeShiftChange from '#models/employee_shift_changes'
+import EmployeeEmergencyContact from '#models/employee_emergency_contact'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import EmployeeDevice from '#models/employee_device'
+import EmployeeAnnotation from '#models/employee_annotation'
+import EmployeeSupplie from '#models/employee_supplie'
+import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import EmployeeRecord from '#models/employee_record'
+import WorkDisability from '#models/work_disability'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -5087,5 +5099,182 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       data: null
     }
   }
-}
+ }
+
+  /**
+   * Elimina definitivamente todos los empleados y sus registros relacionados en otras tablas
+   * 
+   * Esta función:
+   * 1. Elimina todas las relaciones en employee_shifts
+   * 2. Elimina todas las relaciones en shift_exceptions
+   * 3. Elimina todas las relaciones en employee_addresses
+   * 4. Elimina todas las relaciones en employee_spouses
+   * 5. Elimina todas las relaciones en employee_children
+   * 6. Elimina todas las relaciones en employee_emergency_contacts
+   * 7. Elimina todas las relaciones en employee_shift_changes
+   * 8. Elimina todas las relaciones en user_responsible_employees
+   * 9. Elimina todas las relaciones en employee_contracts
+   * 10. Elimina todas las relaciones en employee_biometric_face_ids
+   * 11. Elimina todas las relaciones en employee_zones
+   * 12. Elimina todas las relaciones en employee_devices
+   * 13. Elimina todas las relaciones en employee_proceeding_files
+   * 14. Elimina todas las relaciones en employee_annotations
+   * 15. Elimina todas las relaciones en employee_assist_calendars
+   * 16. Elimina todas las relaciones en employee_supplies
+   * 17. Elimina todas las relaciones en employee_medical_conditions
+   * 18. Elimina todas las relaciones en employee_banks
+   * 19. Elimina todas las relaciones en employee_records
+   * 20. Elimina todas las relaciones en work_disabilities
+   * 21. Elimina todos los empleados
+   * 
+   * @returns Objeto con el resultado de la operación
+   */
+  async deleteAllEmployees() {
+    try {
+      // Contar registros antes de eliminar
+      const totalEmployees = await Employee.query()
+        .count('* as total')
+      const totalEmployeeShifts = await EmployeeShift.query()
+        .count('* as total')
+      const totalShiftExceptions = await ShiftException.query()
+        .count('* as total')
+      const totalEmployeeContracts = await EmployeeContract.query()
+        .count('* as total')
+      const totalWorkDisabilities = await WorkDisability.query()
+        .count('* as total')
+
+      const totalEmployeeAddresses = await EmployeeAddress.query()
+        .count('* as total')
+      const totalEmployeeSpouses = await EmployeeSpouse.query()
+        .count('* as total')
+      const totalEmployeeChildren = await EmployeeChildren.query()
+        .count('* as total')
+      const totalEmployeeEmergencyContacts = await EmployeeEmergencyContact.query()
+        .count('* as total')
+      const totalEmployeeShiftChanges = await EmployeeShiftChange.query()
+        .count('* as total')
+      const totalUserResponsibleEmployees = await UserResponsibleEmployee.query()
+        .count('* as total')
+      const totalEmployeeBiometricFaceIds = await EmployeeBiometricFaceId.query()
+        .count('* as total')
+      const totalEmployeeZones = await EmployeeZone.query()
+        .count('* as total')
+      const totalEmployeeDevices = await EmployeeDevice.query()
+        .count('* as total')
+      const counts = {
+        employees: Number(totalEmployees[0].$extras.total),
+        employeeShifts: Number(totalEmployeeShifts[0].$extras.total),
+        shiftExceptions: Number(totalShiftExceptions[0].$extras.total),
+        employeeContracts: Number(totalEmployeeContracts[0].$extras.total),
+        workDisabilities: Number(totalWorkDisabilities[0].$extras.total),
+        employeeAddresses: Number(totalEmployeeAddresses[0].$extras.total),
+        employeeSpouses: Number(totalEmployeeSpouses[0].$extras.total),
+        employeeChildren: Number(totalEmployeeChildren[0].$extras.total),
+        employeeEmergencyContacts: Number(totalEmployeeEmergencyContacts[0].$extras.total),
+        employeeShiftChanges: Number(totalEmployeeShiftChanges[0].$extras.total),
+        userResponsibleEmployees: Number(totalUserResponsibleEmployees[0].$extras.total),
+        employeeBiometricFaceIds: Number(totalEmployeeBiometricFaceIds[0].$extras.total),
+        employeeZones: Number(totalEmployeeZones[0].$extras.total),
+        employeeDevices: Number(totalEmployeeDevices[0].$extras.total),
+      }
+
+      // 1. Eliminar todas las relaciones en employee_shifts
+      await EmployeeShift.query().delete()
+
+      // 2. Eliminar todas las relaciones en shift_exceptions
+      await ShiftException.query().delete()
+
+      // 3. Eliminar todas las relaciones en employee_contracts
+      await EmployeeContract.query().delete()
+
+      // 4. Eliminar todas las relaciones en employee_addresses
+      await EmployeeAddress.query().delete()
+
+      // 5. Eliminar todas las relaciones en employee_spouses
+      await EmployeeSpouse.query().delete()
+
+      // 6. Eliminar todas las relaciones en employee_children
+      await EmployeeChildren.query().delete()
+
+      // 7. Eliminar todas las relaciones en employee_emergency_contacts
+      await EmployeeEmergencyContact.query().delete()
+
+      // 8. Eliminar todas las relaciones en employee_shift_changes
+      await EmployeeShiftChange.query().delete()
+
+      // 9. Eliminar todas las relaciones en user_responsible_employees
+      await UserResponsibleEmployee.query().delete()
+
+      // 10. Eliminar todas las relaciones en employee_biometric_face_ids
+      await EmployeeBiometricFaceId.query().delete()
+
+      // 11. Eliminar todas las relaciones en employee_zones
+      await EmployeeZone.query().delete()
+
+      // 12. Eliminar todas las relaciones en employee_devices
+      await EmployeeDevice.query().delete()
+
+      // 13. Eliminar todas las relaciones en employee_proceeding_files
+      await EmployeeProceedingFile.query().delete()
+
+      // 14. Eliminar todas las relaciones en employee_annotations
+      await EmployeeAnnotation.query().delete()
+
+      // 15. Eliminar todas las relaciones en employee_assist_calendars
+      await EmployeeAssistCalendar.query().delete()
+
+      // 16. Eliminar todas las relaciones en employee_supplies
+      await EmployeeSupplie.query().delete()
+
+      // 17. Eliminar todas las relaciones en employee_medical_conditions
+      await EmployeeMedicalCondition.query().delete()
+
+      // 18. Eliminar todas las relaciones en employee_banks
+      await EmployeeBank.query().delete()
+
+      // 19. Eliminar todas las relaciones en employee_records
+      await EmployeeRecord.query().delete() 
+
+      // 20. Eliminar todas las relaciones en work_disabilities
+      await WorkDisability.query().delete()
+
+      // 21. Eliminar todos los empleados
+      await Employee.query().delete()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Employees deleted successfully',
+        message: 'All employees and their relationships have been deleted successfully',
+        data: {
+          deleted: {
+            employees: counts.employees,
+            employeeShifts: counts.employeeShifts,
+            shiftExceptions: counts.shiftExceptions,
+            employeeContracts: counts.employeeContracts,
+            workDisabilities: counts.workDisabilities,
+            employeeAddresses: counts.employeeAddresses,
+            employeeSpouses: counts.employeeSpouses,
+            employeeChildren: counts.employeeChildren,
+            employeeEmergencyContacts: counts.employeeEmergencyContacts,
+            employeeShiftChanges: counts.employeeShiftChanges,
+            userResponsibleEmployees: counts.userResponsibleEmployees,
+            employeeBiometricFaceIds: counts.employeeBiometricFaceIds,
+            employeeZones: counts.employeeZones,
+            employeeDevices: counts.employeeDevices,
+          },
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al eliminar todos los empleados:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to delete employees',
+        message: 'An error occurred while trying to delete all employees',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
 }
