@@ -13,6 +13,7 @@ import { PositionShiftEmployeeWarningInterface } from '../interfaces/position_sh
 import { PositionShiftFilterInterface } from '../interfaces/position_shift_filter_interface.js'
 import EmployeeService from './employee_service.js'
 import EmployeeShiftService from './employee_shift_service.js'
+import DepartmentService from './department_service.js'
 
 export default class PositionService {
 
@@ -413,16 +414,17 @@ export default class PositionService {
     }
   }
 
-  /**
-   * Busca un departamento por nombre (usando LIKE para flexibilidad)
-   * @param departmentName - Nombre del departamento a buscar
-   * @returns Departamento encontrado o null
+   /**
+   * Busca una posición por su nombre
+   * @param positionName - Nombre de la posición a buscar
+   * @returns Posición encontrada o null
    */
-  private async findDepartmentByName(departmentName: string): Promise<Department | null> {
-    return await Department.query()
-      .where('department_name', 'like', `%${departmentName}%`)
-      .whereNull('department_deleted_at')
+   async findPositionByName(positionName: string): Promise<Position | null> {
+    const position = await Position.query()
+      .where('position_alias', positionName)
+      .whereNull('position_deleted_at')
       .first()
+    return position || null
   }
 
   /**
@@ -526,9 +528,9 @@ export default class PositionService {
         'Marketing',
         'Investigación de Mercados',
       ]
-
+      const departmentService = new DepartmentService(this.i18n)
       for await(const deptName of departmentNames) {
-        departmentsMap[deptName] = await this.findDepartmentByName(deptName)
+        departmentsMap[deptName] = await departmentService.findDepartmentByName(deptName)
       }
 
       // Special case for "Sin Departamento" (ID 999)

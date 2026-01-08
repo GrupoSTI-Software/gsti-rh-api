@@ -524,6 +524,20 @@ export default class DepartmentService {
     return positions
   }
 
+
+  /**
+   * Busca un departamento por nombre (usando LIKE para flexibilidad)
+   * @param departmentName - Nombre del departamento a buscar
+   * @returns Departamento encontrado o null
+   */
+  async findDepartmentByName(departmentName: string): Promise<Department | null> {
+    return await Department.query()
+      .where('department_name', 'like', `%${departmentName}%`)
+      .whereNull('department_deleted_at')
+      .first()
+  }
+
+
   /**
    * Elimina todos los departamentos existentes y sus relaciones en otras tablas
    * 

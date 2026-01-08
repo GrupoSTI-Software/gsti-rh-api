@@ -282,4 +282,31 @@ export default class PersonService {
   formatDate(date: Date): string {
     return date.toISOString().split('T')[0]
   }
+
+
+  /**
+   * Crea una persona demo con los datos proporcionados
+   * @param firstName - Nombre
+   * @param lastName - Apellido paterno
+   * @param secondLastName - Apellido materno
+   * @returns Persona creada
+   */
+  async createDemoPerson(
+    firstName: string,
+    lastName: string,
+    secondLastName: string
+  ): Promise<Person> {
+    const person = new Person()
+    person.personFirstname = firstName
+    person.personLastname = lastName
+    person.personSecondLastname = secondLastName || ''
+    person.personGender = ''
+    person.personPhone = ''
+    person.personEmail = ''
+    person.personCurp = ''
+    person.personRfc = ''
+    person.personImssNss = ''
+    await person.save()
+    return person
+  }
 }

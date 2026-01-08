@@ -177,12 +177,22 @@ export default class EstructureDemoController {
             data: { ...deleteEmployees },
           }
         }
+        const createEmployees = await employeeService.createEmployeeDemo()
+        if (createEmployees.status !== 201) {
+          response.status(createEmployees.status)
+          return {
+            type: createEmployees.type,
+            title: createEmployees.title,
+            message: createEmployees.message,
+            data: { ...createEmployees },
+          }
+        }
         response.status(201)
         return {
           type: 'success',
           title: t('information'),
           message: t('the_information_was_created_successfully'),
-          data: { departments: createDepartments, positions: createPositions, shifts: createShifts, employees: deleteEmployees },
+          data: { departments: createDepartments, positions: createPositions, shifts: createShifts, employees: createEmployees },
         }
     } catch (error) {
       response.status(500)

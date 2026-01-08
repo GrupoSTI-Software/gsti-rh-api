@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
 import ExceptionType from '#models/exception_type'
@@ -50,6 +51,14 @@ import EmployeeSupplie from '#models/employee_supplie'
 import EmployeeMedicalCondition from '#models/employee_medical_condition'
 import EmployeeRecord from '#models/employee_record'
 import WorkDisability from '#models/work_disability'
+import WorkDisabilityNote from '#models/work_disability_note'
+import WorkDisabilityPeriod from '#models/work_disability_period'
+import WorkDisabilityPeriodExpense from '#models/work_disability_period_expense'
+import ExceptionRequest from '#models/exception_request'
+import Pilot from '#models/pilot'
+import Reservation from '#models/reservation'
+import ReservationNote from '#models/reservation_note'
+import ReservationLeg from '#models/reservation_leg'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -5124,8 +5133,17 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * 17. Elimina todas las relaciones en employee_medical_conditions
    * 18. Elimina todas las relaciones en employee_banks
    * 19. Elimina todas las relaciones en employee_records
-   * 20. Elimina todas las relaciones en work_disabilities
-   * 21. Elimina todos los empleados
+   * 20. Elimina todas las relaciones en work_disability_notes
+   * 21. Elimina todas las relaciones en work_disability_period_expenses
+   * 22. Elimina todas las relaciones en work_disability_periods
+   * 23. Elimina todas las relaciones en work_disabilities
+   * 24. Elimina todas las relaciones en exception_requests
+   * 25. Elimina todas las relaciones in reservation_legs
+   * 26. Elimina todas las relaciones in reservation_notes  
+   * 27. Elimina todas las relaciones en reservations
+   * 28. Elimina todas las relaciones en pilots
+   * 29. Elimina todas las relaciones en flight_attendants
+   * 30. Elimina todos los empleados
    * 
    * @returns Objeto con el resultado de la operación
    */
@@ -5142,7 +5160,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         .count('* as total')
       const totalWorkDisabilities = await WorkDisability.query()
         .count('* as total')
-
+      const totalWorkDisabilityNotes = await WorkDisabilityNote.query()
+        .count('* as total')
+      const totalWorkDisabilityPeriods = await WorkDisabilityPeriod.query()
+        .count('* as total')
+      const totalWorkDisabilityPeriodExpenses = await WorkDisabilityPeriodExpense.query()
+        .count('* as total')
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -5161,12 +5184,25 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         .count('* as total')
       const totalEmployeeDevices = await EmployeeDevice.query()
         .count('* as total')
+      const totalExceptionRequests = await ExceptionRequest.query()
+        .count('* as total')
+      const totalReservations = await Reservation.query()
+        .count('* as total')
+      const totalPilots = await Pilot.query()
+        .count('* as total')
+      const totalReservationLegs = await ReservationLeg.query()
+        .count('* as total')
+      const totalReservationNotes = await ReservationNote.query()
+        .count('* as total')
+      const totalFlightAttendants = await FlightAttendant.query()
+        .count('* as total')
       const counts = {
         employees: Number(totalEmployees[0].$extras.total),
         employeeShifts: Number(totalEmployeeShifts[0].$extras.total),
         shiftExceptions: Number(totalShiftExceptions[0].$extras.total),
         employeeContracts: Number(totalEmployeeContracts[0].$extras.total),
         workDisabilities: Number(totalWorkDisabilities[0].$extras.total),
+        workDisabilityNotes: Number(totalWorkDisabilityNotes[0].$extras.total),
         employeeAddresses: Number(totalEmployeeAddresses[0].$extras.total),
         employeeSpouses: Number(totalEmployeeSpouses[0].$extras.total),
         employeeChildren: Number(totalEmployeeChildren[0].$extras.total),
@@ -5176,6 +5212,14 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         employeeBiometricFaceIds: Number(totalEmployeeBiometricFaceIds[0].$extras.total),
         employeeZones: Number(totalEmployeeZones[0].$extras.total),
         employeeDevices: Number(totalEmployeeDevices[0].$extras.total),
+        workDisabilityPeriods: Number(totalWorkDisabilityPeriods[0].$extras.total),
+        workDisabilityPeriodExpenses: Number(totalWorkDisabilityPeriodExpenses[0].$extras.total),
+        exceptionRequests: Number(totalExceptionRequests[0].$extras.total),
+        reservations: Number(totalReservations[0].$extras.total),
+        reservationLegs: Number(totalReservationLegs[0].$extras.total),
+        reservationNotes: Number(totalReservationNotes[0].$extras.total),
+        pilots: Number(totalPilots[0].$extras.total),
+        flightAttendants: Number(totalFlightAttendants[0].$extras.total),
       }
 
       // 1. Eliminar todas las relaciones en employee_shifts
@@ -5235,10 +5279,37 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       // 19. Eliminar todas las relaciones en employee_records
       await EmployeeRecord.query().delete() 
 
-      // 20. Eliminar todas las relaciones en work_disabilities
+      // 20. Eliminar todas las relaciones en work_disability_notes
+      await WorkDisabilityNote.query().delete()
+
+      // 22. Eliminar todas las relaciones en work_disability_period_expenses
+      await WorkDisabilityPeriodExpense.query().delete()
+      
+      // 22. Eliminar todas las relaciones en work_disability_periods
+      await WorkDisabilityPeriod.query().delete()
+
+      // 23. Eliminar todas las relaciones en work_disabilities
       await WorkDisability.query().delete()
 
-      // 21. Eliminar todos los empleados
+      // 24. Eliminar todas las relaciones en exception_requests
+      await ExceptionRequest.query().delete()
+
+      // 25. Eliminar todas las relaciones en reservation_legs
+      await ReservationLeg.query().delete()
+
+      // 26. Eliminar todas las relaciones in reservation_notes
+      await ReservationNote.query().delete()
+
+      // 27. Eliminar todas las relaciones in reservations
+      await Reservation.query().delete()
+
+      // 28. Eliminar todas las relaciones en pilots
+      await Pilot.query().delete()
+
+      // 29. Eliminar todas las relaciones en flight_attendants
+      await FlightAttendant.query().delete()
+
+      // 30. Eliminar todos los empleados
       await Employee.query().delete()
 
       return {
@@ -5253,6 +5324,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             shiftExceptions: counts.shiftExceptions,
             employeeContracts: counts.employeeContracts,
             workDisabilities: counts.workDisabilities,
+            workDisabilityNotes: counts.workDisabilityNotes,  
+            workDisabilityPeriods: counts.workDisabilityPeriods,
+            workDisabilityPeriodExpenses: counts.workDisabilityPeriodExpenses,
             employeeAddresses: counts.employeeAddresses,
             employeeSpouses: counts.employeeSpouses,
             employeeChildren: counts.employeeChildren,
@@ -5262,6 +5336,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             employeeBiometricFaceIds: counts.employeeBiometricFaceIds,
             employeeZones: counts.employeeZones,
             employeeDevices: counts.employeeDevices,
+            exceptionRequests: counts.exceptionRequests,
+            pilots: counts.pilots,
+            reservations: counts.reservations,
+            flightAttendants: counts.flightAttendants,
           },
         },
       }
@@ -5272,6 +5350,315 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         type: 'error',
         title: 'Error to delete employees',
         message: 'An error occurred while trying to delete all employees',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea un empleado demo con los datos proporcionados
+   * @param employeeData - Datos del empleado
+   * @param personId - ID de la persona
+   * @param positionId - ID de la posición
+   * @param departmentId - ID del departamento
+   * @param businessUnitId - ID de la unidad de negocio
+   * @returns Empleado creado
+   */
+  private async createDemoEmployee(
+    employeeData: {
+      firstName: string
+      lastName: string
+      secondLastName: string
+      code: string
+    },
+    personId: number,
+    positionId: number | null,
+    departmentId: number | null,
+    businessUnitId: number
+  ): Promise<Employee> {
+    const employeeType = await EmployeeType.query()
+      .where('employee_type_slug', 'employee')
+      .whereNull('employee_type_deleted_at')
+      .first()
+
+    const employee = new Employee()
+    employee.employeeSyncId = 0
+    employee.employeeCode = employeeData.code
+    employee.employeeFirstName = employeeData.firstName
+    employee.employeeLastName = employeeData.lastName
+    employee.employeeSecondLastName = employeeData.secondLastName || ''
+    employee.employeePayrollNum = employeeData.code
+    employee.employeePayrollCode = employeeData.code
+    employee.employeeHireDate = DateTime.now()
+    employee.companyId = 0
+    employee.departmentId = departmentId
+    employee.positionId = positionId
+    employee.personId = personId
+    employee.businessUnitId = businessUnitId
+    employee.dailySalary = 0
+    employee.payrollBusinessUnitId = businessUnitId
+    employee.employeeAssistDiscriminator = 0
+    employee.employeeWorkSchedule = 'Onsite'
+    employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeAuthorizeAnyZones = 0
+    employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
+    employee.departmentSyncId = 0
+    employee.positionSyncId = 0
+
+    if (employeeType?.employeeTypeId) {
+      employee.employeeTypeId = employeeType.employeeTypeId
+    } else {
+      employee.employeeTypeId = 1
+    }
+
+    await employee.save()
+    await this.updateEmployeeSlug(employee)
+    return employee
+  }
+
+  /**
+   * Crea 41 empleados demo y los asigna a las posiciones según el organigrama
+   * 
+   * Distribución de empleados por posición:
+   * - Director general: 1
+   * - Asistente de dirección: 1
+   * - Gerente administrativo: 1
+   * - Gerente de recursos humanos: 1
+   * - Reclutador: 1
+   * - Desarrollador de talento: 2
+   * - Gerente de contabilidad: 1
+   * - Encargado de nóminas: 1
+   * - Tesorería: 2
+   * - Director de operaciones: 1
+   * - Auxiliar operativo: 3
+   * - Gerente de proyectos: 1
+   * - Project Manager: 3
+   * - Diseñador gráfico: 1
+   * - Diseñador UX: 2
+   * - Líder de proyecto: 1
+   * - Supervisor de distribución: 1
+   * - Especialista de logística: 1
+   * - Supervisor de producción: 1
+   * - Operador de producción: 10
+   * - Supervisor de marketing: 1
+   * - Content Manager: 1
+   * - Especialista en Relaciones Públicas: 1
+   * - Analista de mercado: 2
+   * 
+   * @returns Objeto con el resultado de la operación y los empleados creados
+   */
+  async createEmployeeDemo() {
+    try {
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 0
+
+      // Buscar todas las posiciones necesarias
+      const positionsMap: { [key: string]: Position | null } = {}
+      const positionNames = [
+        'Director general',
+        'Asistente de dirección',
+        'Gerente administrativo',
+        'Gerente de recursos humanos',
+        'Reclutador',
+        'Desarrollador de talento',
+        'Gerente de contabilidad',
+        'Encargado de nóminas',
+        'Tesorería',
+        'Director de operaciones',
+        'Auxiliar operativo',
+        'Gerente de proyectos',
+        'Project Manager',
+        'Diseñador gráfico',
+        'Diseñador UX',
+        'Líder de proyecto',
+        'Supervisor de distribución',
+        'Especialista de logística',
+        'Supervisor de producción',
+        'Operador de producción',
+        'Supervisor de marketing',
+        'Content Manager',
+        'Especialista en Relaciones Públicas',
+        'Analista de mercado',
+      ]
+
+      const positionService = new PositionService(this.i18n)
+      for await (const positionName of positionNames) {
+        positionsMap[positionName] = await positionService.findPositionByName(positionName)
+      }
+
+      // Lista de empleados con sus nombres completos
+      const employeesData = [
+        { firstName: 'Juan', lastName: 'Pérez', secondLastName: 'López' },
+        { firstName: 'María', lastName: 'González', secondLastName: 'Hernández' },
+        { firstName: 'José', lastName: 'Martínez', secondLastName: 'Ramírez' },
+        { firstName: 'Ana', lastName: 'Rodríguez', secondLastName: 'Cruz' },
+        { firstName: 'Carlos', lastName: 'López', secondLastName: 'García' },
+        { firstName: 'Guadalupe', lastName: 'Sánchez', secondLastName: 'Flores' },
+        { firstName: 'Luis', lastName: 'Hernández', secondLastName: 'Torres' },
+        { firstName: 'Rosa', lastName: 'Morales', secondLastName: 'Jiménez' },
+        { firstName: 'Miguel', lastName: 'Ortiz', secondLastName: 'Vega' },
+        { firstName: 'Carmen', lastName: 'Castillo', secondLastName: 'Reyes' },
+        { firstName: 'Jesús', lastName: 'Ramírez', secondLastName: 'Pérez' },
+        { firstName: 'Laura', lastName: 'Flores', secondLastName: 'Mendoza' },
+        { firstName: 'Francisco', lastName: 'Vargas', secondLastName: 'Soto' },
+        { firstName: 'Patricia', lastName: 'Rojas', secondLastName: 'Navarro' },
+        { firstName: 'Jorge', lastName: 'Medina', secondLastName: 'Aguilar' },
+        { firstName: 'Teresa', lastName: 'Luna', secondLastName: 'Chávez' },
+        { firstName: 'Pedro', lastName: 'Herrera', secondLastName: 'Salas' },
+        { firstName: 'Alejandra', lastName: 'Núñez', secondLastName: 'Pineda' },
+        { firstName: 'Manuel', lastName: 'Cruz', secondLastName: 'Romero' },
+        { firstName: 'Verónica', lastName: 'Campos', secondLastName: 'Silva' },
+        { firstName: 'Ricardo', lastName: 'Mendoza', secondLastName: 'Fuentes' },
+        { firstName: 'Sofía', lastName: 'Delgado', secondLastName: 'Moreno' },
+        { firstName: 'Fernando', lastName: 'Reyes', secondLastName: 'Cabrera' },
+        { firstName: 'Adriana', lastName: 'Pacheco', secondLastName: 'León' },
+        { firstName: 'Daniel', lastName: 'Ibarra', secondLastName: 'Castillo' },
+        { firstName: 'Claudia', lastName: 'Espinoza', secondLastName: 'Márquez' },
+        { firstName: 'Roberto', lastName: 'Villanueva', secondLastName: 'Rocha' },
+        { firstName: 'Gabriela', lastName: 'Cárdenas', secondLastName: 'Bautista' },
+        { firstName: 'Eduardo', lastName: 'Acosta', secondLastName: 'Beltrán' },
+        { firstName: 'Daniela', lastName: 'Zúñiga', secondLastName: 'Ortega' },
+        { firstName: 'Javier', lastName: 'Salazar', secondLastName: 'Cortés' },
+        { firstName: 'Paulina', lastName: 'Montoya', secondLastName: 'Rangel' },
+        { firstName: 'Antonio', lastName: 'Galindo', secondLastName: 'Meza' },
+        { firstName: 'Elizabeth', lastName: 'Peralta', secondLastName: 'Trejo' },
+        { firstName: 'Raúl', lastName: 'Escobar', secondLastName: 'Nieto' },
+        { firstName: 'Mónica', lastName: 'Valdez', secondLastName: 'Arriaga' },
+        { firstName: 'Rosa', lastName: 'Gonzalez', secondLastName: 'Hernandez' },
+        { firstName: 'Silvia', lastName: 'Orozco', secondLastName: 'Sandoval' },
+        { firstName: 'Sergio', lastName: 'Tapia', secondLastName: 'Calderón' },
+        { firstName: 'Norma', lastName: 'Álvarez', secondLastName: 'Macías' },
+        { firstName: 'Víctor', lastName: 'Peña', secondLastName: 'Solís' },
+      ]
+
+      // Distribución de empleados por posición según el organigrama
+      const positionAssignments = [
+        { positionName: 'Director general', count: 1 },
+        { positionName: 'Asistente de dirección', count: 1 },
+        { positionName: 'Gerente administrativo', count: 1 },
+        { positionName: 'Gerente de recursos humanos', count: 1 },
+        { positionName: 'Reclutador', count: 1 },
+        { positionName: 'Desarrollador de talento', count: 2 },
+        { positionName: 'Gerente de contabilidad', count: 1 },
+        { positionName: 'Encargado de nóminas', count: 1 },
+        { positionName: 'Tesorería', count: 2 },
+        { positionName: 'Director de operaciones', count: 1 },
+        { positionName: 'Auxiliar operativo', count: 3 },
+        { positionName: 'Gerente de proyectos', count: 1 },
+        { positionName: 'Project Manager', count: 3 },
+        { positionName: 'Diseñador gráfico', count: 1 },
+        { positionName: 'Diseñador UX', count: 2 },
+        { positionName: 'Líder de proyecto', count: 1 },
+        { positionName: 'Supervisor de distribución', count: 1 },
+        { positionName: 'Especialista de logística', count: 1 },
+        { positionName: 'Supervisor de producción', count: 1 },
+        { positionName: 'Operador de producción', count: 10 },
+        { positionName: 'Supervisor de marketing', count: 1 },
+        { positionName: 'Content Manager', count: 1 },
+        { positionName: 'Especialista en Relaciones Públicas', count: 1 },
+        { positionName: 'Analista de mercado', count: 2 },
+      ]
+
+      const createdEmployees: Array<{
+        name: string
+        id: number
+        code: string
+        position: string
+        department: string | null
+      }> = []
+      let employeeIndex = 0
+      let employeeCodeCounter = 1001
+      const personService = new PersonService(this.i18n)
+
+      // Crear empleados según la distribución
+      for await (const assignment of positionAssignments) {
+        const position = positionsMap[assignment.positionName]
+        if (!position) {
+          console.warn(`Position "${assignment.positionName}" not found, skipping...`)
+          continue
+        }
+
+        // Obtener el departamento de la posición
+        const departmentPosition = await DepartmentPosition.query()
+          .where('position_id', position.positionId)
+          .whereNull('department_position_deleted_at')
+          .first()
+
+        const departmentId = departmentPosition?.departmentId || null
+        
+        // Obtener el nombre del departamento si existe
+        let departmentName: string | null = null
+        if (departmentId) {
+          const department = await Department.query()
+            .where('department_id', departmentId)
+            .whereNull('department_deleted_at')
+            .first()
+          departmentName = department?.departmentName || null
+        }
+
+        // Crear los empleados para esta posición
+        for (let i = 0; i < assignment.count && employeeIndex < employeesData.length; i++) {
+          const employeeData = employeesData[employeeIndex]
+          const employeeCode = `${employeeCodeCounter.toString().padStart(4, '0')}`
+
+          // Crear persona
+          const person = await personService.createDemoPerson(
+            employeeData.firstName,
+            employeeData.lastName,
+            employeeData.secondLastName
+          )
+
+          // Crear empleado
+          const employee = await this.createDemoEmployee(
+            {
+              firstName: employeeData.firstName,
+              lastName: employeeData.lastName,
+              secondLastName: employeeData.secondLastName,
+              code: employeeCode,
+            },
+            person.personId,
+            position.positionId,
+            departmentId,
+            businessUnitId
+          )
+
+          createdEmployees.push({
+            name: `${employeeData.firstName} ${employeeData.lastName} ${employeeData.secondLastName}`,
+            id: employee.employeeId,
+            code: employeeCode,
+            position: assignment.positionName,
+            department: departmentName,
+          })
+
+          employeeIndex++
+          employeeCodeCounter++
+        }
+      }
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Demo employees created',
+        message: 'The demo employees were created successfully',
+        data: {
+          created: createdEmployees,
+          total: createdEmployees.length,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al crear empleados demo:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create demo employees',
+        message: 'An error occurred while trying to create the demo employees',
         error: error.message,
         data: null,
       }
