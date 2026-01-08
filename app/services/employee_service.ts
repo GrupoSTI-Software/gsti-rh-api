@@ -3036,7 +3036,7 @@ export default class EmployeeService {
     employee.businessUnitId = businessUnitId
     employee.dailySalary = employeeData.dailySalary || 0
     employee.payrollBusinessUnitId = payrollBusinessUnitId
-    employee.employeeAssistDiscriminator = 1
+    employee.employeeAssistDiscriminator = 0
     employee.employeeTypeId = 1 // Valor por defecto
     employee.employeeBusinessEmail = employeeData.businessEmail || ''
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
