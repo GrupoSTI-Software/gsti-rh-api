@@ -2208,14 +2208,24 @@ export default class EmployeeService {
         pos.positionName?.toLowerCase().includes('sin posición')
       )
 
-      // Obtener empleados existentes por número de empleado
+      // Obtener empleados existentes por número de nómina
       const existingEmployees = await Employee.query()
         .whereNull('deletedAt')
         .preload('person')
-        .select('employeeId', 'employeeCode', 'employeeFirstName', 'employeeLastName', 'employeeSecondLastName', 'personId')
+        .select(
+          'employeeId',
+          'employeeCode',
+          'employeePayrollCode',
+          'employeeFirstName',
+          'employeeLastName',
+          'employeeSecondLastName',
+          'personId'
+        )
 
       // Obtener códigos de empleado existentes para generar códigos únicos
-      const existingEmployeeCodes = existingEmployees.map(emp => emp.employeeCode.toString())
+      const existingEmployeeCodes = existingEmployees.map(emp =>
+        emp.employeeCode.toString()
+      )
 
       // Verificar límite de empleados (se verificará por unidad de negocio individual)
 
@@ -2360,9 +2370,12 @@ export default class EmployeeService {
             continue
           }
 
-          // Buscar empleado existente por número de empleado
-          const existingEmployee = existingEmployees.find(emp =>
-            emp.employeeCode.toString() === employeeData.employeeNumber
+          // Buscar empleado existente por número de nómina
+          const existingEmployee = existingEmployees.find(
+            (emp) =>
+              emp.employeePayrollCode?.toString() ===
+                employeeData.employeeNumber ||
+              emp.employeeCode.toString() === employeeData.employeeNumber
           )
 
           if (existingEmployee) {
@@ -2403,8 +2416,11 @@ export default class EmployeeService {
       if (results.limitReached) {
         // Procesar solo empleados existentes (actualizaciones)
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
-          const existingEmployee = existingEmployees.find(emp =>
-            emp.employeeCode.toString() === employeeData.employeeNumber
+          const existingEmployee = existingEmployees.find(
+            (emp) =>
+              emp.employeePayrollCode?.toString() ===
+                employeeData.employeeNumber ||
+              emp.employeeCode.toString() === employeeData.employeeNumber
           )
 
           if (existingEmployee) {
@@ -2427,9 +2443,12 @@ export default class EmployeeService {
 
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           try {
-            // Buscar empleado existente por número de empleado
-            const existingEmployee = existingEmployees.find(emp =>
-              emp.employeeCode.toString() === employeeData.employeeNumber
+            // Buscar empleado existente por número de nómina
+            const existingEmployee = existingEmployees.find(
+              (emp) =>
+                emp.employeePayrollCode?.toString() ===
+                  employeeData.employeeNumber ||
+                emp.employeeCode.toString() === employeeData.employeeNumber
             )
 
             if (existingEmployee) {
@@ -2441,7 +2460,9 @@ export default class EmployeeService {
               // Generar código de empleado único si no se proporciona
               let employeeCode = employeeData.employeeNumber
               if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-                employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+                employeeCode = this.generateUniqueEmployeeCode(
+                  existingEmployeeCodes
+                )
               }
               existingEmployeeCodes.push(employeeCode)
 
@@ -2842,6 +2863,11 @@ export default class EmployeeService {
       existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
     }
 
+    // Actualizar número de nómina
+    if (employeeData.employeeNumber) {
+      existingEmployee.employeePayrollCode = employeeData.employeeNumber
+    }
+
     // Actualizar correo y teléfono empresa
     if (employeeData.businessEmail !== undefined) {
       existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
@@ -3017,6 +3043,7 @@ export default class EmployeeService {
   private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string) {
     const employee = new Employee()
     employee.employeeCode = employeeCode
+    employee.employeePayrollCode = employeeData.employeeNumber || employeeCode
     employee.employeeFirstName = employeeData.firstName || ''
     employee.employeeLastName = employeeData.lastName || ''
     employee.employeeSecondLastName = employeeData.secondLastName || ''
