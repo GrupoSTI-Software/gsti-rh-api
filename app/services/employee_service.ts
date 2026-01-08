@@ -3077,6 +3077,10 @@ export default class EmployeeService {
     employee.employeeLastSynchronizationAt = new Date()
 
     await employee.save()
+
+    // Generar slug único después de guardar (necesita employeeId)
+    await this.updateEmployeeSlug(employee)
+
     return employee
   }
 
