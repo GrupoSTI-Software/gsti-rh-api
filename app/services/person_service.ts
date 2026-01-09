@@ -289,23 +289,50 @@ export default class PersonService {
    * @param firstName - Nombre
    * @param lastName - Apellido paterno
    * @param secondLastName - Apellido materno
+   * @param gender - Género
+   * @param phone - Teléfono
+   * @param email - Email
+   * @param curp - CURP
+   * @param rfc - RFC
+   * @param imssNss - NSS
+   * @param maritalStatus - Estado civil
+   * @param birthDate - Fecha de nacimiento
+   * @param birthState - Estado de nacimiento
+   * @param birthCity - Ciudad de nacimiento
+   * @param birthCountry - País de nacimiento
    * @returns Persona creada
    */
   async createDemoPerson(
     firstName: string,
     lastName: string,
-    secondLastName: string
+    secondLastName: string,
+    gender: string,
+    phone: string,
+    email: string,
+    curp: string,
+    rfc: string,
+    imssNss: string,
+    maritalStatus: string,
+    birthDate: string,
+    birthState: string,
+    birthCity: string,
+    birthCountry: string,
   ): Promise<Person> {
     const person = new Person()
     person.personFirstname = firstName
     person.personLastname = lastName
     person.personSecondLastname = secondLastName || ''
-    person.personGender = ''
-    person.personPhone = ''
-    person.personEmail = ''
-    person.personCurp = ''
-    person.personRfc = ''
-    person.personImssNss = ''
+    person.personGender = gender
+    person.personPhone = phone
+    person.personEmail = email
+    person.personCurp = curp
+    person.personRfc = rfc
+    person.personImssNss = imssNss
+    person.personMaritalStatus = maritalStatus
+    person.personBirthday = birthDate
+    person.personPlaceOfBirthCountry = birthCountry
+    person.personPlaceOfBirthState = birthState
+    person.personPlaceOfBirthCity = birthCity
     await person.save()
     return person
   }
