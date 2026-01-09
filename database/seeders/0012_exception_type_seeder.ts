@@ -173,6 +173,20 @@ export default class extends BaseSeeder {
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
       },
+      {
+        exceptionTypeSlug: 'skip-checkin',
+        exceptionTypeTypeName: 'Iniciar turno sin marcar entrada',
+        exceptionTypeIcon: 'icon_absence_from_work',
+        exceptionTypeIsGeneral: 0,
+        exceptionTypeNeedCheckInTime: 0,
+        exceptionTypeNeedCheckOutTime: 0,
+        exceptionTypeNeedReason: 1,
+        exceptionTypeNeedEnjoymentOfSalary: 0,
+        exceptionTypeNeedPeriodInDays: 0,
+        exceptionTypeNeedPeriodInHours: 0,
+        exceptionTypeActive: 1,
+        exceptionTypeCanMasive: 0,
+      },
     ]
 
     for (const exceptionType of exceptionTypes) {
