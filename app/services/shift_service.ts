@@ -28,7 +28,7 @@ export default class ShiftService {
     const action = shiftId ? 'updated' : 'created'
     const existCode = await Shift.query()
       .if(shiftId, (query) => {
-        query.whereNot('shift_id', shiftId)
+        query.whereNot('shift_id', shiftId as number)
       })
       .where('shift_temp', 0)
       .whereNull('shift_deleted_at')
@@ -56,7 +56,7 @@ export default class ShiftService {
     if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
       const existAlias = await Shift.query()
         .if(shiftId, (query) => {
-          query.whereNot('shift_id', shiftId)
+          query.whereNot('shift_id', shiftId as number)
         })
         .where('shift_temp', 0)
         .whereNull('shift_deleted_at')
