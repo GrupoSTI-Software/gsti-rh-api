@@ -3,6 +3,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import PositionService from '#services/position_service'
 import ShiftService from '#services/shift_service'
 import EmployeeService from '#services/employee_service'
+import UserService from '#services/user_service'
 
 export default class EstructureDemoController {
    /**
@@ -185,6 +186,17 @@ export default class EstructureDemoController {
             title: createEmployees.title,
             message: createEmployees.message,
             data: { ...createEmployees },
+          }
+        }
+        const userService = new UserService(i18n)
+        const createUsers = await userService.createUsersDemo()
+        if (createUsers.status !== 201) {
+          response.status(createUsers.status)
+          return {
+            type: createUsers.type,
+            title: createUsers.title,
+            message: createUsers.message,
+            data: { ...createUsers },
           }
         }
         response.status(201)

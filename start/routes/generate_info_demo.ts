@@ -6,4 +6,4 @@ router
     router.post('/', '#controllers/estructure_demo_controller.generateInformationDemo')
   })
   .prefix('/api/generate-info-demo')
-  .use(middleware.auth())
+.use(middleware.auth())
