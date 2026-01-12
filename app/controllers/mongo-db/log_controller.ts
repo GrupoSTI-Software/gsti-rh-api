@@ -946,12 +946,42 @@ export default class LogController {
         (item: any) => item._collection === 'log_employee_shift_changes'
       )
 
+      const baseUrl = '/api/logs/exceptions/vacations-disabilities'
+      const queryParams = new URLSearchParams()
+      if (filter.userId) queryParams.append('userId', String(filter.userId))
+      if (filter.startDate) queryParams.append('startDate', filter.startDate)
+      if (filter.endDate) queryParams.append('endDate', filter.endDate)
+      if (filter.sortBy) queryParams.append('sortBy', filter.sortBy)
+      if (filter.sortOrder) queryParams.append('sortOrder', filter.sortOrder)
+
+      const queryString = queryParams.toString()
+      const urlPrefix = queryString
+        ? `${baseUrl}?${queryString}&`
+        : `${baseUrl}?`
+
       response.status(200)
       return {
         type: 'success',
         title: 'Logs',
         message: 'The logs were found successfully',
         data: {
+          meta: {
+            total: totalGeneral,
+            perPage: currentLimit,
+            currentPage: currentPage,
+            lastPage: totalPages,
+            firstPage: 1,
+            firstPageUrl: `${urlPrefix}page=1`,
+            lastPageUrl: `${urlPrefix}page=${totalPages}`,
+            nextPageUrl:
+              currentPage < totalPages
+                ? `${urlPrefix}page=${currentPage + 1}`
+                : null,
+            previousPageUrl:
+              currentPage > 1
+                ? `${urlPrefix}page=${currentPage - 1}`
+                : null,
+          },
           excepciones: {
             data: paginatedExcepciones,
             total: excepciones.length,
@@ -979,9 +1009,6 @@ export default class LogController {
             totalAsignacionesTurnos: asignacionesTurnos.length,
             totalCambiosTurnos: cambiosTurnosEnriquecidos.length,
             totalGeneral: totalGeneral,
-            page: currentPage,
-            limit: currentLimit,
-            totalPages: totalPages,
           },
         },
       }
