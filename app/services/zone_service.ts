@@ -1,4 +1,5 @@
 import Zone from '#models/zone'
+import EmployeeZone from '#models/employee_zone'
 import { ZoneFilterSearchInterface } from '../interfaces/zone_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
 
@@ -43,6 +44,10 @@ export default class ZoneService {
   }
 
   async delete(currentZone: Zone) {
+    await EmployeeZone.query()
+      .whereNull('employee_zone_deleted_at')
+      .where('zone_id', currentZone.zoneId)
+      .delete()
     await currentZone.delete()
     return currentZone
   }
