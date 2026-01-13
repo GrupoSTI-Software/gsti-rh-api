@@ -2229,14 +2229,24 @@ export default class EmployeeService {
         pos.positionName?.toLowerCase().includes('sin posición')
       )
 
-      // Obtener empleados existentes por número de empleado
+      // Obtener empleados existentes por número de nómina
       const existingEmployees = await Employee.query()
         .whereNull('deletedAt')
         .preload('person')
-        .select('employeeId', 'employeeCode', 'employeeFirstName', 'employeeLastName', 'employeeSecondLastName', 'personId')
+        .select(
+          'employeeId',
+          'employeeCode',
+          'employeePayrollCode',
+          'employeeFirstName',
+          'employeeLastName',
+          'employeeSecondLastName',
+          'personId'
+        )
 
       // Obtener códigos de empleado existentes para generar códigos únicos
-      const existingEmployeeCodes = existingEmployees.map(emp => emp.employeeCode.toString())
+      const existingEmployeeCodes = existingEmployees.map(emp =>
+        emp.employeeCode.toString()
+      )
 
       // Verificar límite de empleados (se verificará por unidad de negocio individual)
 
@@ -2381,9 +2391,12 @@ export default class EmployeeService {
             continue
           }
 
-          // Buscar empleado existente por número de empleado
-          const existingEmployee = existingEmployees.find(emp =>
-            emp.employeeCode.toString() === employeeData.employeeNumber
+          // Buscar empleado existente por número de nómina
+          const existingEmployee = existingEmployees.find(
+            (emp) =>
+              emp.employeePayrollCode?.toString() ===
+                employeeData.employeeNumber ||
+              emp.employeeCode.toString() === employeeData.employeeNumber
           )
 
           if (existingEmployee) {
@@ -2424,8 +2437,11 @@ export default class EmployeeService {
       if (results.limitReached) {
         // Procesar solo empleados existentes (actualizaciones)
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
-          const existingEmployee = existingEmployees.find(emp =>
-            emp.employeeCode.toString() === employeeData.employeeNumber
+          const existingEmployee = existingEmployees.find(
+            (emp) =>
+              emp.employeePayrollCode?.toString() ===
+                employeeData.employeeNumber ||
+              emp.employeeCode.toString() === employeeData.employeeNumber
           )
 
           if (existingEmployee) {
@@ -2448,9 +2464,12 @@ export default class EmployeeService {
 
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           try {
-            // Buscar empleado existente por número de empleado
-            const existingEmployee = existingEmployees.find(emp =>
-              emp.employeeCode.toString() === employeeData.employeeNumber
+            // Buscar empleado existente por número de nómina
+            const existingEmployee = existingEmployees.find(
+              (emp) =>
+                emp.employeePayrollCode?.toString() ===
+                  employeeData.employeeNumber ||
+                emp.employeeCode.toString() === employeeData.employeeNumber
             )
 
             if (existingEmployee) {
@@ -2462,7 +2481,9 @@ export default class EmployeeService {
               // Generar código de empleado único si no se proporciona
               let employeeCode = employeeData.employeeNumber
               if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-                employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+                employeeCode = this.generateUniqueEmployeeCode(
+                  existingEmployeeCodes
+                )
               }
               existingEmployeeCodes.push(employeeCode)
 
@@ -2541,7 +2562,11 @@ export default class EmployeeService {
       'Fecha de nacimiento (dd/mm/yyyy)',
       'CURP',
       'RFC',
-      'NSS'
+      'NSS',
+      'Correo empresa',
+      'Correo personal',
+      'Teléfono Empresa',
+      'Teléfono Personal'
     ]
 
     // Encabezados requeridos que deben estar presentes
@@ -2810,6 +2835,22 @@ export default class EmployeeService {
         data.rfc = value
       } else if (header.includes('nss')) {
         data.nss = value
+      } else if (header.includes('correo empresa')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.businessEmail = cellText || ''
+      } else if (header.includes('correo personal')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.personalEmail = cellText || ''
+      } else if (header.includes('teléfono empresa')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.businessPhone = cellText || ''
+      } else if (header.includes('teléfono personal')) {
+        // Usar cell.text que es el texto formateado que ve el usuario
+        const cellText = cell.text ? cell.text.trim() : ''
+        data.personalPhone = cellText || ''
       }
     })
 
@@ -2843,6 +2884,19 @@ export default class EmployeeService {
       existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
     }
 
+    // Actualizar número de nómina
+    if (employeeData.employeeNumber) {
+      existingEmployee.employeePayrollCode = employeeData.employeeNumber
+    }
+
+    // Actualizar correo y teléfono empresa
+    if (employeeData.businessEmail !== undefined) {
+      existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
+    }
+    if (employeeData.businessPhone !== undefined) {
+      existingEmployee.employeeBusinessPhone = employeeData.businessPhone || ''
+    }
+
     // Mapear departamento y posición usando búsqueda por similitud
     const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
     if (departmentId !== null) {
@@ -2867,6 +2921,14 @@ export default class EmployeeService {
       const parsedBirthday = this.parseDate(employeeData.birthDate)
       if (parsedBirthday) {
         person.personBirthday = parsedBirthday
+      }
+
+      // Actualizar correo y teléfono personal
+      if (employeeData.personalEmail !== undefined) {
+        person.personEmail = employeeData.personalEmail || ''
+      }
+      if (employeeData.personalPhone !== undefined) {
+        person.personPhone = employeeData.personalPhone || ''
       }
 
       await person.save()
@@ -2984,8 +3046,8 @@ export default class EmployeeService {
     person.personImssNss = employeeData.nss || ''
     person.personBirthday = this.parseDate(employeeData.birthDate)
     person.personGender = '' // No disponible en el Excel
-    person.personPhone = ''
-    person.personEmail = ''
+    person.personPhone = employeeData.personalPhone || ''
+    person.personEmail = employeeData.personalEmail || ''
     person.personPhoneSecondary = ''
     person.personMaritalStatus = ''
     person.personPlaceOfBirthCountry = ''
@@ -3002,6 +3064,7 @@ export default class EmployeeService {
   private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string) {
     const employee = new Employee()
     employee.employeeCode = employeeCode
+    employee.employeePayrollCode = employeeData.employeeNumber || employeeCode
     employee.employeeFirstName = employeeData.firstName || ''
     employee.employeeLastName = employeeData.lastName || ''
     employee.employeeSecondLastName = employeeData.secondLastName || ''
@@ -3021,9 +3084,10 @@ export default class EmployeeService {
     employee.businessUnitId = businessUnitId
     employee.dailySalary = employeeData.dailySalary || 0
     employee.payrollBusinessUnitId = payrollBusinessUnitId
-    employee.employeeAssistDiscriminator = 1
+    employee.employeeAssistDiscriminator = 0
     employee.employeeTypeId = 1 // Valor por defecto
-    employee.employeeBusinessEmail = ''
+    employee.employeeBusinessEmail = employeeData.businessEmail || ''
+    employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
     employee.employeeIgnoreConsecutiveAbsences = 0
@@ -3034,6 +3098,10 @@ export default class EmployeeService {
     employee.employeeLastSynchronizationAt = new Date()
 
     await employee.save()
+
+    // Generar slug único después de guardar (necesita employeeId)
+    await this.updateEmployeeSlug(employee)
+
     return employee
   }
 
@@ -3859,7 +3927,11 @@ export default class EmployeeService {
       'Fecha de nacimiento (dd/mm/yyyy)',
       'CURP',
       'RFC',
-      'NSS'
+      'NSS',
+      'Correo empresa',
+      'Correo personal',
+      'Teléfono Empresa',
+      'Teléfono Personal'
     ]
 
     // Encabezados requeridos (índices 0-4)
@@ -3907,7 +3979,10 @@ export default class EmployeeService {
     // ==============================
     //     ANCHO DE COLUMNAS
     // ==============================
-    const columnWidths = [25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20]
+    const columnWidths = [
+      25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20,
+      20
+    ]
     columnWidths.forEach((width, index) => {
       worksheet.getColumn(index + 1).width = width
     })
