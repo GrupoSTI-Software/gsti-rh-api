@@ -35,6 +35,8 @@ import ShiftException from '#models/shift_exception'
 import WorkDisability from '#models/work_disability'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import Holiday from '#models/holiday'
+import ToleranceService from './tolerance_service.js'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -3232,4 +3234,287 @@ export default class AssistsService {
     return text.charAt(0).toUpperCase() + text.slice(1);
   }
 
+  /**
+   * Elimina todas las asistencias existentes
+   * 
+   * Esta función:
+   * 1. Elimina todas las asistencias
+   * 
+   * @returns Objeto con el resultado de la operación
+   */
+  async deleteAllAssists() {
+    try {
+      // Contar registros antes de eliminar
+      const totalAssists = await Assist.query()
+        .count('* as total')
+
+      const counts = {
+        assists: Number(totalAssists[0].$extras.total),
+      }
+
+      // 1. Eliminar todas las asistencias
+      await Assist.query()
+        .delete()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Assists deleted successfully',
+        message: 'All assists have been deleted successfully',
+        data: {
+          deleted: {
+            assists: counts.assists,
+          },
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al eliminar todas las asistencias:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to delete assists',
+        message: 'An error occurred while trying to delete all assists',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea las asistencias demo de 2 meses atras a partir de hoy hacia atras
+   * 
+   * Distribución de porcentajes:
+   * - 90% on time (a tiempo)
+   * - 5% tolerancia (dentro del rango de tolerancia)
+   * - 3% retardos (dentro del rango de delay)
+   * - 2% faltas (no se crea la asistencia)
+   * 
+   * @returns Objeto con el resultado de la operación y las asistencias creadas
+   */
+  async createAssistDemo() {
+    try {
+      const createdAssists: { [key: string]: Assist } = {}
+
+      // Obtener tolerancias del sistema
+      const systemSettingService = new SystemSettingService()
+      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      let delayToleranceMinutes = 10 // Default
+      let faultToleranceMinutes = 30 // Default
+
+      if (systemSettingActive) {
+        const toleranceService = new ToleranceService()
+        const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
+        const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
+        const faultTolerance = tolerances.find((t) => t.toleranceName === 'Fault')
+        if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
+        if (faultTolerance) faultToleranceMinutes = faultTolerance.toleranceMinutes
+      }
+
+      const employees = await Employee.query()
+        .preload('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.preload('shift')
+        })
+        .whereNull('employee_deleted_at')
+     
+      if (!employees || employees.length === 0) {
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Employees not found',
+          message: 'The employees were not found',
+          data: null,
+        }
+      }
+
+      const holidays = await Holiday.query()
+        .whereNull('holiday_deleted_at')
+        .whereBetween('holiday_date', [DateTime.now().minus({ months: 2 }).toFormat('yyyy-MM-dd'), DateTime.now().toFormat('yyyy-MM-dd')])
+
+      for await(const employee of employees) {
+        const hourStart = employee.employeeShifts[0].shift.shiftTimeStart
+        const activeHours = employee.employeeShifts[0].shift.shiftActiveHours
+        const restDays = employee.employeeShifts[0].shift.shiftRestDays.split(',').map(Number)
+
+        const today = new Date()
+        const startDate = new Date(today)
+        startDate.setMonth(startDate.getMonth() - 1)
+        startDate.setDate(1)
+        today.setHours(0, 0, 0, 0)
+
+        // Recopilar todos los días laborables
+        const workDays: Date[] = []
+        let currentDate = new Date(startDate)
+
+        while (currentDate <= today) {
+          const jsDay = currentDate.getDay()
+          const dayOfWeek = jsDay === 0 ? 7 : jsDay
+
+          if (restDays.includes(dayOfWeek)) {
+            currentDate.setDate(currentDate.getDate() + 1)
+            continue
+          }
+
+          const currentDateString = DateTime.fromJSDate(currentDate).toFormat('yyyy-MM-dd')
+          const isHoliday = holidays.some((holiday) => {
+            let holidayDateString: string
+            const holidayDate = holiday.holidayDate as any
+            if (holidayDate instanceof Date) {
+              holidayDateString = DateTime.fromJSDate(holidayDate).toFormat('yyyy-MM-dd')
+            } else if (typeof holidayDate === 'string') {
+              holidayDateString = holidayDate.split('T')[0]
+            } else {
+              holidayDateString = DateTime.fromISO(String(holidayDate)).toFormat('yyyy-MM-dd')
+            }
+            return holidayDateString === currentDateString
+          })
+
+          if (!isHoliday) {
+            workDays.push(new Date(currentDate))
+          }
+
+          currentDate.setDate(currentDate.getDate() + 1)
+        }
+
+        // Distribuir días según porcentajes: 90% on time, 5% tolerancia, 3% retardos, 2% faltas
+        const totalDays = workDays.length
+        const onTimeCount = Math.round(totalDays * 0.90)
+        const toleranceCount = Math.round(totalDays * 0.05)
+        const delayCount = Math.round(totalDays * 0.03)
+        // Los días restantes (2%) serán faltas (no se crearán asistencias)
+
+        // Mezclar aleatoriamente los días
+        const shuffledDays = [...workDays].sort(() => Math.random() - 0.5)
+        const onTimeDays = shuffledDays.slice(0, onTimeCount)
+        const toleranceDays = shuffledDays.slice(onTimeCount, onTimeCount + toleranceCount)
+        const delayDays = shuffledDays.slice(onTimeCount + toleranceCount, onTimeCount + toleranceCount + delayCount)
+        // Los días restantes (faultDays) no se procesan (se omiten)
+
+        // Procesar días on time (90%)
+        for await (const workDate of onTimeDays) {
+          const punchTime = new Date(workDate)
+          punchTime.setHours(Number(hourStart.split(':')[0]), Number(hourStart.split(':')[1]), 0, 0)
+          // Permitir variación de -5 a 0 minutos (a tiempo o un poco antes)
+          const minutesVariation = Math.floor(Math.random() * 6) - 5 // -5 a 0
+          punchTime.setMinutes(punchTime.getMinutes() + minutesVariation)
+
+          const createAssist = new Assist()
+          createAssist.assistEmpId = employee.employeeId
+          createAssist.assistEmpCode = employee.employeeCode.toString()
+          createAssist.assistPunchTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTimeUtc = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTimeOrigin = DateTime.fromJSDate(punchTime)
+          createAssist.assistUploadTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistSyncId = 0
+          await createAssist.save()
+
+          const checkOutTime = DateTime.fromJSDate(punchTime).plus({ hours: activeHours }).toJSDate()
+          const createAssistOut = new Assist()
+          createAssistOut.assistEmpId = employee.employeeId
+          createAssistOut.assistEmpCode = employee.employeeCode.toString()
+          createAssistOut.assistPunchTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTimeUtc = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTimeOrigin = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistUploadTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistSyncId = 0
+          await createAssistOut.save()
+        }
+
+        // Procesar días con tolerancia (5%)
+        for await (const workDate of toleranceDays) {
+          const punchTime = new Date(workDate)
+          punchTime.setHours(Number(hourStart.split(':')[0]), Number(hourStart.split(':')[1]), 0, 0)
+          // Variación de 1 a delayToleranceMinutes minutos (dentro de la tolerancia)
+          const minutesVariation = Math.floor(Math.random() * delayToleranceMinutes) + 1
+          punchTime.setMinutes(punchTime.getMinutes() + minutesVariation)
+
+          const createAssist = new Assist()
+          createAssist.assistEmpId = employee.employeeId
+          createAssist.assistEmpCode = employee.employeeCode.toString()
+          createAssist.assistPunchTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTimeUtc = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTimeOrigin = DateTime.fromJSDate(punchTime)
+          createAssist.assistUploadTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistSyncId = 0
+          await createAssist.save()
+
+          const checkOutTime = DateTime.fromJSDate(punchTime).plus({ hours: activeHours }).toJSDate()
+          const createAssistOut = new Assist()
+          createAssistOut.assistEmpId = employee.employeeId
+          createAssistOut.assistEmpCode = employee.employeeCode.toString()
+          createAssistOut.assistPunchTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTimeUtc = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTimeOrigin = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistUploadTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistSyncId = 0
+          await createAssistOut.save()
+        }
+
+        // Procesar días con retardo (3%)
+        for await (const workDate of delayDays) {
+          const punchTime = new Date(workDate)
+          punchTime.setHours(Number(hourStart.split(':')[0]), Number(hourStart.split(':')[1]), 0, 0)
+          // Variación de delayToleranceMinutes + 1 a faultToleranceMinutes minutos (dentro del rango de delay)
+          const minutesVariation = Math.floor(Math.random() * (faultToleranceMinutes - delayToleranceMinutes)) + delayToleranceMinutes + 1
+          punchTime.setMinutes(punchTime.getMinutes() + minutesVariation)
+
+          const createAssist = new Assist()
+          createAssist.assistEmpId = employee.employeeId
+          createAssist.assistEmpCode = employee.employeeCode.toString()
+          createAssist.assistPunchTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTimeUtc = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTimeOrigin = DateTime.fromJSDate(punchTime)
+          createAssist.assistUploadTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistSyncId = 0
+          await createAssist.save()
+
+          const checkOutTime = DateTime.fromJSDate(punchTime).plus({ hours: activeHours }).toJSDate()
+          const createAssistOut = new Assist()
+          createAssistOut.assistEmpId = employee.employeeId
+          createAssistOut.assistEmpCode = employee.employeeCode.toString()
+          createAssistOut.assistPunchTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTimeUtc = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTimeOrigin = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistUploadTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistSyncId = 0
+          await createAssistOut.save()
+        }
+
+        // Los días con falta (2%) no se crean (se omiten)
+
+        if (onTimeDays.length > 0) {
+          createdAssists[employee.employeeId] = await Assist.query()
+            .where('assist_emp_id', employee.employeeId)
+            .orderBy('assist_punch_time', 'desc')
+            .first() as Assist
+        }
+      }
+
+      const summary = Object.keys(createdAssists).map((key) => ({
+        name: key,
+        id: createdAssists[key].assistId,
+        code: createdAssists[key].assistEmpCode,
+      }))
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Assists created successfully',
+        message: 'The assists were created successfully',
+        data: {
+          created: summary,
+          total: Object.keys(createdAssists).length,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error to create assists:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create assists',
+        message: 'An error occurred while trying to create the assists',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
 }

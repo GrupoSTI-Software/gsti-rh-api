@@ -4,6 +4,7 @@ import PositionService from '#services/position_service'
 import ShiftService from '#services/shift_service'
 import EmployeeService from '#services/employee_service'
 import UserService from '#services/user_service'
+import AssistsService from '#services/assist_service'
 
 export default class EstructureDemoController {
    /**
@@ -197,6 +198,39 @@ export default class EstructureDemoController {
             title: createUsers.title,
             message: createUsers.message,
             data: { ...createUsers },
+          }
+        }
+        
+        const assignShifts = await shiftService.assignShiftDemo()
+        if (assignShifts.status !== 201) {
+          response.status(assignShifts.status)
+          return {
+            type: assignShifts.type,
+            title: assignShifts.title,
+            message: assignShifts.message,
+            data: { ...assignShifts },
+          }
+        }
+
+        const assistService = new AssistsService(i18n);
+        const deleteAssists = await assistService.deleteAllAssists()
+        if (deleteAssists.status !== 200) {
+          response.status(deleteAssists.status)
+          return {
+            type: deleteAssists.type,
+            title: deleteAssists.title,
+            message: deleteAssists.message,
+            data: { ...deleteAssists },
+          }
+        }
+        const createAssists = await assistService.createAssistDemo()
+        if (createAssists.status !== 201) {
+          response.status(createAssists.status)
+          return {
+            type: createAssists.type,
+            title: createAssists.title,
+            message: createAssists.message,
+            data: { ...createAssists },
           }
         }
         response.status(201)

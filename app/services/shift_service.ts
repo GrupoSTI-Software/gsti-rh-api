@@ -1,3 +1,4 @@
+import Employee from '#models/employee'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import EmployeeShift from '#models/employee_shift'
 import EmployeeShiftChange from '#models/employee_shift_changes'
@@ -284,6 +285,65 @@ export default class ShiftService {
         type: 'error',
         title: 'Error to create shifts',
         message: 'An error occurred while trying to create the shifts',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+
+  /**
+   * Asigna el turno 08:00 to 17:00 - Rest (Sat, Sun) a los empleados demo
+   * 
+   * @returns Objeto con el resultado de la operación y el total de empleados con el turno asignado
+   */
+  async assignShiftDemo() {
+    try {
+      const totalEmployeesWithShift = await EmployeeShift.query().count('* as total')
+
+      const shiftId = await Shift.query()
+        .where('shift_name', '08:00 to 17:00 - Rest (Sat, Sun)')
+        .whereNull('shift_deleted_at')
+        .first()
+      if (!shiftId) {
+        console.error('Shift not found:', shiftId)
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Shift not found',
+          message: 'The shift 08:00 to 17:00 - Rest (Sat, Sun) was not found',
+          data: null,
+        }
+      }
+
+      // Asignar el turno 08:00 to 17:00 - Rest (Sat, Sun) a los empleados demo
+      const employees = await Employee.query()
+        .whereNull('employee_deleted_at')
+
+      for await(const employee of employees) {
+        const employeeShift = new EmployeeShift()
+        employeeShift.employeeId = employee.employeeId
+        employeeShift.shiftId = shiftId?.shiftId
+        employeeShift.employeShiftsApplySince = '2025-01-01'
+        await employeeShift.save()
+      }
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Shifts assigned successfully',
+        message: 'The shifts were assigned successfully',
+        data: {
+          total: totalEmployeesWithShift[0].$extras.total,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error to assign shifts:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to assign shifts',
+        message: 'An error occurred while trying to assign the shifts',
         error: error.message,
         data: null,
       }
