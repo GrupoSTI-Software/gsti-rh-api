@@ -567,6 +567,8 @@ export default class LogController {
    *       - log_vacations: Vacaciones
    *       - log_employee_shifts: Asignaciones y eliminaciones de turnos a empleados
    *       - log_employee_shift_changes: Cambios de turnos entre empleados
+   *       - log_zones: Creación, modificación y eliminación de zonas
+   *       - log_employee_zones: Asignaciones de zonas a empleados
    *
    *       **Clasificación automática:**
    *       - Excepciones: Excepciones que no son vacaciones ni incapacidades
@@ -574,6 +576,8 @@ export default class LogController {
    *       - Incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
    *       - Asignaciones de turnos: Registros de log_employee_shifts (asignaciones y eliminaciones)
    *       - Cambios de turnos: Registros de log_employee_shift_changes
+   *       - Zonas: Registros de log_zones (creación, modificación y eliminación de zonas)
+   *       - Asignaciones de zonas: Registros de log_employee_zones (asignaciones de zonas a empleados)
    *
    *       **Configuración MongoDB:** Requiere MONGODB_MODE configurado correctamente.
    *     produces:
@@ -624,14 +628,17 @@ export default class LogController {
    *     responses:
    *       '200':
    *         description: |
-   *           Logs clasificados en cinco categorías: excepciones, vacaciones, incapacidades,
-   *           asignaciones de turnos y cambios de turnos.
+   *           Logs clasificados en siete categorías: excepciones, vacaciones, incapacidades,
+   *           asignaciones de turnos, cambios de turnos, zonas y asignaciones de zonas.
    *           - excepciones: Excepciones que NO son vacaciones ni incapacidades
    *           - vacaciones: Registros de log_vacations
    *           - incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
    *           - asignacionesTurnos: Registros de log_employee_shifts (asignaciones y eliminaciones)
    *           - cambiosTurnos: Registros de log_employee_shift_changes
    *             (incluye shiftNameFrom y shiftNameTo con los nombres de los turnos)
+   *           - zonas: Registros de log_zones (creación, modificación y eliminación de zonas)
+   *           - asignacionesZonas: Registros de log_employee_zones
+   *             (incluye información del empleado y la zona asignada)
    *         content:
    *           application/json:
    *             schema:
@@ -689,6 +696,22 @@ export default class LogController {
    *                         total:
    *                           type: integer
    *                           example: 8
+   *                     zonas:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 3
+   *                     asignacionesZonas:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 5
    *                     summary:
    *                       type: object
    *                       properties:
@@ -707,9 +730,15 @@ export default class LogController {
    *                         totalCambiosTurnos:
    *                           type: integer
    *                           example: 8
+   *                         totalZonas:
+   *                           type: integer
+   *                           example: 3
+   *                         totalAsignacionesZonas:
+   *                           type: integer
+   *                           example: 5
    *                         totalGeneral:
    *                           type: integer
-   *                           example: 63
+   *                           example: 71
    *                         page:
    *                           type: integer
    *                         limit:
@@ -762,6 +791,8 @@ export default class LogController {
         'log_vacations',
         'log_employee_shifts',
         'log_employee_shift_changes',
+        'log_zones',
+        'log_employee_zones',
       ]
 
       const disabilityExceptionType = await ExceptionType.query()
@@ -799,7 +830,9 @@ export default class LogController {
         }
         if (
           item._collection === 'log_employee_shifts' ||
-          item._collection === 'log_employee_shift_changes'
+          item._collection === 'log_employee_shift_changes' ||
+          item._collection === 'log_zones' ||
+          item._collection === 'log_employee_zones'
         ) {
           return false
         }
@@ -820,6 +853,14 @@ export default class LogController {
 
       const cambiosTurnos = result.data.filter(
         (item: any) => item._collection === 'log_employee_shift_changes'
+      )
+
+      const zonas = result.data.filter(
+        (item: any) => item._collection === 'log_zones'
+      )
+
+      const asignacionesZonas = result.data.filter(
+        (item: any) => item._collection === 'log_employee_zones'
       )
 
       let cambiosTurnosEnriquecidos = cambiosTurnos
@@ -888,12 +929,22 @@ export default class LogController {
             data: cambiosTurnosEnriquecidos,
             total: cambiosTurnosEnriquecidos.length,
           },
+          zonas: {
+            data: zonas,
+            total: zonas.length,
+          },
+          asignacionesZonas: {
+            data: asignacionesZonas,
+            total: asignacionesZonas.length,
+          },
           summary: {
             totalExcepciones: excepciones.length,
             totalVacaciones: vacaciones.length,
             totalIncapacidades: incapacidades.length,
             totalAsignacionesTurnos: asignacionesTurnos.length,
             totalCambiosTurnos: cambiosTurnos.length,
+            totalZonas: zonas.length,
+            totalAsignacionesZonas: asignacionesZonas.length,
             totalGeneral: result.total,
             page: result.page,
             limit: result.limit,
