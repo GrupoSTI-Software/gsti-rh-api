@@ -3295,20 +3295,8 @@ export default class AssistsService {
     try {
       const createdAssists: { [key: string]: Assist } = {}
 
-      // Obtener tolerancias del sistema
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-      let delayToleranceMinutes = 10 // Default
-      let faultToleranceMinutes = 30 // Default
-
-      if (systemSettingActive) {
-        const toleranceService = new ToleranceService()
-        const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-        const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
-        const faultTolerance = tolerances.find((t) => t.toleranceName === 'Fault')
-        if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
-        if (faultTolerance) faultToleranceMinutes = faultTolerance.toleranceMinutes
-      }
+      const delayToleranceMinutes = await this.getDelayToleranceMinutes()
+      const faultToleranceMinutes = await this.getTardinessToleranceMinutes()
 
       const employees = await Employee.query()
         .preload('employeeShifts', (employeeShiftQuery) => {
@@ -3340,6 +3328,7 @@ export default class AssistsService {
         startDate.setMonth(startDate.getMonth() - 1)
         startDate.setDate(1)
         today.setHours(0, 0, 0, 0)
+        today.setDate(today.getDate() + 1)
 
         // Recopilar todos los días laborables
         const workDays: Date[] = []
@@ -3391,90 +3380,114 @@ export default class AssistsService {
 
         // Procesar días on time (90%)
         for await (const workDate of onTimeDays) {
-          const punchTime = new Date(workDate)
-          punchTime.setHours(Number(hourStart.split(':')[0]), Number(hourStart.split(':')[1]), 0, 0)
+          const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
+          const [hour, minute] = hourStart.split(':')
+          
           // Permitir variación de -5 a 0 minutos (a tiempo o un poco antes)
           const minutesVariation = Math.floor(Math.random() * 6) - 5 // -5 a 0
-          punchTime.setMinutes(punchTime.getMinutes() + minutesVariation)
-
+          
+          // Crear DateTime base con la hora de inicio
+          const baseTimeString = `${dateString} ${hour}:${minute}:00`
+          const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' })
+          
+          // Aplicar variación de minutos (puede ser negativa)
+          const punchTime = baseTime.plus({ minutes: minutesVariation }).toUTC()
+          
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
           createAssist.assistEmpCode = employee.employeeCode.toString()
-          createAssist.assistPunchTime = DateTime.fromJSDate(punchTime)
-          createAssist.assistPunchTimeUtc = DateTime.fromJSDate(punchTime)
-          createAssist.assistPunchTimeOrigin = DateTime.fromJSDate(punchTime)
-          createAssist.assistUploadTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTime = punchTime
+          createAssist.assistPunchTimeUtc = punchTime
+          createAssist.assistPunchTimeOrigin = punchTime
+          createAssist.assistUploadTime = punchTime
           createAssist.assistSyncId = 0
           await createAssist.save()
 
-          const checkOutTime = DateTime.fromJSDate(punchTime).plus({ hours: activeHours }).toJSDate()
+          const checkOutTime = punchTime.plus({ hours: activeHours })
           const createAssistOut = new Assist()
           createAssistOut.assistEmpId = employee.employeeId
           createAssistOut.assistEmpCode = employee.employeeCode.toString()
-          createAssistOut.assistPunchTime = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistPunchTimeUtc = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistPunchTimeOrigin = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistUploadTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTime = checkOutTime
+          createAssistOut.assistPunchTimeUtc = checkOutTime
+          createAssistOut.assistPunchTimeOrigin = checkOutTime
+          createAssistOut.assistUploadTime = checkOutTime
           createAssistOut.assistSyncId = 0
           await createAssistOut.save()
         }
 
         // Procesar días con tolerancia (5%)
         for await (const workDate of toleranceDays) {
-          const punchTime = new Date(workDate)
-          punchTime.setHours(Number(hourStart.split(':')[0]), Number(hourStart.split(':')[1]), 0, 0)
+          const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
+          const [hour, minute] = hourStart.split(':')
+          
           // Variación de 1 a delayToleranceMinutes minutos (dentro de la tolerancia)
           const minutesVariation = Math.floor(Math.random() * delayToleranceMinutes) + 1
-          punchTime.setMinutes(punchTime.getMinutes() + minutesVariation)
-
+          const totalMinutes = Number(minute) + minutesVariation
+          const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
+          const finalMinute = totalMinutes % 60
+          const finalSecond = 0
+          
+          // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
+          const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+          
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
           createAssist.assistEmpCode = employee.employeeCode.toString()
-          createAssist.assistPunchTime = DateTime.fromJSDate(punchTime)
-          createAssist.assistPunchTimeUtc = DateTime.fromJSDate(punchTime)
-          createAssist.assistPunchTimeOrigin = DateTime.fromJSDate(punchTime)
-          createAssist.assistUploadTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTime = punchTime
+          createAssist.assistPunchTimeUtc = punchTime
+          createAssist.assistPunchTimeOrigin = punchTime
+          createAssist.assistUploadTime = punchTime
           createAssist.assistSyncId = 0
           await createAssist.save()
 
-          const checkOutTime = DateTime.fromJSDate(punchTime).plus({ hours: activeHours }).toJSDate()
+          const checkOutTime = punchTime.plus({ hours: activeHours })
+          
           const createAssistOut = new Assist()
           createAssistOut.assistEmpId = employee.employeeId
           createAssistOut.assistEmpCode = employee.employeeCode.toString()
-          createAssistOut.assistPunchTime = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistPunchTimeUtc = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistPunchTimeOrigin = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistUploadTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTime = checkOutTime
+          createAssistOut.assistPunchTimeUtc = checkOutTime
+          createAssistOut.assistPunchTimeOrigin = checkOutTime
+          createAssistOut.assistUploadTime = checkOutTime
           createAssistOut.assistSyncId = 0
           await createAssistOut.save()
         }
 
         // Procesar días con retardo (3%)
         for await (const workDate of delayDays) {
-          const punchTime = new Date(workDate)
-          punchTime.setHours(Number(hourStart.split(':')[0]), Number(hourStart.split(':')[1]), 0, 0)
+          const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
+          const [hour, minute] = hourStart.split(':')
+          
           // Variación de delayToleranceMinutes + 1 a faultToleranceMinutes minutos (dentro del rango de delay)
           const minutesVariation = Math.floor(Math.random() * (faultToleranceMinutes - delayToleranceMinutes)) + delayToleranceMinutes + 1
-          punchTime.setMinutes(punchTime.getMinutes() + minutesVariation)
-
+          const totalMinutes = Number(minute) + minutesVariation
+          const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
+          const finalMinute = totalMinutes % 60
+          const finalSecond = 0
+          
+          // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
+          const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+          
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
           createAssist.assistEmpCode = employee.employeeCode.toString()
-          createAssist.assistPunchTime = DateTime.fromJSDate(punchTime)
-          createAssist.assistPunchTimeUtc = DateTime.fromJSDate(punchTime)
-          createAssist.assistPunchTimeOrigin = DateTime.fromJSDate(punchTime)
-          createAssist.assistUploadTime = DateTime.fromJSDate(punchTime)
+          createAssist.assistPunchTime = punchTime
+          createAssist.assistPunchTimeUtc = punchTime
+          createAssist.assistPunchTimeOrigin = punchTime
+          createAssist.assistUploadTime = punchTime
           createAssist.assistSyncId = 0
           await createAssist.save()
 
-          const checkOutTime = DateTime.fromJSDate(punchTime).plus({ hours: activeHours }).toJSDate()
+          const checkOutTime = punchTime.plus({ hours: activeHours })
           const createAssistOut = new Assist()
           createAssistOut.assistEmpId = employee.employeeId
           createAssistOut.assistEmpCode = employee.employeeCode.toString()
-          createAssistOut.assistPunchTime = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistPunchTimeUtc = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistPunchTimeOrigin = DateTime.fromJSDate(checkOutTime)
-          createAssistOut.assistUploadTime = DateTime.fromJSDate(checkOutTime)
+          createAssistOut.assistPunchTime = checkOutTime
+          createAssistOut.assistPunchTimeUtc = checkOutTime
+          createAssistOut.assistPunchTimeOrigin = checkOutTime
+          createAssistOut.assistUploadTime = checkOutTime
           createAssistOut.assistSyncId = 0
           await createAssistOut.save()
         }
@@ -3516,5 +3529,36 @@ export default class AssistsService {
         data: null,
       }
     }
+  }
+
+  /**
+   * Obtiene la tolerancia de retardo del sistema
+   * 
+   * @returns {Promise<number>} La tolerancia de retardo en minutos
+   */
+  async getDelayToleranceMinutes(): Promise<number> {
+    const systemSettingService = new SystemSettingService()
+    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+    let delayToleranceMinutes = 10 // Default
+    if (systemSettingActive) {
+      const toleranceService = new ToleranceService()
+      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
+      const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
+      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes 
+    }
+    return delayToleranceMinutes
+  }
+
+  async getTardinessToleranceMinutes(): Promise<number> {
+    const systemSettingService = new SystemSettingService()
+    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+    let tardinessToleranceMinutes = 10 // Default
+    if (systemSettingActive) {
+      const toleranceService = new ToleranceService()
+      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
+      const tardinessTolerance = tolerances.find((t) => t.toleranceName === 'TardinessTolerance')
+      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes 
+    }
+    return tardinessToleranceMinutes
   }
 }

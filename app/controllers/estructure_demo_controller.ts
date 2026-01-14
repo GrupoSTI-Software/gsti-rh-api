@@ -158,6 +158,7 @@ export default class EstructureDemoController {
             data: { ...deleteShifts },
           }
         }
+        
         const createShifts = await shiftService.createShiftDemo()
         if (createShifts.status !== 201) {
           response.status(createShifts.status)
@@ -168,6 +169,7 @@ export default class EstructureDemoController {
             data: { ...createShifts },
           }
         }
+
         const employeeService = new EmployeeService(i18n)
         const deleteEmployees = await employeeService.deleteAllEmployees()
         if (deleteEmployees.status !== 200) {
@@ -179,6 +181,7 @@ export default class EstructureDemoController {
             data: { ...deleteEmployees },
           }
         }
+
         const createEmployees = await employeeService.createEmployeeDemo()
         if (createEmployees.status !== 201) {
           response.status(createEmployees.status)
@@ -189,6 +192,7 @@ export default class EstructureDemoController {
             data: { ...createEmployees },
           }
         }
+
         const userService = new UserService(i18n)
         const createUsers = await userService.createUsersDemo()
         if (createUsers.status !== 201) {
@@ -200,7 +204,7 @@ export default class EstructureDemoController {
             data: { ...createUsers },
           }
         }
-        
+
         const assignShifts = await shiftService.assignShiftDemo()
         if (assignShifts.status !== 201) {
           response.status(assignShifts.status)
