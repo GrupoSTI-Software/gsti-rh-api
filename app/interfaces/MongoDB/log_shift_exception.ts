@@ -9,6 +9,7 @@ interface LogShiftException {
   sec_ch_ua: string
   origin: string
   date: string
+  employeeShiftId?: number | null
   record_previous: ShiftException
   record_current: ShiftException
 }

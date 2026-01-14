@@ -35,6 +35,7 @@ import ShiftException from '#models/shift_exception'
 import WorkDisability from '#models/work_disability'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import EmployeeShift from '#models/employee_shift'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -2052,8 +2053,28 @@ export default class AssistsService {
 
   async saveActionOnLog(logAssist: LogAssist) {
     try {
+      const employeeId = logAssist.record_current?.assistEmpId
+      if (employeeId) {
+        const employeeShiftId = await this.getEmployeeShiftId(employeeId)
+        logAssist.employeeShiftId = employeeShiftId
+      }
       await LogStore.set('log_assist', logAssist)
     } catch (err) {}
+  }
+
+  async getEmployeeShiftId(employeeId: number): Promise<number | null> {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const employeeShift = await EmployeeShift.query()
+        .whereNull('employe_shifts_deleted_at')
+        .where('employee_id', employeeId)
+        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [today])
+        .orderBy('employe_shifts_apply_since', 'desc')
+        .first()
+      return employeeShift?.shiftId || null
+    } catch (error) {
+      return null
+    }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {
