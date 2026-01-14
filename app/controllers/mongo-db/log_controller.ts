@@ -614,13 +614,6 @@ export default class LogController {
    *           type: string
    *           default: date
    *         description: Field to sort by
-   *       - in: query
-   *         name: sortOrder
-   *         schema:
-   *           type: string
-   *           enum: [asc, desc]
-   *           default: desc
-   *         description: Sort order (asc or desc)
    *     responses:
    *       '200':
    *         description: |
@@ -730,7 +723,6 @@ export default class LogController {
       const page = request.input('page', 1)
       const limit = request.input('limit', 50)
       const sortBy = request.input('sortBy', 'date')
-      const sortOrder = request.input('sortOrder', 'desc')
 
       const filter = {
         userId: userId || undefined,
@@ -739,7 +731,7 @@ export default class LogController {
         page: Number(page),
         limit: Number(limit),
         sortBy: sortBy,
-        sortOrder: sortOrder,
+        sortOrder: 'desc' as const,
       }
 
       const logRequest = LogRequest.getInstance()
@@ -880,16 +872,11 @@ export default class LogController {
       ]
 
       const sortByField = filter.sortBy || 'date'
-      const sortOrderValue = filter.sortOrder === 'asc' ? 1 : -1
 
       allResults.sort((a, b) => {
         const aValue = a[sortByField] || a.date || ''
         const bValue = b[sortByField] || b.date || ''
-        if (sortOrderValue === 1) {
-          return aValue > bValue ? 1 : aValue < bValue ? -1 : 0
-        } else {
-          return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
-        }
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
       })
 
       const totalGeneral = allResults.length
@@ -952,7 +939,6 @@ export default class LogController {
       if (filter.startDate) queryParams.append('startDate', filter.startDate)
       if (filter.endDate) queryParams.append('endDate', filter.endDate)
       if (filter.sortBy) queryParams.append('sortBy', filter.sortBy)
-      if (filter.sortOrder) queryParams.append('sortOrder', filter.sortOrder)
 
       const queryString = queryParams.toString()
       const urlPrefix = queryString
