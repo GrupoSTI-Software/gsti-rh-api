@@ -70,7 +70,7 @@ export default class LogController {
    *         name: limit
    *         schema:
    *           type: integer
-   *           default: 50
+   *           default: 25
    *         description: Number of items per page
    *       - in: query
    *         name: sortBy
@@ -606,7 +606,7 @@ export default class LogController {
    *         name: limit
    *         schema:
    *           type: integer
-   *           default: 50
+   *           default: 25
    *         description: Number of items per page
    *       - in: query
    *         name: sortBy
@@ -769,7 +769,16 @@ export default class LogController {
         .where('exception_type_slug', 'falta-por-incapacidad')
         .first()
 
-      const result = await LogStore.getMultipleCollections(collections, filter)
+      const filterWithoutPagination = {
+        ...filter,
+        page: 1,
+        limit: 999999,
+      }
+
+      const result = await LogStore.getMultipleCollections(
+        collections,
+        filterWithoutPagination
+      )
 
       const incapacidades = result.data.filter((item: any) => {
         const current = item.record_current || {}
@@ -862,30 +871,135 @@ export default class LogController {
         }
       }
 
+      const allResults = [
+        ...excepciones,
+        ...vacaciones,
+        ...incapacidades,
+        ...asignacionesTurnos,
+        ...cambiosTurnosEnriquecidos,
+      ]
+
+      const sortByField = filter.sortBy || 'date'
+      const sortOrderValue = filter.sortOrder === 'asc' ? 1 : -1
+
+      allResults.sort((a, b) => {
+        const aValue = a[sortByField] || a.date || ''
+        const bValue = b[sortByField] || b.date || ''
+        if (sortOrderValue === 1) {
+          return aValue > bValue ? 1 : aValue < bValue ? -1 : 0
+        } else {
+          return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
+        }
+      })
+
+      const totalGeneral = allResults.length
+      const currentPage = filter.page || 1
+      const currentLimit = filter.limit || 25
+      const skip = (currentPage - 1) * currentLimit
+      const paginatedResults = allResults.slice(skip, skip + currentLimit)
+      const totalPages = Math.ceil(totalGeneral / currentLimit)
+
+      const paginatedExcepciones = paginatedResults.filter((item: any) => {
+        if (item._collection === 'log_vacations') {
+          return false
+        }
+        if (
+          item._collection === 'log_employee_shifts' ||
+          item._collection === 'log_employee_shift_changes'
+        ) {
+          return false
+        }
+        const current = item.record_current || {}
+        const previous = item.record_previous || {}
+        const isDisability =
+          (disabilityExceptionTypeId &&
+            (current.exceptionTypeId === disabilityExceptionTypeId ||
+              previous.exceptionTypeId === disabilityExceptionTypeId)) ||
+          current.workDisabilityPeriodId ||
+          previous.workDisabilityPeriodId
+        return !isDisability
+      })
+
+      const paginatedVacaciones = paginatedResults.filter(
+        (item: any) => item._collection === 'log_vacations'
+      )
+
+      const paginatedIncapacidades = paginatedResults.filter((item: any) => {
+        const current = item.record_current || {}
+        const previous = item.record_previous || {}
+        return (
+          (disabilityExceptionType &&
+            (current.exceptionTypeId ===
+              disabilityExceptionType.exceptionTypeId ||
+              previous.exceptionTypeId ===
+                disabilityExceptionType.exceptionTypeId)) ||
+          current.workDisabilityPeriodId ||
+          previous.workDisabilityPeriodId
+        )
+      })
+
+      const paginatedAsignacionesTurnos = paginatedResults.filter(
+        (item: any) => item._collection === 'log_employee_shifts'
+      )
+
+      const paginatedCambiosTurnos = paginatedResults.filter(
+        (item: any) => item._collection === 'log_employee_shift_changes'
+      )
+
+      const baseUrl = '/api/logs/exceptions/vacations-disabilities'
+      const queryParams = new URLSearchParams()
+      if (filter.userId) queryParams.append('userId', String(filter.userId))
+      if (filter.startDate) queryParams.append('startDate', filter.startDate)
+      if (filter.endDate) queryParams.append('endDate', filter.endDate)
+      if (filter.sortBy) queryParams.append('sortBy', filter.sortBy)
+      if (filter.sortOrder) queryParams.append('sortOrder', filter.sortOrder)
+
+      const queryString = queryParams.toString()
+      const urlPrefix = queryString
+        ? `${baseUrl}?${queryString}&`
+        : `${baseUrl}?`
+
       response.status(200)
       return {
         type: 'success',
         title: 'Logs',
         message: 'The logs were found successfully',
         data: {
+          meta: {
+            total: totalGeneral,
+            perPage: currentLimit,
+            currentPage: currentPage,
+            lastPage: totalPages,
+            firstPage: 1,
+            firstPageUrl: `${urlPrefix}page=1`,
+            lastPageUrl: `${urlPrefix}page=${totalPages}`,
+            nextPageUrl:
+              currentPage < totalPages
+                ? `${urlPrefix}page=${currentPage + 1}`
+                : null,
+            previousPageUrl:
+              currentPage > 1
+                ? `${urlPrefix}page=${currentPage - 1}`
+                : null,
+          },
           excepciones: {
-            data: excepciones,
+            data: paginatedExcepciones,
             total: excepciones.length,
           },
           vacaciones: {
-            data: vacaciones,
+            data: paginatedVacaciones,
             total: vacaciones.length,
           },
           incapacidades: {
-            data: incapacidades,
+            data: paginatedIncapacidades,
             total: incapacidades.length,
           },
           asignacionesTurnos: {
-            data: asignacionesTurnos,
+            data: paginatedAsignacionesTurnos,
             total: asignacionesTurnos.length,
           },
           cambiosTurnos: {
-            data: cambiosTurnosEnriquecidos,
+            data: paginatedCambiosTurnos,
             total: cambiosTurnosEnriquecidos.length,
           },
           summary: {
@@ -893,11 +1007,8 @@ export default class LogController {
             totalVacaciones: vacaciones.length,
             totalIncapacidades: incapacidades.length,
             totalAsignacionesTurnos: asignacionesTurnos.length,
-            totalCambiosTurnos: cambiosTurnos.length,
-            totalGeneral: result.total,
-            page: result.page,
-            limit: result.limit,
-            totalPages: result.totalPages,
+            totalCambiosTurnos: cambiosTurnosEnriquecidos.length,
+            totalGeneral: totalGeneral,
           },
         },
       }
