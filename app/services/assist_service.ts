@@ -3313,10 +3313,21 @@ export default class AssistsService {
           data: null,
         }
       }
+      // Obtener unidades de negocio activas
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
 
       const holidays = await Holiday.query()
         .whereNull('holiday_deleted_at')
         .whereBetween('holiday_date', [DateTime.now().minus({ months: 2 }).toFormat('yyyy-MM-dd'), DateTime.now().toFormat('yyyy-MM-dd')])
+        .andWhere((query) => {
+          query.andWhere((subQuery) => {
+            businessList.forEach((business) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+            })
+          })
+        })
+        
 
       for await(const employee of employees) {
         const hourStart = employee.employeeShifts[0].shift.shiftTimeStart
@@ -3366,10 +3377,42 @@ export default class AssistsService {
 
         // Distribuir días según porcentajes: 90% on time, 5% tolerancia, 3% retardos, 2% faltas
         const totalDays = workDays.length
-        const onTimeCount = Math.round(totalDays * 0.90)
-        const toleranceCount = Math.round(totalDays * 0.05)
-        const delayCount = Math.round(totalDays * 0.03)
-        // Los días restantes (2%) serán faltas (no se crearán asistencias)
+        
+        // Calcular primero las faltas (2%) para asegurar que siempre haya días sin asistencia
+        const faultCount = Math.max(1, Math.round(totalDays * 0.02))
+        const remainingDays = totalDays - faultCount
+        
+        // Calcular los porcentajes basados en el total original
+        let onTimeCount = Math.round(totalDays * 0.90)
+        let toleranceCount = Math.round(totalDays * 0.05)
+        let delayCount = Math.round(totalDays * 0.03)
+        
+        // Verificar si la suma excede los días disponibles (sin contar faltas)
+        let totalAssigned = onTimeCount + toleranceCount + delayCount
+        
+        // Si excede, ajustar proporcionalmente manteniendo los porcentajes relativos
+        if (totalAssigned > remainingDays) {
+          const excess = totalAssigned - remainingDays
+          // Calcular factores de ajuste proporcional
+          const onTimeFactor = onTimeCount / totalAssigned
+          const toleranceFactor = toleranceCount / totalAssigned
+          const delayFactor = delayCount / totalAssigned
+          
+          // Reducir proporcionalmente
+          onTimeCount = Math.max(0, Math.round(onTimeCount - (excess * onTimeFactor)))
+          toleranceCount = Math.max(0, Math.round(toleranceCount - (excess * toleranceFactor)))
+          delayCount = Math.max(0, Math.round(delayCount - (excess * delayFactor)))
+          
+          // Ajuste final si todavía excede por redondeos
+          totalAssigned = onTimeCount + toleranceCount + delayCount
+          if (totalAssigned > remainingDays) {
+            const finalExcess = totalAssigned - remainingDays
+            onTimeCount = Math.max(0, onTimeCount - finalExcess)
+          }
+        } else if (totalAssigned < remainingDays) {
+          // Si sobran días, agregarlos a onTimeCount para completar
+          onTimeCount += remainingDays - totalAssigned
+        }
 
         // Mezclar aleatoriamente los días
         const shuffledDays = [...workDays].sort(() => Math.random() - 0.5)
@@ -3454,13 +3497,14 @@ export default class AssistsService {
           await createAssistOut.save()
         }
 
+
         // Procesar días con retardo (3%)
         for await (const workDate of delayDays) {
           const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
           const [hour, minute] = hourStart.split(':')
           
           // Variación de delayToleranceMinutes + 1 a faultToleranceMinutes minutos (dentro del rango de delay)
-          const minutesVariation = Math.floor(Math.random() * (faultToleranceMinutes - delayToleranceMinutes)) + delayToleranceMinutes + 1
+          const minutesVariation = Math.floor(Math.random() * (faultToleranceMinutes - delayToleranceMinutes)) + delayToleranceMinutes + 15
           const totalMinutes = Number(minute) + minutesVariation
           const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
           const finalMinute = totalMinutes % 60
@@ -3493,6 +3537,7 @@ export default class AssistsService {
         }
 
         // Los días con falta (2%) no se crean (se omiten)
+        // imprimir fechas de faltas no creadas
 
         if (onTimeDays.length > 0) {
           createdAssists[employee.employeeId] = await Assist.query()
