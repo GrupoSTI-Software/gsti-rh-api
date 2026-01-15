@@ -4112,7 +4112,21 @@ async generateShiftAssignmentTemplate(
     const endYear = endDateTime.year
 
     // Procesar cada festivo según su frecuencia
+    // SOLO incluir días festivos que son descanso oficial (feriados)
     holidays.forEach((holiday) => {
+      // Verificar si es descanso oficial (manejar tanto boolean como number)
+      const holidayAny = holiday as any
+      const isOfficialRestDay =
+        holiday.holidayIsOfficialRestDay === true ||
+        holidayAny.holidayIsOfficialRestDay === 1 ||
+        holidayAny.holiday_is_official_rest_day === true ||
+        holidayAny.holiday_is_official_rest_day === 1
+
+      // Solo procesar si es descanso oficial
+      if (!isOfficialRestDay) {
+        return
+      }
+
       // Manejar tanto string como Date dependiendo de cómo Lucid devuelva el dato
       let baseHolidayDate: DateTime
       const holidayDateValue = holiday.holidayDate as any
@@ -4666,6 +4680,8 @@ async generateShiftAssignmentTemplate(
         let cellValue = ''
         let cellColor = 'FFFFFFFF'
 
+        // Solo mostrar "Día festivo" si es descanso oficial (feriado)
+        // isHoliday solo es true para descansos oficiales después del filtro
         if (isHoliday || dayData?.isHoliday) {
           cellValue = 'Día festivo'
           cellColor = 'FFE0E0E0' // Gris claro para días festivos
@@ -4673,6 +4689,7 @@ async generateShiftAssignmentTemplate(
           cellValue = 'vacaciones'
           cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
         } else if (dayData?.shiftName) {
+          // Si hay turno asignado, mostrarlo (incluso si es un día festivo que NO es descanso oficial)
           cellValue = dayData.shiftName
           cellColor = getShiftColor(dayData.shiftId)
         }
