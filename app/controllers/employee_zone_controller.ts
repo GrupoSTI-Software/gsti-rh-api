@@ -2,6 +2,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import EmployeeZone from '#models/employee_zone'
 import EmployeeZoneService from '#services/employee_zone_service'
 import { createEmployeeZoneValidator, updateEmployeeZoneValidator } from '#validators/employee_zone'
+import Employee from '#models/employee'
 
 export default class EmployeeZoneController {
   /**
@@ -112,7 +113,7 @@ export default class EmployeeZoneController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await request.validateUsing(createEmployeeZoneValidator)
@@ -136,6 +137,28 @@ export default class EmployeeZoneController {
       }
       const newEmployeeZone = await employeeZoneService.create(employeeZone)
       if (newEmployeeZone) {
+        await newEmployeeZone.load('zone')
+        const userId = auth.user?.userId
+        if (userId) {
+          const rawHeaders = request.request.rawHeaders
+          const logEmployeeZone = await employeeZoneService.createActionLog(
+            rawHeaders,
+            'store'
+          )
+          logEmployeeZone.user_id = userId
+          logEmployeeZone.record_current = JSON.parse(JSON.stringify(newEmployeeZone))
+          const employee = await Employee.query()
+            .whereNull('employee_deleted_at')
+            .where('employee_id', employeeId)
+            .first()
+          if (employee) {
+            logEmployeeZone.employee = JSON.parse(JSON.stringify(employee))
+          }
+          if (newEmployeeZone.zone) {
+            logEmployeeZone.zone = JSON.parse(JSON.stringify(newEmployeeZone.zone))
+          }
+          await employeeZoneService.saveActionOnLog(logEmployeeZone)
+        }
         response.status(201)
         return {
           type: 'success',
@@ -272,7 +295,7 @@ export default class EmployeeZoneController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeZoneService = new EmployeeZoneService(i18n)
@@ -296,6 +319,7 @@ export default class EmployeeZoneController {
       const currentEmployeeZone = await EmployeeZone.query()
         .whereNull('employee_zone_deleted_at')
         .where('employee_zone_id', employeeZoneId)
+        .preload('zone')
         .first()
       if (!currentEmployeeZone) {
         const entity = `${t('relation')} ${t('employee')} - ${t('zone')}`
@@ -307,10 +331,33 @@ export default class EmployeeZoneController {
           data: { ...employeeZone },
         }
       }
-
+      const previousEmployeeZone = JSON.parse(JSON.stringify(currentEmployeeZone))
       await request.validateUsing(updateEmployeeZoneValidator)
       const updateEmployeeZone = await employeeZoneService.update(currentEmployeeZone, employeeZone)
       if (updateEmployeeZone) {
+        await updateEmployeeZone.load('zone')
+        const userId = auth.user?.userId
+        if (userId) {
+          const rawHeaders = request.request.rawHeaders
+          const logEmployeeZone = await employeeZoneService.createActionLog(
+            rawHeaders,
+            'update'
+          )
+          logEmployeeZone.user_id = userId
+          logEmployeeZone.record_previous = previousEmployeeZone
+          logEmployeeZone.record_current = JSON.parse(JSON.stringify(updateEmployeeZone))
+          const employee = await Employee.query()
+            .whereNull('employee_deleted_at')
+            .where('employee_id', employeeId)
+            .first()
+          if (employee) {
+            logEmployeeZone.employee = JSON.parse(JSON.stringify(employee))
+          }
+          if (updateEmployeeZone.zone) {
+            logEmployeeZone.zone = JSON.parse(JSON.stringify(updateEmployeeZone.zone))
+          }
+          await employeeZoneService.saveActionOnLog(logEmployeeZone)
+        }
         response.status(200)
         return {
           type: 'success',
@@ -431,7 +478,7 @@ export default class EmployeeZoneController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeZoneId = request.param('employeeZoneId')
@@ -447,6 +494,7 @@ export default class EmployeeZoneController {
       const currentEmployeeZone = await EmployeeZone.query()
           .whereNull('employee_zone_deleted_at')
         .where('employee_zone_id', employeeZoneId)
+        .preload('zone')
         .first()
       if (!currentEmployeeZone) {
         const entity = `${t('relation')} ${t('employee')} - ${t('zone')}`
@@ -461,6 +509,27 @@ export default class EmployeeZoneController {
       const employeeZoneService = new EmployeeZoneService(i18n)
       const deleteEmployeeZone = await employeeZoneService.delete(currentEmployeeZone)
       if (deleteEmployeeZone) {
+        const userId = auth.user?.userId
+        if (userId) {
+          const rawHeaders = request.request.rawHeaders
+          const logEmployeeZone = await employeeZoneService.createActionLog(
+            rawHeaders,
+            'delete'
+          )
+          logEmployeeZone.user_id = userId
+          logEmployeeZone.record_current = JSON.parse(JSON.stringify(deleteEmployeeZone))
+          const employee = await Employee.query()
+            .whereNull('employee_deleted_at')
+            .where('employee_id', currentEmployeeZone.employeeId)
+            .first()
+          if (employee) {
+            logEmployeeZone.employee = JSON.parse(JSON.stringify(employee))
+          }
+          if (currentEmployeeZone.zone) {
+            logEmployeeZone.zone = JSON.parse(JSON.stringify(currentEmployeeZone.zone))
+          }
+          await employeeZoneService.saveActionOnLog(logEmployeeZone)
+        }
         response.status(200)
         return {
           type: 'success',
