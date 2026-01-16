@@ -113,7 +113,7 @@ export default class ZoneController {
    *       default:
    *         description: Unexpected error
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const zoneThumbnailInput = request.input('zoneThumbnail')
@@ -148,6 +148,14 @@ export default class ZoneController {
         }
       }
       const newZone = await zoneService.create(zone)
+      const userId = auth.user?.userId
+      if (userId) {
+        const rawHeaders = request.request.rawHeaders
+        const logZone = await zoneService.createActionLog(rawHeaders, 'store')
+        logZone.user_id = userId
+        logZone.record_current = JSON.parse(JSON.stringify(newZone))
+        await zoneService.saveActionOnLog(logZone)
+      }
       response.status(201)
       return {
         type: 'success',
@@ -190,7 +198,7 @@ export default class ZoneController {
    *       default:
    *         description: Unexpected error
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const zoneId = Number(request.param('zoneId'))
@@ -216,6 +224,7 @@ export default class ZoneController {
           data: { zoneId },
         }
       }
+      const previousZone = JSON.parse(JSON.stringify(currentZone))
       const zoneThumbnailInput = request.input('zoneThumbnail')
       const zone = {
         zoneId,
@@ -249,6 +258,15 @@ export default class ZoneController {
         }
       }
       const updateZone = await zoneService.update(currentZone, zone)
+      const userId = auth.user?.userId
+      if (userId) {
+        const rawHeaders = request.request.rawHeaders
+        const logZone = await zoneService.createActionLog(rawHeaders, 'update')
+        logZone.user_id = userId
+        logZone.record_previous = previousZone
+        logZone.record_current = JSON.parse(JSON.stringify(updateZone))
+        await zoneService.saveActionOnLog(logZone)
+      }
       response.status(201)
       return {
         type: 'success',
@@ -291,7 +309,7 @@ export default class ZoneController {
    *       default:
    *         description: Unexpected error
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const zoneId = Number(request.param('zoneId'))
@@ -319,6 +337,14 @@ export default class ZoneController {
       }
       const zoneService = new ZoneService(i18n)
       const deletedZone = await zoneService.delete(currentZone)
+      const userId = auth.user?.userId
+      if (userId) {
+        const rawHeaders = request.request.rawHeaders
+        const logZone = await zoneService.createActionLog(rawHeaders, 'delete')
+        logZone.user_id = userId
+        logZone.record_current = JSON.parse(JSON.stringify(deletedZone))
+        await zoneService.saveActionOnLog(logZone)
+      }
       response.status(201)
       return {
         type: 'success',

@@ -2,6 +2,9 @@ import Employee from '#models/employee'
 import EmployeeZone from '#models/employee_zone'
 import Zone from '#models/zone'
 import { I18n } from '@adonisjs/i18n'
+import { DateTime } from 'luxon'
+import { LogEmployeeZone } from '../interfaces/MongoDB/log_employee_zone.js'
+import { LogStore } from '#models/MongoDB/log_store'
 
 export default class EmployeeZoneService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -76,5 +79,33 @@ export default class EmployeeZoneService {
       message: this.t('info_verify_successfully'),
       data: { ...employeeZone },
     }
+  }
+
+  createActionLog(rawHeaders: string[], action: string) {
+    const date = DateTime.local().setZone('utc').toISO()
+    const userAgent = this.getHeaderValue(rawHeaders, 'User-Agent')
+    const secChUaPlatform = this.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
+    const secChUa = this.getHeaderValue(rawHeaders, 'sec-ch-ua')
+    const origin = this.getHeaderValue(rawHeaders, 'Origin')
+    const logEmployeeZone = {
+      action: action,
+      user_agent: userAgent,
+      sec_ch_ua_platform: secChUaPlatform,
+      sec_ch_ua: secChUa,
+      origin: origin,
+      date: date ? date : '',
+    } as LogEmployeeZone
+    return logEmployeeZone
+  }
+
+  async saveActionOnLog(logEmployeeZone: LogEmployeeZone) {
+    try {
+      await LogStore.set('log_employee_zones', logEmployeeZone)
+    } catch (err) {}
+  }
+
+  getHeaderValue(headers: Array<string>, headerName: string) {
+    const index = headers.indexOf(headerName)
+    return index !== -1 ? headers[index + 1] : null
   }
 }

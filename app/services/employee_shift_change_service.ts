@@ -6,6 +6,7 @@ import Shift from '#models/shift'
 import { EmployeeShiftChangeFilterInterface } from '../interfaces/employee_shift_change_filter_interface.js'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogEmployeeShiftChange } from '../interfaces/MongoDB/log_employee_shift_change.js'
+import EmployeeShift from '#models/employee_shift'
 
 export default class EmployeeShiftChangeService {
   async create(employeeShiftChange: EmployeeShiftChange) {
@@ -208,8 +209,28 @@ export default class EmployeeShiftChangeService {
 
   async saveActionOnLog(logEmployeeShiftChange: LogEmployeeShiftChange, table: string) {
     try {
+      const employeeId = logEmployeeShiftChange.record_current?.employeeIdFrom
+      if (employeeId) {
+        const employeeShiftId = await this.getEmployeeShiftId(employeeId)
+        logEmployeeShiftChange.employeeShiftId = employeeShiftId
+      }
       await LogStore.set(table, logEmployeeShiftChange)
     } catch (err) {}
+  }
+
+  async getEmployeeShiftId(employeeId: number): Promise<number | null> {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const employeeShift = await EmployeeShift.query()
+        .whereNull('employe_shifts_deleted_at')
+        .where('employee_id', employeeId)
+        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [today])
+        .orderBy('employe_shifts_apply_since', 'desc')
+        .first()
+      return employeeShift?.shiftId || null
+    } catch (error) {
+      return null
+    }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {

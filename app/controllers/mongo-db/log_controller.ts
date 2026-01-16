@@ -5,6 +5,7 @@ import { LogRequest } from '#models/MongoDB/log_request'
 import LogService from '#services/mongo-db/log_service'
 import ExceptionType from '#models/exception_type'
 import Shift from '#models/shift'
+import EmployeeShift from '#models/employee_shift'
 
 export default class LogController {
   /**
@@ -567,6 +568,8 @@ export default class LogController {
    *       - log_vacations: Vacaciones
    *       - log_employee_shifts: Asignaciones y eliminaciones de turnos a empleados
    *       - log_employee_shift_changes: Cambios de turnos entre empleados
+   *       - log_zones: Creación, modificación y eliminación de zonas
+   *       - log_employee_zones: Asignaciones de zonas a empleados
    *
    *       **Clasificación automática:**
    *       - Excepciones: Excepciones que no son vacaciones ni incapacidades
@@ -574,6 +577,8 @@ export default class LogController {
    *       - Incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
    *       - Asignaciones de turnos: Registros de log_employee_shifts (asignaciones y eliminaciones)
    *       - Cambios de turnos: Registros de log_employee_shift_changes
+   *       - Zonas: Registros de log_zones (creación, modificación y eliminación de zonas)
+   *       - Asignaciones de zonas: Registros de log_employee_zones (asignaciones de zonas a empleados)
    *
    *       **Configuración MongoDB:** Requiere MONGODB_MODE configurado correctamente.
    *     produces:
@@ -615,23 +620,25 @@ export default class LogController {
    *           default: date
    *         description: Field to sort by
    *       - in: query
-   *         name: sortOrder
+   *         name: type
    *         schema:
    *           type: string
-   *           enum: [asc, desc]
-   *           default: desc
-   *         description: Sort order (asc or desc)
+   *           enum: [disability, Vacation, Exception, ShiftAsignament, ShiftChange]
+   *         description: Filter by log type (disability, Vacation, Exception, ShiftAsignament, ShiftChange). If not provided, returns all types.
    *     responses:
    *       '200':
    *         description: |
-   *           Logs clasificados en cinco categorías: excepciones, vacaciones, incapacidades,
-   *           asignaciones de turnos y cambios de turnos.
+   *           Logs clasificados en siete categorías: excepciones, vacaciones, incapacidades,
+   *           asignaciones de turnos, cambios de turnos, zonas y asignaciones de zonas.
    *           - excepciones: Excepciones que NO son vacaciones ni incapacidades
    *           - vacaciones: Registros de log_vacations
    *           - incapacidades: Registros con workDisabilityPeriodId o tipo "falta-por-incapacidad"
    *           - asignacionesTurnos: Registros de log_employee_shifts (asignaciones y eliminaciones)
    *           - cambiosTurnos: Registros de log_employee_shift_changes
    *             (incluye shiftNameFrom y shiftNameTo con los nombres de los turnos)
+   *           - zonas: Registros de log_zones (creación, modificación y eliminación de zonas)
+   *           - asignacionesZonas: Registros de log_employee_zones
+   *             (incluye información del empleado y la zona asignada)
    *         content:
    *           application/json:
    *             schema:
@@ -689,6 +696,22 @@ export default class LogController {
    *                         total:
    *                           type: integer
    *                           example: 8
+   *                     zonas:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 3
+   *                     asignacionesZonas:
+   *                       type: object
+   *                       properties:
+   *                         data:
+   *                           type: array
+   *                         total:
+   *                           type: integer
+   *                           example: 5
    *                     summary:
    *                       type: object
    *                       properties:
@@ -707,9 +730,15 @@ export default class LogController {
    *                         totalCambiosTurnos:
    *                           type: integer
    *                           example: 8
+   *                         totalZonas:
+   *                           type: integer
+   *                           example: 3
+   *                         totalAsignacionesZonas:
+   *                           type: integer
+   *                           example: 5
    *                         totalGeneral:
    *                           type: integer
-   *                           example: 63
+   *                           example: 71
    *                         page:
    *                           type: integer
    *                         limit:
@@ -730,7 +759,7 @@ export default class LogController {
       const page = request.input('page', 1)
       const limit = request.input('limit', 50)
       const sortBy = request.input('sortBy', 'date')
-      const sortOrder = request.input('sortOrder', 'desc')
+      const type = request.input('type')
 
       const filter = {
         userId: userId || undefined,
@@ -739,7 +768,8 @@ export default class LogController {
         page: Number(page),
         limit: Number(limit),
         sortBy: sortBy,
-        sortOrder: sortOrder,
+        sortOrder: 'desc' as const,
+        type: type || undefined,
       }
 
       const logRequest = LogRequest.getInstance()
@@ -762,6 +792,8 @@ export default class LogController {
         'log_vacations',
         'log_employee_shifts',
         'log_employee_shift_changes',
+        'log_zones',
+        'log_employee_zones',
       ]
 
       const disabilityExceptionType = await ExceptionType.query()
@@ -808,7 +840,9 @@ export default class LogController {
         }
         if (
           item._collection === 'log_employee_shifts' ||
-          item._collection === 'log_employee_shift_changes'
+          item._collection === 'log_employee_shift_changes' ||
+          item._collection === 'log_zones' ||
+          item._collection === 'log_employee_zones'
         ) {
           return false
         }
@@ -831,65 +865,201 @@ export default class LogController {
         (item: any) => item._collection === 'log_employee_shift_changes'
       )
 
+      const zonas = result.data.filter(
+        (item: any) => item._collection === 'log_zones'
+      )
+
+      const asignacionesZonas = result.data.filter(
+        (item: any) => item._collection === 'log_employee_zones'
+      )
+
+      const shiftIds = new Set<number>()
+
+      asignacionesTurnos.forEach((item: any) => {
+        const current = item.record_current || {}
+        const previous = item.record_previous || {}
+        if (current.shiftId) shiftIds.add(current.shiftId)
+        if (previous.shiftId) shiftIds.add(previous.shiftId)
+      })
+
+      cambiosTurnos.forEach((item: any) => {
+        const current = item.record_current || {}
+        const previous = item.record_previous || {}
+        if (current.shiftIdFrom) shiftIds.add(current.shiftIdFrom)
+        if (current.shiftIdTo) shiftIds.add(current.shiftIdTo)
+        if (previous.shiftIdFrom) shiftIds.add(previous.shiftIdFrom)
+        if (previous.shiftIdTo) shiftIds.add(previous.shiftIdTo)
+      })
+
+      let asignacionesTurnosEnriquecidos = asignacionesTurnos
       let cambiosTurnosEnriquecidos = cambiosTurnos
 
-      if (cambiosTurnos.length > 0) {
-        const shiftIds = new Set<number>()
-        cambiosTurnos.forEach((item: any) => {
-          const current = item.record_current || {}
-          const previous = item.record_previous || {}
-          if (current.shiftIdFrom) shiftIds.add(current.shiftIdFrom)
-          if (current.shiftIdTo) shiftIds.add(current.shiftIdTo)
-          if (previous.shiftIdFrom) shiftIds.add(previous.shiftIdFrom)
-          if (previous.shiftIdTo) shiftIds.add(previous.shiftIdTo)
+      if (shiftIds.size > 0) {
+        const shifts = await Shift.query()
+          .whereIn('shift_id', Array.from(shiftIds))
+          .whereNull('shift_deleted_at')
+
+        const shiftMap = new Map<
+          number,
+          { shiftId: number; shiftName: string; shiftAlias: string | null }
+        >()
+        shifts.forEach((shift) => {
+          shiftMap.set(shift.shiftId, {
+            shiftId: shift.shiftId,
+            shiftName: shift.shiftName,
+            shiftAlias: shift.shiftAlias,
+          })
         })
 
-        if (shiftIds.size > 0) {
-          const shifts = await Shift.query()
-            .whereIn('shift_id', Array.from(shiftIds))
-            .whereNull('shift_deleted_at')
-
-          const shiftMap = new Map<number, string>()
-          shifts.forEach((shift) => {
-            shiftMap.set(shift.shiftId, shift.shiftName)
-          })
-
-          cambiosTurnosEnriquecidos = cambiosTurnos.map((item: any) => {
+        asignacionesTurnosEnriquecidos = await Promise.all(
+          asignacionesTurnos.map(async (item: any) => {
             const current = item.record_current || {}
             const previous = item.record_previous || {}
+            const shiftId =
+              current.shiftId || previous.shiftId || null
+            const shiftInfo = shiftId ? shiftMap.get(shiftId) : null
             const enrichedItem = { ...item }
-            enrichedItem.shiftNameFrom =
-              shiftMap.get(current.shiftIdFrom) ||
-              shiftMap.get(previous.shiftIdFrom) ||
-              null
-            enrichedItem.shiftNameTo =
-              shiftMap.get(current.shiftIdTo) ||
-              shiftMap.get(previous.shiftIdTo) ||
-              null
+
+            if (shiftInfo) {
+              enrichedItem.shiftName = shiftInfo.shiftName
+              enrichedItem.shiftAlias = shiftInfo.shiftAlias
+            } else {
+              enrichedItem.shiftName = null
+              enrichedItem.shiftAlias = null
+            }
+
+            const employeeId = current.employeeId || previous.employeeId
+            const applySince =
+              current.employeShiftsApplySince ||
+              previous.employeShiftsApplySince
+            let originalShiftId = null
+
+            if (employeeId && applySince) {
+              const applySinceDate = new Date(applySince)
+              const previousShift = await EmployeeShift.query()
+                .where('employee_id', employeeId)
+                .whereNull('employe_shifts_deleted_at')
+                .whereRaw(
+                  'DATE(employe_shifts_apply_since) < ?',
+                  [applySinceDate.toISOString().split('T')[0]]
+                )
+                .orderBy('employe_shifts_apply_since', 'desc')
+                .first()
+
+              if (previousShift) {
+                originalShiftId = previousShift.shiftId
+              }
+            }
+
+            enrichedItem.shiftId = originalShiftId
             return enrichedItem
           })
+        )
+
+        cambiosTurnosEnriquecidos = await Promise.all(
+          cambiosTurnos.map(async (item: any) => {
+            const current = item.record_current || {}
+            const previous = item.record_previous || {}
+            const shiftIdFrom =
+              current.shiftIdFrom || previous.shiftIdFrom || null
+            const shiftIdTo = current.shiftIdTo || previous.shiftIdTo || null
+            const shiftInfoFrom = shiftIdFrom ? shiftMap.get(shiftIdFrom) : null
+            const shiftInfoTo = shiftIdTo ? shiftMap.get(shiftIdTo) : null
+            const enrichedItem = { ...item }
+
+            if (shiftInfoFrom) {
+              enrichedItem.shiftNameFrom = shiftInfoFrom.shiftName
+              enrichedItem.shiftAliasFrom = shiftInfoFrom.shiftAlias
+              enrichedItem.shiftIdFrom = shiftInfoFrom.shiftId
+            } else {
+              enrichedItem.shiftNameFrom = null
+              enrichedItem.shiftAliasFrom = null
+              enrichedItem.shiftIdFrom = shiftIdFrom
+            }
+
+            if (shiftInfoTo) {
+              enrichedItem.shiftNameTo = shiftInfoTo.shiftName
+              enrichedItem.shiftAliasTo = shiftInfoTo.shiftAlias
+              enrichedItem.shiftIdTo = shiftInfoTo.shiftId
+            } else {
+              enrichedItem.shiftNameTo = null
+              enrichedItem.shiftAliasTo = null
+              enrichedItem.shiftIdTo = shiftIdTo
+            }
+
+            const employeeIdTo = current.employeeIdTo || previous.employeeIdTo
+            const changeDateFrom =
+              current.employeeShiftChangeDateFrom ||
+              previous.employeeShiftChangeDateFrom
+            let originalShiftId = null
+
+            if (employeeIdTo && changeDateFrom) {
+              const changeDate = new Date(changeDateFrom)
+              const previousShift = await EmployeeShift.query()
+                .where('employee_id', employeeIdTo)
+                .whereNull('employe_shifts_deleted_at')
+                .whereRaw(
+                  'DATE(employe_shifts_apply_since) < ?',
+                  [changeDate.toISOString().split('T')[0]]
+                )
+                .orderBy('employe_shifts_apply_since', 'desc')
+                .first()
+
+              if (previousShift) {
+                originalShiftId = previousShift.shiftId
+              }
+            }
+
+            enrichedItem.shiftId = originalShiftId
+            return enrichedItem
+          })
+        )
+      }
+
+      let allResults = []
+
+      if (!filter.type) {
+        allResults = [
+          ...excepciones,
+          ...vacaciones,
+          ...incapacidades,
+          ...asignacionesTurnosEnriquecidos,
+          ...cambiosTurnosEnriquecidos,
+        ]
+      } else {
+        switch (filter.type) {
+          case 'disability':
+            allResults = [...incapacidades]
+            break
+          case 'Vacation':
+            allResults = [...vacaciones]
+            break
+          case 'Exception':
+            allResults = [...excepciones]
+            break
+          case 'ShiftAsignament':
+            allResults = [...asignacionesTurnosEnriquecidos]
+            break
+          case 'ShiftChange':
+            allResults = [...cambiosTurnosEnriquecidos]
+            break
+          default:
+            allResults = [
+              ...excepciones,
+              ...vacaciones,
+              ...incapacidades,
+              ...asignacionesTurnosEnriquecidos,
+              ...cambiosTurnosEnriquecidos,
+            ]
         }
       }
 
-      const allResults = [
-        ...excepciones,
-        ...vacaciones,
-        ...incapacidades,
-        ...asignacionesTurnos,
-        ...cambiosTurnosEnriquecidos,
-      ]
-
       const sortByField = filter.sortBy || 'date'
-      const sortOrderValue = filter.sortOrder === 'asc' ? 1 : -1
 
       allResults.sort((a, b) => {
         const aValue = a[sortByField] || a.date || ''
         const bValue = b[sortByField] || b.date || ''
-        if (sortOrderValue === 1) {
-          return aValue > bValue ? 1 : aValue < bValue ? -1 : 0
-        } else {
-          return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
-        }
+        return aValue < bValue ? 1 : aValue > bValue ? -1 : 0
       })
 
       const totalGeneral = allResults.length
@@ -952,12 +1122,96 @@ export default class LogController {
       if (filter.startDate) queryParams.append('startDate', filter.startDate)
       if (filter.endDate) queryParams.append('endDate', filter.endDate)
       if (filter.sortBy) queryParams.append('sortBy', filter.sortBy)
-      if (filter.sortOrder) queryParams.append('sortOrder', filter.sortOrder)
+      if (filter.type) queryParams.append('type', filter.type)
 
       const queryString = queryParams.toString()
       const urlPrefix = queryString
         ? `${baseUrl}?${queryString}&`
         : `${baseUrl}?`
+
+      const responseData: any = {
+        meta: {
+          total: totalGeneral,
+          perPage: currentLimit,
+          currentPage: currentPage,
+          lastPage: totalPages,
+          firstPage: 1,
+          firstPageUrl: `${urlPrefix}page=1`,
+          lastPageUrl: `${urlPrefix}page=${totalPages}`,
+          nextPageUrl:
+            currentPage < totalPages
+              ? `${urlPrefix}page=${currentPage + 1}`
+              : null,
+          previousPageUrl:
+            currentPage > 1
+              ? `${urlPrefix}page=${currentPage - 1}`
+              : null,
+        },
+      }
+
+      if (!filter.type) {
+        responseData.excepciones = {
+          data: paginatedExcepciones,
+          total: excepciones.length,
+        }
+        responseData.vacaciones = {
+          data: paginatedVacaciones,
+          total: vacaciones.length,
+        }
+        responseData.incapacidades = {
+          data: paginatedIncapacidades,
+          total: incapacidades.length,
+        }
+        responseData.asignacionesTurnos = {
+          data: paginatedAsignacionesTurnos,
+          total: asignacionesTurnosEnriquecidos.length,
+        }
+        responseData.cambiosTurnos = {
+          data: paginatedCambiosTurnos,
+          total: cambiosTurnosEnriquecidos.length,
+        }
+        responseData.summary = {
+          totalExcepciones: excepciones.length,
+          totalVacaciones: vacaciones.length,
+          totalIncapacidades: incapacidades.length,
+          totalAsignacionesTurnos: asignacionesTurnosEnriquecidos.length,
+          totalCambiosTurnos: cambiosTurnosEnriquecidos.length,
+          totalGeneral: totalGeneral,
+        }
+      } else {
+        switch (filter.type) {
+          case 'disability':
+            responseData.incapacidades = {
+              data: paginatedIncapacidades,
+              total: incapacidades.length,
+            }
+            break
+          case 'Vacation':
+            responseData.vacaciones = {
+              data: paginatedVacaciones,
+              total: vacaciones.length,
+            }
+            break
+          case 'Exception':
+            responseData.excepciones = {
+              data: paginatedExcepciones,
+              total: excepciones.length,
+            }
+            break
+          case 'ShiftAsignament':
+            responseData.asignacionesTurnos = {
+              data: paginatedAsignacionesTurnos,
+              total: asignacionesTurnosEnriquecidos.length,
+            }
+            break
+          case 'ShiftChange':
+            responseData.cambiosTurnos = {
+              data: paginatedCambiosTurnos,
+              total: cambiosTurnosEnriquecidos.length,
+            }
+            break
+        }
+      }
 
       response.status(200)
       return {
@@ -965,52 +1219,49 @@ export default class LogController {
         title: 'Logs',
         message: 'The logs were found successfully',
         data: {
-          meta: {
-            total: totalGeneral,
-            perPage: currentLimit,
-            currentPage: currentPage,
-            lastPage: totalPages,
-            firstPage: 1,
-            firstPageUrl: `${urlPrefix}page=1`,
-            lastPageUrl: `${urlPrefix}page=${totalPages}`,
-            nextPageUrl:
-              currentPage < totalPages
-                ? `${urlPrefix}page=${currentPage + 1}`
-                : null,
-            previousPageUrl:
-              currentPage > 1
-                ? `${urlPrefix}page=${currentPage - 1}`
-                : null,
-          },
           excepciones: {
-            data: paginatedExcepciones,
+            data: excepciones,
             total: excepciones.length,
           },
           vacaciones: {
-            data: paginatedVacaciones,
+            data: vacaciones,
             total: vacaciones.length,
           },
           incapacidades: {
-            data: paginatedIncapacidades,
+            data: incapacidades,
             total: incapacidades.length,
           },
           asignacionesTurnos: {
-            data: paginatedAsignacionesTurnos,
+            data: asignacionesTurnos,
             total: asignacionesTurnos.length,
           },
           cambiosTurnos: {
-            data: paginatedCambiosTurnos,
+            data: cambiosTurnosEnriquecidos,
             total: cambiosTurnosEnriquecidos.length,
+          },
+          zonas: {
+            data: zonas,
+            total: zonas.length,
+          },
+          asignacionesZonas: {
+            data: asignacionesZonas,
+            total: asignacionesZonas.length,
           },
           summary: {
             totalExcepciones: excepciones.length,
             totalVacaciones: vacaciones.length,
             totalIncapacidades: incapacidades.length,
             totalAsignacionesTurnos: asignacionesTurnos.length,
-            totalCambiosTurnos: cambiosTurnosEnriquecidos.length,
-            totalGeneral: totalGeneral,
+            totalCambiosTurnos: cambiosTurnos.length,
+            totalZonas: zonas.length,
+            totalAsignacionesZonas: asignacionesZonas.length,
+            totalGeneral: result.total,
+            page: result.page,
+            limit: result.limit,
+            totalPages: result.totalPages,
           },
         },
+        // data: responseData,
       }
     } catch (error) {
       response.status(500)

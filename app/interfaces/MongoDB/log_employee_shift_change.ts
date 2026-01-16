@@ -9,6 +9,7 @@ interface LogEmployeeShiftChange {
   sec_ch_ua: string
   origin: string
   date: string
+  employeeShiftId?: number | null
   record_previous: EmployeeShiftChange
   record_current: EmployeeShiftChange
 }
