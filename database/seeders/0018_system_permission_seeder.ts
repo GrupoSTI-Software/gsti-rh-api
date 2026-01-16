@@ -465,6 +465,24 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Acceder',
         systemPermissionSlug: 'read',
         systemModuleId: 31
+      },
+      {
+        systemPermissionId: 124,
+        systemPermissionName: 'Download summary report',
+        systemPermissionSlug: 'download-summary',
+        systemModuleId: 7
+      },
+      {
+        systemPermissionId: 125,
+        systemPermissionName: 'Display discounts in a summary',
+        systemPermissionSlug: 'display-discounts-summary',
+        systemModuleId: 7
+      },
+      {
+        systemPermissionId: 126,
+        systemPermissionName: 'Display payments in summary',
+        systemPermissionSlug: 'display-payments-summary',
+        systemModuleId: 7
       }
     ]
 
