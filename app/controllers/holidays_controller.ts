@@ -154,15 +154,20 @@ export default class HolidayController {
     const icon = await Icon.findOrFail(holidayIconId)
     const holidayIcon = icon.iconSvg
     const holidayFrequency = request.input('holidayFrequency')
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const data = await request.validateUsing(createOrUpdateHolidayValidator)
+    const holidayIsOfficialRestDay =
+      data.holidayIsOfficialRestDay !== undefined
+        ? data.holidayIsOfficialRestDay
+        : true
     const holidayRequest = {
       holidayDate,
       holidayFrequency: holidayFrequency,
       holidayIcon,
       holidayName,
       holidayIconId,
+      holidayIsOfficialRestDay,
     } as Holiday
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const data = await request.validateUsing(createOrUpdateHolidayValidator)
     for (let index = 0; index < data.holidayFrequency; index++) {
       const splitDate = holidayRequest.holidayDate.split('-')
       const year = Number.parseInt(splitDate[0])
@@ -315,7 +320,16 @@ export default class HolidayController {
       const holidayIcon = icon.iconSvg
       const holiday = await Holiday.findOrFail(params.id)
       const holidayDatePast = holiday.holidayDate
-      data = { ...data, holidayDate: holidayDate, holidayIcon: holidayIcon }
+      const holidayIsOfficialRestDay = request.input(
+        'holidayIsOfficialRestDay',
+        holiday.holidayIsOfficialRestDay
+      )
+      data = {
+        ...data,
+        holidayDate: holidayDate,
+        holidayIcon: holidayIcon,
+        holidayIsOfficialRestDay: holidayIsOfficialRestDay,
+      }
       holiday.merge(data)
       await holiday.save()
 

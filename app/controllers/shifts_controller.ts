@@ -34,6 +34,9 @@ import ShiftService from '#services/shift_service'
  *                 type: number
  *               shiftColor:
  *                 type: string
+ *               shiftAlias:
+ *                 type: string
+ *                 description: Alias of the shift (must be unique per active business unit)
  *     responses:
  *       '201':
  *         description: Shift created successfully
@@ -56,6 +59,8 @@ import ShiftService from '#services/shift_service'
  *                   type: string
  *                 shiftAccumulatedFault:
  *                   type: number
+ *                 shiftAlias:
+ *                   type: string
  *       '400':
  *         description: Invalid input, validation error
  *         content:
@@ -74,6 +79,7 @@ export default class ShiftController {
       const businessConf = `${env.get('SYSTEM_BUSINESS')}`
       const shift = {
         shiftName: data.shiftName,
+        shiftAlias: data.shiftAlias?.trim() || null,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
         shiftRestDays: data.shiftRestDays,
@@ -314,20 +320,23 @@ export default class ShiftController {
  *                 type: number
  *               shiftColor:
  *                 type: string
+ *               shiftAlias:
+ *                 type: string
+ *                 description: Alias of the shift (must be unique per active business unit)
  *     responses:
  *       '200':
  *         description: Shift updated successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 id:
-   *                   type: number
-   *                 shiftName:
-   *                   type: string
-   *                 shiftDayStart:
-   *                   type: number
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: number
+ *                 shiftName:
+ *                   type: string
+ *                 shiftDayStart:
+ *                   type: number
  *                 shiftTimeStart:
  *                   type: string
  *                 shiftActiveHours:
@@ -340,15 +349,17 @@ export default class ShiftController {
  *                   type: number
  *                 shiftColor:
  *                   type: string
+ *                 shiftAlias:
+ *                   type: string
  *       '400':
-   *         description: Invalid input, validation error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
+ *         description: Invalid input, validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
    *       '404':
    *         description: Shift not found
    *         content:
@@ -382,6 +393,7 @@ export default class ShiftController {
       const updateShift = {
         shiftId: shift.shiftId,
         shiftName: data.shiftName,
+        shiftAlias: data.shiftAlias?.trim() || null,
         shiftTimeStart: data.shiftTimeStart,
         shiftActiveHours: data.shiftActiveHours,
         shiftRestDays: data.shiftRestDays,
@@ -394,7 +406,10 @@ export default class ShiftController {
           : shift.shiftColor,
       } as Shift
 
-      const verifyInfo = await shiftService.verifyInfo(updateShift)
+      const verifyInfo = await shiftService.verifyInfo(
+        updateShift,
+        Number.parseInt(params.id)
+      )
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
@@ -407,6 +422,7 @@ export default class ShiftController {
 
       const mergeData: any = {
         ...data,
+        shiftAlias: data.shiftAlias?.trim() || null,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
       }
       if (shiftColorInput !== undefined && shiftColorInput !== null) {

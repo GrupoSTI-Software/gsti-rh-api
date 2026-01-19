@@ -10,6 +10,7 @@ interface LogAssist {
   origin: string
   date: string
   create_from: string
+  employeeShiftId?: number | null
   record_previous: Assist
   record_current: Assist
 }

@@ -8,6 +8,7 @@ interface HolidayInterface {
   holidayCreatedAt: Date | string
   holidayUpdatedAt: Date | string
   holidayDeletedAt: Date | string | null
+  holidayIsOfficialRestDay: boolean
 }
 
 export type { HolidayInterface }
