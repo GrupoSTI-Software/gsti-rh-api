@@ -31,6 +31,10 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *         holidayIconId:
  *           type: number
  *           description: holidayIconId representing the icon id
+ *         holidayIsOfficialRestDay:
+ *           type: boolean
+ *           description: Indicates if the holiday is an official mandatory rest day
+ *           default: true
  *         holidayCreatedAt:
  *           type: string
  *           format: date-time
@@ -50,6 +54,9 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *         holidayDate: "2024-12-25"
  *         holidayBusinessUnits: "sae"
  *         holidayIcon: "icon_christmas"
+ *         holidayFrequency: 1
+ *         holidayIconId: 1
+ *         holidayIsOfficialRestDay: true
  *         holidayCreatedAt: '2024-06-20T12:00:00Z'
  *         holidayUpdatedAt: '2024-06-20T13:00:00Z'
  *         deletedAt: null
@@ -75,6 +82,9 @@ export default class Holiday extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare holidayFrequency: number
+
+  @column()
+  declare holidayIsOfficialRestDay: boolean
 
   @column.dateTime({ autoCreate: true })
   declare holidayCreatedAt: DateTime

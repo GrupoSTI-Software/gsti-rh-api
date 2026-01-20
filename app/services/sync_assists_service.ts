@@ -1355,14 +1355,26 @@ export default class SyncAssistsService {
 
     // Buscar en caché en lugar de hacer una consulta
     const holidayresponse = this.holidaysCache.get(checkAssist.day) || null
-    // const hourStart = assignedShift.shiftTimeStart
-    // const stringDate = `${checkAssist.day}T${hourStart}.000-06:00`
-    // const timeToStart = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6')
-    // const service = await new HolidayService(this.i18n as I18n).index(timeToStart.toFormat('yyyy-LL-dd'), timeToStart.toFormat('yyyy-LL-dd'), '', 1, 100)
-    // const holidayresponse =  service.status === 200 && service.holidays && service.holidays.length > 0 ? service.holidays[0] : null
 
-    checkAssist.assist.holiday = holidayresponse as unknown as HolidayInterface
-    checkAssist.assist.isHoliday = !!(holidayresponse)
+    // Solo marcar como holiday si es descanso oficial
+    if (holidayresponse) {
+      // Verificar si es descanso oficial (manejar tanto boolean como number)
+      const isOfficialRestDay = holidayresponse.holidayIsOfficialRestDay
+
+      if (isOfficialRestDay) {
+        // Solo si es descanso oficial, marcar como holiday y agregar a la respuesta
+        checkAssist.assist.holiday = holidayresponse as unknown as HolidayInterface
+        checkAssist.assist.isHoliday = true
+      } else {
+        // Si NO es descanso oficial, NO marcar como holiday y NO incluir en respuesta
+        checkAssist.assist.holiday = null
+        checkAssist.assist.isHoliday = false
+      }
+    } else {
+      // No hay holiday para este día
+      checkAssist.assist.holiday = null
+      checkAssist.assist.isHoliday = false
+    }
 
     return checkAssist
   }
@@ -1852,7 +1864,6 @@ export default class SyncAssistsService {
     const hasSkipCheckinException = checkAssist.assist.exceptions.some(
       (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
     )
-
     if (!checkAssist?.assist?.checkIn?.assistPunchTimeUtc) {
       // Si hay excepción skip-checkin, verificar que haya al menos 2 registros
       if (hasSkipCheckinException) {
