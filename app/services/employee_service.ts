@@ -84,7 +84,14 @@ export default class EmployeeService {
       }
 
       newEmployee.employeeSyncId = employee.id
-      newEmployee.employeeCode = employee.empCode
+
+      // Generar código de empleado automáticamente si no se proporciona
+      if (!employee.empCode || employee.empCode.toString().trim() === '') {
+        newEmployee.employeeCode = await this.generateAutoEmployeeCode()
+      } else {
+        newEmployee.employeeCode = employee.empCode
+      }
+
       newEmployee.employeeFirstName = employee.firstName
       newEmployee.employeeLastName = employee.lastName
       newEmployee.employeeSecondLastName = employee.secondLastName
@@ -377,7 +384,15 @@ export default class EmployeeService {
       newEmployee.employeeFirstName = employee.employeeFirstName
       newEmployee.employeeLastName = employee.employeeLastName
       newEmployee.employeeSecondLastName = employee.employeeSecondLastName
-      newEmployee.employeeCode = employee.employeeCode
+
+      // Generar código de empleado automáticamente si no se proporciona
+      const employeeCodeStr = employee.employeeCode?.toString().trim() || ''
+      if (!employeeCodeStr || employeeCodeStr === '') {
+        newEmployee.employeeCode = await this.generateAutoEmployeeCode()
+      } else {
+        newEmployee.employeeCode = employee.employeeCode
+      }
+
       newEmployee.employeePayrollNum = employee.employeePayrollNum
       newEmployee.employeePayrollCode = employee.employeePayrollCode
       newEmployee.employeeHireDate = employee.employeeHireDate
@@ -2932,6 +2947,24 @@ export default class EmployeeService {
     }
 
     return code
+  }
+
+  /**
+   * Generar código de empleado automáticamente
+   * Obtiene los códigos existentes y genera uno único
+   */
+  private async generateAutoEmployeeCode(): Promise<string> {
+    // Obtener todos los códigos de empleado existentes
+    const existingEmployees = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .select('employee_code')
+
+    const existingCodes = existingEmployees
+      .map(emp => emp.employeeCode?.toString() || '')
+      .filter(code => code.trim() !== '')
+
+    // Generar código único
+    return this.generateUniqueEmployeeCode(existingCodes)
   }
 
   /**
