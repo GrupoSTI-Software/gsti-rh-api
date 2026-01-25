@@ -113,7 +113,7 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const recipientEmployeeIds = request.input('recipientEmployeeIds', []) || []
@@ -177,7 +177,7 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async update({ auth, request, response, i18n }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const noticeId = Number(request.param('noticeId'))
@@ -269,7 +269,7 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async delete({ auth, request, response, i18n }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const noticeId = Number(request.param('noticeId'))

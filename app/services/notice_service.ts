@@ -150,7 +150,6 @@ export default class NoticeService {
         .filter((id): id is number => id !== null)
 
       // Identificar destinatarios a agregar y eliminar
-      const newEmployeeIds = recipientEmployeeIds.filter((id) => !existingEmployeeIds.includes(id))
       const removedEmployeeIds = existingEmployeeIds.filter((id) => !recipientEmployeeIds.includes(id))
 
 
