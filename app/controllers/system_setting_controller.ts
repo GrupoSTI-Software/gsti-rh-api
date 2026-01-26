@@ -5,7 +5,142 @@ import { createSystemSettingValidator } from '#validators/system_setting'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
 import Env from '#start/env'
+import sharp from 'sharp'
+import fs from 'node:fs'
+import { SYSTEM_SETTING_ERROR_CODES } from '../constants/system_setting_error_codes.js'
 export default class SystemSettingController {
+  /**
+   * Validates that an image is PNG, 512x512px, and has no transparency
+   */
+  private async validateEmployeeApplicationIcon(
+    file: any
+  ): Promise<{ valid: boolean; errorCode?: string; message?: string }> {
+    try {
+      if (!file || !file.tmpPath) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.FILE_NOT_FOUND.code,
+          message: SYSTEM_SETTING_ERROR_CODES.FILE_NOT_FOUND.message,
+        }
+      }
+
+      const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB in bytes
+      if (file.size && file.size > MAX_FILE_SIZE) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.FILE_TOO_LARGE.code,
+          message: SYSTEM_SETTING_ERROR_CODES.FILE_TOO_LARGE.message,
+        }
+      }
+
+      if (file.extname !== 'png') {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.INVALID_FILE_EXTENSION.code,
+          message: SYSTEM_SETTING_ERROR_CODES.INVALID_FILE_EXTENSION.message,
+        }
+      }
+
+      let imageBuffer: Buffer
+      try {
+        imageBuffer = fs.readFileSync(file.tmpPath)
+      } catch (error: any) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.code,
+          message: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.message,
+        }
+      }
+
+      let metadata: sharp.Metadata
+      try {
+        metadata = await sharp(imageBuffer).metadata()
+      } catch (error: any) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.code,
+          message: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.message,
+        }
+      }
+
+      if (!metadata.width || !metadata.height) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.DIMENSIONS_READ_ERROR.code,
+          message: SYSTEM_SETTING_ERROR_CODES.DIMENSIONS_READ_ERROR.message,
+        }
+      }
+
+      if (metadata.width !== 512 || metadata.height !== 512) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.INVALID_RESOLUTION.code,
+          message: SYSTEM_SETTING_ERROR_CODES.INVALID_RESOLUTION.message,
+        }
+      }
+
+      const image = sharp(imageBuffer)
+      let stats: sharp.Stats
+      try {
+        stats = await image.stats()
+      } catch (error: any) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.code,
+          message: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.message,
+        }
+      }
+
+      if (stats.channels.length === 4) {
+        const alphaChannel = stats.channels[3]
+        if (alphaChannel && alphaChannel.min < 255) {
+          return {
+            valid: false,
+            errorCode:
+              SYSTEM_SETTING_ERROR_CODES.INVALID_FORMAT_TRANSPARENCY.code,
+            message:
+              SYSTEM_SETTING_ERROR_CODES.INVALID_FORMAT_TRANSPARENCY.message,
+          }
+        }
+      }
+
+      let data: Buffer
+      let info: sharp.OutputInfo
+      try {
+        const result = await image.raw().toBuffer({ resolveWithObject: true })
+        data = result.data
+        info = result.info
+      } catch (error: any) {
+        return {
+          valid: false,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.code,
+          message: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.message,
+        }
+      }
+
+      if (info.channels === 4) {
+        for (let i = 3; i < data.length; i += 4) {
+          if (data[i] < 255) {
+            return {
+              valid: false,
+              errorCode:
+                SYSTEM_SETTING_ERROR_CODES.INVALID_FORMAT_TRANSPARENCY.code,
+              message:
+                SYSTEM_SETTING_ERROR_CODES.INVALID_FORMAT_TRANSPARENCY.message,
+            }
+          }
+        }
+      }
+
+      return { valid: true }
+    } catch (error: any) {
+      return {
+        valid: false,
+        errorCode: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.code,
+        message: SYSTEM_SETTING_ERROR_CODES.IMAGE_READ_ERROR.message,
+      }
+    }
+  }
   /**
    * @swagger
    * /api/system-settings:
@@ -176,12 +311,17 @@ export default class SystemSettingController {
    *                 format: binary
    *                 description: System setting banner
    *                 required: false
-   *               systemSettingFavicon:
-   *                 type: string
-   *                 format: binary
-   *                 description: System setting favicon
-   *                 required: false
-   *               systemSettingTradeName:
+ *               systemSettingFavicon:
+ *                 type: string
+ *                 format: binary
+ *                 description: System setting favicon
+ *                 required: false
+ *               systemSettingEmployeeAplicationIcon:
+ *                 type: string
+ *                 format: binary
+ *                 description: System setting employee application icon (512x512 PNG, white background, no transparency)
+ *                 required: false
+ *               systemSettingTradeName:
    *                 type: string
    *                 description: System setting trade name
    *                 required: true
@@ -408,6 +548,45 @@ export default class SystemSettingController {
         )
         systemSetting.systemSettingFavicon = fileUrl
       }
+      const systemSettingEmployeeAplicationIcon = request.file(
+        'systemSettingEmployeeAplicationIcon',
+        validationOptions
+      )
+      if (systemSettingEmployeeAplicationIcon) {
+        const validation = await this.validateEmployeeApplicationIcon(
+          systemSettingEmployeeAplicationIcon
+        )
+        if (!validation.valid) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Invalid image',
+            message: validation.message || 'Please upload a valid image',
+            errorCode: validation.errorCode,
+            data: {},
+          }
+        }
+        const uploadService = new UploadService()
+        const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
+        const fileUrl = await uploadService.fileUpload(
+          systemSettingEmployeeAplicationIcon,
+          'system-settings',
+          fileName
+        )
+        if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
+          response.status(500)
+          return {
+            status: 500,
+            type: 'error',
+            title: 'Upload error',
+            message: SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR.message,
+            errorCode: SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR.code,
+            data: {},
+          }
+        }
+        systemSetting.systemSettingEmployeeAplicationIcon = fileUrl
+      }
       const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
       systemSetting.systemSettingBusinessUnits = businessConf
       const newSystemSetting = await systemSettingService.create(systemSetting)
@@ -463,11 +642,16 @@ export default class SystemSettingController {
    *                 format: binary
    *                 description: System setting banner
    *                 required: false
-   *               systemSettingFavicon:
-   *                 type: string
-   *                 format: binary
-   *                 description: System setting favicon
-   *               systemSettingTradeName:
+ *               systemSettingFavicon:
+ *                 type: string
+ *                 format: binary
+ *                 description: System setting favicon
+ *               systemSettingEmployeeAplicationIcon:
+ *                 type: string
+ *                 format: binary
+ *                 description: System setting employee application icon (512x512 PNG, white background, no transparency)
+ *                 required: false
+ *               systemSettingTradeName:
    *                 type: string
    *                 description: System setting trade name
    *                 required: true
@@ -736,6 +920,65 @@ export default class SystemSettingController {
           fileName
         )
         systemSetting.systemSettingFavicon = fileUrl
+      }
+      const systemSettingEmployeeAplicationIcon = request.file(
+        'systemSettingEmployeeAplicationIcon',
+        validationOptions
+      )
+      systemSetting.systemSettingEmployeeAplicationIcon =
+        currentSystemSetting.systemSettingEmployeeAplicationIcon
+      if (systemSettingEmployeeAplicationIcon) {
+        const validation = await this.validateEmployeeApplicationIcon(
+          systemSettingEmployeeAplicationIcon
+        )
+        if (!validation.valid) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Invalid image',
+            message: validation.message || 'Please upload a valid image',
+            errorCode: validation.errorCode,
+            data: {},
+          }
+        }
+        const uploadService = new UploadService()
+        if (currentSystemSetting.systemSettingEmployeeAplicationIcon) {
+          const fileNameWithExt = path.basename(
+            currentSystemSetting.systemSettingEmployeeAplicationIcon
+          )
+          const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
+          const deleteResult = await uploadService.deleteFile(fileKey)
+          if (deleteResult.status !== 200 && deleteResult.status !== 404) {
+            response.status(500)
+            return {
+              status: 500,
+              type: 'error',
+              title: 'Delete error',
+              message: SYSTEM_SETTING_ERROR_CODES.DELETE_ERROR.message,
+              errorCode: SYSTEM_SETTING_ERROR_CODES.DELETE_ERROR.code,
+              data: {},
+            }
+          }
+        }
+        const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
+        const fileUrl = await uploadService.fileUpload(
+          systemSettingEmployeeAplicationIcon,
+          'system-settings',
+          fileName
+        )
+        if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
+          response.status(500)
+          return {
+            status: 500,
+            type: 'error',
+            title: 'Upload error',
+            message: SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR.message,
+            errorCode: SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR.code,
+            data: {},
+          }
+        }
+        systemSetting.systemSettingEmployeeAplicationIcon = fileUrl
       }
       const updateSystemSetting = await systemSettingService.update(
         currentSystemSetting,
@@ -1624,6 +1867,290 @@ export default class SystemSettingController {
         title: result.title,
         message: result.message,
         data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/system-settings/:systemSettingId/employee-application-icon:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: Upload employee application icon
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         schema:
+   *           type: number
+   *         description: System setting id
+   *         required: true
+   *     requestBody:
+   *       content:
+   *        multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               systemSettingEmployeeAplicationIcon:
+   *                 type: string
+   *                 format: binary
+   *                 description: Employee application icon (512x512 PNG, white background, no transparency, max 5MB)
+   *                 required: true
+   *     responses:
+   *       '200':
+   *         description: Employee application icon uploaded successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *                   properties:
+   *                     fileUrl:
+   *                       type: string
+   *                       description: URL of the uploaded icon
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Brief hint message about what failed
+   *                 errorCode:
+   *                   type: string
+   *                   description: Error code for employee application icon validation
+   *                   enum:
+   *                     - SYS.CNFG.VAL.010
+   *                     - SYS.CNFG.VAL.011
+   *                     - SYS.CNFG.VAL.012
+   *                     - SYS.CNFG.VAL.013
+   *                     - SYS.CNFG.PRSS.014
+   *                     - SYS.CNFG.PRSS.015
+   *                     - SYS.CNFG.PRSS.018
+   *                   example: SYS.CNFG.PRSS.018
+   *                 data:
+   *                   type: object
+   *                   description: Error details
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '500':
+   *         description: Server error during file upload or processing
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Brief hint message about what failed
+   *                 errorCode:
+   *                   type: string
+   *                   description: Error code for upload/delete operations
+   *                   enum:
+   *                     - SYS.CNFG.PRSS.016
+   *                     - SYS.CNFG.PRSS.017
+   *                   example: SYS.CNFG.PRSS.016
+   *                 data:
+   *                   type: object
+   *                   description: Error details
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async uploadEmployeeApplicationIcon({ request, response }: HttpContext) {
+    try {
+      const systemSettingId = request.param('systemSettingId')
+      if (!systemSettingId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The system setting id was not found',
+          data: {},
+        }
+      }
+
+      const currentSystemSetting = await SystemSetting.query()
+        .whereNull('system_setting_deleted_at')
+        .where('system_setting_id', systemSettingId)
+        .first()
+
+      if (!currentSystemSetting) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The system setting was not found',
+          message: 'The system setting was not found with the entered ID',
+          data: { systemSettingId },
+        }
+      }
+
+      const validationOptions = {
+        types: ['image'],
+        size: '5mb',
+      }
+
+      const systemSettingEmployeeAplicationIcon = request.file(
+        'systemSettingEmployeeAplicationIcon',
+        validationOptions
+      )
+
+      if (!systemSettingEmployeeAplicationIcon) {
+        response.status(400)
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'Invalid image',
+          message: SYSTEM_SETTING_ERROR_CODES.FILE_NOT_FOUND.message,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.FILE_NOT_FOUND.code,
+          data: {},
+        }
+      }
+
+      const validation = await this.validateEmployeeApplicationIcon(
+        systemSettingEmployeeAplicationIcon
+      )
+
+      if (!validation.valid) {
+        response.status(400)
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'Invalid image',
+          message: validation.message || 'Please upload a valid image',
+          errorCode: validation.errorCode,
+          data: {},
+        }
+      }
+
+      const uploadService = new UploadService()
+
+      if (currentSystemSetting.systemSettingEmployeeAplicationIcon) {
+        const fileNameWithExt = path.basename(
+          currentSystemSetting.systemSettingEmployeeAplicationIcon
+        )
+        const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
+        const deleteResult = await uploadService.deleteFile(fileKey)
+        if (deleteResult.status !== 200 && deleteResult.status !== 404) {
+          response.status(500)
+          return {
+            status: 500,
+            type: 'error',
+            title: 'Delete error',
+            message: SYSTEM_SETTING_ERROR_CODES.DELETE_ERROR.message,
+            errorCode: SYSTEM_SETTING_ERROR_CODES.DELETE_ERROR.code,
+            data: {},
+          }
+        }
+      }
+
+      const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
+      const fileUrl = await uploadService.fileUpload(
+        systemSettingEmployeeAplicationIcon,
+        'system-settings',
+        fileName
+      )
+
+      if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
+        response.status(500)
+        return {
+          status: 500,
+          type: 'error',
+          title: 'Upload error',
+          message: SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR.message,
+          errorCode: SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR.code,
+          data: {},
+        }
+      }
+
+      currentSystemSetting.systemSettingEmployeeAplicationIcon = fileUrl
+      await currentSystemSetting.save()
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System settings',
+        message: 'The employee application icon was uploaded successfully',
+        data: {
+          fileUrl: fileUrl,
+          systemSetting: currentSystemSetting,
+        },
       }
     } catch (error) {
       const messageError =
