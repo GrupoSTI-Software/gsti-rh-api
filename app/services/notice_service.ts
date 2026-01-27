@@ -23,7 +23,7 @@ export default class NoticeService {
     this.i18n = i18n
   }
 
-  async index(filters: { search?: string; page: number; limit: number }) {
+  async index(filters: { search?: string; page: number; limit: number; employeeId?: number; readStatus?: 'all' | 'read' | 'unread' }) {
     const selectedColumns = [
       'notice_id',
       'notice_subject',
@@ -33,16 +33,73 @@ export default class NoticeService {
       'notice_sent_at',
       'notice_created_at',
     ]
-    const notices = await Notice.query()
+    
+    let query = Notice.query()
       .whereNull('notice_deleted_at')
-      .if(filters.search, (query) => {
-        query.whereRaw('UPPER(notice_subject) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
+      .if(filters.search, (q) => {
+        q.whereRaw('UPPER(notice_subject) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
       })
+
+    // Si se proporciona employeeId, filtrar por notice_recipients y hacer preload
+    if (filters.employeeId) {
+      const baseRecipientQuery = (recipientSubQuery: any) => {
+        recipientSubQuery
+          .whereNull('notice_recipient_deleted_at')
+          .where('employee_id', filters.employeeId!)
+      }
+
+      // Filtrar por estado de lectura si se proporciona
+      if (filters.readStatus === 'read') {
+        query = query
+          .whereHas('recipients', (recipientSubQuery) => {
+            baseRecipientQuery(recipientSubQuery)
+            recipientSubQuery.where('notice_recipient_read', true)
+          })
+          .preload('recipients', (recipientSubQuery) => {
+            baseRecipientQuery(recipientSubQuery)
+            recipientSubQuery.where('notice_recipient_read', true)
+          })
+      } else if (filters.readStatus === 'unread') {
+        query = query
+          .whereHas('recipients', (recipientSubQuery) => {
+            baseRecipientQuery(recipientSubQuery)
+            recipientSubQuery.where('notice_recipient_read', false)
+          })
+          .preload('recipients', (recipientSubQuery) => {
+            baseRecipientQuery(recipientSubQuery)
+            recipientSubQuery.where('notice_recipient_read', false)
+          })
+      } else {
+        // Sin filtro de lectura, mostrar todos
+        query = query
+          .whereHas('recipients', baseRecipientQuery)
+          .preload('recipients', baseRecipientQuery)
+      }
+    }
+
+    const notices = await query
       .select(selectedColumns)
       .orderBy('notice_created_at', 'desc')
       .paginate(filters.page, filters.limit)
 
     return notices
+  }
+
+  /**
+   * Obtiene el conteo de avisos no leídos para un empleado
+   */
+  async getUnreadCount(employeeId: number): Promise<number> {
+    const count = await Notice.query()
+      .whereNull('notice_deleted_at')
+      .whereHas('recipients', (recipientQuery) => {
+        recipientQuery
+          .whereNull('notice_recipient_deleted_at')
+          .where('employee_id', employeeId)
+          .where('notice_recipient_read', false)
+      })
+      .count('* as total')
+
+    return Number(count[0]?.$extras.total || 0)
   }
 
   async create(notice: Notice, recipientEmployeeIds: number[] = [], sendEmails: boolean = true) {
@@ -90,6 +147,8 @@ export default class NoticeService {
       noticeRecipient.employeeName = recipient.employeeName
       noticeRecipient.noticeRecipientSent = false
       noticeRecipient.noticeRecipientSentAt = null
+      noticeRecipient.noticeRecipientRead = false
+      noticeRecipient.noticeRecipientReadAt = null
       noticeRecipient.noticeRecipientError = null
       await noticeRecipient.save()
     }
@@ -176,6 +235,8 @@ export default class NoticeService {
           noticeRecipient.employeeName = recipient.employeeName
           noticeRecipient.noticeRecipientSent = false
           noticeRecipient.noticeRecipientSentAt = null
+          noticeRecipient.noticeRecipientRead = false
+          noticeRecipient.noticeRecipientReadAt = null
           noticeRecipient.noticeRecipientError = null
           await noticeRecipient.save()
         }
@@ -210,13 +271,57 @@ export default class NoticeService {
     return currentNotice
   }
 
-  async show(noticeId: number) {
-    const notice = await Notice.query()
+  async show(noticeId: number, employeeId?: number) {
+    let query = Notice.query()
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
-      .preload('recipients')
-      .first()
+
+    // Si se proporciona employeeId, filtrar el preload de recipients
+    if (employeeId) {
+      query = query.preload('recipients', (recipientQuery) => {
+        recipientQuery
+          .whereNull('notice_recipient_deleted_at')
+          .where('employee_id', employeeId)
+      })
+    } else {
+      query = query.preload('recipients')
+    }
+
+    const notice = await query.first()
     return notice ? notice : null
+  }
+
+  /**
+   * Marca un aviso como leído para un empleado específico
+   */
+  async markAsRead(noticeId: number, employeeId: number) {
+    const noticeRecipient = await NoticeRecipient.query()
+      .whereNull('notice_recipient_deleted_at')
+      .where('notice_id', noticeId)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!noticeRecipient) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: this.t('notice_recipient'),
+        message: this.t('entity_was_not_found', { entity: this.t('notice_recipient') }),
+        data: { noticeId, employeeId },
+      }
+    }
+
+    noticeRecipient.noticeRecipientRead = true
+    noticeRecipient.noticeRecipientReadAt = DateTime.now()
+    await noticeRecipient.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: this.t('notice'),
+      message: this.t('resource_was_updated_successfully'),
+      data: { noticeRecipient },
+    }
   }
 
   /**

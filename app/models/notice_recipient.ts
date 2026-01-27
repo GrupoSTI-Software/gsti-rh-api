@@ -75,6 +75,12 @@ export default class NoticeRecipient extends compose(BaseModel, SoftDeletes) {
   declare noticeRecipientSentAt: DateTime | null
 
   @column()
+  declare noticeRecipientRead: boolean
+
+  @column.dateTime()
+  declare noticeRecipientReadAt: DateTime | null
+
+  @column()
   declare noticeRecipientError: string | null
 
   @column.dateTime({ autoCreate: true })

@@ -46,13 +46,18 @@ export default class NoticeController {
       const search = request.input('search')
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
+      const rawEmployeeId = request.input('employeeId')
+      const readStatus = request.input('readStatus') as 'all' | 'read' | 'unread' | undefined
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
+      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
       const noticeService = new NoticeService(i18n)
       const notices = await noticeService.index({
         search,
         page,
         limit,
+        employeeId,
+        readStatus,
       })
       response.status(200)
       return {
@@ -61,6 +66,64 @@ export default class NoticeController {
         message: t('resources_were_found_successfully'),
         data: {
           notices,
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/notices/unread-count:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Notices
+   *     summary: get unread notices count for employee
+   *     parameters:
+   *       - name: employeeId
+   *         in: query
+   *         required: true
+   *         description: Employee id
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Unread count retrieved successfully
+   *       default:
+   *         description: Unexpected error
+   */
+  async getUnreadCount({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const rawEmployeeId = request.input('employeeId')
+      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
+      if (!employeeId || Number.isNaN(employeeId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('entity_id_was_not_found', { entity: t('employee') }),
+          message: t('missing_data_to_process'),
+          data: { employeeId },
+        }
+      }
+      const noticeService = new NoticeService(i18n)
+      const count = await noticeService.getUnreadCount(employeeId)
+      response.status(200)
+      return {
+        type: 'success',
+        title: t('notices'),
+        message: t('resource_was_found_successfully'),
+        data: {
+          unreadCount: count,
         },
       }
     } catch (error) {
@@ -350,8 +413,10 @@ export default class NoticeController {
           data: { noticeId },
         }
       }
+      const rawEmployeeId = request.input('employeeId')
+      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
       const noticeService = new NoticeService(i18n)
-      const notice = await noticeService.show(noticeId)
+      const notice = await noticeService.show(noticeId, employeeId)
       if (!notice) {
         response.status(404)
         return {
@@ -416,6 +481,73 @@ export default class NoticeController {
       }
       const noticeService = new NoticeService(i18n)
       const result = await noticeService.sendNotice(noticeId)
+      response.status(result.status)
+      return result
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/notices/{noticeId}/mark-as-read:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Notices
+   *     summary: mark notice as read for employee
+   *     parameters:
+   *       - in: path
+   *         name: noticeId
+   *         schema:
+   *           type: number
+   *         description: Notice id
+   *         required: true
+   *       - name: employeeId
+   *         in: query
+   *         required: true
+   *         description: Employee id
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Notice marked as read successfully
+   *       default:
+   *         description: Unexpected error
+   */
+  async markAsRead({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const noticeId = Number(request.param('noticeId'))
+      if (!noticeId || Number.isNaN(noticeId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('entity_id_was_not_found', { entity: t('notice') }),
+          message: t('missing_data_to_process'),
+          data: { noticeId },
+        }
+      }
+      const rawEmployeeId = request.input('employeeId')
+      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
+      if (!employeeId || Number.isNaN(employeeId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('entity_id_was_not_found', { entity: t('employee') }),
+          message: t('missing_data_to_process'),
+          data: { employeeId },
+        }
+      }
+      const noticeService = new NoticeService(i18n)
+      const result = await noticeService.markAsRead(noticeId, employeeId)
       response.status(result.status)
       return result
     } catch (error) {
