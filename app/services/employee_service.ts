@@ -1179,11 +1179,32 @@ export default class EmployeeService {
           .first()
         let vacationsUsedList = [] as Array<ShiftException>
         if (vacationSetting) {
-          vacationsUsedList = await ShiftException.query()
+          const shiftExceptions = await ShiftException.query()
             .whereNull('shift_exceptions_deleted_at')
             .where('vacation_setting_id', vacationSetting.vacationSettingId)
             .where('employee_id', employee.employeeId)
             .orderBy('shift_exceptions_date', 'asc')
+          
+          // Get signatures for all shift exceptions
+          const shiftExceptionIds = shiftExceptions.map((se: ShiftException) => se.shiftExceptionId)
+          const signatures = shiftExceptionIds.length > 0 
+            ? await VacationAuthorizationSignature.query()
+                .whereNull('vacation_authorization_signature_deleted_at')
+                .whereIn('shift_exception_id', shiftExceptionIds)
+                .orderBy('vacation_authorization_signature_created_at', 'desc')
+            : []
+          
+          // Map shift exceptions to include employeeSignature
+          vacationsUsedList = shiftExceptions.map((shiftException) => {
+            const signature = signatures.find((sig: VacationAuthorizationSignature) =>
+              sig.shiftExceptionId === shiftException.shiftExceptionId
+            )?.vacationAuthorizationSignatureFile
+            
+            return {
+              ...shiftException.serialize(),
+              employeeSignature: signature || null
+            } as any
+          })
         }
         yearsWroked.push({ year, yearsPassed, vacationSetting, vacationsUsedList })
       }
