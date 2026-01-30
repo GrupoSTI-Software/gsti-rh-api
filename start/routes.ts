@@ -110,6 +110,7 @@ import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
 import './routes/employee_device_routes.js'
+import './routes/employee_biometric_routes.js'
 
 router.get('/', async ({ view }) => {
   const specUrl = '/swagger.json'
