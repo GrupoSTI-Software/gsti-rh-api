@@ -1,5 +1,4 @@
 import { HttpContext } from '@adonisjs/core/http'
-import EmployeeBiometric from '#models/employee_biometric'
 import EmployeeBiometricService from '#services/employee_biometric_service'
 import { createEmployeeBiometricValidator, updateEmployeeBiometricValidator } from '#validators/employee_biometric'
 
