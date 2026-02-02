@@ -4133,7 +4133,21 @@ async generateShiftAssignmentTemplate(
     const endYear = endDateTime.year
 
     // Procesar cada festivo según su frecuencia
+    // SOLO incluir días festivos que son descanso oficial (feriados)
     holidays.forEach((holiday) => {
+      // Verificar si es descanso oficial (manejar tanto boolean como number)
+      const holidayAny = holiday as any
+      const isOfficialRestDay =
+        holiday.holidayIsOfficialRestDay === true ||
+        holidayAny.holidayIsOfficialRestDay === 1 ||
+        holidayAny.holiday_is_official_rest_day === true ||
+        holidayAny.holiday_is_official_rest_day === 1
+
+      // Solo procesar si es descanso oficial
+      if (!isOfficialRestDay) {
+        return
+      }
+
       // Manejar tanto string como Date dependiendo de cómo Lucid devuelva el dato
       let baseHolidayDate: DateTime
       const holidayDateValue = holiday.holidayDate as any
@@ -4207,9 +4221,10 @@ async generateShiftAssignmentTemplate(
     .orderBy('employeeFirstName')
     .orderBy('employeeLastName')
 
-  // Obtener turnos activos
+  // Obtener turnos activos con sus unidades de negocio
   const shifts = await Shift.query()
     .whereNull('shift_deleted_at')
+    .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits', 'shiftColor')
     .orderBy('shiftName')
 
   // Crear mapa de shiftId -> color para uso en modo reporte
@@ -4231,10 +4246,17 @@ async generateShiftAssignmentTemplate(
   // ==============================
   const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
 
-  // Turnos y opciones adicionales → Columna A (A1:A...)
+  // Estructura de la hoja oculta:
+  // Columna A: Valor a mostrar en dropdown (alias si existe, sino nombre formateado)
+  // Columna B: Shift ID
+  // Columna C: Business Units (IDs separados por comas)
+  // Columna D: Nombre formateado completo (para búsqueda durante importación)
+
+  // Turnos → Columnas A, B, C, D
   let shiftRow = 1
   shifts.forEach((shift) => {
-    let shiftDisplay = shift.shiftName
+    // Generar nombre formateado con horario
+    let formattedName = shift.shiftName
     if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
       try {
         const startTime = String(shift.shiftTimeStart).trim()
@@ -4248,22 +4270,46 @@ async generateShiftAssignmentTemplate(
             const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
             const endTime = shiftEndTime.toFormat('HH:mm')
             const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-            shiftDisplay = `${formattedStartTime} to ${endTime} - Rest (NA)`
+            formattedName = `${formattedStartTime} to ${endTime} - Rest (NA)`
           }
         }
       } catch (error) {
         console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
       }
     }
-    listSheet.getCell(shiftRow, 1).value = shiftDisplay
+
+    // Valor a mostrar en dropdown: alias si existe, sino nombre formateado
+    const displayValue = shift.shiftAlias && shift.shiftAlias.trim() !== ''
+      ? shift.shiftAlias.trim()
+      : formattedName
+
+    listSheet.getCell(shiftRow, 1).value = displayValue // Valor para dropdown
+    listSheet.getCell(shiftRow, 2).value = shift.shiftId // Shift ID
+    listSheet.getCell(shiftRow, 3).value = shift.shiftBusinessUnits || '' // Business Units
+    listSheet.getCell(shiftRow, 4).value = formattedName // Nombre formateado completo
     shiftRow++
   })
+
   // Agregar opciones adicionales
-  listSheet.getCell(shiftRow++, 1).value = 'vacaciones'
-  listSheet.getCell(shiftRow++, 1).value = 'Día festivo'
+  listSheet.getCell(shiftRow, 1).value = 'vacaciones'
+  listSheet.getCell(shiftRow, 2).value = 'SPECIAL_VACATION'
+  listSheet.getCell(shiftRow, 3).value = ''
+  listSheet.getCell(shiftRow, 4).value = 'vacaciones'
+  shiftRow++
+
+  listSheet.getCell(shiftRow, 1).value = 'Día festivo'
+  listSheet.getCell(shiftRow, 2).value = 'SPECIAL_HOLIDAY'
+  listSheet.getCell(shiftRow, 3).value = ''
+  listSheet.getCell(shiftRow, 4).value = 'Día festivo'
+  shiftRow++
+
   // Agregar tipos de excepciones masivas
   massiveExceptionTypes.forEach((exceptionType) => {
-    listSheet.getCell(shiftRow++, 1).value = exceptionType.exceptionTypeTypeName
+    listSheet.getCell(shiftRow, 1).value = exceptionType.exceptionTypeTypeName
+    listSheet.getCell(shiftRow, 2).value = `EXCEPTION_${exceptionType.exceptionTypeId}`
+    listSheet.getCell(shiftRow, 3).value = ''
+    listSheet.getCell(shiftRow, 4).value = exceptionType.exceptionTypeTypeName
+    shiftRow++
   })
   const totalShiftOptions = shiftRow - 1
 
@@ -4396,7 +4442,8 @@ async generateShiftAssignmentTemplate(
         } else if (calendar.isHoliday) {
           shiftName = 'Día festivo'
         } else if (calendar.dateShift) {
-          shiftName = calendar.dateShift.shiftName
+          // Usar alias si existe, sino usar nombre formateado
+          let formattedDisplayName = calendar.dateShift.shiftName
           if (calendar.dateShift.shiftTimeStart && calendar.dateShift.shiftActiveHours && typeof calendar.dateShift.shiftActiveHours === 'number') {
             try {
               const startTime = String(calendar.dateShift.shiftTimeStart).trim()
@@ -4409,13 +4456,17 @@ async generateShiftAssignmentTemplate(
                   const shiftEndTime = shiftStartTime.plus({ hours: calendar.dateShift.shiftActiveHours })
                   const endTime = shiftEndTime.toFormat('HH:mm')
                   const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-                  shiftName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                  formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
                 }
               }
             } catch (error) {
               // Usar el nombre del turno por defecto
             }
           }
+          // Priorizar alias si existe
+          shiftName = (calendar.dateShift.shiftAlias && calendar.dateShift.shiftAlias.trim() !== '')
+            ? calendar.dateShift.shiftAlias.trim()
+            : formattedDisplayName
         }
 
         dayMap.set(day, {
@@ -4484,7 +4535,7 @@ async generateShiftAssignmentTemplate(
             }
 
             const dayMap = employeeCalendarsMap.get(empId)!
-            let shiftName: string | null = activeShift.shift.shiftName
+            let formattedDisplayName = activeShift.shift.shiftName
             const shiftId: number | null = activeShift.shiftId
 
             // Formatear el nombre del turno con horario si está disponible
@@ -4500,13 +4551,17 @@ async generateShiftAssignmentTemplate(
                     const shiftEndTime = shiftStartTime.plus({ hours: activeShift.shift.shiftActiveHours })
                     const endTime = shiftEndTime.toFormat('HH:mm')
                     const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-                    shiftName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                    formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
                   }
                 }
               } catch (error) {
                 // Usar el nombre del turno por defecto
               }
             }
+            // Priorizar alias si existe
+            const shiftName: string | null = (activeShift.shift.shiftAlias && activeShift.shift.shiftAlias.trim() !== '')
+              ? activeShift.shift.shiftAlias.trim()
+              : formattedDisplayName
 
             // Solo agregar si no existe ya un registro para esta fecha
             if (!dayMap.has(dateStr)) {
@@ -4646,6 +4701,8 @@ async generateShiftAssignmentTemplate(
         let cellValue = ''
         let cellColor = 'FFFFFFFF'
 
+        // Solo mostrar "Día festivo" si es descanso oficial (feriado)
+        // isHoliday solo es true para descansos oficiales después del filtro
         if (isHoliday || dayData?.isHoliday) {
           cellValue = 'Día festivo'
           cellColor = 'FFE0E0E0' // Gris claro para días festivos
@@ -4653,6 +4710,7 @@ async generateShiftAssignmentTemplate(
           cellValue = 'vacaciones'
           cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
         } else if (dayData?.shiftName) {
+          // Si hay turno asignado, mostrarlo (incluso si es un día festivo que NO es descanso oficial)
           cellValue = dayData.shiftName
           cellColor = getShiftColor(dayData.shiftId)
         }
@@ -4794,16 +4852,39 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       })
     }
 
-    // Obtener todos los turnos para mapear nombres a IDs
+    // Obtener todos los turnos para mapear nombres/alias a IDs
     const shifts = await Shift.query()
       .whereNull('shift_deleted_at')
-      .select('shiftId', 'shiftName', 'shiftTimeStart', 'shiftActiveHours')
+      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits')
 
-    const shiftMap = new Map<string, number>()
+    // Mapa: clave = valor normalizado, valor = objeto con shiftId y businessUnits
+    const shiftMap = new Map<string, Array<{ shiftId: number; businessUnits: string | null }>>()
+
     shifts.forEach((shift) => {
       const shiftNameLower = shift.shiftName.toLowerCase().trim()
-      shiftMap.set(shiftNameLower, shift.shiftId)
 
+      // Agregar nombre del turno
+      if (!shiftMap.has(shiftNameLower)) {
+        shiftMap.set(shiftNameLower, [])
+      }
+      shiftMap.get(shiftNameLower)!.push({
+        shiftId: shift.shiftId,
+        businessUnits: shift.shiftBusinessUnits
+      })
+
+      // Si tiene alias, agregarlo también
+      if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
+        const aliasLower = shift.shiftAlias.toLowerCase().trim()
+        if (!shiftMap.has(aliasLower)) {
+          shiftMap.set(aliasLower, [])
+        }
+        shiftMap.get(aliasLower)!.push({
+          shiftId: shift.shiftId,
+          businessUnits: shift.shiftBusinessUnits
+        })
+      }
+
+      // Agregar nombres formateados con horarios
       if (shift.shiftTimeStart && shift.shiftActiveHours) {
         try {
           const startTime = String(shift.shiftTimeStart).trim()
@@ -4821,9 +4902,17 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
               const formattedName2 = `${formattedStartTime} to ${endTime}`
               const formattedName3 = `${formattedStartTime}-${endTime}`
 
-              shiftMap.set(formattedName1.toLowerCase(), shift.shiftId)
-              shiftMap.set(formattedName2.toLowerCase(), shift.shiftId)
-              shiftMap.set(formattedName3.toLowerCase(), shift.shiftId)
+              const formattedNames = [formattedName1, formattedName2, formattedName3]
+              formattedNames.forEach((formattedName) => {
+                const formattedLower = formattedName.toLowerCase()
+                if (!shiftMap.has(formattedLower)) {
+                  shiftMap.set(formattedLower, [])
+                }
+                shiftMap.get(formattedLower)!.push({
+                  shiftId: shift.shiftId,
+                  businessUnits: shift.shiftBusinessUnits
+                })
+              })
             }
           }
         } catch (error) {
@@ -5055,22 +5144,56 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           continue
         }
 
-        // Buscar el turno
+        // Buscar el turno considerando alias y unidad de negocio del empleado
         const normalizedShiftName = shiftNameLower.replace(/\s+/g, ' ').trim()
-        shiftId = shiftMap.get(normalizedShiftName) || null
+        const employeeBusinessUnitId = employee.businessUnitId
 
+        // Función auxiliar para verificar si el businessUnitId está en shiftBusinessUnits
+        const isBusinessUnitMatch = (businessUnitsStr: string | null, targetBusinessUnitId: number): boolean => {
+          if (!businessUnitsStr || businessUnitsStr.trim() === '') return false
+          const businessUnitsList = businessUnitsStr.split(',').map(bu => bu.trim())
+          return businessUnitsList.includes(String(targetBusinessUnitId))
+        }
+
+        // Buscar primero por coincidencia exacta
+        const exactMatches = shiftMap.get(normalizedShiftName)
+        if (exactMatches && exactMatches.length > 0) {
+          // Si hay coincidencia exacta, buscar la que coincida con la unidad de negocio
+          const matchingShift = exactMatches.find(s =>
+            isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+          )
+          if (matchingShift) {
+            shiftId = matchingShift.shiftId
+          } else if (exactMatches.length === 1) {
+            // Si solo hay uno y no hay filtro de unidad de negocio, usarlo
+            shiftId = exactMatches[0].shiftId
+          }
+        }
+
+        // Si no se encontró, buscar por coincidencia parcial
         if (!shiftId) {
-          for (const [name, id] of shiftMap.entries()) {
-            const normalizedName = name.replace(/\s+/g, ' ').trim()
+          for (const [mapKey, shiftsList] of shiftMap.entries()) {
+            const normalizedMapKey = mapKey.replace(/\s+/g, ' ').trim()
 
-            if (normalizedName === normalizedShiftName) {
-              shiftId = id
-              break
+            // Coincidencia exacta normalizada
+            if (normalizedMapKey === normalizedShiftName) {
+              const matchingShift = shiftsList.find(s =>
+                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+              )
+              if (matchingShift) {
+                shiftId = matchingShift.shiftId
+                break
+              } else if (shiftsList.length === 1) {
+                shiftId = shiftsList[0].shiftId
+                break
+              }
+              continue
             }
 
+            // Coincidencia por patrón de tiempo
             const timePattern = /(\d{1,2}):(\d{2})\s*(?:to|-)\s*(\d{1,2}):(\d{2})/i
             const matchExcel = normalizedShiftName.match(timePattern)
-            const matchMap = normalizedName.match(timePattern)
+            const matchMap = normalizedMapKey.match(timePattern)
 
             if (matchExcel && matchMap) {
               const excelStart = `${matchExcel[1].padStart(2, '0')}:${matchExcel[2]}`
@@ -5079,35 +5202,70 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
               const mapEnd = `${matchMap[3].padStart(2, '0')}:${matchMap[4]}`
 
               if (excelStart === mapStart && excelEnd === mapEnd) {
-                shiftId = id
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+              }
+            }
+
+            // Coincidencia por inclusión
+            if (normalizedMapKey.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedMapKey)) {
+              const matchingShift = shiftsList.find(s =>
+                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+              )
+              if (matchingShift) {
+                shiftId = matchingShift.shiftId
+                break
+              } else if (shiftsList.length === 1) {
+                shiftId = shiftsList[0].shiftId
                 break
               }
             }
 
-            if (normalizedName.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedName)) {
-              shiftId = id
-              break
-            }
-
-            const nameClean = normalizedName.replace(/[-\s()]/g, '').toLowerCase()
+            // Coincidencia por limpieza de caracteres especiales
+            const nameClean = normalizedMapKey.replace(/[-\s()]/g, '').toLowerCase()
             const shiftNameClean = normalizedShiftName.replace(/[-\s()]/g, '').toLowerCase()
             if (nameClean === shiftNameClean && nameClean.length > 0) {
-              shiftId = id
-              break
+              const matchingShift = shiftsList.find(s =>
+                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+              )
+              if (matchingShift) {
+                shiftId = matchingShift.shiftId
+                break
+              } else if (shiftsList.length === 1) {
+                shiftId = shiftsList[0].shiftId
+                break
+              }
             }
 
-            const nameOnly = normalizedName.split(/\s*(?:to|-)\s*/)[0].trim()
+            // Coincidencia por primera parte del nombre (antes de "to" o "-")
+            const nameOnly = normalizedMapKey.split(/\s*(?:to|-)\s*/)[0].trim()
             const shiftNameOnly = normalizedShiftName.split(/\s*(?:to|-)\s*/)[0].trim()
             if (nameOnly && shiftNameOnly && nameOnly === shiftNameOnly) {
-              shiftId = id
-              break
+              const matchingShift = shiftsList.find(s =>
+                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+              )
+              if (matchingShift) {
+                shiftId = matchingShift.shiftId
+                break
+              } else if (shiftsList.length === 1) {
+                shiftId = shiftsList[0].shiftId
+                break
+              }
             }
           }
         }
 
         if (!shiftId) {
           results.errors.push(
-            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Turno "${shiftName}" no encontrado`
+            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Turno "${shiftName}" no encontrado para la unidad de negocio del empleado`
           )
           continue
         }

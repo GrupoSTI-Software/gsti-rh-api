@@ -9,6 +9,7 @@ import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_ser
 import ExceptionType from '#models/exception_type'
 import Employee from '#models/employee'
 import { I18n } from '@adonisjs/i18n'
+import EmployeeShift from '#models/employee_shift'
 
 export default class ShiftExceptionService {
 
@@ -213,8 +214,28 @@ export default class ShiftExceptionService {
 
   async saveActionOnLog(logShiftException: LogShiftException, table: string) {
     try {
+      const employeeId = logShiftException.record_current?.employeeId
+      if (employeeId) {
+        const employeeShiftId = await this.getEmployeeShiftId(employeeId)
+        logShiftException.employeeShiftId = employeeShiftId
+      }
       await LogStore.set(table, logShiftException)
     } catch (err) {}
+  }
+
+  async getEmployeeShiftId(employeeId: number): Promise<number | null> {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const employeeShift = await EmployeeShift.query()
+        .whereNull('employe_shifts_deleted_at')
+        .where('employee_id', employeeId)
+        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [today])
+        .orderBy('employe_shifts_apply_since', 'desc')
+        .first()
+      return employeeShift?.shiftId || null
+    } catch (error) {
+      return null
+    }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {

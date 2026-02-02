@@ -11,6 +11,7 @@ export default class ShiftService {
   async create(shift: Shift) {
     const newShift = new Shift()
     newShift.shiftName = shift.shiftName
+    newShift.shiftAlias = shift.shiftAlias?.trim() || null
     newShift.shiftCalculateFlag = shift.shiftCalculateFlag
     newShift.shiftDayStart = shift.shiftDayStart
     newShift.shiftTimeStart = shift.shiftTimeStart
@@ -27,20 +28,23 @@ export default class ShiftService {
     return newShift
   }
 
-  async verifyInfo(shift: Shift) {
+  async verifyInfo(shift: Shift, shiftId?: number) {
     const businessConf = `${env.get('SYSTEM_BUSINESS')}`
     const businessList = businessConf.split(',')
-    const action = shift.shiftId > 0 ? 'updated' : 'created'
+    const action = shiftId ? 'updated' : 'created'
     const existCode = await Shift.query()
-      .if(shift.shiftId > 0, (query) => {
-        query.whereNot('shift_id', shift.shiftId)
+      .if(shiftId, (query) => {
+        query.whereNot('shift_id', shiftId as number)
       })
       .where('shift_temp', 0)
       .whereNull('shift_deleted_at')
       .where('shift_name', shift.shiftName)
       .andWhere((subQuery) => {
         businessList.forEach((business) => {
-          subQuery.orWhereRaw('FIND_IN_SET(?, shift_business_units)', [business.trim()])
+          subQuery.orWhereRaw(
+            'FIND_IN_SET(?, shift_business_units)',
+            [business.trim()]
+          )
         })
       })
       .first()
@@ -54,6 +58,36 @@ export default class ShiftService {
         data: { ...shift },
       }
     }
+
+    if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
+      const existAlias = await Shift.query()
+        .if(shiftId, (query) => {
+          query.whereNot('shift_id', shiftId as number)
+        })
+        .where('shift_temp', 0)
+        .whereNull('shift_deleted_at')
+        .where('shift_alias', shift.shiftAlias.trim())
+        .andWhere((subQuery) => {
+          businessList.forEach((business) => {
+            subQuery.orWhereRaw(
+              'FIND_IN_SET(?, shift_business_units)',
+              [business.trim()]
+            )
+          })
+        })
+        .first()
+
+      if (existAlias) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'The shift alias already exists for another active shift',
+          message: `The shift resource cannot be ${action} because the alias is already assigned to another active shift in the same business unit`,
+          data: { ...shift },
+        }
+      }
+    }
+
     return {
       status: 200,
       type: 'success',

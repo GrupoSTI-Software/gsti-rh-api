@@ -7,5 +7,6 @@ export const createOrUpdateHolidayValidator = vine.compile(
     holidayDate: vine.string(),
     holidayIcon: vine.any().optional(),
     holidayFrequency: vine.number().min(1).max(100),
+    holidayIsOfficialRestDay: vine.boolean().optional(),
   })
 )

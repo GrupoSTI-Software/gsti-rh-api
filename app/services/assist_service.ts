@@ -37,6 +37,7 @@ import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_inte
 import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
 import ToleranceService from './tolerance_service.js'
+import EmployeeShift from '#models/employee_shift'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -2054,8 +2055,28 @@ export default class AssistsService {
 
   async saveActionOnLog(logAssist: LogAssist) {
     try {
+      const employeeId = logAssist.record_current?.assistEmpId
+      if (employeeId) {
+        const employeeShiftId = await this.getEmployeeShiftId(employeeId)
+        logAssist.employeeShiftId = employeeShiftId
+      }
       await LogStore.set('log_assist', logAssist)
     } catch (err) {}
+  }
+
+  async getEmployeeShiftId(employeeId: number): Promise<number | null> {
+    try {
+      const today = new Date().toISOString().split('T')[0]
+      const employeeShift = await EmployeeShift.query()
+        .whereNull('employe_shifts_deleted_at')
+        .where('employee_id', employeeId)
+        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [today])
+        .orderBy('employe_shifts_apply_since', 'desc')
+        .first()
+      return employeeShift?.shiftId || null
+    } catch (error) {
+      return null
+    }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {
@@ -3236,10 +3257,10 @@ export default class AssistsService {
 
   /**
    * Elimina todas las asistencias existentes
-   * 
+   *
    * Esta función:
    * 1. Elimina todas las asistencias
-   * 
+   *
    * @returns Objeto con el resultado de la operación
    */
   async deleteAllAssists() {
@@ -3282,13 +3303,13 @@ export default class AssistsService {
 
   /**
    * Crea las asistencias demo de 2 meses atras a partir de hoy hacia atras
-   * 
+   *
    * Distribución de porcentajes:
    * - 90% on time (a tiempo)
    * - 5% tolerancia (dentro del rango de tolerancia)
    * - 3% retardos (dentro del rango de delay)
    * - 2% faltas (no se crea la asistencia)
-   * 
+   *
    * @returns Objeto con el resultado de la operación y las asistencias creadas
    */
   async createAssistDemo() {
@@ -3303,7 +3324,7 @@ export default class AssistsService {
           employeeShiftQuery.preload('shift')
         })
         .whereNull('employee_deleted_at')
-     
+
       if (!employees || employees.length === 0) {
         return {
           status: 400,
@@ -3327,7 +3348,7 @@ export default class AssistsService {
             })
           })
         })
-        
+
 
       for await(const employee of employees) {
         const hourStart = employee.employeeShifts[0].shift.shiftTimeStart
@@ -3377,19 +3398,19 @@ export default class AssistsService {
 
         // Distribuir días según porcentajes: 90% on time, 5% tolerancia, 3% retardos, 2% faltas
         const totalDays = workDays.length
-        
+
         // Calcular primero las faltas (2%) para asegurar que siempre haya días sin asistencia
         const faultCount = Math.max(1, Math.round(totalDays * 0.02))
         const remainingDays = totalDays - faultCount
-        
+
         // Calcular los porcentajes basados en el total original
         let onTimeCount = Math.round(totalDays * 0.90)
         let toleranceCount = Math.round(totalDays * 0.05)
         let delayCount = Math.round(totalDays * 0.03)
-        
+
         // Verificar si la suma excede los días disponibles (sin contar faltas)
         let totalAssigned = onTimeCount + toleranceCount + delayCount
-        
+
         // Si excede, ajustar proporcionalmente manteniendo los porcentajes relativos
         if (totalAssigned > remainingDays) {
           const excess = totalAssigned - remainingDays
@@ -3397,12 +3418,12 @@ export default class AssistsService {
           const onTimeFactor = onTimeCount / totalAssigned
           const toleranceFactor = toleranceCount / totalAssigned
           const delayFactor = delayCount / totalAssigned
-          
+
           // Reducir proporcionalmente
           onTimeCount = Math.max(0, Math.round(onTimeCount - (excess * onTimeFactor)))
           toleranceCount = Math.max(0, Math.round(toleranceCount - (excess * toleranceFactor)))
           delayCount = Math.max(0, Math.round(delayCount - (excess * delayFactor)))
-          
+
           // Ajuste final si todavía excede por redondeos
           totalAssigned = onTimeCount + toleranceCount + delayCount
           if (totalAssigned > remainingDays) {
@@ -3425,17 +3446,17 @@ export default class AssistsService {
         for await (const workDate of onTimeDays) {
           const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
           const [hour, minute] = hourStart.split(':')
-          
+
           // Permitir variación de -5 a 0 minutos (a tiempo o un poco antes)
           const minutesVariation = Math.floor(Math.random() * 6) - 5 // -5 a 0
-          
+
           // Crear DateTime base con la hora de inicio
           const baseTimeString = `${dateString} ${hour}:${minute}:00`
           const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' })
-          
+
           // Aplicar variación de minutos (puede ser negativa)
           const punchTime = baseTime.plus({ minutes: minutesVariation }).toUTC()
-          
+
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
           createAssist.assistEmpCode = employee.employeeCode.toString()
@@ -3462,18 +3483,18 @@ export default class AssistsService {
         for await (const workDate of toleranceDays) {
           const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
           const [hour, minute] = hourStart.split(':')
-          
+
           // Variación de 1 a delayToleranceMinutes minutos (dentro de la tolerancia)
           const minutesVariation = Math.floor(Math.random() * delayToleranceMinutes) + 1
           const totalMinutes = Number(minute) + minutesVariation
           const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
           const finalMinute = totalMinutes % 60
           const finalSecond = 0
-          
+
           // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
           const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
           const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
-          
+
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
           createAssist.assistEmpCode = employee.employeeCode.toString()
@@ -3485,7 +3506,7 @@ export default class AssistsService {
           await createAssist.save()
 
           const checkOutTime = punchTime.plus({ hours: activeHours })
-          
+
           const createAssistOut = new Assist()
           createAssistOut.assistEmpId = employee.employeeId
           createAssistOut.assistEmpCode = employee.employeeCode.toString()
@@ -3502,18 +3523,18 @@ export default class AssistsService {
         for await (const workDate of delayDays) {
           const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
           const [hour, minute] = hourStart.split(':')
-          
+
           // Variación de delayToleranceMinutes + 1 a faultToleranceMinutes minutos (dentro del rango de delay)
           const minutesVariation = Math.floor(Math.random() * (faultToleranceMinutes - delayToleranceMinutes)) + delayToleranceMinutes + 15
           const totalMinutes = Number(minute) + minutesVariation
           const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
           const finalMinute = totalMinutes % 60
           const finalSecond = 0
-          
+
           // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
           const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
           const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
-          
+
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
           createAssist.assistEmpCode = employee.employeeCode.toString()
@@ -3578,7 +3599,7 @@ export default class AssistsService {
 
   /**
    * Obtiene la tolerancia de retardo del sistema
-   * 
+   *
    * @returns {Promise<number>} La tolerancia de retardo en minutos
    */
   async getDelayToleranceMinutes(): Promise<number> {
@@ -3589,7 +3610,7 @@ export default class AssistsService {
       const toleranceService = new ToleranceService()
       const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
       const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
-      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes 
+      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
     }
     return delayToleranceMinutes
   }
@@ -3602,7 +3623,7 @@ export default class AssistsService {
       const toleranceService = new ToleranceService()
       const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
       const tardinessTolerance = tolerances.find((t) => t.toleranceName === 'TardinessTolerance')
-      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes 
+      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes
     }
     return tardinessToleranceMinutes
   }
