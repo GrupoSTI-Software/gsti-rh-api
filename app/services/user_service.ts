@@ -507,12 +507,12 @@ export default class UserService {
 
   /**
    * Crea usuarios demo para todos los empleados demo existentes
-   * 
+   *
    * Asignación de roles:
    * - Empleados con departamento "Recursos Humanos" → rol "recursos-humanos"
    * - Empleados con posición "Director general" → rol "administrador"
    * - Los demás empleados → rol "empleados"
-   * 
+   *
    * @returns Objeto con el resultado de la operación y los usuarios creados
    */
   async createUsersDemo() {
@@ -521,7 +521,7 @@ export default class UserService {
       const roleService = new RoleService()
       const rhManagerRole = await roleService.findRoleBySlug('recursos-humanos')
       const adminRole = await roleService.findRoleBySlug('administrador')
-      const employeeRole = await roleService.findRoleBySlug('empleados')
+      const employeeRole = await roleService.findRoleBySlug('empleado')
 
       if (!rhManagerRole || !adminRole || !employeeRole) {
         return {
