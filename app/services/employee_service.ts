@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
 import ExceptionType from '#models/exception_type'
@@ -38,6 +39,26 @@ import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
+import EmployeeAddress from '#models/employee_address'
+import EmployeeSpouse from '#models/employee_spouse'
+import EmployeeChildren from '#models/employee_children'
+import EmployeeShiftChange from '#models/employee_shift_changes'
+import EmployeeEmergencyContact from '#models/employee_emergency_contact'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import EmployeeDevice from '#models/employee_device'
+import EmployeeAnnotation from '#models/employee_annotation'
+import EmployeeSupplie from '#models/employee_supplie'
+import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import EmployeeRecord from '#models/employee_record'
+import WorkDisability from '#models/work_disability'
+import WorkDisabilityNote from '#models/work_disability_note'
+import WorkDisabilityPeriod from '#models/work_disability_period'
+import WorkDisabilityPeriodExpense from '#models/work_disability_period_expense'
+import ExceptionRequest from '#models/exception_request'
+import Pilot from '#models/pilot'
+import Reservation from '#models/reservation'
+import ReservationNote from '#models/reservation_note'
+import ReservationLeg from '#models/reservation_leg'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -5341,5 +5362,640 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       data: null
     }
   }
-}
+ }
+
+  /**
+   * Elimina definitivamente todos los empleados y sus registros relacionados en otras tablas
+   * 
+   * Esta función:
+   * 1. Elimina todas las relaciones en employee_shifts
+   * 2. Elimina todas las relaciones en shift_exceptions
+   * 3. Elimina todas las relaciones en employee_addresses
+   * 4. Elimina todas las relaciones en employee_spouses
+   * 5. Elimina todas las relaciones en employee_children
+   * 6. Elimina todas las relaciones en employee_emergency_contacts
+   * 7. Elimina todas las relaciones en employee_shift_changes
+   * 8. Elimina todas las relaciones en user_responsible_employees
+   * 9. Elimina todas las relaciones en employee_contracts
+   * 10. Elimina todas las relaciones en employee_biometric_face_ids
+   * 11. Elimina todas las relaciones en employee_zones
+   * 12. Elimina todas las relaciones en employee_devices
+   * 13. Elimina todas las relaciones en employee_proceeding_files
+   * 14. Elimina todas las relaciones en employee_annotations
+   * 15. Elimina todas las relaciones en employee_assist_calendars
+   * 16. Elimina todas las relaciones en employee_supplies
+   * 17. Elimina todas las relaciones en employee_medical_conditions
+   * 18. Elimina todas las relaciones en employee_banks
+   * 19. Elimina todas las relaciones en employee_records
+   * 20. Elimina todas las relaciones en work_disability_notes
+   * 21. Elimina todas las relaciones en work_disability_period_expenses
+   * 22. Elimina todas las relaciones en work_disability_periods
+   * 23. Elimina todas las relaciones en work_disabilities
+   * 24. Elimina todas las relaciones en exception_requests
+   * 25. Elimina todas las relaciones in reservation_legs
+   * 26. Elimina todas las relaciones in reservation_notes  
+   * 27. Elimina todas las relaciones en reservations
+   * 28. Elimina todas las relaciones en pilots
+   * 29. Elimina todas las relaciones en flight_attendants
+   * 30. Elimina todos los empleados
+   * 31. Elimina todos los registros en users
+   * 32. Elimina todos los registros en customers
+   * 33. Elimina todos los registros en persons
+   * 
+   * @returns Objeto con el resultado de la operación
+   */
+  async deleteAllEmployees() {
+    try {
+      // Contar registros antes de eliminar
+      const totalEmployees = await Employee.query()
+        .count('* as total')
+      const totalEmployeeShifts = await EmployeeShift.query()
+        .count('* as total')
+      const totalShiftExceptions = await ShiftException.query()
+        .count('* as total')
+      const totalEmployeeContracts = await EmployeeContract.query()
+        .count('* as total')
+      const totalWorkDisabilities = await WorkDisability.query()
+        .count('* as total')
+      const totalWorkDisabilityNotes = await WorkDisabilityNote.query()
+        .count('* as total')
+      const totalWorkDisabilityPeriods = await WorkDisabilityPeriod.query()
+        .count('* as total')
+      const totalWorkDisabilityPeriodExpenses = await WorkDisabilityPeriodExpense.query()
+        .count('* as total')
+      const totalEmployeeAddresses = await EmployeeAddress.query()
+        .count('* as total')
+      const totalEmployeeSpouses = await EmployeeSpouse.query()
+        .count('* as total')
+      const totalEmployeeChildren = await EmployeeChildren.query()
+        .count('* as total')
+      const totalEmployeeEmergencyContacts = await EmployeeEmergencyContact.query()
+        .count('* as total')
+      const totalEmployeeShiftChanges = await EmployeeShiftChange.query()
+        .count('* as total')
+      const totalUserResponsibleEmployees = await UserResponsibleEmployee.query()
+        .count('* as total')
+      const totalEmployeeBiometricFaceIds = await EmployeeBiometricFaceId.query()
+        .count('* as total')
+      const totalEmployeeZones = await EmployeeZone.query()
+        .count('* as total')
+      const totalEmployeeDevices = await EmployeeDevice.query()
+        .count('* as total')
+      const totalExceptionRequests = await ExceptionRequest.query()
+        .count('* as total')
+      const totalReservations = await Reservation.query()
+        .count('* as total')
+      const totalPilots = await Pilot.query()
+        .count('* as total')
+      const totalReservationLegs = await ReservationLeg.query()
+        .count('* as total')
+      const totalReservationNotes = await ReservationNote.query()
+        .count('* as total')
+      const totalFlightAttendants = await FlightAttendant.query()
+        .count('* as total')
+      const totalPersons = await Person.query()
+        .count('* as total')
+      const totalUsers = await User.query()
+        .count('* as total')
+      const totalCustomers = await Customer.query()
+        .count('* as total')
+      const counts = {
+        employees: Number(totalEmployees[0].$extras.total),
+        employeeShifts: Number(totalEmployeeShifts[0].$extras.total),
+        shiftExceptions: Number(totalShiftExceptions[0].$extras.total),
+        employeeContracts: Number(totalEmployeeContracts[0].$extras.total),
+        workDisabilities: Number(totalWorkDisabilities[0].$extras.total),
+        workDisabilityNotes: Number(totalWorkDisabilityNotes[0].$extras.total),
+        employeeAddresses: Number(totalEmployeeAddresses[0].$extras.total),
+        employeeSpouses: Number(totalEmployeeSpouses[0].$extras.total),
+        employeeChildren: Number(totalEmployeeChildren[0].$extras.total),
+        employeeEmergencyContacts: Number(totalEmployeeEmergencyContacts[0].$extras.total),
+        employeeShiftChanges: Number(totalEmployeeShiftChanges[0].$extras.total),
+        userResponsibleEmployees: Number(totalUserResponsibleEmployees[0].$extras.total),
+        employeeBiometricFaceIds: Number(totalEmployeeBiometricFaceIds[0].$extras.total),
+        employeeZones: Number(totalEmployeeZones[0].$extras.total),
+        employeeDevices: Number(totalEmployeeDevices[0].$extras.total),
+        workDisabilityPeriods: Number(totalWorkDisabilityPeriods[0].$extras.total),
+        workDisabilityPeriodExpenses: Number(totalWorkDisabilityPeriodExpenses[0].$extras.total),
+        exceptionRequests: Number(totalExceptionRequests[0].$extras.total),
+        reservations: Number(totalReservations[0].$extras.total),
+        reservationLegs: Number(totalReservationLegs[0].$extras.total),
+        reservationNotes: Number(totalReservationNotes[0].$extras.total),
+        pilots: Number(totalPilots[0].$extras.total),
+        flightAttendants: Number(totalFlightAttendants[0].$extras.total),
+        persons: Number(totalPersons[0].$extras.total),
+        users: Number(totalUsers[0].$extras.total),
+        customers: Number(totalCustomers[0].$extras.total),
+      }
+
+      // 1. Eliminar todas las relaciones en employee_shifts
+      await EmployeeShift.query().delete()
+
+      // 2. Eliminar todas las relaciones en shift_exceptions
+      await ShiftException.query().delete()
+
+      // 3. Eliminar todas las relaciones en employee_contracts
+      await EmployeeContract.query().delete()
+
+      // 4. Eliminar todas las relaciones en employee_addresses
+      await EmployeeAddress.query().delete()
+
+      // 5. Eliminar todas las relaciones en employee_spouses
+      await EmployeeSpouse.query().delete()
+
+      // 6. Eliminar todas las relaciones en employee_children
+      await EmployeeChildren.query().delete()
+
+      // 7. Eliminar todas las relaciones en employee_emergency_contacts
+      await EmployeeEmergencyContact.query().delete()
+
+      // 8. Eliminar todas las relaciones en employee_shift_changes
+      await EmployeeShiftChange.query().delete()
+
+      // 9. Eliminar todas las relaciones en user_responsible_employees
+      await UserResponsibleEmployee.query().delete()
+
+      // 10. Eliminar todas las relaciones en employee_biometric_face_ids
+      await EmployeeBiometricFaceId.query().delete()
+
+      // 11. Eliminar todas las relaciones en employee_zones
+      await EmployeeZone.query().delete()
+
+      // 12. Eliminar todas las relaciones en employee_devices
+      await EmployeeDevice.query().delete()
+
+      // 13. Eliminar todas las relaciones en employee_proceeding_files
+      await EmployeeProceedingFile.query().delete()
+
+      // 14. Eliminar todas las relaciones en employee_annotations
+      await EmployeeAnnotation.query().delete()
+
+      // 15. Eliminar todas las relaciones en employee_assist_calendars
+      await EmployeeAssistCalendar.query().delete()
+
+      // 16. Eliminar todas las relaciones en employee_supplies
+      await EmployeeSupplie.query().delete()
+
+      // 17. Eliminar todas las relaciones en employee_medical_conditions
+      await EmployeeMedicalCondition.query().delete()
+
+      // 18. Eliminar todas las relaciones en employee_banks
+      await EmployeeBank.query().delete()
+
+      // 19. Eliminar todas las relaciones en employee_records
+      await EmployeeRecord.query().delete() 
+
+      // 20. Eliminar todas las relaciones en work_disability_notes
+      await WorkDisabilityNote.query().delete()
+
+      // 22. Eliminar todas las relaciones en work_disability_period_expenses
+      await WorkDisabilityPeriodExpense.query().delete()
+      
+      // 22. Eliminar todas las relaciones en work_disability_periods
+      await WorkDisabilityPeriod.query().delete()
+
+      // 23. Eliminar todas las relaciones en work_disabilities
+      await WorkDisability.query().delete()
+
+      // 24. Eliminar todas las relaciones en exception_requests
+      await ExceptionRequest.query().delete()
+
+      // 25. Eliminar todas las relaciones en reservation_legs
+      await ReservationLeg.query().delete()
+
+      // 26. Eliminar todas las relaciones in reservation_notes
+      await ReservationNote.query().delete()
+
+      // 27. Eliminar todas las relaciones in reservations
+      await Reservation.query().delete()
+
+      // 28. Eliminar todas las relaciones en pilots
+      await Pilot.query().delete()
+
+      // 29. Eliminar todas las relaciones en flight_attendants
+      await FlightAttendant.query().delete()
+
+      // 30. Eliminar todos los empleados
+      await Employee.query().delete()
+
+      // 31. Eliminar todos los registros en usuarios
+      await User.query().delete()
+
+      // 32. Eliminar todos los registros en customers
+      await Customer.query().delete()
+
+      // 33. Eliminar todos los registros en personas
+      await Person.query().delete()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Employees deleted successfully',
+        message: 'All employees and their relationships have been deleted successfully',
+        data: {
+          deleted: {
+            employees: counts.employees,
+            employeeShifts: counts.employeeShifts,
+            shiftExceptions: counts.shiftExceptions,
+            employeeContracts: counts.employeeContracts,
+            workDisabilities: counts.workDisabilities,
+            workDisabilityNotes: counts.workDisabilityNotes,  
+            workDisabilityPeriods: counts.workDisabilityPeriods,
+            workDisabilityPeriodExpenses: counts.workDisabilityPeriodExpenses,
+            employeeAddresses: counts.employeeAddresses,
+            employeeSpouses: counts.employeeSpouses,
+            employeeChildren: counts.employeeChildren,
+            employeeEmergencyContacts: counts.employeeEmergencyContacts,
+            employeeShiftChanges: counts.employeeShiftChanges,
+            userResponsibleEmployees: counts.userResponsibleEmployees,
+            employeeBiometricFaceIds: counts.employeeBiometricFaceIds,
+            employeeZones: counts.employeeZones,
+            employeeDevices: counts.employeeDevices,
+            exceptionRequests: counts.exceptionRequests,
+            pilots: counts.pilots,
+            reservations: counts.reservations,
+            flightAttendants: counts.flightAttendants,
+            users: counts.users,
+            customers: counts.customers,
+            persons: counts.persons
+          },
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al eliminar todos los empleados:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to delete employees',
+        message: 'An error occurred while trying to delete all employees',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea un empleado demo con los datos proporcionados
+   * @param employeeData - Datos del empleado
+   * @param personId - ID de la persona
+   * @param positionId - ID de la posición
+   * @param departmentId - ID del departamento
+   * @param businessUnitId - ID de la unidad de negocio
+   * 
+   * @returns Empleado creado
+   */
+  private async createDemoEmployee(
+    employeeData: {
+      firstName: string
+      lastName: string
+      secondLastName: string
+      code: string,
+      dailySalary: number
+    },
+    personId: number,
+    positionId: number | null,
+    departmentId: number | null,
+    businessUnitId: number
+  ): Promise<Employee> {
+    const employeeType = await EmployeeType.query()
+      .where('employee_type_slug', 'employee')
+      .whereNull('employee_type_deleted_at')
+      .first()
+
+    const employee = new Employee()
+    employee.employeeSyncId = 0
+    employee.employeeCode = employeeData.code
+    employee.employeeFirstName = employeeData.firstName
+    employee.employeeLastName = employeeData.lastName
+    employee.employeeSecondLastName = employeeData.secondLastName || ''
+    employee.employeePayrollNum = employeeData.code
+    employee.employeePayrollCode = employeeData.code
+    employee.employeeHireDate = DateTime.now()
+    employee.companyId = 0
+    employee.departmentId = departmentId
+    employee.positionId = positionId
+    employee.personId = personId
+    employee.businessUnitId = businessUnitId
+    employee.dailySalary = employeeData.dailySalary
+    employee.payrollBusinessUnitId = businessUnitId
+    employee.employeeAssistDiscriminator = 0
+    employee.employeeWorkSchedule = 'Onsite'
+    employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeAuthorizeAnyZones = 0
+    employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
+    employee.departmentSyncId = 0
+    employee.positionSyncId = 0
+
+    if (employeeType?.employeeTypeId) {
+      employee.employeeTypeId = employeeType.employeeTypeId
+    } else {
+      employee.employeeTypeId = 1
+    }
+
+    await employee.save()
+    await this.updateEmployeeSlug(employee)
+    return employee
+  }
+
+  /**
+   * Crea 41 empleados demo y los asigna a las posiciones según el organigrama
+   * 
+   * Distribución de empleados por posición:
+   * - Director general: 1
+   * - Asistente de dirección: 1
+   * - Gerente administrativo: 1
+   * - Gerente de recursos humanos: 1
+   * - Reclutador: 1
+   * - Desarrollador de talento: 2
+   * - Gerente de contabilidad: 1
+   * - Encargado de nóminas: 1
+   * - Tesorería: 2
+   * - Director de operaciones: 1
+   * - Auxiliar operativo: 3
+   * - Gerente de proyectos: 1
+   * - Project Manager: 3
+   * - Diseñador gráfico: 1
+   * - Diseñador UX: 2
+   * - Líder de proyecto: 1
+   * - Supervisor de distribución: 1
+   * - Especialista de logística: 1
+   * - Supervisor de producción: 1
+   * - Operador de producción: 10
+   * - Supervisor de marketing: 1
+   * - Content Manager: 1
+   * - Especialista en Relaciones Públicas: 1
+   * - Analista de mercado: 2
+   * 
+   * @returns Objeto con el resultado de la operación y los empleados creados
+   */
+  async createEmployeeDemo() {
+    try {
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 0
+
+      // Buscar todas las posiciones necesarias
+      const positionsMap: { [key: string]: Position | null } = {}
+      const positionNames = [
+        'Director general',
+        'Asistente de dirección',
+        'Gerente administrativo',
+        'Gerente de recursos humanos',
+        'Reclutador',
+        'Desarrollador de talento',
+        'Gerente de contabilidad',
+        'Encargado de nóminas',
+        'Tesorería',
+        'Director de operaciones',
+        'Auxiliar operativo',
+        'Gerente de proyectos',
+        'Project Manager',
+        'Diseñador gráfico',
+        'Diseñador UX',
+        'Líder de proyecto',
+        'Supervisor de distribución',
+        'Especialista de logística',
+        'Supervisor de producción',
+        'Operador de producción',
+        'Supervisor de marketing',
+        'Content Manager',
+        'Especialista en Relaciones Públicas',
+        'Analista de mercado',
+      ]
+
+      const positionService = new PositionService(this.i18n)
+      for await (const positionName of positionNames) {
+        positionsMap[positionName] = await positionService.findPositionByName(positionName)
+      }
+
+      // Lista de empleados con sus nombres completos
+      const employeesData = [
+        { firstName: 'Juan', lastName: 'Pérez', secondLastName: 'López', gender: 'Hombre', birthday: '1991-02-14', phone: '1234567890', email: 'juan.perez@example.com', curp: 'PELJ880510HDFLRN01', rfc: 'PELJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'María', lastName: 'González', secondLastName: 'Hernández', gender: 'Mujer', birthday: '1991-11-30', phone: '1234567890', email: 'maria.gonzalez@example.com', curp: 'GONM880510HDFLRN01', rfc: 'GONM880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'José', lastName: 'Martínez', secondLastName: 'Ramírez', gender: 'Hombre', birthday: '1992-01-08', phone: '1234567890', email: 'jose.martinez@example.com', curp: 'MART880510HDFLRN01', rfc: 'MART880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Ana', lastName: 'Rodríguez', secondLastName: 'Cruz', gender: 'Mujer', birthday: '1992-06-19', phone: '1234567890', email: 'ana.rodriguez@example.com', curp: 'RODJ880510HDFLRN01', rfc: 'RODJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Carlos', lastName: 'López', secondLastName: 'García', gender: 'Hombre', birthday: '1992-12-27', phone: '1234567890', email: 'carlos.lopez@example.com', curp: 'LOPG880510HDFLRN01', rfc: 'LOPG880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Guadalupe', lastName: 'Sánchez', secondLastName: 'Flores', gender: 'Mujer', birthday: '1993-05-14', phone: '1234567890', email: 'guadalupe.sanchez@example.com', curp: 'SANF880510HDFLRN01', rfc: 'SANF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Luis', lastName: 'Hernández', secondLastName: 'Torres', gender: 'Hombre', birthday: '1993-10-22', phone: '1234567890', email: 'luis.hernandez@example.com', curp: 'HERT880510HDFLRN01', rfc: 'HERT880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Rosa', lastName: 'Morales', secondLastName: 'Jiménez', gender: 'Mujer', birthday: '1994-02-03', phone: '1234567890', email: 'rosa.morales@example.com', curp: 'MORJ880510HDFLRN01', rfc: 'MORJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Miguel', lastName: 'Ortiz', secondLastName: 'Vega', gender: 'Hombre', birthday: '1994-07-18', phone: '1234567890', email: 'miguel.ortiz@example.com', curp: 'ORTV880510HDFLRN01', rfc: 'ORTV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Carmen', lastName: 'Castillo', secondLastName: 'Reyes', gender: 'Mujer', birthday: '1994-12-09', phone: '1234567890', email: 'carmen.castillo@example.com', curp: 'CAST880510HDFLRN01', rfc: 'CAST880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Jesús', lastName: 'Ramírez', secondLastName: 'Pérez', gender: 'Hombre', birthday: '1995-03-21', phone: '1234567890', email: 'jesus.ramirez@example.com', curp: 'RAMJ880510HDFLRN01', rfc: 'RAMJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Laura', lastName: 'Flores', secondLastName: 'Mendoza', gender: 'Mujer', birthday: '1995-08-02', phone: '1234567890', email: 'laura.flores@example.com', curp: 'FLOL880510HDFLRN01', rfc: 'FLOL880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Francisco', lastName: 'Vargas', secondLastName: 'Soto', gender: 'Hombre', birthday: '1996-01-17', phone: '1234567890', email: 'francisco.vargas@example.com', curp: 'VARS880510HDFLRN01', rfc: 'VARS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Patricia', lastName: 'Rojas', secondLastName: 'Navarro', gender: 'Mujer', birthday: '1996-06-28', phone: '1234567890', email: 'patricia.rojas@example.com', curp: 'ROJ880510HDFLRN01', rfc: 'ROJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Jorge', lastName: 'Medina', secondLastName: 'Aguilar', gender: 'Hombre', birthday: '1996-11-12', phone: '1234567890', email: 'jorge.medina@example.com', curp: 'MEDJ880510HDFLRN01', rfc: 'MEDJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Teresa', lastName: 'Luna', secondLastName: 'Chávez', gender: 'Mujer', birthday: '1997-04-05', phone: '1234567890', email: 'teresa.luna@example.com', curp: 'LUN880510HDFLRN01', rfc: 'LUN880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Pedro', lastName: 'Herrera', secondLastName: 'Salas', gender: 'Hombre', birthday: '1997-09-11', phone: '1234567890', email: 'pedro.herrera@example.com', curp: 'HERP880510HDFLRN01', rfc: 'HERP880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Alejandra', lastName: 'Núñez', secondLastName: 'Pineda', gender: 'Mujer', birthday: '1998-01-26', phone: '1234567890', email: 'alejandra.nunez@example.com', curp: 'NUNE880510HDFLRN01', rfc: 'NUNE880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Manuel', lastName: 'Cruz', secondLastName: 'Romero', gender: 'Hombre', birthday: '1998-06-14', phone: '1234567890', email: 'manuel.cruz@example.com', curp: 'CRUZ880510HDFLRN01', rfc: 'CRUZ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Verónica', lastName: 'Campos', secondLastName: 'Silva', gender: 'Mujer', birthday: '1998-10-03', phone: '1234567890', email: 'veronica.campos@example.com', curp: 'CAMV880510HDFLRN01', rfc: 'CAMV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Ricardo', lastName: 'Mendoza', secondLastName: 'Fuentes', gender: 'Hombre', birthday: '1999-02-19', phone: '1234567890', email: 'ricardo.mendoza@example.com', curp: 'MEND880510HDFLRN01', rfc: 'MEND880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Sofía', lastName: 'Delgado', secondLastName: 'Moreno', gender: 'Mujer', birthday: '1999-07-07', phone: '1234567890', email: 'sofia.delgado@example.com', curp: 'DELF880510HDFLRN01', rfc: 'DELF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Fernando', lastName: 'Reyes', secondLastName: 'Cabrera', gender: 'Hombre', birthday: '2000-01-15', phone: '1234567890', email: 'fernando.reyes@example.com', curp: 'REYF880510HDFLRN01', rfc: 'REYF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Adriana', lastName: 'Pacheco', secondLastName: 'León', gender: 'Mujer', birthday: '2000-04-27', phone: '1234567890', email: 'adriana.pacheco@example.com', curp: 'PACA880510HDFLRN01', rfc: 'PACA880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Daniel', lastName: 'Ibarra', secondLastName: 'Castillo', gender: 'Hombre', birthday: '2000-08-09', phone: '1234567890', email: 'daniel.ibarra@example.com', curp: 'IBAR880510HDFLRN01', rfc: 'IBAR880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Claudia', lastName: 'Espinoza', secondLastName: 'Márquez', gender: 'Mujer', birthday: '2000-11-21', phone: '1234567890', email: 'claudia.espinoza@example.com', curp: 'ESPI880510HDFLRN01', rfc: 'ESPI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Roberto', lastName: 'Villanueva', secondLastName: 'Rocha', gender: 'Hombre', birthday: '2001-03-05', phone: '1234567890', email: 'roberto.villanueva@example.com', curp: 'VILL880510HDFLRN01', rfc: 'VILL880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Gabriela', lastName: 'Cárdenas', secondLastName: 'Bautista', gender: 'Mujer', birthday: '2001-06-18', phone: '1234567890', email: 'gabriela.cardenas@example.com', curp: 'CARD880510HDFLRN01', rfc: 'CARD880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Eduardo', lastName: 'Acosta', secondLastName: 'Beltrán', gender: 'Hombre', birthday: '2001-09-30', phone: '1234567890', email: 'eduardo.acosta@example.com', curp: 'ACOS880510HDFLRN01', rfc: 'ACOS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Daniela', lastName: 'Zúñiga', secondLastName: 'Ortega', gender: 'Mujer', birthday: '2002-01-12', phone: '1234567890', email: 'daniela.zuniga@example.com', curp: 'ZUNI880510HDFLRN01', rfc: 'ZUNI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Javier', lastName: 'Salazar', secondLastName: 'Cortés', gender: 'Hombre', birthday: '2002-04-26', phone: '1234567890', email: 'javier.salazar@example.com', curp: 'SALJ880510HDFLRN01', rfc: 'SALJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Paulina', lastName: 'Montoya', secondLastName: 'Rangel', gender: 'Mujer', birthday: '2002-08-07', phone: '1234567890', email: 'paulina.montoya@example.com', curp: 'MONP880510HDFLRN01', rfc: 'MONP880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Antonio', lastName: 'Galindo', secondLastName: 'Meza', gender: 'Hombre', birthday: '2002-11-19', phone: '1234567890', email: 'antonio.galindo@example.com', curp: 'GALI880510HDFLRN01', rfc: 'GALI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Elizabeth', lastName: 'Peralta', secondLastName: 'Trejo', gender: 'Mujer', birthday: '2003-03-04', phone: '1234567890', email: 'elizabeth.peralta@example.com', curp: 'PERE880510HDFLRN01', rfc: 'PERE880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Raúl', lastName: 'Escobar', secondLastName: 'Nieto', gender: 'Hombre', birthday: '2003-06-16', phone: '1234567890', email: 'raul.escobar@example.com', curp: 'ESCO880510HDFLRN01', rfc: 'ESCO880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        
+        { firstName: 'Mónica', lastName: 'Valdez', secondLastName: 'Arriaga', gender: 'Mujer', birthday: '2003-10-28', phone: '1234567890', email: 'monica.valdez@example.com', curp: 'VALD880510HDFLRN01', rfc: 'VALD880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Rosa', lastName: 'Gonzalez', secondLastName: 'Hernandez', gender: 'Mujer', birthday: '2004-02-15', phone: '1234567890', email: 'rosa.gonzalez@example.com', curp: 'GONZ880510HDFLRN01', rfc: 'GONZ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Silvia', lastName: 'Orozco', secondLastName: 'Sandoval', gender: 'Mujer', birthday: '2004-05-29', phone: '1234567890', email: 'silvia.orozco@example.com', curp: 'OROS880510HDFLRN01', rfc: 'OROS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Sergio', lastName: 'Tapia', secondLastName: 'Calderón', gender: 'Hombre', birthday: '2004-09-11', phone: '1234567890', email: 'sergio.tapia@example.com', curp: 'TAPI880510HDFLRN01', rfc: 'TAPI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Norma', lastName: 'Álvarez', secondLastName: 'Macías', gender: 'Mujer', birthday: '2005-01-06', phone: '1234567890', email: 'norma.alvarez@example.com', curp: 'ALVM880510HDFLRN01', rfc: 'ALVM880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Víctor', lastName: 'Peña', secondLastName: 'Solís', gender: 'Hombre', birthday: '2005-04-20', phone: '1234567890', email: 'victor.pena@example.com', curp: 'PEÑV880510HDFLRN01', rfc: 'PEÑV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+      ]
+
+      // Distribución de empleados por posición según el organigrama
+      const positionAssignments = [
+        { positionName: 'Director general', count: 1 },
+        { positionName: 'Asistente de dirección', count: 1 },
+        { positionName: 'Gerente administrativo', count: 1 },
+        { positionName: 'Gerente de recursos humanos', count: 1 },
+        { positionName: 'Reclutador', count: 1 },
+        { positionName: 'Desarrollador de talento', count: 2 },
+        { positionName: 'Gerente de contabilidad', count: 1 },
+        { positionName: 'Encargado de nóminas', count: 1 },
+        { positionName: 'Tesorería', count: 2 },
+        { positionName: 'Director de operaciones', count: 1 },
+        { positionName: 'Auxiliar operativo', count: 3 },
+        { positionName: 'Gerente de proyectos', count: 1 },
+        { positionName: 'Project Manager', count: 3 },
+        { positionName: 'Diseñador gráfico', count: 1 },
+        { positionName: 'Diseñador UX', count: 2 },
+        { positionName: 'Líder de proyecto', count: 1 },
+        { positionName: 'Supervisor de distribución', count: 1 },
+        { positionName: 'Especialista de logística', count: 1 },
+        { positionName: 'Supervisor de producción', count: 1 },
+        { positionName: 'Operador de producción', count: 10 },
+        { positionName: 'Supervisor de marketing', count: 1 },
+        { positionName: 'Content Manager', count: 1 },
+        { positionName: 'Especialista en Relaciones Públicas', count: 1 },
+        { positionName: 'Analista de mercado', count: 2 },
+      ]
+
+      const createdEmployees: Array<{
+        name: string
+        id: number
+        code: string
+        position: string
+        department: string | null
+      }> = []
+      let employeeIndex = 0
+      let employeeCodeCounter = 1001
+      const personService = new PersonService(this.i18n)
+
+      // Crear empleados según la distribución
+      for await (const assignment of positionAssignments) {
+        const position = positionsMap[assignment.positionName]
+        if (!position) {
+          console.warn(`Position "${assignment.positionName}" not found, skipping...`)
+          continue
+        }
+
+        // Obtener el departamento de la posición
+        const departmentPosition = await DepartmentPosition.query()
+          .where('position_id', position.positionId)
+          .whereNull('department_position_deleted_at')
+          .first()
+
+        const departmentId = departmentPosition?.departmentId || null
+        
+        // Obtener el nombre del departamento si existe
+        let departmentName: string | null = null
+        if (departmentId) {
+          const department = await Department.query()
+            .where('department_id', departmentId)
+            .whereNull('department_deleted_at')
+            .first()
+          departmentName = department?.departmentName || null
+        }
+
+        // Crear los empleados para esta posición
+        for (let i = 0; i < assignment.count && employeeIndex < employeesData.length; i++) {
+          const employeeData = employeesData[employeeIndex]
+          const employeeCode = `${employeeCodeCounter.toString().padStart(4, '0')}`
+
+          // Crear persona
+          const person = await personService.createDemoPerson(
+            employeeData.firstName,
+            employeeData.lastName,
+            employeeData.secondLastName,
+            employeeData.gender,
+            employeeData.phone,
+            employeeData.email,
+            employeeData.curp,
+            employeeData.rfc,
+            employeeData.imssNss,
+            employeeData.maritalStatus,
+            employeeData.birthday,
+            employeeData.birthState,
+            employeeData.birthCity,
+            employeeData.birthCountry
+          )
+
+          // Crear empleado
+          const employee = await this.createDemoEmployee(
+            {
+              firstName: employeeData.firstName,
+              lastName: employeeData.lastName,
+              secondLastName: employeeData.secondLastName,
+              code: employeeCode,
+              dailySalary: employeeData.dailySalary
+            },
+            person.personId,
+            position.positionId,
+            departmentId,
+            businessUnitId
+          )
+
+          createdEmployees.push({
+            name: `${employeeData.firstName} ${employeeData.lastName} ${employeeData.secondLastName}`,
+            id: employee.employeeId,
+            code: employeeCode,
+            position: assignment.positionName,
+            department: departmentName,
+          })
+
+          employeeIndex++
+          employeeCodeCounter++
+        }
+      }
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Demo employees created',
+        message: 'The demo employees were created successfully',
+        data: {
+          created: createdEmployees,
+          total: createdEmployees.length,
+        },
+      }
+      
+    } catch (error: any) {
+      console.error('Error al crear empleados demo:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create demo employees',
+        message: 'An error occurred while trying to create the demo employees',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
 }

@@ -29,6 +29,9 @@ import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
  *          systemSettingFavicon:
  *            type: string
  *            description: System setting favicon
+ *          systemSettingEmployeeAplicationIcon:
+ *            type: string
+ *            description: System setting employee application icon (512x512 PNG)
  *          systemSettingSidebarColor:
  *            type: string
  *            description: System setting sidebar color
@@ -76,6 +79,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemSettingFavicon: string
+
+  @column()
+  declare systemSettingEmployeeAplicationIcon: string
 
   @column()
   declare systemSettingActive: number
