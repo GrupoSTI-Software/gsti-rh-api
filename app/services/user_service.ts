@@ -18,7 +18,8 @@ import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
 import RoleDepartment from '#models/role_department'
-// import BusinessUnit from '#models/business_unit'
+import Position from '#models/position'
+import RoleService from './role_service.js'
 
 export default class UserService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -443,4 +444,207 @@ export default class UserService {
     return employeesAssigned ? employeesAssigned : []
   }
 
+  /**
+   * Crea un usuario demo para un empleado
+   * @param employee - Empleado
+   * @param person - Persona
+   * @param roleId - ID del rol
+   * @returns Usuario creado o null
+   */
+  private async createUserDemo(
+    employee: Employee,
+    person: Person,
+    roleId: number
+  ): Promise<User | null> {
+    try {
+      // Verificar si el usuario ya existe
+      const existingUser = await User.query()
+        .where('person_id', person.personId)
+        .whereNull('user_deleted_at')
+        .first()
+
+      if (existingUser) {
+        return null
+      }
+
+      // Obtener el email de la persona
+      if (!person.personEmail || person.personEmail.trim() === '') {
+        return null
+      }
+
+      const userEmail = person.personEmail.trim()
+
+      // Verificar si el email ya existe en otro usuario
+      const existingEmail = await User.query()
+        .where('user_email', userEmail)
+        .whereNull('user_deleted_at')
+        .first()
+
+      if (existingEmail) {
+        return null
+      }
+
+      // Generar contraseña por defecto (demo)
+      const defaultPassword = 'GrupoSTI'
+
+      // Crear usuario
+      const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
+      const user = new User()
+      user.userEmail = userEmail
+      user.userPassword = defaultPassword
+      user.userActive = 1
+      user.roleId = roleId
+      user.personId = person.personId
+      user.userBusinessAccess = systemBusiness
+      await user.save()
+
+      return user
+    } catch (error) {
+      console.error(`Error al crear usuario para empleado ${employee.employeeId}:`, error)
+      return null
+    }
+  }
+
+  /**
+   * Crea usuarios demo para todos los empleados demo existentes
+   *
+   * Asignación de roles:
+   * - Empleados con departamento "Recursos Humanos" → rol "recursos-humanos"
+   * - Empleados con posición "Director general" → rol "administrador"
+   * - Los demás empleados → rol "empleados"
+   *
+   * @returns Objeto con el resultado de la operación y los usuarios creados
+   */
+  async createUsersDemo() {
+    try {
+      // Buscar los roles necesarios
+      const roleService = new RoleService()
+      const rhManagerRole = await roleService.findRoleBySlug('recursos-humanos')
+      const adminRole = await roleService.findRoleBySlug('administrador')
+      const employeeRole = await roleService.findRoleBySlug('empleado')
+
+      if (!rhManagerRole || !adminRole || !employeeRole) {
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Roles not found',
+          message: 'One or more required roles were not found. Please ensure the roles "recursos-humanos", "administrador", and "empleados" exist in the database.',
+          data: null,
+        }
+      }
+
+      // Buscar el departamento "Recursos Humanos"
+      const hrDepartment = await Department.query()
+        .where('department_alias', 'Recursos Humanos')
+        .whereNull('department_deleted_at')
+        .first()
+
+      // Buscar la posición "Director general"
+      const directorPosition = await Position.query()
+        .where('position_alias', 'Director general')
+        .whereNull('position_deleted_at')
+        .first()
+
+      // Obtener todos los empleados demo
+      const employees = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .whereNotNull('person_id')
+        .preload('person')
+        .preload('department')
+        .preload('position')
+
+      const createdUsers: Array<{
+        name: string
+        email: string
+        role: string
+        department: string | null
+        position: string | null
+      }> = []
+      const skippedUsers: Array<{
+        name: string
+        reason: string
+      }> = []
+
+      // Crear usuarios para cada empleado
+      for await (const employee of employees) {
+        if (!employee.person) {
+          skippedUsers.push({
+            name: `${employee.employeeFirstName} ${employee.employeeLastName}`,
+            reason: 'Person not found',
+          })
+          continue
+        }
+
+        // Determinar el rol según las reglas
+        let roleId: number
+        let roleName: string
+
+        // Verificar si es Director general
+        if (directorPosition && employee.positionId === directorPosition.positionId) {
+          roleId = adminRole.roleId
+          roleName = 'administrador'
+        }
+        // Verificar si pertenece a Recursos Humanos
+        else if (hrDepartment && employee.departmentId === hrDepartment.departmentId) {
+          roleId = rhManagerRole.roleId
+          roleName = 'recursos-humanos'
+        }
+        // Por defecto, rol de empleado
+        else {
+          roleId = employeeRole.roleId
+          roleName = 'empleados'
+        }
+
+        // Verificar que la persona tenga email
+        if (!employee.person.personEmail || employee.person.personEmail.trim() === '') {
+          skippedUsers.push({
+            name: `${employee.person.personFirstname} ${employee.person.personLastname} ${employee.person.personSecondLastname || ''}`.trim(),
+            reason: 'Person does not have an email',
+          })
+          continue
+        }
+
+        // Crear usuario
+        const user = await this.createUserDemo(employee, employee.person, roleId)
+
+        if (user) {
+          createdUsers.push({
+            name: `${employee.person.personFirstname} ${employee.person.personLastname} ${employee.person.personSecondLastname || ''}`.trim(),
+            email: user.userEmail,
+            role: roleName,
+            department: employee.department?.departmentName || null,
+            position: employee.position?.positionName || null,
+          })
+        } else {
+          skippedUsers.push({
+            name: `${employee.person.personFirstname} ${employee.person.personLastname} ${employee.person.personSecondLastname || ''}`.trim(),
+            reason: 'User already exists or email already in use',
+          })
+        }
+      }
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Demo users created',
+        message: 'The demo users were created successfully',
+        data: {
+          created: createdUsers,
+          skipped: skippedUsers,
+          total: createdUsers.length,
+          skippedCount: skippedUsers.length,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al crear usuarios demo:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create demo users',
+        message: 'An error occurred while trying to create the demo users',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
 }
