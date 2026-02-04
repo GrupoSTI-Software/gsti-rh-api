@@ -15,6 +15,8 @@ import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import Employee from '#models/employee'
+import EmployeeContract from '#models/employee_contract'
+import RoleDepartment from '#models/role_department'
 import { I18n } from '@adonisjs/i18n'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import type {
@@ -521,4 +523,339 @@ export default class DepartmentService {
       .orderBy('position_id')
     return positions
   }
+
+
+  /**
+   * Busca un departamento por nombre (usando LIKE para flexibilidad)
+   * @param departmentName - Nombre del departamento a buscar
+   * @returns Departamento encontrado o null
+   */
+  async findDepartmentByName(departmentName: string): Promise<Department | null> {
+    return await Department.query()
+      .where('department_name', 'like', `%${departmentName}%`)
+      .whereNull('department_deleted_at')
+      .first()
+  }
+
+
+  /**
+   * Elimina todos los departamentos existentes y sus relaciones en otras tablas
+   * 
+   * Esta función:
+   * 1. Elimina todas las relaciones en department_position
+   * 2. Elimina todas las relaciones en role_departments
+   * 3. Establece department_id en null para todos los empleados
+   * 4. Establece department_id en null para todos los contratos de empleados
+   * 5. Elimina todos los departamentos (incluyendo relaciones padre-hijo)
+   * 
+   * @returns Objeto con el resultado de la operación
+   */
+  async deleteAllDepartments() {
+    try {
+      // Contar registros antes de eliminar
+      const totalDepartments = await Department.query()
+        .whereNull('department_deleted_at')
+        .count('* as total')
+      const totalDepartmentPositions = await DepartmentPosition.query()
+        .whereNull('department_position_deleted_at')
+        .count('* as total')
+      const totalRoleDepartments = await RoleDepartment.query()
+        .whereNull('role_department_deleted_at')
+        .count('* as total')
+      const totalEmployeesWithDepartment = await Employee.query()
+        .whereNotNull('department_id')
+        .whereNull('employee_deleted_at')
+        .count('* as total')
+      const totalContractsWithDepartment = await EmployeeContract.query()
+        .whereNotNull('department_id')
+        .whereNull('employee_contract_deleted_at')
+        .count('* as total')
+
+      const counts = {
+        departments: Number(totalDepartments[0].$extras.total),
+        departmentPositions: Number(totalDepartmentPositions[0].$extras.total),
+        roleDepartments: Number(totalRoleDepartments[0].$extras.total),
+        employees: Number(totalEmployeesWithDepartment[0].$extras.total),
+        contracts: Number(totalContractsWithDepartment[0].$extras.total),
+      }
+
+      // 1. Eliminar todas las relaciones en department_position
+      await DepartmentPosition.query()
+        .delete()
+
+      // 2. Eliminar todas las relaciones en role_departments
+      await RoleDepartment.query()
+        .delete()
+
+      // 3. Establecer department_id en null para todos los empleados
+      await Employee.query()
+        .whereNotNull('department_id')
+        .update({ departmentId: null })
+
+      // 4. Establecer department_id en null para todos los contratos de empleados
+      await EmployeeContract.query()
+        .delete()
+
+      // 5. Primero, establecer parent_department_id en null para evitar problemas de foreign key
+      await Department.query()
+        .whereNotNull('parent_department_id')
+        .update({ parentDepartmentId: null })
+
+      // 6. Eliminar todos los departamentos
+      await Department.query()
+        .delete()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Departments deleted successfully',
+        message: 'All departments and their relationships have been deleted successfully',
+        data: {
+          deleted: {
+            departments: counts.departments,
+            departmentPositions: counts.departmentPositions,
+            roleDepartments: counts.roleDepartments,
+            employeesUpdated: counts.employees,
+            contractsUpdated: counts.contracts,
+          },
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al eliminar todos los departamentos:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to delete departments',
+        message: 'An error occurred while trying to delete all departments',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea un departamento con los datos proporcionados
+   * @param departmentData - Datos del departamento a crear
+   * @param businessUnitId - ID de la unidad de negocio
+   * @param parentDepartmentId - ID del departamento padre (opcional)
+   * @returns Departamento creado
+   */
+  private async createDepartment(
+    departmentData: {
+      code: string
+      name: string
+      alias: string
+      departmentId?: number
+    },
+    businessUnitId: number,
+    parentDepartmentId: number | null = null
+  ): Promise<Department> {
+    const department = new Department()
+    if (departmentData.departmentId) {
+      department.departmentId = departmentData.departmentId
+    }
+    department.departmentCode = departmentData.code
+    department.departmentName = departmentData.name
+    department.departmentAlias = departmentData.alias
+    department.departmentIsDefault = false
+    department.departmentActive = 1
+    department.parentDepartmentId = parentDepartmentId
+    department.companyId = 0
+    department.businessUnitId = businessUnitId
+    department.departmentSyncId = 0
+    department.parentDepartmentSyncId = 0
+    await department.save()
+    return department
+  }
+
+  /**
+   * Crea la estructura completa de departamentos según el organigrama organizacional demo
+   * 
+   * Estructura creada:
+   * - GERENCIA (raíz)
+   *   - ADMINISTRACION
+   *     - RRHH
+   *     - CONTABILIDAD
+   *     - PROYECTOS
+   *       - DISEÑO
+   *       - PROTOTIPOS
+   *   - OPERACIONES
+   *     - DISTRIBUCION
+   *     - PRODUCCIÓN
+   *   - MARKETING
+   *     - INVESTIGACION DE MERCADOS
+   * 
+   * @returns Objeto con el resultado de la operación y los departamentos creados
+   */
+  async createDepartmentDemo() {
+    try {
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 0
+      const createdDepartments: { [key: string]: Department } = {}
+
+      // Array de departamentos a crear (ordenados para que los padres se creen antes que los hijos)
+      const departmentsData = [
+        {
+          key: 'GERENCIA',
+          code: 'GER-001',
+          name: '(D101) Dirección General',
+          alias: 'Dirección General',
+          parentKey: null,
+          departmentId: undefined,
+        },
+        {
+          key: 'Administración',
+          code: 'ADM-001',
+          name: '(G101) Administración',
+          alias: 'Administración',
+          parentKey: 'GERENCIA',
+          departmentId: undefined,
+        },
+        {
+          key: 'Operaciones',
+          code: 'OPE-001',
+          name: '(G101) Operaciones',
+          alias: 'Operaciones',
+          parentKey: 'GERENCIA',
+          departmentId: undefined,
+        },
+        {
+          key: 'Marketing',
+          code: 'MAR-001',
+          name: '(G101) Marketing',
+          alias: 'Marketing',
+          parentKey: 'GERENCIA',
+          departmentId: undefined,
+        },
+        {
+          key: 'Recursos Humanos',
+          code: 'RRHH-001',
+          name: '(G101) Recursos Humanos',
+          alias: 'Recursos Humanos',
+          parentKey: 'Administración',
+          departmentId: undefined,
+        },
+        {
+          key: 'Contabilidad',
+          code: 'CON-001',
+          name: '(G101) Contabilidad',
+          alias: 'Contabilidad',
+          parentKey: 'Administración',
+          departmentId: undefined,
+        },
+        {
+          key: 'Proyectos',
+          code: 'PRO-001',
+          name: '(G101) Proyectos',
+          alias: 'Proyectos',
+          parentKey: 'Administración',
+          departmentId: undefined,
+        },
+        {
+          key: 'Diseño',
+          code: 'DIS-001',
+          name: '(G101) Diseño',
+          alias: 'Diseño',
+          parentKey: 'Proyectos',
+          departmentId: undefined,
+        },
+        {
+          key: 'Prototipos',
+          code: 'PROT-001',
+          name: '(G101) Prototipos',
+          alias: 'Prototipos',
+          parentKey: 'Proyectos',
+          departmentId: undefined,
+        },
+        {
+          key: 'Distribución',
+          code: 'DIS-002',
+          name: '(G101) Distribución',
+          alias: 'Distribución',
+          parentKey: 'Operaciones',
+          departmentId: undefined,
+        },
+        {
+          key: 'Producción',
+          code: 'PROD-001',
+          name: '(G101) Producción',
+          alias: 'Producción',
+          parentKey: 'Operaciones',
+          departmentId: undefined,
+        },
+        {
+          key: 'Investigación de Mercados',
+          code: 'INV-001',
+          name: '(G101) Investigación de Mercados',
+          alias: 'Investigación de Mercados',
+          parentKey: 'Marketing',
+          departmentId: undefined,
+        },
+        {
+          key: 'Sin Departamento',
+          code: 'SIN-001',
+          name: '(D101) Sin Departamento',
+          alias: 'Sin Departamento',
+          parentKey: null,
+          departmentId: 999,
+        },
+      ]
+
+      // Crear todos los departamentos
+      for await(const deptData of departmentsData) {
+        const parentDepartmentId = deptData.parentKey
+          ? createdDepartments[deptData.parentKey]?.departmentId || null
+          : null
+
+        const department = await this.createDepartment(
+          {
+            code: deptData.code,
+            name: deptData.name,
+            alias: deptData.alias,
+            departmentId: deptData.departmentId,
+          },
+          businessUnitId,
+          parentDepartmentId
+        )
+
+        createdDepartments[deptData.key] = department
+      }
+
+      // Preparar resumen
+      const summary = Object.keys(createdDepartments).map((key) => ({
+        name: key,
+        id: createdDepartments[key].departmentId,
+        code: createdDepartments[key].departmentCode,
+        parentId: createdDepartments[key].parentDepartmentId,
+      }))
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Estructure organizational created',
+        message: 'The structure organizational was created successfully',
+        data: {
+          created: summary,
+          total: Object.keys(createdDepartments).length,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al crear estructura organizacional:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create structure organizational',
+        message: 'An error occurred while trying to create the organizational structure',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+  
 }
