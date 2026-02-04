@@ -261,9 +261,11 @@ export default class EmployeeShiftChangeController {
       }
 
       const newEmployeeShiftChange = await employeeShiftChangeService.create(employeeShiftChange)
+    
       const rawHeaders = request.request.rawHeaders
       const userId = auth.user?.userId
       if (userId) {
+        await employeeShiftChangeService.sendNotificationToUser(userId)
         const logEmployeeShiftChange = await employeeShiftChangeService.createActionLog(
           rawHeaders,
           'store'

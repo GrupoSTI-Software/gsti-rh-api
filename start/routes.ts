@@ -8,7 +8,6 @@
 */
 
 import router from '@adonisjs/core/services/router'
-// import admin from '../config/firebase.js';
 
 import './routes/login_routes.js'
 import './routes/synchronization_routes.js'
@@ -110,17 +109,9 @@ import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
 import './routes/employee_device_routes.js'
+import './routes/user_fcm_token_routes.js'
 
 router.get('/', async ({ view }) => {
-
-  // admin.messaging().send({
-  //   notification: {
-  //     title: 'Hola todos SAE',
-  //     body: 'Desde Node con Firebase'
-  //   },
-  //   token:'token'
-  // });
-
   const specUrl = '/swagger.json'
   return view.render('swagger', { specUrl })
 })
