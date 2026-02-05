@@ -159,6 +159,7 @@ export default class EmployeeShiftChangeController {
       await request.validateUsing(createEmployeeShiftChangeValidator)
       const employeeIdFrom = request.input('employeeIdFrom')
       const shiftIdFrom = request.input('shiftIdFrom')
+     
       let employeeShiftChangeDateFrom = request.input('employeeShiftChangeDateFrom')
       employeeShiftChangeDateFrom = employeeShiftChangeDateFrom
         ? DateTime.fromJSDate(new Date(employeeShiftChangeDateFrom)).setZone('UTC').toJSDate()
@@ -265,7 +266,6 @@ export default class EmployeeShiftChangeController {
       const rawHeaders = request.request.rawHeaders
       const userId = auth.user?.userId
       if (userId) {
-        await employeeShiftChangeService.sendNotificationToUser(userId)
         const logEmployeeShiftChange = await employeeShiftChangeService.createActionLog(
           rawHeaders,
           'store'

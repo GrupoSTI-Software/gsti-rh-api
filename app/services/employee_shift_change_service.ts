@@ -7,9 +7,6 @@ import { EmployeeShiftChangeFilterInterface } from '../interfaces/employee_shift
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogEmployeeShiftChange } from '../interfaces/MongoDB/log_employee_shift_change.js'
 import EmployeeShift from '#models/employee_shift'
-import User from '#models/user'
-import UserFcmToken from '#models/user_fcm_token'
-import admin from '../../config/firebase.js'
 
 export default class EmployeeShiftChangeService {
   async create(employeeShiftChange: EmployeeShiftChange) {
@@ -240,48 +237,4 @@ export default class EmployeeShiftChangeService {
     const index = headers.indexOf(headerName)
     return index !== -1 ? headers[index + 1] : null
   }
-
-  async sendNotificationToUser(userId: number) {
-    const user = await User.query()
-      .where('user_id', userId)
-      .first()
-    if (!user) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'User not found',
-        message: 'User not found with the entered ID',
-        data: { userId: userId },
-      }
-    }
-    const userFcmTokens = await UserFcmToken.query()
-      .where('user_id', userId)
-      .where('user_fcm_token_active', 1)
-      .where('user_fcm_token_last_seen_at', '>', DateTime.now().minus({ days: 50 }).toISO())
-      .first()
-    if (!userFcmTokens) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'User FCM tokens not found',
-        message: 'User FCM tokens not found with the entered ID',
-        data: { userId: userId },
-      }
-    }
-    admin.messaging().send({
-      notification: {
-        title: 'Turno cambiado',
-        body: 'Se te ha cambiado el turno'
-      },
-      token: userFcmTokens.userFcmToken
-    });
-  
-    return {
-      status: 200,
-      type: 'success',
-      title: 'User FCM tokens found',
-      message: 'User FCM tokens found with the entered ID',
-      data: { userFcmTokens: userFcmTokens },
-    }
-  }
-  }
+}
