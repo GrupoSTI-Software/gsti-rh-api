@@ -1991,6 +1991,81 @@ export default class AssistsService {
     return newAssist
   }
 
+  /**
+   * Registra una asistencia simplificada mediante WebSocket.
+   * Busca el empleado por employee_sync_id y guarda solo los campos esenciales.
+   *
+   * @param employeeSyncId - ID de sincronización del empleado
+   * @param punchTime - Fecha y hora de la asistencia en formato Date
+   * @returns Objeto con el UUID generado y la asistencia creada, o null si el empleado no existe
+   */
+  async storeFromWebSocket(employeeSyncId: string, punchTime: Date) {
+    const { randomUUID } = await import('node:crypto')
+    const assistUuid = randomUUID()
+
+    // Buscar empleado por employee_sync_id
+    const employee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_sync_id', employeeSyncId)
+      .first()
+
+    if (!employee) {
+      return null
+    }
+
+    // Convertir la fecha recibida a UTC usando la misma lógica que el controlador
+    // El cliente envía la fecha como string con zona horaria (ej: "2026-02-04T12:54:00-06:00")
+    // Convertimos el Date a string en formato 'yyyy-MM-dd HH:mm:ss' para usar la misma lógica
+    const year = punchTime.getFullYear()
+    const month = String(punchTime.getMonth() + 1).padStart(2, '0')
+    const day = String(punchTime.getDate()).padStart(2, '0')
+    const hours = String(punchTime.getHours()).padStart(2, '0')
+    const minutes = String(punchTime.getMinutes()).padStart(2, '0')
+    const seconds = String(punchTime.getSeconds()).padStart(2, '0')
+    const assistPunchTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+
+    // Crear nueva asistencia con solo los campos necesarios
+    const newAssist = new Assist()
+    newAssist.assistUuid = assistUuid
+    newAssist.assistEmpCode = employee.employeeCode ? String(employee.employeeCode) : ''
+    newAssist.assistEmpId = employee.employeeId
+    newAssist.assistPunchTime = assistPunchTime as unknown as DateTime
+    newAssist.assistPunchTimeUtc = assistPunchTime as unknown as DateTime
+    newAssist.assistPunchTimeOrigin = assistPunchTime as unknown as DateTime
+    newAssist.assistUploadTime = assistPunchTime as unknown as DateTime
+    newAssist.assistTerminalSn = ''
+    newAssist.assistTerminalAlias = ''
+    newAssist.assistAreaAlias = ''
+    newAssist.assistLongitude = 0
+    newAssist.assistLatitude = 0
+    newAssist.assistPrecision = 0
+    newAssist.assistTerminalId = null
+    newAssist.assistSyncId = 0
+
+    await newAssist.save()
+
+    // Actualizar calendario de sincronización
+    const employeeForSync = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_code', newAssist.assistEmpCode)
+      .first()
+
+    if (employeeForSync) {
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      const filter: SyncAssistsServiceIndexInterface = {
+        date: newAssist.assistPunchTime.toString(),
+        dateEnd: newAssist.assistPunchTime.toString(),
+        employeeID: employeeForSync.employeeId,
+      }
+      await syncAssistsService.setDateCalendar(filter)
+    }
+
+    return {
+      uuid: assistUuid,
+      assist: newAssist,
+    }
+  }
+
   async verifyInfo(assist: Assist) {
     const action = 'created'
     const punchTime = DateTime.fromJSDate(new Date(assist.assistPunchTimeUtc.toString()))
@@ -3253,4 +3328,27 @@ export default class AssistsService {
     return text.charAt(0).toUpperCase() + text.slice(1);
   }
 
+  private getMexicoDSTChangeDates(year: number) {
+    const startDST = new Date(year, 3, 1)
+    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
+
+    // Último domingo de octubre (fin del horario de verano)
+    const endDST = new Date(year, 9, 31)
+    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
+
+    return { startDST, endDST }
+  }
+
+  private checkDSTSummerTime(date: Date): boolean {
+    const year = date.getFullYear()
+    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
+
+    if (date >= startDST && date < endDST) {
+      // En horario de verano
+      return true
+    } else {
+      // En horario estándar
+      return false
+    }
+  }
 }
