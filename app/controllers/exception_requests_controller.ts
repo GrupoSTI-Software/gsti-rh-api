@@ -390,6 +390,10 @@ export default class ExceptionRequestsController {
         error: 'Exception type not found or has been deleted',
       })
     }
+    let exceptionRequestPeriodInHours = data.exceptionRequestPeriodInHours
+    if (!exceptionRequestPeriodInHours) {
+      exceptionRequestPeriodInHours = 0
+    }
     let daysToApply = request.input('daysToApply', 1)
     if (!daysToApply) {
       daysToApply = 1
@@ -422,6 +426,7 @@ export default class ExceptionRequestsController {
               exceptionRequestDescription: data.exceptionRequestDescription,
               exceptionRequestCheckInTime: data.exceptionRequestCheckInTime,
               exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
+              exceptionRequestPeriodInHours: data.exceptionRequestPeriodInHours,
               requestedDate: currentDate,
               exceptionRequestRhRead: roleId === 2 ? 1 : 0,
               exceptionRequestGerencialRead: roleId !== 2 ? 1 : 0,
@@ -775,6 +780,7 @@ export default class ExceptionRequestsController {
     }
     const page = request.input('page', 1)
     const limit = request.input('limit', 10)
+    const sortOrder = request.input('sortOrder', 'desc') || 'descend'
     let departmentId = request.input('departmentId')
     let positionId = request.input('positionId')
     let status = request.input('status')
@@ -827,7 +833,7 @@ export default class ExceptionRequestsController {
                  WHEN exception_request_status = 'accepted' THEN 3
                  WHEN exception_request_status = 'refused' THEN 4
                  ELSE 5
-               END`)
+               END ${sortOrder}`)
     const exceptionRequests = await query.paginate(page, limit)
 
     return response.status(200).json(
