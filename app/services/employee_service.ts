@@ -38,6 +38,8 @@ import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
+import SyncAssistsService from './sync_assists_service.js'
+import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -5321,4 +5323,481 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     }
   }
 }
+
+  /**
+   * Genera un reporte de asistencia en Excel agrupado por departamento.
+   *
+   * El reporte muestra:
+   * - Empleados agrupados por departamento
+   * - Columnas: departamento, puesto, número de nómina, nombre del empleado, fechas del periodo
+   * - Para cada día: turno (o alias) y color según estado de asistencia
+   * - Si hay excepción o festividad: celda en blanco e indicar la situación
+   *
+   * @param startDate - Fecha de inicio del periodo (formato: yyyy-MM-dd)
+   * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
+   * @param departmentIds - IDs de departamentos a filtrar (opcional)
+   * @param employeeIds - IDs de empleados a filtrar (opcional)
+   * @returns Buffer del archivo Excel generado
+   */
+  async generateAttendanceReport(
+    startDate: string,
+    endDate: string,
+    departmentIds?: number[],
+    employeeIds?: number[]
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Reporte de Asistencia')
+
+    // Obtener el color de la unidad de negocio activa
+    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+
+    // Obtener logo y agregarlo
+    const logoUrl = await this.getLogo()
+    await this.addImageLogo(workbook, worksheet, logoUrl)
+
+    // Convertir fechas a DateTime
+    const startDateTime = DateTime.fromISO(startDate)
+    const endDateTime = DateTime.fromISO(endDate)
+
+    if (!startDateTime.isValid || !endDateTime.isValid) {
+      throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
+    }
+
+    if (startDateTime > endDateTime) {
+      throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
+    }
+
+    // Generar array de fechas
+    const dates: DateTime[] = []
+    let currentDate = startDateTime
+    while (currentDate <= endDateTime) {
+      dates.push(currentDate)
+      currentDate = currentDate.plus({ days: 1 })
+    }
+
+    // Obtener unidades de negocio del ENV
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+
+    // Obtener empleados activos agrupados por departamento
+    let employeesQuery = Employee.query()
+      .whereNull('deletedAt')
+      .whereIn('businessUnitId', businessUnitsList)
+      .preload('position', (query) => {
+        query.whereNull('position_deleted_at')
+        query.where('position_active', 1)
+      })
+      .preload('department', (query) => {
+        query.whereNull('department_deleted_at')
+      })
+
+    // Filtrar por departamentos si se proporcionan
+    if (departmentIds && departmentIds.length > 0) {
+      employeesQuery = employeesQuery.whereIn('departmentId', departmentIds)
+    }
+
+    // Filtrar por IDs de empleados si se proporcionan
+    if (employeeIds && employeeIds.length > 0) {
+      employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+    }
+
+    const employees = await employeesQuery
+      .orderBy('departmentId')
+      .orderBy('employeeFirstName')
+      .orderBy('employeeLastName')
+
+    // Agrupar empleados por departamento
+    const employeesByDepartment = new Map<number, Employee[]>()
+    employees.forEach((employee) => {
+      const deptId = employee.departmentId
+      // Solo agrupar si tiene departamento asignado
+      if (deptId !== null && deptId !== undefined) {
+        if (!employeesByDepartment.has(deptId)) {
+          employeesByDepartment.set(deptId, [])
+        }
+        employeesByDepartment.get(deptId)!.push(employee)
+      }
+    })
+
+    // Función para obtener color según estado de asistencia
+    const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
+      // Normalizar estados (convertir null/undefined a string vacío)
+      const checkIn = (checkInStatus || '').trim()
+      const checkOut = (checkOutStatus || '').trim()
+
+      // Priorizar checkInStatus, si está vacío usar checkOutStatus
+      const status = checkIn || checkOut
+
+      // Si no hay estado pero hay al menos uno de los dos, asumir que está bien (verde)
+      if (!status && (checkInStatus !== null || checkOutStatus !== null)) {
+        return 'FF90EE90' // Verde claro (ontime por defecto)
+      }
+
+      switch (status.toLowerCase()) {
+        case 'ontime':
+          return 'FF90EE90' // Verde claro
+        case 'tolerance':
+          return 'FF87CEEB' // Azul claro
+        case 'delay':
+          return 'FFFFA500' // Naranja
+        case 'fault':
+          return 'FFFF6B6B' // Rojo claro
+        case 'exception':
+          return 'FFD3D3D3' // Gris claro
+        default:
+          // Si hay un estado pero no coincide con ninguno conocido, usar verde por defecto
+          return status ? 'FF90EE90' : 'FFFFFFFF' // Verde si hay algo, blanco si está vacío
+      }
+    }
+
+    // Función para obtener texto de la celda según el día
+    const getDayCellText = (dayData: AssistDayInterface | null): string => {
+      if (!dayData || !dayData.assist) {
+        return ''
+      }
+
+      const assist = dayData.assist
+
+      // PRIORIDAD 1: Si hay excepción, festividad, vacaciones o incapacidad, mostrar solo el mensaje explicativo
+      // NO mostrar el turno en estos casos
+      if (assist.hasExceptions || assist.isHoliday || assist.isVacationDate || assist.isWorkDisabilityDate || assist.isRestDay) {
+        const situations: string[] = []
+
+        // Verificar cada situación en orden de prioridad
+        if (assist.isVacationDate) {
+          situations.push('Vacaciones')
+        }
+        if (assist.isWorkDisabilityDate) {
+          situations.push('Incapacidad')
+        }
+        if (assist.isHoliday) {
+          situations.push('Festivo')
+        }
+        if (assist.isRestDay && !assist.isHoliday) {
+          situations.push('Día de Descanso')
+        }
+        // Si hay excepciones pero no es ninguna de las anteriores, mostrar "Excepción"
+        if (assist.hasExceptions && !assist.isVacationDate && !assist.isWorkDisabilityDate && !assist.isHoliday) {
+          situations.push('Excepción')
+        }
+
+        // Si hay situaciones, retornar el mensaje (sin mostrar el turno)
+        if (situations.length > 0) {
+          return situations.join(', ')
+        }
+      }
+
+      // PRIORIDAD 2: Si hay turno asignado y NO hay situaciones especiales, mostrar turno
+      if (assist.dateShift) {
+        const shift = assist.dateShift
+        // Priorizar alias si existe (usar cast ya que ShiftInterface no incluye shiftAlias pero el modelo sí)
+        const shiftAny = shift as any
+        if (shiftAny.shiftAlias && shiftAny.shiftAlias.trim() !== '') {
+          return shiftAny.shiftAlias.trim()
+        }
+        // Si no hay alias, formatear nombre con horario
+        if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
+          try {
+            const startTime = String(shift.shiftTimeStart).trim()
+            const timeParts = startTime.split(':')
+            if (timeParts.length >= 2) {
+              const hours = Number.parseInt(timeParts[0], 10)
+              const minutes = Number.parseInt(timeParts[1], 10)
+              if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+                const endTime = shiftEndTime.toFormat('HH:mm')
+                const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+                return `${formattedStartTime} to ${endTime} - Rest (NA)`
+              }
+            }
+          } catch (error) {
+            // Usar el nombre del turno por defecto
+          }
+        }
+        return shift.shiftName || ''
+      }
+
+      return ''
+    }
+
+    // Consultar asistencias para todos los empleados
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    const employeeCalendarsMap = new Map<number, AssistDayInterface[]>()
+
+    for (const employee of employees) {
+      try {
+        const calendarResult = await syncAssistsService.index({
+          date: startDate,
+          dateEnd: endDate,
+          employeeID: employee.employeeId
+        })
+
+        if (calendarResult.status === 200 && calendarResult.data) {
+          const calendarData = calendarResult.data as any
+          const employeeCalendar = calendarData.employeeCalendar as AssistDayInterface[]
+          employeeCalendarsMap.set(employee.employeeId, employeeCalendar)
+        }
+      } catch (error) {
+        console.warn(`Error al obtener calendario para empleado ${employee.employeeId}:`, error)
+        employeeCalendarsMap.set(employee.employeeId, [])
+      }
+    }
+
+    // ==============================
+    //       TÍTULO Y ENCABEZADOS
+    // ==============================
+    worksheet.getRow(1).height = 60
+    const titleRow = worksheet.addRow([''])
+    titleRow.height = 30
+    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
+    titleRow.getCell(1).value = 'Reporte de Asistencia'
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+
+    // Primera fila de encabezados (fechas)
+    const headerRow1 = ['Departamento', 'Puesto', 'Número de Nómina', 'Nombre del Empleado']
+    dates.forEach((date) => {
+      const dateStr = date.toFormat('dd/MM/yyyy')
+      headerRow1.push(dateStr)
+    })
+    const row1 = worksheet.addRow(headerRow1)
+    row1.height = 30
+
+    // Segunda fila de encabezados (días de la semana)
+    const headerRow2 = ['', '', '', '']
+    dates.forEach((date) => {
+      const dayName = date.toFormat('cccc', { locale: 'es' })
+      headerRow2.push(dayName)
+    })
+    const row2 = worksheet.addRow(headerRow2)
+    row2.height = 30
+
+    const headerColor = activeBusinessUnitColor
+    const headerTextColor = this.getTextColorForBackground(headerColor)
+    const subHeaderColor = 'FF4472C4'
+    const subHeaderTextColor = 'FFFFFFFF'
+
+    // Aplicar formato a la primera fila de encabezados
+    row1.eachCell((cell) => {
+      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: headerColor }
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // Aplicar formato a la segunda fila de encabezados
+    row2.eachCell((cell, colNum) => {
+      if (colNum > 4) {
+        cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: subHeaderColor }
+        }
+      } else {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: headerColor }
+        }
+        cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // ==============================
+    //     ANCHO DE COLUMNAS
+    // ==============================
+    worksheet.getColumn(1).width = 25 // Departamento
+    worksheet.getColumn(2).width = 30 // Puesto
+    worksheet.getColumn(3).width = 20 // Número de Nómina
+    worksheet.getColumn(4).width = 35 // Nombre del Empleado
+
+    // Aplicar ancho estándar a todas las columnas de fechas
+    for (let col = 5; col <= 4 + dates.length; col++) {
+      worksheet.getColumn(col).width = 20
+    }
+
+    // ==============================
+    //   CARGAR EMPLEADOS POR DEPARTAMENTO
+    // ==============================
+    const startDataRow = 5 // Después de los encabezados
+    let currentRow = startDataRow
+
+    // Iterar por departamentos
+    for (const [, deptEmployees] of employeesByDepartment) {
+      // Obtener información del departamento
+      const department = deptEmployees[0].department
+
+      // Iterar por empleados del departamento
+      for (const employee of deptEmployees) {
+        worksheet.getRow(currentRow).height = 45
+
+        const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+        const positionName = employee.position?.positionName || 'Sin posición'
+        const departmentName = department?.departmentName || 'Sin departamento'
+        const payrollCode = employee.employeePayrollCode || 'Sin código'
+
+        // Departamento - Columna A
+        worksheet.getCell(currentRow, 1).value = departmentName
+        worksheet.getCell(currentRow, 1).protection = { locked: true }
+
+        // Puesto - Columna B
+        worksheet.getCell(currentRow, 2).value = positionName
+        worksheet.getCell(currentRow, 2).protection = { locked: true }
+
+        // Número de Nómina - Columna C
+        worksheet.getCell(currentRow, 3).value = payrollCode
+        worksheet.getCell(currentRow, 3).protection = { locked: true }
+
+        // Nombre del Empleado - Columna D
+        worksheet.getCell(currentRow, 4).value = fullName
+        worksheet.getCell(currentRow, 4).protection = { locked: true }
+
+        // Aplicar formato a las primeras 4 columnas
+        for (let col = 1; col <= 4; col++) {
+          worksheet.getCell(currentRow, col).alignment = {
+            vertical: 'middle',
+            horizontal: col === 4 ? 'left' : 'center',
+            wrapText: true
+          }
+          worksheet.getCell(currentRow, col).border = {
+            top: { style: 'thin', color: { argb: 'FF000000' } },
+            left: { style: 'thin', color: { argb: 'FF000000' } },
+            bottom: { style: 'thin', color: { argb: 'FF000000' } },
+            right: { style: 'thin', color: { argb: 'FF000000' } }
+          }
+        }
+
+        // Obtener calendario del empleado
+        const employeeCalendar = employeeCalendarsMap.get(employee.employeeId) || []
+        const calendarByDay = new Map<string, AssistDayInterface>()
+        employeeCalendar.forEach((day) => {
+          calendarByDay.set(day.day, day)
+        })
+
+        // Columnas de fechas (desde columna E)
+        dates.forEach((date, dateIndex) => {
+          const colNumber = 5 + dateIndex
+          const dateStr = date.toFormat('yyyy-MM-dd')
+          const dayData = calendarByDay.get(dateStr) || null
+
+          // Obtener texto y color para la celda
+          const cellText = getDayCellText(dayData)
+          let cellColor = 'FFFFFFFF' // Blanco por defecto
+
+          // Determinar el color basado en las condiciones
+          if (dayData && dayData.assist) {
+            const assist = dayData.assist
+
+            // PRIORIDAD 1: Si es día de descanso, vacaciones, incapacidad, festivo o tiene excepciones
+            // → Celda BLANCA (sin color) - IMPORTANTE: Verificar primero estas condiciones
+            const isSpecialDay = assist.isRestDay ||
+                                 assist.isVacationDate ||
+                                 assist.isWorkDisabilityDate ||
+                                 assist.isHoliday ||
+                                 (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+
+            if (isSpecialDay) {
+              cellColor = 'FFFFFFFF' // Blanco - sin color
+            }
+            // PRIORIDAD 2: Si hay turno asignado y NO es situación especial
+            // → Aplicar color según estado de asistencia
+            else if (assist.dateShift) {
+              // Obtener estados de asistencia
+              const checkInStatus = assist.checkInStatus || ''
+              const checkOutStatus = assist.checkOutStatus || ''
+
+              // Aplicar color según estado (la función maneja casos vacíos)
+              cellColor = getStatusColor(checkInStatus, checkOutStatus)
+
+              // Si el color resultante es blanco pero hay turno, usar verde por defecto
+              // (esto asegura que los días con turno siempre tengan color)
+              if (cellColor === 'FFFFFFFF' && assist.dateShift) {
+                cellColor = 'FF90EE90' // Verde claro (ontime por defecto)
+              }
+            }
+            // PRIORIDAD 3: Si no hay turno ni datos, mantener blanco
+            else {
+              cellColor = 'FFFFFFFF' // Blanco
+            }
+          }
+
+          // Aplicar valor y formato
+          worksheet.getCell(currentRow, colNumber).value = cellText
+          worksheet.getCell(currentRow, colNumber).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: cellColor }
+          }
+          worksheet.getCell(currentRow, colNumber).alignment = {
+            vertical: 'middle',
+            horizontal: 'center',
+            wrapText: true
+          }
+          worksheet.getCell(currentRow, colNumber).border = {
+            top: { style: 'thin', color: { argb: 'FF000000' } },
+            left: { style: 'thin', color: { argb: 'FF000000' } },
+            bottom: { style: 'thin', color: { argb: 'FF000000' } },
+            right: { style: 'thin', color: { argb: 'FF000000' } }
+          }
+          worksheet.getCell(currentRow, colNumber).protection = { locked: true }
+        })
+
+        currentRow++
+      }
+    }
+
+    // ==============================
+    //     PROTEGER HOJA
+    // ==============================
+    await worksheet.protect('', {
+      selectLockedCells: true,
+      selectUnlockedCells: false,
+      formatCells: false,
+      formatColumns: false,
+      formatRows: false,
+      insertColumns: false,
+      insertRows: false,
+      deleteColumns: false,
+      deleteRows: false,
+      sort: false,
+      autoFilter: false,
+      pivotTables: false
+    })
+
+    // ==============================
+    //     CONGELAR ENCABEZADOS
+    // ==============================
+    worksheet.views = [
+      { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
+    ]
+
+    // ==============================
+    //       GENERAR ARCHIVO
+    // ==============================
+    const buffer = await workbook.xlsx.writeBuffer()
+    return Buffer.from(buffer)
+  }
 }

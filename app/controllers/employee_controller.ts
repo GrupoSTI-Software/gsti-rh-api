@@ -6586,6 +6586,235 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/attendance-report:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Generar reporte de asistencia en Excel
+   *     description: |
+   *       Genera un reporte de asistencia en Excel agrupado por departamento.
+   *       Muestra empleados con sus turnos y colores según el estado de asistencia.
+   *       - Verde: ontime
+   *       - Azul: tolerance
+   *       - Naranja: delay
+   *       - Rojo: fault
+   *       - Blanco: excepciones, festividades, vacaciones
+   *     produces:
+   *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   *     parameters:
+   *       - name: startDate
+   *         in: query
+   *         required: true
+   *         description: Fecha de inicio del periodo (formato: yyyy-MM-dd)
+   *         schema:
+   *           type: string
+   *           format: date
+   *           example: "2024-10-01"
+   *       - name: endDate
+   *         in: query
+   *         required: true
+   *         description: Fecha de fin del periodo (formato: yyyy-MM-dd)
+   *         schema:
+   *           type: string
+   *           format: date
+   *           example: "2024-10-31"
+   *       - name: departmentIds
+   *         in: query
+   *         required: false
+   *         description: IDs de departamentos a filtrar (separados por comas)
+   *         schema:
+   *           type: string
+   *           example: "1,2,3"
+   *       - name: employeeIds
+   *         in: query
+   *         required: false
+   *         description: IDs de empleados a filtrar (separados por comas)
+   *         schema:
+   *           type: string
+   *           example: "1,2,3"
+   *     responses:
+   *       '200':
+   *         description: Archivo Excel generado exitosamente
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       '400':
+   *         description: Error de validación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       '500':
+   *         description: Error del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: string
+   */
+  async getAttendanceReport({ auth, request, response, i18n }: HttpContext) {
+    try {
+      await auth.check()
+
+      const startDate = request.input('startDate')
+      const endDate = request.input('endDate')
+      const departmentIdsParam = request.input('departmentIds')
+      const employeeIdsParam = request.input('employeeIds')
+
+      // Validar que las fechas sean proporcionadas
+      if (!startDate || !endDate) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Las fechas de inicio (startDate) y fin (endDate) son requeridas',
+        }
+      }
+
+      // Validar formato de fechas
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Las fechas deben tener el formato yyyy-MM-dd (ejemplo: 2024-10-01)',
+        }
+      }
+
+      // Parsear departmentIds si se proporciona
+      let departmentIds: number[] | undefined
+      if (departmentIdsParam) {
+        try {
+          if (Array.isArray(departmentIdsParam)) {
+            departmentIds = departmentIdsParam.map((id) => {
+              const numId = typeof id === 'string' ? Number.parseInt(id, 10) : id
+              if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                throw new Error('IDs inválidos')
+              }
+              return numId
+            })
+          } else if (typeof departmentIdsParam === 'string') {
+            departmentIds = departmentIdsParam
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length > 0)
+              .map((id) => {
+                const numId = Number.parseInt(id, 10)
+                if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                  throw new Error('IDs inválidos')
+                }
+                return numId
+              })
+          } else {
+            const numId = typeof departmentIdsParam === 'number' ? departmentIdsParam : Number.parseInt(String(departmentIdsParam), 10)
+            if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+              throw new Error('ID inválido')
+            }
+            departmentIds = [numId]
+          }
+        } catch (error: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: 'departmentIds debe ser una cadena de números separados por comas (ejemplo: "1,2,3") o un número',
+          }
+        }
+      }
+
+      // Parsear employeeIds si se proporciona
+      let employeeIds: number[] | undefined
+      if (employeeIdsParam) {
+        try {
+          if (Array.isArray(employeeIdsParam)) {
+            employeeIds = employeeIdsParam.map((id) => {
+              const numId = typeof id === 'string' ? Number.parseInt(id, 10) : id
+              if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                throw new Error('IDs inválidos')
+              }
+              return numId
+            })
+          } else if (typeof employeeIdsParam === 'string') {
+            employeeIds = employeeIdsParam
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length > 0)
+              .map((id) => {
+                const numId = Number.parseInt(id, 10)
+                if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                  throw new Error('IDs inválidos')
+                }
+                return numId
+              })
+          } else {
+            const numId = typeof employeeIdsParam === 'number' ? employeeIdsParam : Number.parseInt(String(employeeIdsParam), 10)
+            if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+              throw new Error('ID inválido')
+            }
+            employeeIds = [numId]
+          }
+        } catch (error: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: 'employeeIds debe ser una cadena de números separados por comas (ejemplo: "1,2,3") o un número',
+          }
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const buffer = await employeeService.generateAttendanceReport(
+        startDate,
+        endDate,
+        departmentIds,
+        employeeIds
+      )
+
+      // Configurar headers para la descarga del archivo
+      response.header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      response.header(
+        'Content-Disposition',
+        `attachment; filename="reporte-asistencia-${startDate}-${endDate}.xlsx"`
+      )
+      response.status(200)
+      return response.send(buffer)
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'Ocurrió un error inesperado al generar el reporte de asistencia',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/import-shift-assignments:
    *   post:
    *     security:
