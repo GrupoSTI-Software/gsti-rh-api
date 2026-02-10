@@ -14,6 +14,7 @@ export default class EmployeeBiometricService {
    * Formato: "Finger:1, Finger:2, Face"
    */
   private formatBiometricData(fingers: number[] = [], face: boolean = false): string {
+
     const parts: string[] = []
 
     // Agregar dedos registrados
@@ -149,5 +150,193 @@ export default class EmployeeBiometricService {
 
     await employeeBiometric.delete()
     return employeeBiometric
+  }
+
+  /**
+   * Inicia el proceso de enrolamiento biométrico
+   * Crea o actualiza el registro con status 'enrolling'
+   * - Si se envía el mismo tipo (fingers → fingers), reemplaza los existentes
+   * - Si se envía un tipo diferente (fingers → face o face → fingers), combina
+   * @param employeeId - ID del empleado
+   * @param biometricType - Tipo biométrico: 'finger' o 'face'
+   * @param fingerIds - Array de IDs de dedos (0-9). 0-4 mano izquierda, 5-9 mano derecha
+   * @param removeFace - Si es true y biometricType es 'face', elimina Face ID en lugar de agregarlo
+   */
+  async startEnrollment(
+    employeeId: number,
+    biometricType: 'finger' | 'face',
+    fingerIds?: number[],
+    removeFace?: boolean
+  ) {
+    // Verificar que el empleado existe
+    const employee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!employee) {
+      return null
+    }
+
+    // Buscar registro existente o crear uno nuevo
+    let employeeBiometric = await this.findByEmployeeId(employeeId)
+
+    let finalFingers: number[] = []
+    let finalFace = false
+
+    if (employeeBiometric && employeeBiometric.employeeBiometricData) {
+      // Si existe registro previo, parsear datos existentes
+      const existingData = this.parseBiometricData(employeeBiometric.employeeBiometricData)
+
+      if (biometricType === 'finger') {
+        if (fingerIds && fingerIds.length > 0) {
+          // Si se envían fingers, REEMPLAZAR los fingers existentes (no combinar)
+          finalFingers = [...fingerIds].sort((a, b) => a - b)
+        } else {
+          // Si se envía array vacío o sin fingers, ELIMINAR todos los fingers
+          finalFingers = []
+        }
+        // Mantener Face si ya estaba registrado
+        finalFace = existingData.face
+      } else if (biometricType === 'face') {
+        // Si se envía Face, AGREGAR o ELIMINAR según removeFace
+        finalFingers = existingData.fingers
+        if (removeFace) {
+          // Eliminar Face ID
+          finalFace = false
+        } else {
+          // Agregar Face ID
+          finalFace = true
+        }
+      } else {
+        // Si no se envía nada nuevo, mantener datos existentes
+        finalFingers = existingData.fingers
+        finalFace = existingData.face
+      }
+    } else {
+      // Si no existe registro previo, usar los datos nuevos directamente
+      if (biometricType === 'finger' && fingerIds && fingerIds.length > 0) {
+        finalFingers = [...fingerIds].sort((a, b) => a - b)
+      }
+      if (biometricType === 'face' && !removeFace) {
+        // Solo agregar Face si no se está eliminando
+        finalFace = true
+      }
+    }
+
+    // Formatear datos biométricos combinados
+    const biometricDataString = this.formatBiometricData(finalFingers, finalFace)
+
+    if (!employeeBiometric) {
+      // Crear nuevo registro con status 'enrolling'
+      employeeBiometric = new EmployeeBiometric()
+      employeeBiometric.employeeId = employeeId
+      employeeBiometric.employeeBiometricData = biometricDataString
+      employeeBiometric.employeeBiometricStatus = 'enrolling'
+      await employeeBiometric.save()
+    } else {
+      // Actualizar datos combinados y status a 'enrolling'
+      employeeBiometric.employeeBiometricData = biometricDataString
+      employeeBiometric.employeeBiometricStatus = 'enrolling'
+      await employeeBiometric.save()
+    }
+
+    return {
+      employeeId,
+      biometricType,
+      fingerIds: finalFingers,
+      face: finalFace,
+      status: 'enrolling',
+    }
+  }
+
+  /**
+   * Actualiza el status del enrolamiento biométrico
+   * Determina automáticamente el status basándose en los datos biométricos registrados
+   * @param employeeId - ID del empleado
+   * @param status - Status final: 'completed' o 'failed'
+   */
+  async updateEnrollmentStatus(employeeId: number, status: 'completed' | 'failed') {
+    // Verificar que el empleado existe
+    const employee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!employee) {
+      return null
+    }
+
+    // Buscar registro existente
+    const employeeBiometric = await this.findByEmployeeId(employeeId)
+
+    if (!employeeBiometric) {
+      return null
+    }
+
+    // Parsear datos existentes para determinar qué se completó
+    const existingData = this.parseBiometricData(employeeBiometric.employeeBiometricData)
+
+    // Determinar el status específico basándose en los datos biométricos
+    let finalStatus:
+      | 'completed_fingers'
+      | 'completed_face'
+      | 'completed_both'
+      | 'failed' = 'failed'
+
+    finalStatus = status as 'completed_fingers' | 'completed_face' | 'completed_both' | 'failed'
+
+    // Actualizar el status con el valor específico
+    employeeBiometric.employeeBiometricStatus = finalStatus
+    await employeeBiometric.save()
+
+    // Recargar el registro para asegurar que se guardó correctamente
+    await employeeBiometric.refresh()
+
+    return {
+      employeeId,
+      fingers: existingData.fingers,
+      face: existingData.face,
+      status: finalStatus,
+      biometricData: employeeBiometric.employeeBiometricData,
+    }
+  }
+
+  /**
+   * Obtiene el status actual del enrolamiento biométrico
+   */
+  async getEnrollmentStatus(employeeId: number) {
+    // Verificar que el empleado existe
+    const employee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!employee) {
+      return null
+    }
+
+    // Buscar registro biométrico
+    const employeeBiometric = await this.findByEmployeeId(employeeId)
+
+    if (!employeeBiometric) {
+      return {
+        employeeId,
+        status: 'pending',
+        fingers: [],
+        face: false,
+        biometricData: '', // String vacío cuando no hay registro
+      }
+    }
+
+    const parsed = this.parseBiometricData(employeeBiometric.employeeBiometricData)
+
+    return {
+      employeeId,
+      status: employeeBiometric.employeeBiometricStatus || 'pending',
+      fingers: parsed.fingers,
+      face: parsed.face,
+      biometricData: employeeBiometric.employeeBiometricData, // Formato: "Finger:0, Finger:6, Face"
+    }
   }
 }

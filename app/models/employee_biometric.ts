@@ -38,6 +38,15 @@ export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeBiometricData: string
 
+  @column()
+  declare employeeBiometricStatus:
+    | 'pending'
+    | 'enrolling'
+    | 'completed_fingers'
+    | 'completed_face'
+    | 'completed_both'
+    | 'failed'
+
   @column.dateTime({ autoCreate: true })
   declare employeeBiometricCreatedAt: DateTime
 
