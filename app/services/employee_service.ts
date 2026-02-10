@@ -38,6 +38,9 @@ import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
+import Address from '#models/address'
+import EmployeeAddress from '#models/employee_address'
+import AddressType from '#models/address_type'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -2183,8 +2186,7 @@ export default class EmployeeService {
         throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
       }
 
-      // Validar que la primera fila contenga los encabezados esperados
-      const headers = this.validateExcelHeaders(worksheet)
+      const { headers, headerRowNumber } = this.validateExcelHeaders(worksheet)
 
       // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
       const departments = await Department.query()
@@ -2199,6 +2201,10 @@ export default class EmployeeService {
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
+
+      const employeeTypes = await EmployeeType.query()
+        .whereNull('employee_type_deleted_at')
+        .select('employeeTypeId', 'employeeTypeName')
 
       // Buscar departamento y posición por defecto
       const defaultDepartment = departments.find(dept =>
@@ -2239,10 +2245,9 @@ export default class EmployeeService {
         errors: [] as string[]
       }
 
-      // Procesar cada fila del Excel
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
-        if (rowNumber === 1) return // Saltar encabezados
+        if (rowNumber <= headerRowNumber) return
         rows.push({ row, rowNumber })
       })
 
@@ -2370,13 +2375,8 @@ export default class EmployeeService {
             continue
           }
 
-          // Buscar empleado existente por número de nómina
-          const existingEmployee = existingEmployees.find(
-            (emp) =>
-              emp.employeePayrollCode?.toString() ===
-                employeeData.employeeNumber ||
-              emp.employeeCode.toString() === employeeData.employeeNumber
-          )
+          // Buscar empleado existente por ID (columna oculta) o por número de nómina
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
           if (existingEmployee) {
             // Para empleados existentes, no contamos para el límite
@@ -2416,16 +2416,11 @@ export default class EmployeeService {
       if (results.limitReached) {
         // Procesar solo empleados existentes (actualizaciones)
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
-          const existingEmployee = existingEmployees.find(
-            (emp) =>
-              emp.employeePayrollCode?.toString() ===
-                employeeData.employeeNumber ||
-              emp.employeeCode.toString() === employeeData.employeeNumber
-          )
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
           if (existingEmployee) {
             try {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
               results.updated++
               results.processed++
             } catch (error: any) {
@@ -2443,17 +2438,10 @@ export default class EmployeeService {
 
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           try {
-            // Buscar empleado existente por número de nómina
-            const existingEmployee = existingEmployees.find(
-              (emp) =>
-                emp.employeePayrollCode?.toString() ===
-                  employeeData.employeeNumber ||
-                emp.employeeCode.toString() === employeeData.employeeNumber
-            )
+            const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
             if (existingEmployee) {
-              // Actualizar empleado existente
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
               results.updated++
               results.processed++
             } else {
@@ -2470,11 +2458,9 @@ export default class EmployeeService {
               const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
               const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-              // Crear persona
               const person = await this.createPerson(employeeData)
-
-              // Crear empleado
-              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode)
+              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+              await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
 
               // Agregar a la lista de empleados creados para enviar a biométricos
               createdEmployees.push(newEmployee)
@@ -2511,6 +2497,21 @@ export default class EmployeeService {
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
     }
+  }
+
+  /**
+   * Buscar empleado existente para importación: primero por ID (columna oculta), luego por número de nómina
+   */
+  private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
+    if (employeeData.employeeId) {
+      const byId = existingEmployees.find((emp) => emp.employeeId === Number(employeeData.employeeId))
+      if (byId) return byId
+    }
+    return existingEmployees.find(
+      (emp) =>
+        emp.employeePayrollCode?.toString() === employeeData.employeeNumber ||
+        emp.employeeCode?.toString() === employeeData.employeeNumber
+    ) ?? null
   }
 
   /**
@@ -2557,7 +2558,12 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
-    const firstRow = worksheet.getRow(1)
+    const r1 = worksheet.getRow(1)
+    const cell1 = (r1.getCell(1).value ?? r1.getCell(2).value ?? '').toString().trim().toLowerCase()
+    const isHeaderRow1 = cell1.includes('id empleado') || cell1.includes('identificador de nómina')
+    const headerRowNumber = isHeaderRow1 ? 1 : 3
+
+    const firstRow = worksheet.getRow(headerRowNumber)
     const headers: string[] = []
 
     firstRow.eachCell((cell: any, colNumber: number) => {
@@ -2729,7 +2735,7 @@ export default class EmployeeService {
       throw this.createHeaderValidationError(fullMessage)
     }
 
-    return headers
+    return { headers, headerRowNumber }
   }
 
   /**
@@ -2738,16 +2744,22 @@ export default class EmployeeService {
   private extractEmployeeDataFromRow(row: any, headers: string[]) {
     const data: any = {}
 
+    const parseYesNo = (v: string): number => {
+      const s = (v || '').toString().trim().toLowerCase()
+      if (s === 'sí' || s === 'si' || s === '1' || s === 'yes') return 1
+      return 0
+    }
+
     row.eachCell((cell: any, colNumber: number) => {
       const header = headers[colNumber]?.toLowerCase() || ''
-      // Para fechas, preservar el valor original (puede ser número de Excel o string)
-      // Para otros campos, convertir a string
       const isDateField = header.includes('fecha')
       const rawValue = cell.value
       const value = isDateField ? (rawValue !== null && rawValue !== undefined ? rawValue : '') : (rawValue?.toString() || '')
 
-
-      if (header.includes('identificador de nómina')) {
+      if (header.includes('id empleado')) {
+        const num = Number(rawValue)
+        if (!Number.isNaN(num) && num > 0) data.employeeId = num
+      } else if (header.includes('identificador de nómina')) {
         data.employeeNumber = value
       } else if (header.includes('unidad de negocio de trabajo')) {
         data.businessUnit = value
@@ -2760,12 +2772,8 @@ export default class EmployeeService {
       } else if (header.includes('apellido materno del empleado')) {
         data.secondLastName = value
       } else if (header.includes('fecha de contratación')) {
-        // Las fechas deben venir en formato yyyy/mm/dd para insertarse directamente
-        // Intentar obtener el texto formateado de la celda primero
         const cellText = cell.text ? cell.text.trim() : null
         const stringValue = rawValue ? rawValue.toString().trim() : null
-
-        // Priorizar formato yyyy/mm/dd o yyyy-mm-dd
         if (cellText && cellText.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
           data.hireDate = cellText
         } else if (stringValue && stringValue.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
@@ -2784,29 +2792,17 @@ export default class EmployeeService {
       } else if (header.includes('salario diario')) {
         data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
       } else if (header.includes('fecha de nacimiento')) {
-        // Manejar diferentes formatos que ExcelJS puede devolver
-        // Intentar primero obtener el texto formateado de la celda (ej: "16/08/2021")
         const cellText = cell.text ? cell.text.trim() : null
-
         if (rawValue instanceof Date) {
           data.birthDate = rawValue
         } else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
-          // Si es un objeto con propiedad value (formato de ExcelJS)
           data.birthDate = rawValue.value
         } else if (cellText && cellText.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/)) {
-          // Si hay texto formateado que parece una fecha (dd/mm/yyyy), usarlo
           data.birthDate = cellText
-        } else if (typeof rawValue === 'number') {
-          // Si es un número, podría ser una fecha serial de Excel
-          // Las fechas de Excel son números >= 1 (1 = 1900-01-01)
-          // Fechas razonables están entre 1 y 1000000 (aproximadamente hasta el año 4738)
-          if (rawValue >= 1 && rawValue <= 1000000) {
-            data.birthDate = rawValue // Pasar el número serial para que se convierta
-          } else {
-            data.birthDate = rawValue
-          }
+        } else if (typeof rawValue === 'number' && rawValue >= 1 && rawValue <= 1000000) {
+          data.birthDate = rawValue
         } else {
-          data.birthDate = rawValue || cellText // Usar valor original o texto formateado
+          data.birthDate = rawValue || cellText
         }
       } else if (header.includes('curp')) {
         data.curp = value
@@ -2815,21 +2811,55 @@ export default class EmployeeService {
       } else if (header.includes('nss')) {
         data.nss = value
       } else if (header.includes('correo empresa')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.businessEmail = cellText || ''
+        data.businessEmail = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('correo personal')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.personalEmail = cellText || ''
+        data.personalEmail = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('teléfono empresa')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.businessPhone = cellText || ''
+        data.businessPhone = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('teléfono personal')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.personalPhone = cellText || ''
+        data.personalPhone = (cell.text ? cell.text.trim() : '') || ''
+      } else if (header.includes('modalidad de trabajo')) {
+        data.employeeTypeName = value
+      } else if (header.includes('discriminar asistencia')) {
+        data.employeeAssistDiscriminator = parseYesNo(value)
+      } else if (header.includes('ignorar ausencias consecutivas')) {
+        data.employeeIgnoreConsecutiveAbsences = parseYesNo(value)
+      } else if (header.includes('autorizar cualquier zona')) {
+        data.employeeAuthorizeAnyZones = parseYesNo(value)
+      } else if (header.includes('género')) {
+        data.personGender = value
+      } else if (header.includes('país de nacimiento')) {
+        data.personPlaceOfBirthCountry = value
+      } else if (header.includes('estado de nacimiento')) {
+        data.personPlaceOfBirthState = value
+      } else if (header.includes('ciudad de nacimiento')) {
+        data.personPlaceOfBirthCity = value
+      } else if (header.includes('estado civil')) {
+        data.personMaritalStatus = value
+      } else if (header.includes('país de residencia')) {
+        data.addressCountry = value
+      } else if (header.includes('estado de residencia')) {
+        data.addressState = value
+      } else if (header.includes('municipio de residencia')) {
+        data.addressTownship = value
+      } else if (header.includes('ciudad de residencia')) {
+        data.addressCity = value
+      } else if (header.includes('colonia') && !header.includes('código')) {
+        data.addressSettlement = value
+      } else if (header.includes('tipo de asentamiento')) {
+        data.addressSettlementType = value
+      } else if (header.includes('calle')) {
+        data.addressStreet = value
+      } else if (header.includes('número interior')) {
+        data.addressInternalNumber = value
+      } else if (header.includes('número exterior')) {
+        data.addressExternalNumber = value
+      } else if (header.includes('entre calle 1')) {
+        data.addressBetweenStreet1 = value
+      } else if (header.includes('entre calle 2')) {
+        data.addressBetweenStreet2 = value
+      } else if (header.includes('código postal')) {
+        data.addressZipcode = value
       }
     })
 
@@ -2837,15 +2867,95 @@ export default class EmployeeService {
   }
 
   /**
+   * Crear o actualizar dirección de residencia del empleado a partir de datos de importación
+   */
+  private async ensureEmployeeResidenceAddress(employeeId: number, employeeData: any): Promise<void> {
+    const hasAddress =
+      (employeeData.addressCountry ?? '') !== '' ||
+      (employeeData.addressState ?? '') !== '' ||
+      (employeeData.addressCity ?? '') !== '' ||
+      (employeeData.addressStreet ?? '') !== '' ||
+      (employeeData.addressZipcode ?? '') !== ''
+    if (!hasAddress) return
+
+    let addressTypeId = 1
+    const addressType = await AddressType.query()
+      .whereNull('deletedAt')
+      .whereRaw('LOWER(address_type_slug) LIKE ?', ['%residencia%'])
+      .first()
+    if (addressType) addressTypeId = addressType.addressTypeId
+    else {
+      const first = await AddressType.query().whereNull('deletedAt').first()
+      if (first) addressTypeId = first.addressTypeId
+    }
+
+    const existingLink = await EmployeeAddress.query()
+      .where('employeeId', employeeId)
+      .whereNull('deletedAt')
+      .preload('address')
+      .first()
+
+    const addressPayload = {
+      addressZipcode: employeeData.addressZipcode || '',
+      addressCountry: employeeData.addressCountry || '',
+      addressState: employeeData.addressState || '',
+      addressTownship: employeeData.addressTownship || '',
+      addressCity: employeeData.addressCity || '',
+      addressSettlement: employeeData.addressSettlement || '',
+      addressSettlementType: employeeData.addressSettlementType || '',
+      addressStreet: employeeData.addressStreet || '',
+      addressInternalNumber: employeeData.addressInternalNumber || '',
+      addressExternalNumber: employeeData.addressExternalNumber || '',
+      addressBetweenStreet1: employeeData.addressBetweenStreet1 || '',
+      addressBetweenStreet2: employeeData.addressBetweenStreet2 || '',
+      addressTypeId
+    }
+
+    if (existingLink?.address) {
+      const addr = existingLink.address
+      addr.addressZipcode = addressPayload.addressZipcode
+      addr.addressCountry = addressPayload.addressCountry
+      addr.addressState = addressPayload.addressState
+      addr.addressTownship = addressPayload.addressTownship
+      addr.addressCity = addressPayload.addressCity
+      addr.addressSettlement = addressPayload.addressSettlement
+      addr.addressSettlementType = addressPayload.addressSettlementType
+      addr.addressStreet = addressPayload.addressStreet
+      addr.addressInternalNumber = addressPayload.addressInternalNumber
+      addr.addressExternalNumber = addressPayload.addressExternalNumber
+      addr.addressBetweenStreet1 = addressPayload.addressBetweenStreet1
+      addr.addressBetweenStreet2 = addressPayload.addressBetweenStreet2
+      addr.addressTypeId = addressPayload.addressTypeId
+      await addr.save()
+    } else {
+      const newAddress = new Address()
+      Object.assign(newAddress, addressPayload)
+      await newAddress.save()
+      const newLink = new EmployeeAddress()
+      newLink.employeeId = employeeId
+      newLink.addressId = newAddress.addressId
+      await newLink.save()
+    }
+  }
+
+  /**
    * Actualizar empleado existente
    */
-  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any, businessUnitId: number | null, payrollBusinessUnitId: number | null) {
-    // Actualizar datos del empleado
+  private async updateExistingEmployee(
+    existingEmployee: any,
+    employeeData: any,
+    departments: any[],
+    positions: any[],
+    defaultDepartment: any,
+    defaultPosition: any,
+    businessUnitId: number | null,
+    payrollBusinessUnitId: number | null,
+    employeeTypes: any[] = []
+  ) {
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
     existingEmployee.employeeLastName = employeeData.lastName || existingEmployee.employeeLastName
     existingEmployee.employeeSecondLastName = employeeData.secondLastName || existingEmployee.employeeSecondLastName
 
-    // Actualizar fecha de contratación - asegurarse de que se guarde correctamente
     if (employeeData.hireDate) {
       const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
       if (parsedHireDate) {
@@ -2853,65 +2963,48 @@ export default class EmployeeService {
       }
     }
 
-    existingEmployee.dailySalary = employeeData.dailySalary || existingEmployee.dailySalary
+    existingEmployee.dailySalary = employeeData.dailySalary ?? existingEmployee.dailySalary
 
-    // Actualizar unidades de negocio si se proporcionan
-    if (businessUnitId !== null) {
-      existingEmployee.businessUnitId = businessUnitId
-    }
-    if (payrollBusinessUnitId !== null) {
-      existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
-    }
+    if (businessUnitId !== null) existingEmployee.businessUnitId = businessUnitId
+    if (payrollBusinessUnitId !== null) existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
+    if (employeeData.employeeNumber) existingEmployee.employeePayrollCode = employeeData.employeeNumber
+    if (employeeData.businessEmail !== undefined) existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
+    if (employeeData.businessPhone !== undefined) existingEmployee.employeeBusinessPhone = employeeData.businessPhone || ''
 
-    // Actualizar número de nómina
-    if (employeeData.employeeNumber) {
-      existingEmployee.employeePayrollCode = employeeData.employeeNumber
-    }
+    if (employeeData.employeeAssistDiscriminator !== undefined) existingEmployee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator
+    if (employeeData.employeeIgnoreConsecutiveAbsences !== undefined) existingEmployee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences
+    if (employeeData.employeeAuthorizeAnyZones !== undefined) existingEmployee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones
+    const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
+    if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
-    // Actualizar correo y teléfono empresa
-    if (employeeData.businessEmail !== undefined) {
-      existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
-    }
-    if (employeeData.businessPhone !== undefined) {
-      existingEmployee.employeeBusinessPhone = employeeData.businessPhone || ''
-    }
-
-    // Mapear departamento y posición usando búsqueda por similitud
     const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-    if (departmentId !== null) {
-      existingEmployee.departmentId = departmentId
-    }
+    if (departmentId !== null) existingEmployee.departmentId = departmentId
     const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-    if (positionId !== null) {
-      existingEmployee.positionId = positionId
-    }
+    if (positionId !== null) existingEmployee.positionId = positionId
 
     await existingEmployee.save()
 
-    // Actualizar datos de la persona si existe
     if (existingEmployee.person) {
       const person = existingEmployee.person
       person.personFirstname = employeeData.firstName || person.personFirstname
       person.personLastname = employeeData.lastName || person.personLastname
       person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
-      person.personCurp = employeeData.curp || person.personCurp
-      person.personRfc = employeeData.rfc || person.personRfc
-      person.personImssNss = employeeData.nss || person.personImssNss
+      person.personCurp = employeeData.curp ?? person.personCurp
+      person.personRfc = employeeData.rfc ?? person.personRfc
+      person.personImssNss = employeeData.nss ?? person.personImssNss
+      if (employeeData.personGender !== undefined) person.personGender = employeeData.personGender || ''
+      if (employeeData.personPlaceOfBirthCountry !== undefined) person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
+      if (employeeData.personPlaceOfBirthState !== undefined) person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
+      if (employeeData.personPlaceOfBirthCity !== undefined) person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
+      if (employeeData.personMaritalStatus !== undefined) person.personMaritalStatus = employeeData.personMaritalStatus || ''
       const parsedBirthday = this.parseDate(employeeData.birthDate)
-      if (parsedBirthday) {
-        person.personBirthday = parsedBirthday
-      }
-
-      // Actualizar correo y teléfono personal
-      if (employeeData.personalEmail !== undefined) {
-        person.personEmail = employeeData.personalEmail || ''
-      }
-      if (employeeData.personalPhone !== undefined) {
-        person.personPhone = employeeData.personalPhone || ''
-      }
-
+      if (parsedBirthday) person.personBirthday = parsedBirthday
+      if (employeeData.personalEmail !== undefined) person.personEmail = employeeData.personalEmail || ''
+      if (employeeData.personalPhone !== undefined) person.personPhone = employeeData.personalPhone || ''
       await person.save()
     }
+
+    await this.ensureEmployeeResidenceAddress(existingEmployee.employeeId, employeeData)
   }
 
   /**
@@ -2932,6 +3025,16 @@ export default class EmployeeService {
     }
 
     return code
+  }
+
+  /**
+   * Mapear tipo de empleado (modalidad de trabajo) por nombre
+   */
+  private mapEmployeeType(employeeTypeName: string, employeeTypes: any[]): number | null {
+    if (!employeeTypeName || !employeeTypes.length) return null
+    const name = employeeTypeName.toString().trim().toLowerCase()
+    const found = employeeTypes.find(et => (et.employeeTypeName || '').trim().toLowerCase() === name)
+    return found ? found.employeeTypeId : null
   }
 
   /**
@@ -3024,14 +3127,14 @@ export default class EmployeeService {
     person.personRfc = employeeData.rfc || ''
     person.personImssNss = employeeData.nss || ''
     person.personBirthday = this.parseDate(employeeData.birthDate)
-    person.personGender = '' // No disponible en el Excel
+    person.personGender = employeeData.personGender || ''
     person.personPhone = employeeData.personalPhone || ''
     person.personEmail = employeeData.personalEmail || ''
     person.personPhoneSecondary = ''
-    person.personMaritalStatus = ''
-    person.personPlaceOfBirthCountry = ''
-    person.personPlaceOfBirthState = ''
-    person.personPlaceOfBirthCity = ''
+    person.personMaritalStatus = employeeData.personMaritalStatus || ''
+    person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
+    person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
+    person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
 
     await person.save()
     return person
@@ -3040,7 +3143,7 @@ export default class EmployeeService {
   /**
    * Crear empleado
    */
-  private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string) {
+  private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string, employeeTypes: any[] = []) {
     const employee = new Employee()
     employee.employeeCode = employeeCode
     employee.employeePayrollCode = employeeData.employeeNumber || employeeCode
@@ -3048,7 +3151,6 @@ export default class EmployeeService {
     employee.employeeLastName = employeeData.lastName || ''
     employee.employeeSecondLastName = employeeData.secondLastName || ''
 
-    // Asegurarse de que la fecha de contratación se guarde correctamente
     if (employeeData.hireDate) {
       const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
       if (parsedHireDate) {
@@ -3056,21 +3158,21 @@ export default class EmployeeService {
       }
     }
 
-    employee.companyId = 1 // Valor por defecto
+    employee.companyId = 1
     employee.departmentId = departmentId
     employee.positionId = positionId
     employee.personId = personId
     employee.businessUnitId = businessUnitId
     employee.dailySalary = employeeData.dailySalary || 0
     employee.payrollBusinessUnitId = payrollBusinessUnitId
-    employee.employeeAssistDiscriminator = 0
-    employee.employeeTypeId = 1 // Valor por defecto
+    employee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator !== undefined ? employeeData.employeeAssistDiscriminator : 0
+    employee.employeeTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes) ?? 1
     employee.employeeBusinessEmail = employeeData.businessEmail || ''
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
-    employee.employeeIgnoreConsecutiveAbsences = 0
-    employee.employeeAuthorizeAnyZones = 0
+    employee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences !== undefined ? employeeData.employeeIgnoreConsecutiveAbsences : 0
+    employee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones !== undefined ? employeeData.employeeAuthorizeAnyZones : 0
     employee.employeeSyncId = 0
     employee.departmentSyncId = 0
     employee.positionSyncId = 0
@@ -3407,7 +3509,7 @@ export default class EmployeeService {
 
     // Validar NSS
     if (personData.nss && personData.nss.length > 45) {
-      errors.push('El NSS no puedesexceder 45 caracteres')
+      errors.push('El NSS no puede exceder 45 caracteres')
     }
 
     return {
@@ -3816,26 +3918,27 @@ export default class EmployeeService {
   }
 
   /**
-   * Generar plantilla de Excel para importación masiva de empleados
-   * Incluye dropdowns dinámicos para departamentos y sus posiciones asociadas
+   * Generar plantilla de Excel para importación masiva de empleados.
+   * Incluye columna oculta ID Empleado, dropdowns dinámicos y todas las columnas del perfil.
+   * @param options.fillWithExisting - Si true, descarga plantilla llena con empleados existentes
    */
-  async generateEmployeeImportTemplate(): Promise<Buffer> {
+  async generateEmployeeImportTemplate(options?: { fillWithExisting?: boolean }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
-    // Obtener el color de la unidad de negocio activa
     const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
 
-    // Obtener unidades de negocio activas
+    const logoUrl = await this.getLogo()
+    await this.addImageLogo(workbook, worksheet, logoUrl)
+
     const businessUnits = await BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
-      .select('businessUnitName')
+      .select('businessUnitId', 'businessUnitName')
 
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
 
-    // Obtener departamentos activos con sus posiciones
     const departments = await Department.query()
       .whereNull('department_deleted_at')
       .preload('departmentPositions', (query) => {
@@ -3848,51 +3951,75 @@ export default class EmployeeService {
 
     const departmentNames = departments.map(dept => dept.departmentName).filter(Boolean)
 
-    // ==============================
-    //   HOJA OCULTA PARA DROPDOWNS
-    // ==============================
+    const employeeTypes = await EmployeeType.query()
+      .whereNull('employee_type_deleted_at')
+      .orderBy('employee_type_name')
+      .select('employeeTypeId', 'employeeTypeName')
+
+    const employeeTypeNames = employeeTypes.map(et => et.employeeTypeName).filter(Boolean)
+
+    const yesNoList = ['Sí', 'No']
+    const genderList = ['Hombre', 'Mujer', 'Otro']
+
+    const personsDistinct = await Person.query()
+      .select('personGender', 'personPlaceOfBirthCountry', 'personPlaceOfBirthState', 'personPlaceOfBirthCity', 'personMaritalStatus')
+      .whereNull('deletedAt')
+
+    const birthCountryValues = [...new Set(personsDistinct.map(p => p.personPlaceOfBirthCountry).filter(Boolean))].sort()
+    const birthStateValues = [...new Set(personsDistinct.map(p => p.personPlaceOfBirthState).filter(Boolean))].sort()
+    const birthCityValues = [...new Set(personsDistinct.map(p => p.personPlaceOfBirthCity).filter(Boolean))].sort()
+    const maritalStatusValues = [...new Set(personsDistinct.map(p => p.personMaritalStatus).filter(Boolean))].sort()
+
     const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
 
-    // Unidades de negocio → Columna A (A1:A...)
-    businessUnitNames.forEach((name, i) => {
-      listSheet.getCell(i + 1, 1).value = name
+    let listRow = 1
+    businessUnitNames.forEach((name) => {
+      listSheet.getCell(listRow++, 1).value = name
     })
-
-    // Departamentos → Columna B (B1:B...)
-    departmentNames.forEach((name, i) => {
-      listSheet.getCell(i + 1, 2).value = name
+    const businessUnitRange = `Listas!$A$1:$A$${Math.max(1, businessUnitNames.length)}`
+    listRow = 1
+    departmentNames.forEach((name) => {
+      listSheet.getCell(listRow++, 2).value = name
     })
+    const departmentRange = `Listas!$B$1:$B$${Math.max(1, departmentNames.length)}`
 
-    // ==============================
-    //   MAPEO DEPARTAMENTO-POSICIONES
-    //   Columnas C (Departamento) y D (Posición)
-    // ==============================
-    let currentRow = 1
-
+    let deptPosRow = 1
     departments.forEach((dept) => {
       const deptName = dept.departmentName
       if (!deptName) return
-
       const positions = dept.departmentPositions
         .map(dp => dp.position?.positionName)
         .filter(Boolean)
-
-      // Escribir departamento y sus posiciones
       positions.forEach((posName) => {
-        listSheet.getCell(currentRow, 3).value = deptName
-        listSheet.getCell(currentRow, 4).value = posName
-        currentRow++
+        listSheet.getCell(deptPosRow, 3).value = deptName
+        listSheet.getCell(deptPosRow, 4).value = posName
+        deptPosRow++
       })
     })
 
-    // Rango para validación
-    const businessUnitRange = `Listas!$A$1:$A$${businessUnitNames.length}`
-    const departmentRange = `Listas!$B$1:$B$${departmentNames.length}`
+    employeeTypeNames.forEach((name, i) => {
+      listSheet.getCell(i + 1, 5).value = name
+    })
+    const employeeTypeRange = `Listas!$E$1:$E$${Math.max(1, employeeTypeNames.length)}`
 
-    // ==============================
-    //       ENCABEZADOS
-    // ==============================
+    yesNoList.forEach((v, i) => { listSheet.getCell(i + 1, 6).value = v })
+    const yesNoRange = 'Listas!$F$1:$F$2'
+
+    const genderRange = `Listas!$G$1:$G$${Math.max(1, genderList.length)}`
+    genderList.forEach((v, i) => { listSheet.getCell(i + 1, 7).value = v })
+
+    const writeList = (values: string[], colIdx: number) => {
+      const vals = values.length ? values : ['']
+      vals.forEach((v, i) => { listSheet.getCell(i + 1, colIdx).value = v })
+      return `Listas!$${String.fromCharCode(64 + colIdx)}$1:$${String.fromCharCode(64 + colIdx)}$${vals.length}`
+    }
+    const birthCountryRange = writeList(birthCountryValues, 8)
+    const birthStateRange = writeList(birthStateValues, 9)
+    const birthCityRange = writeList(birthCityValues, 10)
+    const maritalRange = writeList(maritalStatusValues.length ? maritalStatusValues : ['Soltero', 'Casado', 'Otro'], 11)
+
     const headers = [
+      'ID Empleado',
       'Identificador de nómina',
       'Unidad de negocio de trabajo',
       'Unidad de negocio de nómina',
@@ -3910,10 +4037,30 @@ export default class EmployeeService {
       'Correo empresa',
       'Correo personal',
       'Teléfono Empresa',
-      'Teléfono Personal'
+      'Teléfono Personal',
+      'Modalidad de trabajo',
+      'Discriminar asistencia',
+      'Ignorar ausencias consecutivas',
+      'Autorizar cualquier zona',
+      'Género',
+      'País de nacimiento',
+      'Estado de nacimiento',
+      'Ciudad de nacimiento',
+      'Estado civil',
+      'País de residencia',
+      'Estado de residencia',
+      'Municipio de residencia',
+      'Ciudad de residencia',
+      'Colonia',
+      'Tipo de asentamiento',
+      'Calle',
+      'Número interior',
+      'Número exterior',
+      'Entre calle 1',
+      'Entre calle 2',
+      'Código postal'
     ]
 
-    // Encabezados requeridos (índices 0-4)
     const requiredHeaders = [
       'Identificador de nómina',
       'Unidad de negocio de trabajo',
@@ -3922,30 +4069,36 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
+    worksheet.getRow(1).height = 60
+    const titleRow = worksheet.addRow([''])
+    titleRow.height = 30
+    worksheet.mergeCells(2, 1, 2, 40)
+    titleRow.getCell(1).value = 'Plantilla de importación de empleados'
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+    titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
+    titleRow.getCell(1).border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } }
+    }
+
     const headerRow = worksheet.addRow(headers)
     headerRow.height = 30
 
-    const requiredHeaderColor = activeBusinessUnitColor // Color de la unidad de negocio activa (formato ARGB)
-    const optionalHeaderColor = 'FFD6D6D6' // Gris claro para opcionales (formato ARGB)
-
-    // Determinar el color del texto para encabezados requeridos basado en la luminosidad del fondo
+    const requiredHeaderColor = activeBusinessUnitColor
+    const optionalHeaderColor = 'FFD6D6D6'
     const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
-    const optionalHeaderTextColor = 'FF001A04' // Texto oscuro para opcionales (formato ARGB)
+    const optionalHeaderTextColor = 'FF001A04'
 
     headerRow.eachCell((cell, colNumber) => {
-      const headerIndex = colNumber - 1
-      const headerValue = headers[headerIndex]
+      const headerValue = headers[colNumber - 1]
       const isRequired = requiredHeaders.includes(headerValue)
-
       const backgroundColor = isRequired ? requiredHeaderColor : optionalHeaderColor
       const textColor = isRequired ? requiredHeaderTextColor : optionalHeaderTextColor
-
       cell.font = { bold: true, size: 9, color: { argb: textColor } }
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: backgroundColor }
-      }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: backgroundColor } }
       cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -3955,86 +4108,154 @@ export default class EmployeeService {
       }
     })
 
-    // ==============================
-    //     ANCHO DE COLUMNAS
-    // ==============================
+    worksheet.getColumn(1).hidden = true
+
     const columnWidths = [
-      25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20,
-      20
+      10, 25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20, 20,
+      22, 20, 28, 24, 12, 18, 18, 18, 14, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
     ]
-    columnWidths.forEach((width, index) => {
-      worksheet.getColumn(index + 1).width = width
+    columnWidths.forEach((w, i) => {
+      worksheet.getColumn(i + 1).width = w
     })
 
-    // ==============================
-    //    VALIDACIONES (DROPDOWNS)
-    // ==============================
-    for (let row = 2; row <= 1000; row++) {
-      // Unidad de negocio de trabajo (columna B)
-      worksheet.getCell(row, 2).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [businessUnitRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione una unidad de negocio válida'
-      }
-
-      // Unidad de negocio de nómina (columna C)
+    for (let row = 4; row <= 1001; row++) {
       worksheet.getCell(row, 3).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [businessUnitRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione una unidad de negocio válida'
+        type: 'list', allowBlank: true, formulae: [businessUnitRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione una unidad de negocio válida'
       }
-
-      // Departamento (columna H)
-      worksheet.getCell(row, 8).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [departmentRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione un departamento válido'
+      worksheet.getCell(row, 4).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [businessUnitRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione una unidad de negocio válida'
       }
-
-      // Posición (columna I) - DROPDOWN DINÁMICO usando INDIRECT con rango filtrado
-      // Esta fórmula busca en la hoja Listas todas las posiciones que corresponden al departamento seleccionado
-      const positionFormula = `INDIRECT("Listas!$D$"&MATCH(H${row},Listas!$C:$C,0)&":$D$"&(MATCH(H${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,H${row})-1))`
-
       worksheet.getCell(row, 9).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [positionFormula],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Primero seleccione un departamento válido'
+        type: 'list', allowBlank: true, formulae: [departmentRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un departamento válido'
       }
+      const positionFormula = `INDIRECT("Listas!$D$"&MATCH(I${row},Listas!$C:$C,0)&":$D$"&(MATCH(I${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,I${row})-1))`
+      worksheet.getCell(row, 10).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [positionFormula],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Primero seleccione un departamento válido'
+      }
+      worksheet.getCell(row, 20).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [employeeTypeRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione una modalidad válida'
+      }
+      worksheet.getCell(row, 21).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 22).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 23).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 24).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [genderRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un género válido'
+      }
+      worksheet.getCell(row, 25).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [birthCountryRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione o escriba país de nacimiento'
+      }
+      worksheet.getCell(row, 26).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [birthStateRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado de nacimiento'
+      }
+      worksheet.getCell(row, 27).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [birthCityRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione ciudad de nacimiento'
+      }
+      worksheet.getCell(row, 28).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [maritalRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
+      }
+      // Columnas 29-40 (residencia): sin dropdown, flexibles para cualquier texto
     }
 
-    // ==============================
-    //       FORMATOS DE COLUMNA
-    // ==============================
-    worksheet.getColumn(7).numFmt = 'yyyy/mm/dd' // Fecha contratación
-    worksheet.getColumn(11).numFmt = 'dd/mm/yyyy' // Fecha nacimiento
-    worksheet.getColumn(10).numFmt = '#,##0.00' // Salario diario
+    worksheet.getColumn(8).numFmt = 'yyyy/mm/dd'
+    worksheet.getColumn(12).numFmt = 'dd/mm/yyyy'
+    worksheet.getColumn(11).numFmt = '#,##0.00'
 
-    // ==============================
-    //     CONGELAR ENCABEZADOS
-    // ==============================
     worksheet.views = [
-      { state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }
+      { state: 'frozen', ySplit: 3, topLeftCell: 'A4', activeCell: 'B4' }
     ]
 
-    // ==============================
-    //       GENERAR ARCHIVO
-    // ==============================
+    if (options?.fillWithExisting) {
+      const employees = await Employee.query()
+        .whereNull('deletedAt')
+        .preload('person')
+        .preload('address', (q) => q.preload('address'))
+        .preload('businessUnit')
+        .preload('department')
+        .preload('position')
+        .preload('employeeType')
+        .orderBy('employee_id')
+
+      const payrollUnitName = (payrollId: number) =>
+        businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''
+
+      const DateTimeFmt = (d: DateTime | Date | string | null) => {
+        if (!d) return ''
+        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
+        return dt.isValid ? dt.toFormat('yyyy/MM/dd') : ''
+      }
+      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => {
+        if (!d) return ''
+        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
+        return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
+      }
+
+      employees.forEach((emp, idx) => {
+        const rowNum = idx + 4
+        const person = emp.person
+        const resAddress = emp.address?.[0]?.address
+
+        worksheet.getCell(rowNum, 1).value = emp.employeeId
+        worksheet.getCell(rowNum, 2).value = emp.employeePayrollCode ?? emp.employeeCode ?? ''
+        worksheet.getCell(rowNum, 3).value = emp.businessUnit?.businessUnitName ?? ''
+        worksheet.getCell(rowNum, 4).value = payrollUnitName(emp.payrollBusinessUnitId)
+        worksheet.getCell(rowNum, 5).value = emp.employeeFirstName ?? ''
+        worksheet.getCell(rowNum, 6).value = emp.employeeLastName ?? ''
+        worksheet.getCell(rowNum, 7).value = emp.employeeSecondLastName ?? ''
+        worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
+        worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
+        worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
+        worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
+        worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
+        worksheet.getCell(rowNum, 13).value = person?.personCurp ?? ''
+        worksheet.getCell(rowNum, 14).value = person?.personRfc ?? ''
+        worksheet.getCell(rowNum, 15).value = person?.personImssNss ?? ''
+        worksheet.getCell(rowNum, 16).value = emp.employeeBusinessEmail ?? ''
+        worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
+        worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
+        worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
+        worksheet.getCell(rowNum, 20).value = emp.employeeType?.employeeTypeName ?? ''
+        worksheet.getCell(rowNum, 21).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 22).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 23).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 24).value = person?.personGender ?? ''
+        worksheet.getCell(rowNum, 25).value = person?.personPlaceOfBirthCountry ?? ''
+        worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
+        worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
+        worksheet.getCell(rowNum, 28).value = person?.personMaritalStatus ?? ''
+        worksheet.getCell(rowNum, 29).value = resAddress?.addressCountry ?? ''
+        worksheet.getCell(rowNum, 30).value = resAddress?.addressState ?? ''
+        worksheet.getCell(rowNum, 31).value = resAddress?.addressTownship ?? ''
+        worksheet.getCell(rowNum, 32).value = resAddress?.addressCity ?? ''
+        worksheet.getCell(rowNum, 33).value = resAddress?.addressSettlement ?? ''
+        worksheet.getCell(rowNum, 34).value = resAddress?.addressSettlementType ?? ''
+        worksheet.getCell(rowNum, 35).value = resAddress?.addressStreet ?? ''
+        worksheet.getCell(rowNum, 36).value = resAddress?.addressInternalNumber ?? ''
+        worksheet.getCell(rowNum, 37).value = resAddress?.addressExternalNumber ?? ''
+        worksheet.getCell(rowNum, 38).value = resAddress?.addressBetweenStreet1 ?? ''
+        worksheet.getCell(rowNum, 39).value = resAddress?.addressBetweenStreet2 ?? ''
+        worksheet.getCell(rowNum, 40).value = resAddress?.addressZipcode ?? ''
+      })
+    }
+
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }

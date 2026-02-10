@@ -3276,16 +3276,20 @@ export default class EmployeeController {
    *       500:
    *         description: Error al generar la plantilla
    */
-  async getTemplateExcel({ response, i18n }: HttpContext) {
+  async getTemplateExcel({ request, response, i18n }: HttpContext) {
     try {
+      const fillWithExisting = request.input('fillWithExisting') === true ||
+        request.input('fillWithExisting') === '1' ||
+        request.input('fillWithExisting') === 'true'
       const employeeService = new EmployeeService(i18n)
-      const buffer = await employeeService.generateEmployeeImportTemplate()
+      const buffer = await employeeService.generateEmployeeImportTemplate({ fillWithExisting })
 
       response.header(
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', 'attachment; filename=plantilla-importacion-empleados.xlsx')
+      const filename = fillWithExisting ? 'plantilla-empleados-con-datos.xlsx' : 'plantilla-importacion-empleados.xlsx'
+      response.header('Content-Disposition', `attachment; filename=${filename}`)
       response.status(200)
       response.send(buffer)
     } catch (error: any) {
