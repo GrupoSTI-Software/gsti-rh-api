@@ -2819,7 +2819,8 @@ export default class EmployeeService {
       } else if (header.includes('teléfono personal')) {
         data.personalPhone = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('modalidad de trabajo')) {
-        data.employeeTypeName = value
+        const v = (value || '').toString().trim()
+        data.employeeWorkSchedule = v.toLowerCase() === 'presencial' ? 'Onsite' : (v.toLowerCase() === 'home office' || v.toLowerCase() === 'remoto' ? 'Remote' : (v === 'Onsite' || v === 'Remote' ? v : ''))
       } else if (header.includes('discriminar asistencia')) {
         data.employeeAssistDiscriminator = parseYesNo(value)
       } else if (header.includes('ignorar ausencias consecutivas')) {
@@ -2835,7 +2836,7 @@ export default class EmployeeService {
       } else if (header.includes('ciudad de nacimiento')) {
         data.personPlaceOfBirthCity = value
       } else if (header.includes('estado civil')) {
-        data.personMaritalStatus = value
+        data.personMaritalStatus = this.translateMaritalStatusFromExcel(value)
       } else if (header.includes('país de residencia')) {
         data.addressCountry = value
       } else if (header.includes('estado de residencia')) {
@@ -2974,6 +2975,7 @@ export default class EmployeeService {
     if (employeeData.employeeAssistDiscriminator !== undefined) existingEmployee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator
     if (employeeData.employeeIgnoreConsecutiveAbsences !== undefined) existingEmployee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences
     if (employeeData.employeeAuthorizeAnyZones !== undefined) existingEmployee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones
+    if (employeeData.employeeWorkSchedule === 'Onsite' || employeeData.employeeWorkSchedule === 'Remote') existingEmployee.employeeWorkSchedule = employeeData.employeeWorkSchedule
     const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
     if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
@@ -3028,13 +3030,60 @@ export default class EmployeeService {
   }
 
   /**
-   * Mapear tipo de empleado (modalidad de trabajo) por nombre
+   * Mapear tipo de empleado por nombre (para employeeTypeId cuando se use)
    */
   private mapEmployeeType(employeeTypeName: string, employeeTypes: any[]): number | null {
     if (!employeeTypeName || !employeeTypes.length) return null
     const name = employeeTypeName.toString().trim().toLowerCase()
     const found = employeeTypes.find(et => (et.employeeTypeName || '').trim().toLowerCase() === name)
     return found ? found.employeeTypeId : null
+  }
+
+  /**
+   * Traducir estado civil desde Excel (inglés u otro) a español para guardar en BD
+   */
+  private translateMaritalStatusFromExcel(value: string): string {
+    if (!value || typeof value !== 'string') return ''
+    const v = value.trim().toLowerCase()
+    const map: Record<string, string> = {
+      single: 'Soltero',
+      soltero: 'Soltero',
+      married: 'Casado',
+      casado: 'Casado',
+      divorced: 'Divorciado',
+      divorciado: 'Divorciado',
+      widowed: 'Viudo',
+      viudo: 'Viudo',
+      widow: 'Viuda',
+      viuda: 'Viuda',
+      'unión libre': 'Unión libre',
+      'union libre': 'Unión libre',
+      'domestic partnership': 'Unión libre',
+      other: 'Otro',
+      otro: 'Otro',
+      separated: 'Separado',
+      separado: 'Separado'
+    }
+    return map[v] ?? value.trim()
+  }
+
+  /**
+   * Traducir estado civil desde BD a español para mostrar en Excel
+   */
+  private translateMaritalStatusToSpanish(value: string): string {
+    if (!value || typeof value !== 'string') return ''
+    const v = value.trim().toLowerCase()
+    const map: Record<string, string> = {
+      single: 'Soltero',
+      married: 'Casado',
+      divorced: 'Divorciado',
+      widowed: 'Viudo',
+      widow: 'Viuda',
+      'domestic partnership': 'Unión libre',
+      other: 'Otro',
+      separated: 'Separado'
+    }
+    return map[v] ?? value.trim()
   }
 
   /**
@@ -3167,6 +3216,7 @@ export default class EmployeeService {
     employee.payrollBusinessUnitId = payrollBusinessUnitId
     employee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator !== undefined ? employeeData.employeeAssistDiscriminator : 0
     employee.employeeTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes) ?? 1
+    employee.employeeWorkSchedule = (employeeData.employeeWorkSchedule === 'Remote' || employeeData.employeeWorkSchedule === 'Onsite') ? employeeData.employeeWorkSchedule : 'Onsite'
     employee.employeeBusinessEmail = employeeData.businessEmail || ''
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
@@ -3956,19 +4006,9 @@ export default class EmployeeService {
       .orderBy('employee_type_name')
       .select('employeeTypeId', 'employeeTypeName')
 
-    const employeeTypeNames = employeeTypes.map(et => et.employeeTypeName).filter(Boolean)
-
+    const workScheduleList = ['Presencial', 'Home office']
     const yesNoList = ['Sí', 'No']
     const genderList = ['Hombre', 'Mujer', 'Otro']
-
-    const personsDistinct = await Person.query()
-      .select('personGender', 'personPlaceOfBirthCountry', 'personPlaceOfBirthState', 'personPlaceOfBirthCity', 'personMaritalStatus')
-      .whereNull('deletedAt')
-
-    const birthCountryValues = [...new Set(personsDistinct.map(p => p.personPlaceOfBirthCountry).filter(Boolean))].sort()
-    const birthStateValues = [...new Set(personsDistinct.map(p => p.personPlaceOfBirthState).filter(Boolean))].sort()
-    const birthCityValues = [...new Set(personsDistinct.map(p => p.personPlaceOfBirthCity).filter(Boolean))].sort()
-    const maritalStatusValues = [...new Set(personsDistinct.map(p => p.personMaritalStatus).filter(Boolean))].sort()
 
     const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
 
@@ -3997,10 +4037,10 @@ export default class EmployeeService {
       })
     })
 
-    employeeTypeNames.forEach((name, i) => {
+    workScheduleList.forEach((name, i) => {
       listSheet.getCell(i + 1, 5).value = name
     })
-    const employeeTypeRange = `Listas!$E$1:$E$${Math.max(1, employeeTypeNames.length)}`
+    const workScheduleRange = `Listas!$E$1:$E$${workScheduleList.length}`
 
     yesNoList.forEach((v, i) => { listSheet.getCell(i + 1, 6).value = v })
     const yesNoRange = 'Listas!$F$1:$F$2'
@@ -4013,10 +4053,8 @@ export default class EmployeeService {
       vals.forEach((v, i) => { listSheet.getCell(i + 1, colIdx).value = v })
       return `Listas!$${String.fromCharCode(64 + colIdx)}$1:$${String.fromCharCode(64 + colIdx)}$${vals.length}`
     }
-    const birthCountryRange = writeList(birthCountryValues, 8)
-    const birthStateRange = writeList(birthStateValues, 9)
-    const birthCityRange = writeList(birthCityValues, 10)
-    const maritalRange = writeList(maritalStatusValues.length ? maritalStatusValues : ['Soltero', 'Casado', 'Otro'], 11)
+    const maritalStatusOptions = ['Soltero', 'Casado', 'Divorciado', 'Viudo', 'Unión libre', 'Separado', 'Otro']
+    const maritalRange = writeList(maritalStatusOptions, 11)
 
     const headers = [
       'ID Empleado',
@@ -4137,8 +4175,8 @@ export default class EmployeeService {
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Primero seleccione un departamento válido'
       }
       worksheet.getCell(row, 20).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [employeeTypeRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione una modalidad válida'
+        type: 'list', allowBlank: true, formulae: [workScheduleRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Presencial o Home office'
       }
       worksheet.getCell(row, 21).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -4156,18 +4194,7 @@ export default class EmployeeService {
         type: 'list', allowBlank: true, formulae: [genderRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un género válido'
       }
-      worksheet.getCell(row, 25).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [birthCountryRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione o escriba país de nacimiento'
-      }
-      worksheet.getCell(row, 26).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [birthStateRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado de nacimiento'
-      }
-      worksheet.getCell(row, 27).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [birthCityRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione ciudad de nacimiento'
-      }
+      // Columnas 25-27 (país, estado, ciudad de nacimiento): sin dropdown, texto libre
       worksheet.getCell(row, 28).dataValidation = {
         type: 'list', allowBlank: true, formulae: [maritalRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
@@ -4232,7 +4259,7 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
         worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
         worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
-        worksheet.getCell(rowNum, 20).value = emp.employeeType?.employeeTypeName ?? ''
+        worksheet.getCell(rowNum, 20).value = emp.employeeWorkSchedule === 'Remote' ? 'Home office' : (emp.employeeWorkSchedule === 'Onsite' ? 'Presencial' : (emp.employeeWorkSchedule || ''))
         worksheet.getCell(rowNum, 21).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
         worksheet.getCell(rowNum, 22).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
         worksheet.getCell(rowNum, 23).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
@@ -4240,7 +4267,7 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 25).value = person?.personPlaceOfBirthCountry ?? ''
         worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
         worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
-        worksheet.getCell(rowNum, 28).value = person?.personMaritalStatus ?? ''
+        worksheet.getCell(rowNum, 28).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
         worksheet.getCell(rowNum, 29).value = resAddress?.addressCountry ?? ''
         worksheet.getCell(rowNum, 30).value = resAddress?.addressState ?? ''
         worksheet.getCell(rowNum, 31).value = resAddress?.addressTownship ?? ''
