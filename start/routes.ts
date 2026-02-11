@@ -109,6 +109,7 @@ import './routes/employee_annotation_routes.js'
 import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
+import './routes/generate_info_demo.js'
 import './routes/employee_device_routes.js'
 
 router.get('/', async ({ view }) => {

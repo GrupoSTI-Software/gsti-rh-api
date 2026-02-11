@@ -35,6 +35,8 @@ import ShiftException from '#models/shift_exception'
 import WorkDisability from '#models/work_disability'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import Holiday from '#models/holiday'
+import ToleranceService from './tolerance_service.js'
 import EmployeeShift from '#models/employee_shift'
 
 export default class AssistsService {
@@ -3253,4 +3255,376 @@ export default class AssistsService {
     return text.charAt(0).toUpperCase() + text.slice(1);
   }
 
+  /**
+   * Elimina todas las asistencias existentes
+   *
+   * Esta función:
+   * 1. Elimina todas las asistencias
+   *
+   * @returns Objeto con el resultado de la operación
+   */
+  async deleteAllAssists() {
+    try {
+      // Contar registros antes de eliminar
+      const totalAssists = await Assist.query()
+        .count('* as total')
+
+      const counts = {
+        assists: Number(totalAssists[0].$extras.total),
+      }
+
+      // 1. Eliminar todas las asistencias
+      await Assist.query()
+        .delete()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Assists deleted successfully',
+        message: 'All assists have been deleted successfully',
+        data: {
+          deleted: {
+            assists: counts.assists,
+          },
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al eliminar todas las asistencias:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to delete assists',
+        message: 'An error occurred while trying to delete all assists',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea las asistencias demo de 2 meses atras a partir de hoy hacia atras
+   *
+   * Distribución de porcentajes:
+   * - 90% on time (a tiempo)
+   * - 5% tolerancia (dentro del rango de tolerancia)
+   * - 3% retardos (dentro del rango de delay)
+   * - 2% faltas (no se crea la asistencia)
+   *
+   * @returns Objeto con el resultado de la operación y las asistencias creadas
+   */
+  async createAssistDemo() {
+    try {
+      const createdAssists: { [key: string]: Assist } = {}
+
+      const delayToleranceMinutes = await this.getDelayToleranceMinutes()
+      const faultToleranceMinutes = await this.getTardinessToleranceMinutes()
+
+      const employees = await Employee.query()
+        .preload('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.preload('shift')
+        })
+        .whereNull('employee_deleted_at')
+
+      if (!employees || employees.length === 0) {
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Employees not found',
+          message: 'The employees were not found',
+          data: null,
+        }
+      }
+      // Obtener unidades de negocio activas
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+
+      const holidays = await Holiday.query()
+        .whereNull('holiday_deleted_at')
+        .whereBetween('holiday_date', [DateTime.now().minus({ months: 2 }).toFormat('yyyy-MM-dd'), DateTime.now().toFormat('yyyy-MM-dd')])
+        .andWhere((query) => {
+          query.andWhere((subQuery) => {
+            businessList.forEach((business) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+            })
+          })
+        })
+
+
+      for await(const employee of employees) {
+        const hourStart = employee.employeeShifts[0].shift.shiftTimeStart
+        const activeHours = employee.employeeShifts[0].shift.shiftActiveHours
+        const restDays = employee.employeeShifts[0].shift.shiftRestDays.split(',').map(Number)
+
+        const today = new Date()
+        const startDate = new Date(today)
+        startDate.setMonth(startDate.getMonth() - 1)
+        startDate.setDate(1)
+        today.setHours(0, 0, 0, 0)
+        today.setDate(today.getDate() + 1)
+
+        // Recopilar todos los días laborables
+        const workDays: Date[] = []
+        let currentDate = new Date(startDate)
+
+        while (currentDate <= today) {
+          const jsDay = currentDate.getDay()
+          const dayOfWeek = jsDay === 0 ? 7 : jsDay
+
+          if (restDays.includes(dayOfWeek)) {
+            currentDate.setDate(currentDate.getDate() + 1)
+            continue
+          }
+
+          const currentDateString = DateTime.fromJSDate(currentDate).toFormat('yyyy-MM-dd')
+          const isHoliday = holidays.some((holiday) => {
+            let holidayDateString: string
+            const holidayDate = holiday.holidayDate as any
+            if (holidayDate instanceof Date) {
+              holidayDateString = DateTime.fromJSDate(holidayDate).toFormat('yyyy-MM-dd')
+            } else if (typeof holidayDate === 'string') {
+              holidayDateString = holidayDate.split('T')[0]
+            } else {
+              holidayDateString = DateTime.fromISO(String(holidayDate)).toFormat('yyyy-MM-dd')
+            }
+            return holidayDateString === currentDateString
+          })
+
+          if (!isHoliday) {
+            workDays.push(new Date(currentDate))
+          }
+
+          currentDate.setDate(currentDate.getDate() + 1)
+        }
+
+        // Distribuir días según porcentajes: 90% on time, 5% tolerancia, 3% retardos, 2% faltas
+        const totalDays = workDays.length
+
+        // Calcular primero las faltas (2%) para asegurar que siempre haya días sin asistencia
+        const faultCount = Math.max(1, Math.round(totalDays * 0.02))
+        const remainingDays = totalDays - faultCount
+
+        // Calcular los porcentajes basados en el total original
+        let onTimeCount = Math.round(totalDays * 0.90)
+        let toleranceCount = Math.round(totalDays * 0.05)
+        let delayCount = Math.round(totalDays * 0.03)
+
+        // Verificar si la suma excede los días disponibles (sin contar faltas)
+        let totalAssigned = onTimeCount + toleranceCount + delayCount
+
+        // Si excede, ajustar proporcionalmente manteniendo los porcentajes relativos
+        if (totalAssigned > remainingDays) {
+          const excess = totalAssigned - remainingDays
+          // Calcular factores de ajuste proporcional
+          const onTimeFactor = onTimeCount / totalAssigned
+          const toleranceFactor = toleranceCount / totalAssigned
+          const delayFactor = delayCount / totalAssigned
+
+          // Reducir proporcionalmente
+          onTimeCount = Math.max(0, Math.round(onTimeCount - (excess * onTimeFactor)))
+          toleranceCount = Math.max(0, Math.round(toleranceCount - (excess * toleranceFactor)))
+          delayCount = Math.max(0, Math.round(delayCount - (excess * delayFactor)))
+
+          // Ajuste final si todavía excede por redondeos
+          totalAssigned = onTimeCount + toleranceCount + delayCount
+          if (totalAssigned > remainingDays) {
+            const finalExcess = totalAssigned - remainingDays
+            onTimeCount = Math.max(0, onTimeCount - finalExcess)
+          }
+        } else if (totalAssigned < remainingDays) {
+          // Si sobran días, agregarlos a onTimeCount para completar
+          onTimeCount += remainingDays - totalAssigned
+        }
+
+        // Mezclar aleatoriamente los días
+        const shuffledDays = [...workDays].sort(() => Math.random() - 0.5)
+        const onTimeDays = shuffledDays.slice(0, onTimeCount)
+        const toleranceDays = shuffledDays.slice(onTimeCount, onTimeCount + toleranceCount)
+        const delayDays = shuffledDays.slice(onTimeCount + toleranceCount, onTimeCount + toleranceCount + delayCount)
+        // Los días restantes (faultDays) no se procesan (se omiten)
+
+        // Procesar días on time (90%)
+        for await (const workDate of onTimeDays) {
+          const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
+          const [hour, minute] = hourStart.split(':')
+
+          // Permitir variación de -5 a 0 minutos (a tiempo o un poco antes)
+          const minutesVariation = Math.floor(Math.random() * 6) - 5 // -5 a 0
+
+          // Crear DateTime base con la hora de inicio
+          const baseTimeString = `${dateString} ${hour}:${minute}:00`
+          const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' })
+
+          // Aplicar variación de minutos (puede ser negativa)
+          const punchTime = baseTime.plus({ minutes: minutesVariation }).toUTC()
+
+          const createAssist = new Assist()
+          createAssist.assistEmpId = employee.employeeId
+          createAssist.assistEmpCode = employee.employeeCode.toString()
+          createAssist.assistPunchTime = punchTime
+          createAssist.assistPunchTimeUtc = punchTime
+          createAssist.assistPunchTimeOrigin = punchTime
+          createAssist.assistUploadTime = punchTime
+          createAssist.assistSyncId = 0
+          await createAssist.save()
+
+          const checkOutTime = punchTime.plus({ hours: activeHours })
+          const createAssistOut = new Assist()
+          createAssistOut.assistEmpId = employee.employeeId
+          createAssistOut.assistEmpCode = employee.employeeCode.toString()
+          createAssistOut.assistPunchTime = checkOutTime
+          createAssistOut.assistPunchTimeUtc = checkOutTime
+          createAssistOut.assistPunchTimeOrigin = checkOutTime
+          createAssistOut.assistUploadTime = checkOutTime
+          createAssistOut.assistSyncId = 0
+          await createAssistOut.save()
+        }
+
+        // Procesar días con tolerancia (5%)
+        for await (const workDate of toleranceDays) {
+          const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
+          const [hour, minute] = hourStart.split(':')
+
+          // Variación de 1 a delayToleranceMinutes minutos (dentro de la tolerancia)
+          const minutesVariation = Math.floor(Math.random() * delayToleranceMinutes) + 1
+          const totalMinutes = Number(minute) + minutesVariation
+          const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
+          const finalMinute = totalMinutes % 60
+          const finalSecond = 0
+
+          // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
+          const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+
+          const createAssist = new Assist()
+          createAssist.assistEmpId = employee.employeeId
+          createAssist.assistEmpCode = employee.employeeCode.toString()
+          createAssist.assistPunchTime = punchTime
+          createAssist.assistPunchTimeUtc = punchTime
+          createAssist.assistPunchTimeOrigin = punchTime
+          createAssist.assistUploadTime = punchTime
+          createAssist.assistSyncId = 0
+          await createAssist.save()
+
+          const checkOutTime = punchTime.plus({ hours: activeHours })
+
+          const createAssistOut = new Assist()
+          createAssistOut.assistEmpId = employee.employeeId
+          createAssistOut.assistEmpCode = employee.employeeCode.toString()
+          createAssistOut.assistPunchTime = checkOutTime
+          createAssistOut.assistPunchTimeUtc = checkOutTime
+          createAssistOut.assistPunchTimeOrigin = checkOutTime
+          createAssistOut.assistUploadTime = checkOutTime
+          createAssistOut.assistSyncId = 0
+          await createAssistOut.save()
+        }
+
+
+        // Procesar días con retardo (3%)
+        for await (const workDate of delayDays) {
+          const dateString = DateTime.fromJSDate(workDate).toFormat('yyyy-MM-dd')
+          const [hour, minute] = hourStart.split(':')
+
+          // Variación de delayToleranceMinutes + 1 a faultToleranceMinutes minutos (dentro del rango de delay)
+          const minutesVariation = Math.floor(Math.random() * (faultToleranceMinutes - delayToleranceMinutes)) + delayToleranceMinutes + 15
+          const totalMinutes = Number(minute) + minutesVariation
+          const finalHour = Number(hour) + Math.floor(totalMinutes / 60)
+          const finalMinute = totalMinutes % 60
+          const finalSecond = 0
+
+          // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
+          const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+
+          const createAssist = new Assist()
+          createAssist.assistEmpId = employee.employeeId
+          createAssist.assistEmpCode = employee.employeeCode.toString()
+          createAssist.assistPunchTime = punchTime
+          createAssist.assistPunchTimeUtc = punchTime
+          createAssist.assistPunchTimeOrigin = punchTime
+          createAssist.assistUploadTime = punchTime
+          createAssist.assistSyncId = 0
+          await createAssist.save()
+
+          const checkOutTime = punchTime.plus({ hours: activeHours })
+          const createAssistOut = new Assist()
+          createAssistOut.assistEmpId = employee.employeeId
+          createAssistOut.assistEmpCode = employee.employeeCode.toString()
+          createAssistOut.assistPunchTime = checkOutTime
+          createAssistOut.assistPunchTimeUtc = checkOutTime
+          createAssistOut.assistPunchTimeOrigin = checkOutTime
+          createAssistOut.assistUploadTime = checkOutTime
+          createAssistOut.assistSyncId = 0
+          await createAssistOut.save()
+        }
+
+        // Los días con falta (2%) no se crean (se omiten)
+        // imprimir fechas de faltas no creadas
+
+        if (onTimeDays.length > 0) {
+          createdAssists[employee.employeeId] = await Assist.query()
+            .where('assist_emp_id', employee.employeeId)
+            .orderBy('assist_punch_time', 'desc')
+            .first() as Assist
+        }
+      }
+
+      const summary = Object.keys(createdAssists).map((key) => ({
+        name: key,
+        id: createdAssists[key].assistId,
+        code: createdAssists[key].assistEmpCode,
+      }))
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Assists created successfully',
+        message: 'The assists were created successfully',
+        data: {
+          created: summary,
+          total: Object.keys(createdAssists).length,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error to create assists:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create assists',
+        message: 'An error occurred while trying to create the assists',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Obtiene la tolerancia de retardo del sistema
+   *
+   * @returns {Promise<number>} La tolerancia de retardo en minutos
+   */
+  async getDelayToleranceMinutes(): Promise<number> {
+    const systemSettingService = new SystemSettingService()
+    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+    let delayToleranceMinutes = 10 // Default
+    if (systemSettingActive) {
+      const toleranceService = new ToleranceService()
+      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
+      const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
+      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
+    }
+    return delayToleranceMinutes
+  }
+
+  async getTardinessToleranceMinutes(): Promise<number> {
+    const systemSettingService = new SystemSettingService()
+    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+    let tardinessToleranceMinutes = 10 // Default
+    if (systemSettingActive) {
+      const toleranceService = new ToleranceService()
+      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
+      const tardinessTolerance = tolerances.find((t) => t.toleranceName === 'TardinessTolerance')
+      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes
+    }
+    return tardinessToleranceMinutes
+  }
 }

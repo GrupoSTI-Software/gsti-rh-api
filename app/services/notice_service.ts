@@ -12,6 +12,7 @@ import SystemSetting from '#models/system_setting'
 const DEVELOPMENT_EMAIL_LIST = [
   //'rogelio.jinestas@gmail.com',
   'wramirez@siler-mx.com',
+  'wilvardo@gmail.com'
 ]
 
 export default class NoticeService {
@@ -33,7 +34,7 @@ export default class NoticeService {
       'notice_sent_at',
       'notice_created_at',
     ]
-    
+
     let query = Notice.query()
       .whereNull('notice_deleted_at')
       .if(filters.search, (q) => {
