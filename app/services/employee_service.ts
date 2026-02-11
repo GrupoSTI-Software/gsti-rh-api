@@ -3971,8 +3971,10 @@ export default class EmployeeService {
    * Generar plantilla de Excel para importación masiva de empleados.
    * Incluye columna oculta ID Empleado, dropdowns dinámicos y todas las columnas del perfil.
    * @param options.fillWithExisting - Si true, descarga plantilla llena con empleados existentes
+   * @param options.departmentId - Filtro opcional: solo empleados de este departamento
+   * @param options.positionId - Filtro opcional: solo empleados con esta posición (requiere departmentId válido que tenga esa posición)
    */
-  async generateEmployeeImportTemplate(options?: { fillWithExisting?: boolean }): Promise<Buffer> {
+  async generateEmployeeImportTemplate(options?: { fillWithExisting?: boolean; departmentId?: number; positionId?: number }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
@@ -4206,7 +4208,7 @@ export default class EmployeeService {
     ]
 
     if (options?.fillWithExisting) {
-      const employees = await Employee.query()
+      let employeesQuery = Employee.query()
         .whereNull('deletedAt')
         .preload('person')
         .preload('address', (q) => q.preload('address'))
@@ -4215,6 +4217,15 @@ export default class EmployeeService {
         .preload('position')
         .preload('employeeType')
         .orderBy('employee_id')
+
+      if (options.departmentId !== undefined) {
+        employeesQuery = employeesQuery.where('departmentId', options.departmentId)
+      }
+      if (options.positionId !== undefined) {
+        employeesQuery = employeesQuery.where('positionId', options.positionId)
+      }
+
+      const employees = await employeesQuery
 
       const payrollUnitName = (payrollId: number) =>
         businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''

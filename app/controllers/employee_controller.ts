@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
 import env from '#start/env'
@@ -3281,8 +3282,42 @@ export default class EmployeeController {
       const fillWithExisting = request.input('fillWithExisting') === true ||
         request.input('fillWithExisting') === '1' ||
         request.input('fillWithExisting') === 'true'
+
+      const departmentIdParam = request.input('departmentId')
+      const positionIdParam = request.input('positionId')
+      const departmentId = departmentIdParam !== undefined && departmentIdParam !== '' ? Number(departmentIdParam) : undefined
+      const positionId = positionIdParam !== undefined && positionIdParam !== '' ? Number(positionIdParam) : undefined
+
+      if (positionId !== undefined && !Number.isNaN(positionId)) {
+        if (departmentId === undefined || Number.isNaN(departmentId)) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validación',
+            message: 'Si se envía posición (positionId) debe enviarse también un departamento válido (departmentId) al que pertenezca esa posición.',
+          }
+        }
+        const positionInDepartment = await DepartmentPosition.query()
+          .where('departmentId', departmentId)
+          .where('positionId', positionId)
+          .whereNull('deletedAt')
+          .first()
+        if (!positionInDepartment) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validación',
+            message: 'La posición indicada no pertenece al departamento indicado. Envíe un departmentId y positionId válidos (la posición debe estar asignada a ese departamento).',
+          }
+        }
+      }
+
       const employeeService = new EmployeeService(i18n)
-      const buffer = await employeeService.generateEmployeeImportTemplate({ fillWithExisting })
+      const buffer = await employeeService.generateEmployeeImportTemplate({
+        fillWithExisting,
+        departmentId: departmentId !== undefined && !Number.isNaN(departmentId) ? departmentId : undefined,
+        positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
+      })
 
       response.header(
         'Content-Type',
