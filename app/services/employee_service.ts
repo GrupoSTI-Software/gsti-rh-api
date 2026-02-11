@@ -4001,11 +4001,6 @@ export default class EmployeeService {
 
     const departmentNames = departments.map(dept => dept.departmentName).filter(Boolean)
 
-    const employeeTypes = await EmployeeType.query()
-      .whereNull('employee_type_deleted_at')
-      .orderBy('employee_type_name')
-      .select('employeeTypeId', 'employeeTypeName')
-
     const workScheduleList = ['Presencial', 'Home office']
     const yesNoList = ['Sí', 'No']
     const genderList = ['Hombre', 'Mujer', 'Otro']
