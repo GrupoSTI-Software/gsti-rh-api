@@ -32,6 +32,12 @@ import ShiftService from '#services/shift_service'
  *                 type: number
  *               shiftTemp:
  *                 type: number
+ *               shiftLunchTime:
+ *                 type: number
+ *                 default: 60
+ *               shiftCompensableLunchSchedule:
+ *                 type: number
+ *                 default: 0
  *               shiftColor:
  *                 type: string
  *               shiftAlias:
@@ -87,6 +93,8 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
+        shiftLunchTime: data.shiftLunchTime,
+        shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
         shiftColor: data.shiftColor,
       } as Shift
       const verifyInfo = await shiftService.verifyInfo(shift)
@@ -347,6 +355,12 @@ export default class ShiftController {
  *                   type: number
  *                 shiftTemp:
  *                   type: number
+ *                 shiftLunchTime:
+ *                   type: number
+ *                   default: 60
+ *                 shiftCompensableLunchSchedule:
+ *                   type: number
+ *                   default: 0
  *                 shiftColor:
  *                   type: string
  *                 shiftAlias:
@@ -401,6 +415,8 @@ export default class ShiftController {
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
         shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
+        shiftLunchTime: data.shiftLunchTime,
+        shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
         shiftColor: shiftColorInput !== undefined && shiftColorInput !== null
           ? data.shiftColor
           : shift.shiftColor,

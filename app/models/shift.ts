@@ -52,6 +52,14 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *           type: number
  *           description: Shift is temp
  *           nullable: true
+ *         shiftLunchTime:
+ *           type: number
+ *           description: Lunch time in minutes
+ *           nullable: true
+ *         shiftCompensableLunchSchedule:
+ *           type: tinyint
+ *           description: Compensable lunch schedule
+ *           nullable: true
  *         shiftColor:
  *           type: string
  *           description: Color code for the shift
@@ -118,6 +126,12 @@ export default class Shift extends BaseModel {
 
   @column()
   declare shiftTemp: number
+
+  @column()
+  declare shiftLunchTime: number | null
+
+  @column()
+  declare shiftCompensableLunchSchedule: number | null
 
   @column()
   declare shiftColor: string
