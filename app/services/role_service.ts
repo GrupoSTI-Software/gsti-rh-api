@@ -316,4 +316,30 @@ export default class RoleService {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
   }
+
+  /**
+   * Busca un rol por su slug
+   * @param roleSlug - Slug del rol a buscar
+   * @returns Rol encontrado o null
+   */
+  async findRoleBySlug(roleSlug: string): Promise<Role | null> {
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+
+    const role = await Role.query()
+      .where('role_slug', roleSlug)
+      .whereNull('role_deleted_at')
+      .andWhere((query) => {
+        query.whereNotNull('role_business_access')
+        query.andWhere((subQuery) => {
+          businessList.forEach((business) => {
+            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+          })
+        })
+      })
+      .first()
+
+    return role || null
+  }
+
 }
