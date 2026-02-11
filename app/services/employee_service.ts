@@ -2848,16 +2848,16 @@ export default class EmployeeService {
         data.addressSettlement = value
       } else if (header.includes('tipo de asentamiento')) {
         data.addressSettlementType = value
-      } else if (header.includes('calle')) {
+      } else if (header.includes('entre calle 1')) {
+        data.addressBetweenStreet1 = value
+      } else if (header.includes('entre calle 2')) {
+        data.addressBetweenStreet2 = value
+      } else if (header.includes('calle') && !header.includes('entre calle')) {
         data.addressStreet = value
       } else if (header.includes('número interior')) {
         data.addressInternalNumber = value
       } else if (header.includes('número exterior')) {
         data.addressExternalNumber = value
-      } else if (header.includes('entre calle 1')) {
-        data.addressBetweenStreet1 = value
-      } else if (header.includes('entre calle 2')) {
-        data.addressBetweenStreet2 = value
       } else if (header.includes('código postal')) {
         data.addressZipcode = value
       }
