@@ -483,6 +483,30 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Display payments in summary',
         systemPermissionSlug: 'display-payments-summary',
         systemModuleId: 7
+      },
+      {
+        systemPermissionId: 127,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 128,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 129,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 130,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 32
       }
     ]
 
