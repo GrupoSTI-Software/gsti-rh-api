@@ -722,5 +722,181 @@ export default class EmployeeBiometricFaceIdController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/biometric-face-id-with-token/{token}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employee Biometric Face ID
+   *     summary: Get the biometric face photo for an employee with token
+   *     description: Retrieves the biometric face photo information for a specific employee
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the employee
+   *       - in: path
+   *         name: token
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Token of the biometric face photo
+   *     responses:
+   *       200:
+   *         description: Photo retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                   example: Foto encontrada
+   *                 message:
+   *                   type: string
+   *                   example: La foto biométrica fue encontrada exitosamente
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     employeeBiometricFaceId:
+   *                       $ref: '#/components/schemas/EmployeeBiometricFaceId'
+   *       404:
+   *         description: Employee or photo or token not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: warning
+   *                 title:
+   *                   type: string
+   *                   example: Foto no encontrada
+   *                 message:
+   *                   type: string
+   *                   example: No se encontró una foto biométrica para este empleado o el token no es válido
+   *       400:
+   *         description: Bad Request - Missing employee ID
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       500:
+   *         description: Internal Server Error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: string
+   */
+  @inject()
+  async getPhotoToken(
+    { request, response }: HttpContext,
+    uploadService: UploadService
+  ) {
+    try {
+      const employeeId = request.param('employeeId')
+      const token = request.param('token')
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del empleado es requerido',
+          data: { employeeId },
+        }
+      }
+      if (!token) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El token es requerido',
+          data: { token },
+        }
+      }
+
+      // Validar que el empleado existe
+      const currentEmployee = await Employee.query()
+        .where('employee_id', employeeId)
+        .whereNull('employee_deleted_at')
+        .first()
+
+      if (!currentEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'El empleado no fue encontrado con el ID proporcionado',
+          data: { employeeId },
+        }
+      }
+
+      // Buscar el registro de foto biométrica
+      const employeeBiometricService = new EmployeeBiometricFaceIdService()
+      const biometricFaceId = await employeeBiometricService.findByEmployeeId(employeeId)
+
+      if (!biometricFaceId) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Foto no encontrada',
+          message: 'No se encontró una foto biométrica para este empleado',
+          data: { employeeId },
+        }
+      }
+
+      let sameToken = true
+      if (biometricFaceId.employeeBiometricFaceIdToken !== token) {
+        sameToken = false
+        await employeeBiometricService.updateToken(biometricFaceId, token)
+      }
+
+      const photoUrl = await uploadService.getDownloadLink(biometricFaceId.employeeBiometricFaceIdPhotoUrl)
+      if (typeof photoUrl === 'string') {
+        biometricFaceId.employeeBiometricFaceIdPhotoUrl = photoUrl
+      }
+      
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Foto encontrada',
+        message: 'La foto biométrica fue encontrada exitosamente',
+        data: { employeeBiometricFaceId: biometricFaceId, sameToken: sameToken },
+      }
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al obtener la foto biométrica',
+        error: error.message,
+      }
+    }
+  }
 }
 
