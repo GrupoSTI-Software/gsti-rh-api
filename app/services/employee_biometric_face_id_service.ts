@@ -177,5 +177,17 @@ export default class EmployeeBiometricFaceIdService {
       }
     }
   }
+
+  /**
+   * Actualiza el token de la foto biométrica
+   */
+  async updateToken(
+    biometricFaceId: EmployeeBiometricFaceId,
+    token: string
+  ): Promise<EmployeeBiometricFaceId> {
+    biometricFaceId.employeeBiometricFaceIdToken = token
+    await biometricFaceId.save()
+    return biometricFaceId
+  }
 }
 
