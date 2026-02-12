@@ -1,6 +1,7 @@
 import Employee from '#models/employee'
 import EmployeeDevice from '#models/employee_device'
 import { I18n } from '@adonisjs/i18n'
+import { DateTime } from 'luxon'
 
 export default class EmployeeDeviceService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -30,6 +31,15 @@ export default class EmployeeDeviceService {
   }
 
   async delete(currentemployeeDevice: EmployeeDevice) {
+    if (typeof currentemployeeDevice.employeeDeviceToken === 'string' && currentemployeeDevice.employeeDeviceToken.length > 0) {
+      const timestamp = DateTime.now().toMillis().toString()
+      if (!currentemployeeDevice.employeeDeviceToken.includes('---deleted--')) {
+        currentemployeeDevice.employeeDeviceToken = `${currentemployeeDevice.employeeDeviceToken}---deleted--${timestamp}`
+      } else {
+        currentemployeeDevice.employeeDeviceToken = `${currentemployeeDevice.employeeDeviceToken}---${timestamp}`
+      }
+      await currentemployeeDevice.save()
+    }
     await currentemployeeDevice.delete()
     return currentemployeeDevice
   }
