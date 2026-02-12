@@ -87,6 +87,8 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         shiftRestDays: "0,6"
  *         shiftAccumulatedFault: 1
  *         shiftTemp: 0
+ *         shiftLunchTime: 60
+ *         shiftCompensableLunchSchedule: 0
  *         shiftColor: "#e67e22"
  *         shiftCreatedAt: "2024-06-20T12:00:00Z"
  *         shiftUpdatedAt: "2024-06-20T13:00:00Z"
