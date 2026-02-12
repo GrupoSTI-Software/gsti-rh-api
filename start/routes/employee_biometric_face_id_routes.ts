@@ -19,6 +19,10 @@ router
       '/:employeeId/biometric-face-id',
       '#controllers/employee_biometric_face_id_controller.deletePhoto'
     )
+    router.get(
+      '/:employeeId/biometric-face-id-with-token/:token',
+      '#controllers/employee_biometric_face_id_controller.getPhotoToken'
+    )
   })
   .prefix('/api/employees')
   .use(middleware.auth())

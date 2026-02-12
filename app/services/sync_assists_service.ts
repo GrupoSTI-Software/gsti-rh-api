@@ -1365,15 +1365,18 @@ export default class SyncAssistsService {
         // Solo si es descanso oficial, marcar como holiday y agregar a la respuesta
         checkAssist.assist.holiday = holidayresponse as unknown as HolidayInterface
         checkAssist.assist.isHoliday = true
+        checkAssist.assist.workHoliday = null
       } else {
-        // Si NO es descanso oficial, NO marcar como holiday y NO incluir en respuesta
+        // Si NO es descanso oficial, asignar a workHoliday
         checkAssist.assist.holiday = null
         checkAssist.assist.isHoliday = false
+        checkAssist.assist.workHoliday = holidayresponse as unknown as HolidayInterface
       }
     } else {
       // No hay holiday para este día
       checkAssist.assist.holiday = null
       checkAssist.assist.isHoliday = false
+      checkAssist.assist.workHoliday = null
     }
 
     return checkAssist

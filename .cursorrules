@@ -1,0 +1,51 @@
+# Reglas de Cursor para este proyecto
+
+## Idioma
+- Todo el código, comentarios y documentación deben estar en español, excepto:
+  - Nombres de variables, funciones, clases y métodos (en inglés siguiendo convenciones de código)
+  - Palabras reservadas del lenguaje de programación
+  - Nombres de librerías o frameworks
+
+## Mensajes de Commit (Git)
+Los mensajes de commit DEBEN seguir el estándar Conventional Commits con estas reglas específicas:
+
+### Formato obligatorio:
+```
+<tipo>: <Descripción en español>
+
+[Cuerpo opcional en español]
+
+[Footer opcional en español]
+```
+
+### Reglas estrictas:
+1. El **tipo** debe estar siempre en **minúsculas** y en **inglés** (feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert)
+2. La **descripción** debe estar en **español** y puede iniciar con mayúscula
+3. El **cuerpo** del commit debe estar en **español**
+4. El **footer** debe estar en **español**
+5. NO usar inglés en la descripción, cuerpo ni footer
+
+### Tipos permitidos:
+- `feat`: Nueva funcionalidad
+- `fix`: Corrección de errores
+- `docs`: Cambios en documentación
+- `style`: Cambios de formato (no afectan código)
+- `refactor`: Refactorización de código
+- `perf`: Mejoras de rendimiento
+- `test`: Añadir o modificar tests
+- `build`: Cambios en el sistema de build o dependencias
+- `ci`: Cambios en CI/CD
+- `chore`: Tareas de mantenimiento
+- `revert`: Revertir un commit anterior
+
+### Ejemplos correctos:
+- `feat: Agregar componente de inicio de sesión`
+- `fix: Corregir validación del formulario de registro`
+- `docs: Actualizar documentación de instalación`
+- `refactor: Simplificar lógica del servicio de autenticación`
+- `build: Configurar husky para validación de commits`
+
+### Ejemplos incorrectos (NO usar):
+- `feat: Add login component` ❌ (descripción en inglés)
+- `FEAT: Agregar login` ❌ (tipo en mayúsculas)
+- `feat(auth): Add new feature` ❌ (todo en inglés)
