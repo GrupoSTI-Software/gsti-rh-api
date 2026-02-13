@@ -5330,8 +5330,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * El reporte muestra:
    * - Empleados agrupados por departamento
    * - Columnas: departamento, puesto, número de nómina, nombre del empleado, fechas del periodo
-   * - Para cada día: turno (o alias) y color según estado de asistencia
-   * - Si hay excepción o festividad: celda en blanco e indicar la situación
+   * - Para cada día: hora llegada - hora salida y debajo el turno (colores en gama de grises)
+   * - Empleados discriminados: celda sin color de estatus; sin registros se muestra "---" y no el turno
+   * - Permisos (solo falta a laborar, llegar tarde, Día de descanso, Nuevo ingreso): "Permiso: nombre"; llegar tarde con hora asignada
+   * - Festividad: nombre de la festividad; si hay registros de asistencia se muestra como turno normal
+   * - Falta para empleado regular: texto "Falta"; Incapacidad y Vacaciones indicados
+   * - Departamento, puesto y nombre a la izquierda; resto centrado
    *
    * @param startDate - Fecha de inicio del periodo (formato: yyyy-MM-dd)
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
@@ -5424,105 +5428,180 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       }
     })
 
-    // Función para obtener color según estado de asistencia
+    // Slugs de permisos a considerar en el reporte (solo estos se muestran como "Permiso: nombre")
+    const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
+
+    // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
+    const EMPLOYEE_INFO_BG = 'FFD3D3D3'
+
+    // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
     const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
-      // Normalizar estados (convertir null/undefined a string vacío)
       const checkIn = (checkInStatus || '').trim()
       const checkOut = (checkOutStatus || '').trim()
-
-      // Priorizar checkInStatus, si está vacío usar checkOutStatus
       const status = checkIn || checkOut
 
-      // Si no hay estado pero hay al menos uno de los dos, asumir que está bien (verde)
       if (!status && (checkInStatus !== null || checkOutStatus !== null)) {
-        return 'FF90EE90' // Verde claro (ontime por defecto)
+        return 'FFC6EFCE' // Verde claro (ontime por defecto)
       }
 
       switch (status.toLowerCase()) {
         case 'ontime':
-          return 'FF90EE90' // Verde claro
+          return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'FF87CEEB' // Azul claro
+          return 'FFDDEBF7' // Azul claro
         case 'delay':
-          return 'FFFFA500' // Naranja
+          return 'FFFFC000' // Naranja
         case 'fault':
-          return 'FFFF6B6B' // Rojo claro
+          return 'FFF8D7DA' // Rojo claro
         case 'exception':
-          return 'FFD3D3D3' // Gris claro
+          return 'FFFFFFFF'
         default:
-          // Si hay un estado pero no coincide con ninguno conocido, usar verde por defecto
-          return status ? 'FF90EE90' : 'FFFFFFFF' // Verde si hay algo, blanco si está vacío
+          return status ? 'FFC6EFCE' : 'FFFFFFFF'
       }
     }
 
-    // Función para obtener texto de la celda según el día
-    const getDayCellText = (dayData: AssistDayInterface | null): string => {
+    // Función para obtener texto del turno (alias o horario)
+    const getShiftDisplayText = (assist: AssistDayInterface['assist']): string => {
+      if (!assist?.dateShift) return ''
+      const shift = assist.dateShift
+      const shiftAny = shift as any
+      if (shiftAny.shiftAlias && shiftAny.shiftAlias.trim() !== '') {
+        return shiftAny.shiftAlias.trim()
+      }
+      if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
+        try {
+          const startTime = String(shift.shiftTimeStart).trim()
+          const timeParts = startTime.split(':')
+          if (timeParts.length >= 2) {
+            const hours = Number.parseInt(timeParts[0], 10)
+            const minutes = Number.parseInt(timeParts[1], 10)
+            if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+              const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+              const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+              const endTime = shiftEndTime.toFormat('HH:mm')
+              const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+              return `${formattedStartTime} - ${endTime}`
+            }
+          }
+        } catch {
+          // usar nombre del turno
+        }
+      }
+      return shift.shiftName || ''
+    }
+
+    // Función para obtener texto de la celda según el día (recibe empleado para discriminado y permisos)
+    const getDayCellText = (
+      dayData: AssistDayInterface | null,
+      employee: Employee
+    ): string => {
+      const isDiscriminated = !!(employee.employeeAssistDiscriminator && employee.employeeAssistDiscriminator !== 0)
+
       if (!dayData || !dayData.assist) {
-        return ''
+        if (isDiscriminated) return '---'
+        return 'sin turno'
       }
 
       const assist = dayData.assist
+      const hasAttendance = !!(assist.checkIn || assist.checkOut)
 
-      // PRIORIDAD 1: Si hay excepción, festividad, vacaciones o incapacidad, mostrar solo el mensaje explicativo
-      // NO mostrar el turno en estos casos
-      if (assist.hasExceptions || assist.isHoliday || assist.isVacationDate || assist.isWorkDisabilityDate || assist.isRestDay) {
-        const situations: string[] = []
-
-        // Verificar cada situación en orden de prioridad
-        if (assist.isVacationDate) {
-          situations.push('Vacaciones')
-        }
-        if (assist.isWorkDisabilityDate) {
-          situations.push('Incapacidad')
-        }
-        if (assist.isHoliday) {
-          situations.push('Festivo')
-        }
-        if (assist.isRestDay && !assist.isHoliday) {
-          situations.push('Día de Descanso')
-        }
-        // Si hay excepciones pero no es ninguna de las anteriores, mostrar "Excepción"
-        if (assist.hasExceptions && !assist.isVacationDate && !assist.isWorkDisabilityDate && !assist.isHoliday) {
-          situations.push('Excepción')
-        }
-
-        // Si hay situaciones, retornar el mensaje (sin mostrar el turno)
-        if (situations.length > 0) {
-          return situations.join(', ')
-        }
+      // Empleado discriminado sin registros en el día: no mostrar turno, mostrar "---"
+      if (isDiscriminated && !hasAttendance) {
+        return '---'
       }
 
-      // PRIORIDAD 2: Si hay turno asignado y NO hay situaciones especiales, mostrar turno
-      if (assist.dateShift) {
-        const shift = assist.dateShift
-        // Priorizar alias si existe (usar cast ya que ShiftInterface no incluye shiftAlias pero el modelo sí)
-        const shiftAny = shift as any
-        if (shiftAny.shiftAlias && shiftAny.shiftAlias.trim() !== '') {
-          return shiftAny.shiftAlias.trim()
-        }
-        // Si no hay alias, formatear nombre con horario
-        if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
-          try {
-            const startTime = String(shift.shiftTimeStart).trim()
-            const timeParts = startTime.split(':')
-            if (timeParts.length >= 2) {
-              const hours = Number.parseInt(timeParts[0], 10)
-              const minutes = Number.parseInt(timeParts[1], 10)
-              if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-                const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
-                const endTime = shiftEndTime.toFormat('HH:mm')
-                const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-                return `${formattedStartTime} to ${endTime} - Rest (NA)`
-              }
+      // Caso festivo con registros de asistencia: omitir nombre de festividad y mostrar como turno normal
+      if (assist.isHoliday && hasAttendance) {
+        const timeLine = formatTimeLine(assist)
+        const shiftText = getShiftDisplayText(assist)
+        return shiftText ? `${timeLine}\n${shiftText}`.trim() : timeLine || ''
+      }
+
+      // Situaciones especiales (sin registros o sin mostrar como turno normal)
+      if (assist.isVacationDate) return 'Vacaciones'
+      if (assist.isWorkDisabilityDate) return 'Incapacidad'
+      if (assist.isHoliday && assist.holiday?.holidayName) return assist.holiday.holidayName
+      if (assist.isHoliday) return 'Festivo'
+
+      // Permisos: solo considerar falta a laborar, llegar tarde, Día de descanso, Nuevo ingreso
+      if (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0) {
+        const permissionExceptions = assist.exceptions.filter(
+          (ex) => ex.exceptionType && PERMISSION_SLUGS.has(ex.exceptionType.exceptionTypeSlug)
+        )
+        if (permissionExceptions.length > 0) {
+          const parts: string[] = []
+          for (const ex of permissionExceptions) {
+            const name = ex.exceptionType?.exceptionTypeTypeName || 'Permiso'
+            const slug = ex.exceptionType?.exceptionTypeSlug || ''
+            if (slug === 'absence-from-work') {
+              const shiftText = getShiftDisplayText(assist)
+              parts.push(shiftText ? `Falta\n${shiftText}` : 'Falta')
+            } else if (slug === 'late-arrival') {
+              const time = ex.shiftExceptionCheckInTime ? String(ex.shiftExceptionCheckInTime).trim() : ''
+              const permText = time ? `Permiso: ${name} (${time})` : `Permiso: ${name}`
+              const timeLine = formatTimeLine(assist)
+              parts.push(timeLine ? `${timeLine}\n${permText}` : permText)
+            } else {
+              parts.push(`Permiso: ${name}`)
             }
-          } catch (error) {
-            // Usar el nombre del turno por defecto
           }
+          return parts.join(', ')
         }
-        return shift.shiftName || ''
       }
 
+      // Día de descanso (sin excepción de permiso explícita)
+      if (assist.isRestDay && !assist.isHoliday) return 'Día de Descanso'
+
+      // Falta para empleado regular: sin registros y día laborable con fault o excepción de falta (siempre mostrar turno)
+      if (!hasAttendance) {
+        if (assist.hasExceptions && assist.exceptions?.some(
+          (ex) => ex.exceptionType?.exceptionTypeSlug === 'absence-from-work'
+        )) {
+          const shiftText = getShiftDisplayText(assist)
+          return shiftText ? `Falta\n${shiftText}` : 'Falta'
+        }
+        if (assist.dateShift && (assist.checkInStatus === 'fault' || assist.checkOutStatus === 'fault')) {
+          const shiftText = getShiftDisplayText(assist)
+          return shiftText ? `Falta\n${shiftText}` : 'Falta'
+        }
+      }
+
+      // Empleado discriminado con registros: celda solo hora entrada - hora salida, sin nombre del turno
+      if (isDiscriminated) {
+        const timeLine = formatTimeLine(assist)
+        return timeLine || '---'
+      }
+
+      // Día con turno y/o asistencia: mostrar hora llegada - hora salida y debajo el turno
+      const timeLine = formatTimeLine(assist)
+      const shiftText = getShiftDisplayText(assist)
+      if (timeLine && shiftText) return `${timeLine}\n${shiftText}`
+      if (timeLine) return timeLine
+      if (shiftText) return shiftText
+      // Sin turno asignado para ese día
+      return 'sin turno'
+    }
+
+    // Formatea "hora llegada - hora salida" con las horas REALES de marcación (como en el frontend).
+    // Usar checkIn/checkOut.assistPunchTimeUtc en UTC-6, no checkInDateTime/checkOutDateTime (estos son del turno).
+    function formatTimeLine(assist: AssistDayInterface['assist']): string {
+      if (!assist) return ''
+      const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
+        if (value === null || value === undefined) return null
+        try {
+          const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
+          if (!dt?.isValid) return null
+          return dt.setZone('UTC-6').toFormat('HH:mm')
+        } catch {
+          return null
+        }
+      }
+      const inRaw = assist.checkIn?.assistPunchTimeUtc
+      const outRaw = assist.checkOut?.assistPunchTimeUtc
+      const inStr = toLocalHHmm(inRaw)
+      const outStr = toLocalHHmm(outRaw)
+      if (inStr && outStr) return `${inStr} - ${outStr}`
+      if (inStr) return inStr
       return ''
     }
 
@@ -5558,7 +5637,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
     titleRow.getCell(1).value = 'Reporte de Asistencia'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
-    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' }
 
     // Primera fila de encabezados (fechas)
     const headerRow1 = ['Departamento', 'Puesto', 'Número de Nómina', 'Nombre del Empleado']
@@ -5580,18 +5659,19 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     const headerColor = activeBusinessUnitColor
     const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'FF4472C4'
+    const subHeaderColor = 'FF424242' // Gris oscuro para fila de días de la semana
     const subHeaderTextColor = 'FFFFFFFF'
 
-    // Aplicar formato a la primera fila de encabezados
-    row1.eachCell((cell) => {
+    // Aplicar formato a la primera fila de encabezados (Departamento, Puesto, Nombre izq; resto centro)
+    row1.eachCell((cell, colNum) => {
       cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: headerColor }
       }
-      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      const headerAlign = colNum === 1 || colNum === 2 || colNum === 4 ? 'left' : 'center'
+      cell.alignment = { vertical: 'middle', horizontal: headerAlign, wrapText: true }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF000000' } },
         left: { style: 'thin', color: { argb: 'FF000000' } },
@@ -5600,8 +5680,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       }
     })
 
-    // Aplicar formato a la segunda fila de encabezados
+    // Aplicar formato a la segunda fila de encabezados (misma alineación)
     row2.eachCell((cell, colNum) => {
+      const headerAlign = colNum === 1 || colNum === 2 || colNum === 4 ? 'left' : 'center'
       if (colNum > 4) {
         cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
         cell.fill = {
@@ -5609,6 +5690,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           pattern: 'solid',
           fgColor: { argb: subHeaderColor }
         }
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
       } else {
         cell.fill = {
           type: 'pattern',
@@ -5616,8 +5698,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           fgColor: { argb: headerColor }
         }
         cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+        cell.alignment = { vertical: 'middle', horizontal: headerAlign, wrapText: true }
       }
-      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF000000' } },
         left: { style: 'thin', color: { argb: 'FF000000' } },
@@ -5634,9 +5716,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     worksheet.getColumn(3).width = 20 // Número de Nómina
     worksheet.getColumn(4).width = 35 // Nombre del Empleado
 
-    // Aplicar ancho estándar a todas las columnas de fechas
+    // Aplicar ancho mayor a columnas de fechas para que quepa mejor el contenido (hora + turno)
     for (let col = 5; col <= 4 + dates.length; col++) {
-      worksheet.getColumn(col).width = 20
+      worksheet.getColumn(col).width = 28
     }
 
     // ==============================
@@ -5675,14 +5757,20 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         worksheet.getCell(currentRow, 4).value = fullName
         worksheet.getCell(currentRow, 4).protection = { locked: true }
 
-        // Aplicar formato a las primeras 4 columnas
+        // Aplicar formato a las primeras 4 columnas: fondo gris claro (info empleado), alineación, borde
         for (let col = 1; col <= 4; col++) {
-          worksheet.getCell(currentRow, col).alignment = {
+          const infoCell = worksheet.getCell(currentRow, col)
+          infoCell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: EMPLOYEE_INFO_BG }
+          }
+          infoCell.alignment = {
             vertical: 'middle',
-            horizontal: col === 4 ? 'left' : 'center',
+            horizontal: col === 3 ? 'center' : 'left',
             wrapText: true
           }
-          worksheet.getCell(currentRow, col).border = {
+          infoCell.border = {
             top: { style: 'thin', color: { argb: 'FF000000' } },
             left: { style: 'thin', color: { argb: 'FF000000' } },
             bottom: { style: 'thin', color: { argb: 'FF000000' } },
@@ -5697,22 +5785,25 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           calendarByDay.set(day.day, day)
         })
 
+        const isDiscriminated = !!(employee.employeeAssistDiscriminator && employee.employeeAssistDiscriminator !== 0)
+
         // Columnas de fechas (desde columna E)
         dates.forEach((date, dateIndex) => {
           const colNumber = 5 + dateIndex
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Obtener texto y color para la celda
-          const cellText = getDayCellText(dayData)
+          // Obtener texto y color para la celda (pasar empleado para discriminado y permisos)
+          const cellText = getDayCellText(dayData, employee)
           let cellColor = 'FFFFFFFF' // Blanco por defecto
 
-          // Determinar el color basado en las condiciones
-          if (dayData && dayData.assist) {
+          // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
+          if (isDiscriminated) {
+            cellColor = 'FFFFFFFF'
+          } else if (dayData && dayData.assist) {
             const assist = dayData.assist
 
-            // PRIORIDAD 1: Si es día de descanso, vacaciones, incapacidad, festivo o tiene excepciones
-            // → Celda BLANCA (sin color) - IMPORTANTE: Verificar primero estas condiciones
+            // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
             const isSpecialDay = assist.isRestDay ||
                                  assist.isVacationDate ||
                                  assist.isWorkDisabilityDate ||
@@ -5720,49 +5811,54 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
                                  (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
 
             if (isSpecialDay) {
-              cellColor = 'FFFFFFFF' // Blanco - sin color
+              cellColor = 'FFFFFFFF'
             }
-            // PRIORIDAD 2: Si hay turno asignado y NO es situación especial
-            // → Aplicar color según estado de asistencia
+            // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
             else if (assist.dateShift) {
-              // Obtener estados de asistencia
               const checkInStatus = assist.checkInStatus || ''
               const checkOutStatus = assist.checkOutStatus || ''
-
-              // Aplicar color según estado (la función maneja casos vacíos)
               cellColor = getStatusColor(checkInStatus, checkOutStatus)
-
-              // Si el color resultante es blanco pero hay turno, usar verde por defecto
-              // (esto asegura que los días con turno siempre tengan color)
               if (cellColor === 'FFFFFFFF' && assist.dateShift) {
-                cellColor = 'FF90EE90' // Verde claro (ontime por defecto)
+                cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
               }
+            } else {
+              cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
             }
-            // PRIORIDAD 3: Si no hay turno ni datos, mantener blanco
-            else {
-              cellColor = 'FFFFFFFF' // Blanco
-            }
+          } else {
+            cellColor = 'FFFFFFFF' // Sin datos o "---" → blanco
           }
 
-          // Aplicar valor y formato
-          worksheet.getCell(currentRow, colNumber).value = cellText
-          worksheet.getCell(currentRow, colNumber).fill = {
+          // Aplicar valor: si hay dos líneas (hora + turno), primera línea tamaño normal y turno más pequeño
+          const cell = worksheet.getCell(currentRow, colNumber)
+          if (cellText.includes('\n')) {
+            const [line1, line2] = cellText.split('\n')
+            cell.value = {
+              richText: [
+                { font: { size: 10, color: { argb: 'FF000000' } }, text: line1 + '\n' },
+                { font: { size: 8, color: { argb: 'FF000000' } }, text: line2 }
+              ]
+            }
+          } else {
+            cell.value = cellText
+            cell.font = { size: 10, color: { argb: 'FF000000' } }
+          }
+          cell.fill = {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: cellColor }
           }
-          worksheet.getCell(currentRow, colNumber).alignment = {
+          cell.alignment = {
             vertical: 'middle',
             horizontal: 'center',
             wrapText: true
           }
-          worksheet.getCell(currentRow, colNumber).border = {
+          cell.border = {
             top: { style: 'thin', color: { argb: 'FF000000' } },
             left: { style: 'thin', color: { argb: 'FF000000' } },
             bottom: { style: 'thin', color: { argb: 'FF000000' } },
             right: { style: 'thin', color: { argb: 'FF000000' } }
           }
-          worksheet.getCell(currentRow, colNumber).protection = { locked: true }
+          cell.protection = { locked: true }
         })
 
         currentRow++
