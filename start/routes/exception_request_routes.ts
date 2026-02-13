@@ -5,6 +5,7 @@ router
   .group(() => {
     router.get('/', '#controllers/exception_requests_controller.index')
     router.get('/all', '#controllers/exception_requests_controller.indexAllExceptionRequests')
+    router.get('/my-requests', '#controllers/exception_requests_controller.getMyExceptionRequests')
     router.get('/unread', '#controllers/exception_requests_controller.getUnreadExceptionRequests')
     router.post('/', '#controllers/exception_requests_controller.store')
     router.put('/:id', '#controllers/exception_requests_controller.update')
