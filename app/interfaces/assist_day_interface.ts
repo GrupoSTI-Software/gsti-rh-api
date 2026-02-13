@@ -27,6 +27,7 @@ interface AssistDayInterface {
     isHoliday: boolean
     isBirthday: boolean
     holiday: HolidayInterface | null
+    workHoliday?: HolidayInterface | null
     hasExceptions: boolean
     exceptions: ShiftExceptionInterface[]
     assitFlatList?: AssistInterface[]

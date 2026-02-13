@@ -13,5 +13,6 @@ router
     router.post('/request/verify/:token', '#controllers/user_controller.verifyRequestRecovery')
     router.post('/password/reset', '#controllers/user_controller.passwordReset')
     router.get('/session', '#controllers/user_controller.authUser')
+    router.post('/request/code-verify/:pinCode', '#controllers/user_controller.verifyRequestPinCode')
   })
   .prefix('/api/auth')
