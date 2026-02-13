@@ -1714,4 +1714,291 @@ export default class AssistsController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/v1/assists/websocket-docs:
+   *   get:
+   *     summary: Documentación del servicio WebSocket para registro de asistencias
+   *     description: |
+   *       Este endpoint proporciona la documentación completa del servicio WebSocket
+   *       para el registro de asistencias en tiempo real.
+   *
+   *       **Nota:** Los WebSockets no se pueden probar directamente desde Swagger UI.
+   *       Para probar el servicio, usa el archivo HTML de prueba en `scripts/test-websocket-assist.html`
+   *       o el script Node.js en `scripts/test-websocket-assist.js`
+   *     tags: [Assists, WebSocket]
+   *     responses:
+   *       200:
+   *         description: Documentación del servicio WebSocket
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 service:
+   *                   type: string
+   *                   example: "WebSocket - Registro de Asistencias"
+   *                 connection:
+   *                   type: object
+   *                   properties:
+   *                     url:
+   *                       type: string
+   *                       example: "ws://localhost:3333"
+   *                     protocol:
+   *                       type: string
+   *                       example: "socket.io"
+   *                 events:
+   *                   type: object
+   *                   properties:
+   *                     register-assist:
+   *                       type: object
+   *                       properties:
+   *                         name:
+   *                           type: string
+   *                           example: "register-assist"
+   *                         description:
+   *                           type: string
+   *                           example: "Evento emitido por el cliente para registrar una asistencia"
+   *                         direction:
+   *                           type: string
+   *                           example: "client -> server"
+   *                         payload:
+   *                           type: object
+   *                           properties:
+   *                             employee_sync_id:
+   *                               type: string
+   *                               required: true
+   *                               description: "ID de sincronización del empleado"
+   *                               example: "12345"
+   *                             punch_time:
+   *                               type: string
+   *                               format: date-time
+   *                               required: true
+   *                               description: "Fecha y hora de la asistencia (Date o ISO string)"
+   *                               example: "2024-01-15T10:30:00.000Z"
+   *                     register-assist-response:
+   *                       type: object
+   *                       properties:
+   *                         name:
+   *                           type: string
+   *                           example: "register-assist-response"
+   *                         description:
+   *                           type: string
+   *                           example: "Respuesta al cliente que registró la asistencia"
+   *                         direction:
+   *                           type: string
+   *                           example: "server -> client"
+   *                         payload:
+   *                           type: object
+   *                           properties:
+   *                             success:
+   *                               type: boolean
+   *                               example: true
+   *                             uuid:
+   *                               type: string
+   *                               format: uuid
+   *                               description: "UUID único generado para la asistencia (solo si success es true)"
+   *                               example: "550e8400-e29b-41d4-a716-446655440000"
+   *                             message:
+   *                               type: string
+   *                               description: "Mensaje de confirmación (solo si success es true)"
+   *                               example: "Asistencia registrada exitosamente"
+   *                             error:
+   *                               type: string
+   *                               description: "Mensaje de error (solo si success es false)"
+   *                               example: "Empleado no encontrado con el employee_sync_id proporcionado"
+   *                     assist-registered:
+   *                       type: object
+   *                       properties:
+   *                         name:
+   *                           type: string
+   *                           example: "assist-registered"
+   *                         description:
+   *                           type: string
+   *                           example: "Notificación broadcast enviada a TODOS los clientes conectados cuando se registra una asistencia exitosamente"
+   *                         direction:
+   *                           type: string
+   *                           example: "server -> all clients"
+   *                         payload:
+   *                           type: object
+   *                           properties:
+   *                             uuid:
+   *                               type: string
+   *                               format: uuid
+   *                               example: "550e8400-e29b-41d4-a716-446655440000"
+   *                             employeeSyncId:
+   *                               type: string
+   *                               example: "12345"
+   *                             employeeCode:
+   *                               type: string
+   *                               example: "EMP001"
+   *                             employeeId:
+   *                               type: integer
+   *                               example: 42
+   *                             punchTime:
+   *                               type: string
+   *                               format: date-time
+   *                               example: "2024-01-15T10:30:00.000Z"
+   *                             timestamp:
+   *                               type: string
+   *                               format: date-time
+   *                               example: "2024-01-15T10:30:05.123Z"
+   *                 examples:
+   *                   type: object
+   *                   properties:
+   *                     javascript:
+   *                       type: string
+   *                       example: |
+   *                         const socket = io('http://localhost:3333');
+   *
+   *                         socket.on('connect', () => {
+   *                           socket.emit('register-assist', {
+   *                             employee_sync_id: '12345',
+   *                             punch_time: new Date()
+   *                           });
+   *                         });
+   *
+   *                         socket.on('register-assist-response', (response) => {
+   *                           if (response.success) {
+   *                             console.log('UUID:', response.uuid);
+   *                           } else {
+   *                             console.error('Error:', response.error);
+   *                           }
+   *                         });
+   *
+   *                         socket.on('assist-registered', (data) => {
+   *                           console.log('Nueva asistencia registrada:', data);
+   *                         });
+   *                 testing:
+   *                   type: object
+   *                   properties:
+   *                     html:
+   *                       type: string
+   *                       example: "scripts/test-websocket-assist.html"
+   *                     nodejs:
+   *                       type: string
+   *                       example: "node scripts/test-websocket-assist.js '12345'"
+   */
+  async websocketDocs({ response }: HttpContext) {
+    return response.json({
+      service: 'WebSocket - Registro de Asistencias',
+      connection: {
+        url: process.env.APP_URL || 'http://localhost:3333',
+        protocol: 'socket.io',
+        transports: ['websocket', 'polling'],
+      },
+      events: {
+        'register-assist': {
+          name: 'register-assist',
+          description: 'Evento emitido por el cliente para registrar una asistencia',
+          direction: 'client -> server',
+          payload: {
+            employee_sync_id: {
+              type: 'string',
+              required: true,
+              description: 'ID de sincronización del empleado',
+              example: '12345',
+            },
+            punch_time: {
+              type: 'Date | string (ISO)',
+              required: true,
+              description: 'Fecha y hora de la asistencia',
+              example: '2024-01-15T10:30:00.000Z',
+            },
+          },
+        },
+        'register-assist-response': {
+          name: 'register-assist-response',
+          description: 'Respuesta al cliente que registró la asistencia',
+          direction: 'server -> client',
+          payload: {
+            success: {
+              type: 'boolean',
+              description: 'Indica si el registro fue exitoso',
+            },
+            uuid: {
+              type: 'string (UUID)',
+              description: 'UUID único generado para la asistencia (solo si success es true)',
+              example: '550e8400-e29b-41d4-a716-446655440000',
+            },
+            message: {
+              type: 'string',
+              description: 'Mensaje de confirmación (solo si success es true)',
+              example: 'Asistencia registrada exitosamente',
+            },
+            error: {
+              type: 'string',
+              description: 'Mensaje de error (solo si success es false)',
+              example: 'Empleado no encontrado con el employee_sync_id proporcionado',
+            },
+          },
+        },
+        'assist-registered': {
+          name: 'assist-registered',
+          description:
+            'Notificación broadcast enviada a TODOS los clientes conectados cuando se registra una asistencia exitosamente',
+          direction: 'server -> all clients',
+          payload: {
+            uuid: {
+              type: 'string (UUID)',
+              example: '550e8400-e29b-41d4-a716-446655440000',
+            },
+            employeeSyncId: {
+              type: 'string',
+              example: '12345',
+            },
+            employeeCode: {
+              type: 'string',
+              example: 'EMP001',
+            },
+            employeeId: {
+              type: 'integer',
+              example: 42,
+            },
+            punchTime: {
+              type: 'string (ISO)',
+              example: '2024-01-15T10:30:00.000Z',
+            },
+            timestamp: {
+              type: 'string (ISO)',
+              example: '2024-01-15T10:30:05.123Z',
+            },
+          },
+        },
+      },
+      examples: {
+        javascript: `const socket = io('http://localhost:3333');
+
+socket.on('connect', () => {
+  socket.emit('register-assist', {
+    employee_sync_id: '12345',
+    punch_time: new Date()
+  });
+});
+
+socket.on('register-assist-response', (response) => {
+  if (response.success) {
+    console.log('UUID:', response.uuid);
+  } else {
+    console.error('Error:', response.error);
+  }
+});
+
+socket.on('assist-registered', (data) => {
+  console.log('Nueva asistencia registrada:', data);
+});`,
+      },
+      testing: {
+        html: 'scripts/test-websocket-assist.html',
+        nodejs: "node scripts/test-websocket-assist.js '12345'",
+      },
+      notes: [
+        'Los WebSockets no se pueden probar directamente desde Swagger UI',
+        'Usa el archivo HTML de prueba o el script Node.js para probar el servicio',
+        'Cada cliente debe conectarse independientemente',
+        'El evento assist-registered se envía a todos los clientes conectados',
+      ],
+    })
+  }
 }
