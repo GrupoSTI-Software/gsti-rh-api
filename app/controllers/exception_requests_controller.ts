@@ -219,19 +219,29 @@ export default class ExceptionRequestsController {
    * @swagger
    * /api/exception-requests:
    *   get:
+   *     security:
+   *       - bearerAuth: []
    *     summary: Get a list of exception requests
    *     tags: [ExceptionRequests]
    *     parameters:
    *       - name: page
    *         in: query
    *         required: false
-   *         description: The page number
+   *         description: The page number for pagination
+   *         default: 1
    *         schema:
    *           type: integer
    *       - name: limit
    *         in: query
    *         required: false
    *         description: The number of records per page
+   *         default: 100
+   *         schema:
+   *           type: integer
+   *       - name: employeeId
+   *         in: query
+   *         required: false
+   *         description: Filter by employee ID
    *         schema:
    *           type: integer
    *     responses:
@@ -242,24 +252,32 @@ export default class ExceptionRequestsController {
    *             schema:
    *               type: object
    *               properties:
-   *                 status:
+   *                 type:
    *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
    *                 message:
    *                   type: string
+   *                   description: Response message
    *                 data:
    *                   type: object
    *                   properties:
-   *                     total:
-   *                       type: integer
-   *                     per_page:
-   *                       type: integer
-   *                     current_page:
-   *                       type: integer
-   *                     last_page:
-   *                       type: integer
-   *                     first_page:
-   *                       type: integer
-   *                     resources:
+   *                     meta:
+   *                       type: object
+   *                       properties:
+   *                         total:
+   *                           type: integer
+   *                         per_page:
+   *                           type: integer
+   *                         current_page:
+   *                           type: integer
+   *                         last_page:
+   *                           type: integer
+   *                         first_page:
+   *                           type: integer
+   *                     data:
    *                       type: array
    *                       items:
    *                         type: object
@@ -272,22 +290,39 @@ export default class ExceptionRequestsController {
    *                             type: string
    *                           exceptionRequestDescription:
    *                             type: string
+   *       400:
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *       500:
+   *         description: Unexpected error
    */
 
   async index({ request, response }: HttpContext) {
-    const page = request.input('page', 1)
-    const limit = request.input('limit', 10)
-    const employeeId = request.input('employeeId')
-    const query = ExceptionRequest.query()
-    if (employeeId) {
-      query.where('employeeId', employeeId)
-    }
-    const exceptionRequests = await query.paginate(page, limit)
-    return response.status(200).json(
-      formatResponse(
+    try {
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 100)
+      const employeeId = request.input('employeeId')
+
+      const query = ExceptionRequest.query()
+        .preload('employee', (employeeQuery) => {
+          employeeQuery.preload('department')
+          employeeQuery.preload('position')
+        })
+        .preload('exceptionType')
+        .preload('user')
+
+      if (employeeId) {
+        query.where('employeeId', employeeId)
+      }
+
+      const exceptionRequests = await query
+        .orderBy('exception_request_id', 'desc')
+        .paginate(page, limit)
+
+      response.status(200)
+      return formatResponse(
         'success',
-        'Successfully fetched',
-        'Resources fetched',
+        'Exception Requests',
+        'The exception requests were found successfully',
         exceptionRequests.all(),
         {
           total: exceptionRequests.total,
@@ -297,7 +332,15 @@ export default class ExceptionRequestsController {
           first_page: 1,
         }
       )
-    )
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
   }
   /**
    * @swagger
@@ -390,6 +433,10 @@ export default class ExceptionRequestsController {
         error: 'Exception type not found or has been deleted',
       })
     }
+    let exceptionRequestPeriodInHours = data.exceptionRequestPeriodInHours
+    if (!exceptionRequestPeriodInHours) {
+      exceptionRequestPeriodInHours = 0
+    }
     let daysToApply = request.input('daysToApply', 1)
     if (!daysToApply) {
       daysToApply = 1
@@ -422,6 +469,7 @@ export default class ExceptionRequestsController {
               exceptionRequestDescription: data.exceptionRequestDescription,
               exceptionRequestCheckInTime: data.exceptionRequestCheckInTime,
               exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
+              exceptionRequestPeriodInHours: data.exceptionRequestPeriodInHours,
               requestedDate: currentDate,
               exceptionRequestRhRead: roleId === 2 ? 1 : 0,
               exceptionRequestGerencialRead: roleId !== 2 ? 1 : 0,
@@ -663,23 +711,25 @@ export default class ExceptionRequestsController {
    * @swagger
    * /api/exception-requests/all:
    *   get:
+   *     security:
+   *       - bearerAuth: []
    *     summary: Retrieve all exception requests with filters and pagination
    *     tags: [ExceptionRequests]
    *     parameters:
    *       - name: page
    *         in: query
-   *         description: Page number for pagination
    *         required: false
+   *         description: The page number for pagination
+   *         default: 1
    *         schema:
    *           type: integer
-   *           default: 1
    *       - name: limit
    *         in: query
-   *         description: Number of items per page
    *         required: false
+   *         description: The number of records per page
+   *         default: 100
    *         schema:
    *           type: integer
-   *           default: 10
    *       - name: departmentId
    *         in: query
    *         description: Filter by department ID
@@ -698,13 +748,21 @@ export default class ExceptionRequestsController {
    *         required: false
    *         schema:
    *           type: string
-   *           enum: [requested, pending, accepted, refused]
-   *       - name: searchText
+   *           enum: [requested, pending, accepted, refused, all]
+   *       - name: employeeName
    *         in: query
-   *         description: Filter by employee first or last name
+   *         description: Filter by employee ID
+   *         required: false
+   *         schema:
+   *           type: integer
+   *       - name: sortOrder
+   *         in: query
+   *         description: Sort order (asc or desc)
    *         required: false
    *         schema:
    *           type: string
+   *           enum: [asc, desc, ascend, descend]
+   *           default: desc
    *     responses:
    *       200:
    *         description: List of exception requests retrieved successfully
@@ -713,128 +771,134 @@ export default class ExceptionRequestsController {
    *             schema:
    *               type: object
    *               properties:
-   *                 status:
+   *                 type:
    *                   type: string
-   *                   example: success
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   example: Successfully fetched all exception requests
+   *                   description: Response message
    *                 data:
-   *                   type: array
-   *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                       employeeId:
-   *                         type: integer
-   *                       exceptionRequestStatus:
-   *                         type: string
-   *                       exceptionRequestDescription:
-   *                         type: string
-   *                       requestedDate:
-   *                         type: string
-   *                         example: "2024-11-15 14:00:00"
-   *                 metadata:
    *                   type: object
    *                   properties:
-   *                     total:
-   *                       type: integer
-   *                     per_page:
-   *                       type: integer
-   *                     current_page:
-   *                       type: integer
-   *                     last_page:
-   *                       type: integer
-   *                     first_page:
-   *                       type: integer
+   *                     meta:
+   *                       type: object
+   *                       properties:
+   *                         total:
+   *                           type: integer
+   *                         per_page:
+   *                           type: integer
+   *                         current_page:
+   *                           type: integer
+   *                         last_page:
+   *                           type: integer
+   *                         first_page:
+   *                           type: integer
+   *                     data:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           exceptionRequestId:
+   *                             type: integer
+   *                           employeeId:
+   *                             type: integer
+   *                           exceptionRequestStatus:
+   *                             type: string
+   *                           exceptionRequestDescription:
+   *                             type: string
+   *                           requestedDate:
+   *                             type: string
+   *                             example: "2024-11-15 14:00:00"
+   *       400:
+   *         description: The parameters entered are invalid or essential data is missing to process the request
    *       404:
    *         description: No exception requests found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 status:
-   *                   type: string
-   *                   example: error
-   *                 message:
-   *                   type: string
-   *                   example: No exception requests found
+   *       500:
+   *         description: Unexpected error
    */
 
   async indexAllExceptionRequests({ auth, request, response }: HttpContext) {
-    await auth.check()
-    const user = auth.user
-    let userResponsibleId = null
-    if (user) {
-      await user.preload('role')
-      if (user.role.roleSlug !== 'root') {
-        userResponsibleId = user?.userId
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
       }
-    }
-    const page = request.input('page', 1)
-    const limit = request.input('limit', 10)
-    let departmentId = request.input('departmentId')
-    let positionId = request.input('positionId')
-    let status = request.input('status')
-    let employeeName = request.input('employeeName')
-    if (departmentId === '9999') {
-      departmentId = null
-    }
-    if (positionId === '9999') {
-      positionId = null
-    }
-    if (status === 'all') {
-      status = null
-    }
-    // Construir la consulta base
-    const query = ExceptionRequest.query()
-      .preload('employee', (employeeQuery) => {
-        employeeQuery.preload('department')
-        employeeQuery.preload('position')
-      })
-      .preload('exceptionType')
-      .preload('user')
-      .if(departmentId, (q) => {
-        q.whereHas('employee', (employeeQuery) => {
-          employeeQuery.where('departmentId', departmentId)
-        })
-      })
-      .if(positionId, (q) => {
-        q.whereHas('employee', (employeeQuery) => {
-          employeeQuery.where('positionId', positionId)
-        })
-      })
-      .if(status, (q) => q.where('exceptionRequestStatus', status))
-      .if(employeeName, (q) => {
-        q.whereHas('employee', (employeeQuery) => {
-          employeeQuery.where('employeeId', employeeName)
-        })
-      })
-      .whereHas('employee', (employeeQuery) => {
-        employeeQuery.if(userResponsibleId &&
-          typeof userResponsibleId && userResponsibleId > 0,
-          (queryUserResponsible) => {
-            queryUserResponsible.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
-              userResponsibleEmployeeQuery.where('userId', userResponsibleId!)
-            })
-          }
-        )
-      }).orderByRaw(`CASE
-                 WHEN exception_request_status = 'pending' THEN 1
-                 WHEN exception_request_status = 'requested' THEN 2
-                 WHEN exception_request_status = 'accepted' THEN 3
-                 WHEN exception_request_status = 'refused' THEN 4
-                 ELSE 5
-               END`)
-    const exceptionRequests = await query.paginate(page, limit)
 
-    return response.status(200).json(
-      formatResponse(
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 100)
+      const sortOrder = request.input('sortOrder', 'desc') || 'descend'
+      let departmentId = request.input('departmentId')
+      let positionId = request.input('positionId')
+      let status = request.input('status')
+      let employeeName = request.input('employeeName')
+
+      if (departmentId === '9999') {
+        departmentId = null
+      }
+      if (positionId === '9999') {
+        positionId = null
+      }
+      if (status === 'all') {
+        status = null
+      }
+
+      // Construir la consulta base
+      const query = ExceptionRequest.query()
+        .preload('employee', (employeeQuery) => {
+          employeeQuery.preload('department')
+          employeeQuery.preload('position')
+        })
+        .preload('exceptionType')
+        .preload('user')
+        .if(departmentId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('departmentId', departmentId)
+          })
+        })
+        .if(positionId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('positionId', positionId)
+          })
+        })
+        .if(status, (q) => q.where('exceptionRequestStatus', status))
+        .if(employeeName, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('employeeId', employeeName)
+          })
+        })
+        .whereHas('employee', (employeeQuery) => {
+          employeeQuery.if(userResponsibleId &&
+            typeof userResponsibleId && userResponsibleId > 0,
+            (queryUserResponsible) => {
+              queryUserResponsible.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+                userResponsibleEmployeeQuery.where('userId', userResponsibleId!)
+              })
+            }
+          )
+        })
+        .orderByRaw(`CASE
+                   WHEN exception_request_status = 'pending' THEN 1
+                   WHEN exception_request_status = 'requested' THEN 2
+                   WHEN exception_request_status = 'accepted' THEN 3
+                   WHEN exception_request_status = 'refused' THEN 4
+                   ELSE 5
+                 END ${sortOrder}`)
+
+      const exceptionRequests = await query.paginate(page, limit)
+
+      response.status(200)
+      return formatResponse(
         'success',
-        'Successfully fetched all exception requests',
-        'Resources fetched',
+        'Exception Requests',
+        'The exception requests were found successfully',
         exceptionRequests.all(),
         {
           total: exceptionRequests.total,
@@ -844,7 +908,15 @@ export default class ExceptionRequestsController {
           first_page: 1,
         }
       )
-    )
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
   }
   /**
    * @swagger
@@ -935,5 +1007,265 @@ export default class ExceptionRequestsController {
           exceptionRequests
         )
       )
+  }
+
+  /**
+   * @swagger
+   * /api/exception-requests/my-requests:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Get exception requests for the authenticated employee
+   *     description: |
+   *       Retrieve exception requests that belong to the employee associated with the authenticated user.
+   *       Only returns requests if the token belongs to the employee. Returns 403 if unauthorized.
+   *     tags: [ExceptionRequests]
+   *     parameters:
+   *       - name: page
+   *         in: query
+   *         required: false
+   *         description: The page number for pagination
+   *         default: 1
+   *         schema:
+   *           type: integer
+   *       - name: limit
+   *         in: query
+   *         required: false
+   *         description: The number of records per page
+   *         default: 100
+   *         schema:
+   *           type: integer
+   *       - name: departmentId
+   *         in: query
+   *         description: Filter by department ID (must match employee's department)
+   *         required: false
+   *         schema:
+   *           type: integer
+   *       - name: positionId
+   *         in: query
+   *         description: Filter by position ID (must match employee's position)
+   *         required: false
+   *         schema:
+   *           type: integer
+   *       - name: status
+   *         in: query
+   *         description: Filter by exception request status
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [requested, pending, accepted, refused, all]
+   *       - name: sortOrder
+   *         in: query
+   *         description: Sort order (asc or desc)
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [asc, desc, ascend, descend]
+   *           default: desc
+   *     responses:
+   *       200:
+   *         description: List of exception requests retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     meta:
+   *                       type: object
+   *                       properties:
+   *                         total:
+   *                           type: integer
+   *                         per_page:
+   *                           type: integer
+   *                         current_page:
+   *                           type: integer
+   *                         last_page:
+   *                           type: integer
+   *                         first_page:
+   *                           type: integer
+   *                     data:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           exceptionRequestId:
+   *                             type: integer
+   *                           employeeId:
+   *                             type: integer
+   *                           exceptionRequestStatus:
+   *                             type: string
+   *                           exceptionRequestDescription:
+   *                             type: string
+   *                           requestedDate:
+   *                             type: string
+   *                             example: "2024-11-15 14:00:00"
+   *       403:
+   *         description: Forbidden - User does not have an associated employee or unauthorized access
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Forbidden
+   *                 message:
+   *                   type: string
+   *                   example: You do not have permission to access this resource
+   *       400:
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *       500:
+   *         description: Unexpected error
+   */
+  async getMyExceptionRequests({ auth, request, response }: HttpContext) {
+    try {
+      await auth.check()
+      const user = auth.user
+
+      if (!user) {
+        response.status(403)
+        return {
+          type: 'error',
+          title: 'Forbidden',
+          message: 'You do not have permission to access this resource',
+        }
+      }
+
+      // Obtener el personId del usuario autenticado
+      await user.load('person')
+      if (!user.person || !user.person.personId) {
+        response.status(403)
+        return {
+          type: 'error',
+          title: 'Forbidden',
+          message: 'User does not have an associated person',
+        }
+      }
+
+      // Buscar el empleado asociado al personId del usuario
+      const employee = await Employee.query()
+        .where('personId', user.person.personId)
+        .whereNull('employee_deleted_at')
+        .first()
+
+      if (!employee) {
+        response.status(403)
+        return {
+          type: 'error',
+          title: 'Forbidden',
+          message: 'You do not have an associated employee record',
+        }
+      }
+
+      // Obtener parámetros de filtro
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 100)
+      const sortOrder = request.input('sortOrder', 'desc') || 'descend'
+      let departmentId = request.input('departmentId')
+      let positionId = request.input('positionId')
+      let status = request.input('status')
+
+      // Validar que los filtros de departamento y posición coincidan con el empleado
+      if (departmentId && departmentId !== '9999') {
+        if (employee.departmentId !== Number(departmentId)) {
+          response.status(403)
+          return {
+            type: 'error',
+            title: 'Forbidden',
+            message: 'You do not have permission to filter by this department',
+          }
+        }
+      }
+
+      if (positionId && positionId !== '9999') {
+        if (employee.positionId !== Number(positionId)) {
+          response.status(403)
+          return {
+            type: 'error',
+            title: 'Forbidden',
+            message: 'You do not have permission to filter by this position',
+          }
+        }
+      }
+
+      // Normalizar valores especiales
+      if (departmentId === '9999') {
+        departmentId = null
+      }
+      if (positionId === '9999') {
+        positionId = null
+      }
+      if (status === 'all') {
+        status = null
+      }
+
+      // Construir la consulta base - SOLO del empleado autenticado
+      const query = ExceptionRequest.query()
+        .where('employeeId', employee.employeeId)
+        .preload('employee', (employeeQuery) => {
+          employeeQuery.preload('department')
+          employeeQuery.preload('position')
+        })
+        .preload('exceptionType')
+        .preload('user')
+        .if(departmentId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('departmentId', departmentId)
+          })
+        })
+        .if(positionId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('positionId', positionId)
+          })
+        })
+        .if(status, (q) => q.where('exceptionRequestStatus', status))
+        .orderByRaw(`CASE
+                     WHEN exception_request_status = 'pending' THEN 1
+                     WHEN exception_request_status = 'requested' THEN 2
+                     WHEN exception_request_status = 'accepted' THEN 3
+                     WHEN exception_request_status = 'refused' THEN 4
+                     ELSE 5
+                   END ${sortOrder}`)
+
+      const exceptionRequests = await query.paginate(page, limit)
+
+      response.status(200)
+      return formatResponse(
+        'success',
+        'Exception Requests',
+        'Your exception requests were found successfully',
+        exceptionRequests.all(),
+        {
+          total: exceptionRequests.total,
+          per_page: exceptionRequests.perPage,
+          current_page: exceptionRequests.currentPage,
+          last_page: exceptionRequests.lastPage,
+          first_page: 1,
+        }
+      )
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
   }
 }

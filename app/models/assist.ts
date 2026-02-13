@@ -65,6 +65,9 @@ export default class Assist extends compose(BaseModel, SoftDeletes) {
   declare assistId: number
 
   @column()
+  declare assistUuid: string | null
+
+  @column()
   declare assistEmpCode: string
 
   @column()
