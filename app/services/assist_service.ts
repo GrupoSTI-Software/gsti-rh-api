@@ -2001,7 +2001,7 @@ export default class AssistsService {
    * @param punchTime - Fecha y hora de la asistencia en formato Date
    * @returns Objeto con el UUID generado y la asistencia creada, o null si el empleado no existe
    */
-  async storeFromWebSocket(employeeSyncId: string, punchTime: Date) {
+  async storeFromWebSocket(employeeSyncId: string, punchTime: string, deviceSN: string = '', deviceAlias: string = '') {
     const { randomUUID } = await import('node:crypto')
     const assistUuid = randomUUID()
 
@@ -2015,33 +2015,18 @@ export default class AssistsService {
       return null
     }
 
-    // Convertir la fecha recibida a UTC usando la misma lógica que el controlador
-    // El cliente envía la fecha como string con zona horaria (ej: "2026-02-04T12:54:00-06:00")
-    // Convertimos el Date a string en formato 'yyyy-MM-dd HH:mm:ss' para usar la misma lógica
-    const year = punchTime.getFullYear()
-    const month = String(punchTime.getMonth() + 1).padStart(2, '0')
-    const day = String(punchTime.getDate()).padStart(2, '0')
-    const hours = String(punchTime.getHours()).padStart(2, '0')
-    const minutes = String(punchTime.getMinutes()).padStart(2, '0')
-    const seconds = String(punchTime.getSeconds()).padStart(2, '0')
-    const assistPunchTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-
     // Crear nueva asistencia con solo los campos necesarios
     const newAssist = new Assist()
     newAssist.assistUuid = assistUuid
     newAssist.assistEmpCode = employee.employeeCode ? String(employee.employeeCode) : ''
     newAssist.assistEmpId = employee.employeeId
-    newAssist.assistPunchTime = assistPunchTime as unknown as DateTime
-    newAssist.assistPunchTimeUtc = assistPunchTime as unknown as DateTime
-    newAssist.assistPunchTimeOrigin = assistPunchTime as unknown as DateTime
-    newAssist.assistUploadTime = assistPunchTime as unknown as DateTime
-    newAssist.assistTerminalSn = ''
-    newAssist.assistTerminalAlias = ''
+    newAssist.assistPunchTime = DateTime.fromISO(punchTime)
+    newAssist.assistPunchTimeUtc = DateTime.fromISO(punchTime)
+    newAssist.assistPunchTimeOrigin = DateTime.fromISO(punchTime)
+    newAssist.assistUploadTime = DateTime.fromISO(punchTime)
+    newAssist.assistTerminalSn = deviceSN
+    newAssist.assistTerminalAlias = deviceAlias
     newAssist.assistAreaAlias = ''
-    newAssist.assistLongitude = 0
-    newAssist.assistLatitude = 0
-    newAssist.assistPrecision = 0
-    newAssist.assistTerminalId = null
     newAssist.assistSyncId = 0
 
     await newAssist.save()

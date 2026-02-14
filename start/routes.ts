@@ -8,6 +8,7 @@
 */
 
 import router from '@adonisjs/core/services/router'
+import Ws from '#services/ws'
 
 import './routes/login_routes.js'
 import './routes/synchronization_routes.js'
@@ -118,6 +119,51 @@ import './routes/employee_biometric_routes.js'
 router.get('/', async ({ view }) => {
   const specUrl = '/swagger.json'
   return view.render('swagger', { specUrl })
+})
+
+router.get('/test-socket', async ({ response }) => {
+  try {
+    // Verificar que el servicio de WebSocket esté disponible
+    if (!Ws.io) {
+      return response.status(503).json({
+        success: false,
+        error: 'Servicio de WebSocket no disponible',
+      })
+    }
+
+    // Datos a enviar
+    const data = {
+      message: 'Hola desde el endpoint',
+      timestamp: new Date().toISOString(),
+      data: {
+        userId: 1,
+        userName: 'Usuario de prueba',
+        additionalInfo: 'Información adicional de ejemplo',
+      },
+    }
+
+    // Emitir mensaje al canal "welcome-ws"
+    Ws.io.emit('enrollment', {
+      serialNumber: 'SYZ8252101326',
+      pin: '1',
+      fingerId: 9,
+      type: 'fingerprint',
+      overwrite: true
+    })
+
+    // Responder al cliente HTTP
+    return response.status(200).json({
+      success: true,
+      message: 'Mensaje enviado al canal welcome-ws',
+      sentData: data,
+    })
+  } catch (error) {
+    console.error('Error al enviar mensaje por WebSocket:', error)
+    return response.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    })
+  }
 })
 
 // router.get('/template-email', async ({ view }) => {

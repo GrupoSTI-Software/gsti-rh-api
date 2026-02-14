@@ -52,31 +52,10 @@ if (Ws.io) {
         // Crear instancia de I18n con locale por defecto
         const i18n = i18nManager.locale(i18nManager.defaultLocale)
         const assistsService = new AssistsService(i18n)
-
-        // Convertir punchTime a Date
-        // El cliente ahora envía la fecha como string con zona horaria explícita (ej: "2026-02-04T12:54:00-06:00")
-        // Esto evita que Socket.IO la convierta automáticamente a UTC
-        let punchTimeDate: Date
-        if (typeof punchTime === 'string') {
-          // Si viene como string con zona horaria (ej: "2026-02-04T12:54:00-06:00")
-          punchTimeDate = new Date(punchTime)
-        } else if (punchTime instanceof Date) {
-          punchTimeDate = punchTime
-        } else {
-          punchTimeDate = new Date(punchTime)
-        }
-
-        // Validar que la fecha sea válida
-        if (Number.isNaN(punchTimeDate.getTime())) {
-          socket.emit('register-assist-response', {
-            success: false,
-            error: 'punch_time debe ser una fecha válida',
-          })
-          return
-        }
+        let punchTimeDate = punchTime
 
         // Registrar la asistencia
-        const result = await assistsService.storeFromWebSocket(String(employeeSyncId), punchTimeDate)
+        const result = await assistsService.storeFromWebSocket(String(employeeSyncId), punchTimeDate, data.device_sn, data.device_alias)
 
         if (!result) {
           socket.emit('register-assist-response', {
