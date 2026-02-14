@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
 import ExceptionType from '#models/exception_type'
@@ -38,8 +39,30 @@ import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
+import Address from '#models/address'
+import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
+import EmployeeAddress from '#models/employee_address'
+import EmployeeSpouse from '#models/employee_spouse'
+import EmployeeChildren from '#models/employee_children'
+import EmployeeShiftChange from '#models/employee_shift_changes'
+import EmployeeEmergencyContact from '#models/employee_emergency_contact'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import EmployeeDevice from '#models/employee_device'
+import EmployeeAnnotation from '#models/employee_annotation'
+import EmployeeSupplie from '#models/employee_supplie'
+import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import EmployeeRecord from '#models/employee_record'
+import WorkDisability from '#models/work_disability'
+import WorkDisabilityNote from '#models/work_disability_note'
+import WorkDisabilityPeriod from '#models/work_disability_period'
+import WorkDisabilityPeriodExpense from '#models/work_disability_period_expense'
+import ExceptionRequest from '#models/exception_request'
+import Pilot from '#models/pilot'
+import Reservation from '#models/reservation'
+import ReservationNote from '#models/reservation_note'
+import ReservationLeg from '#models/reservation_leg'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -86,7 +109,14 @@ export default class EmployeeService {
       }
 
       newEmployee.employeeSyncId = employee.id
-      newEmployee.employeeCode = employee.empCode
+
+      // Generar código de empleado automáticamente si no se proporciona
+      if (!employee.empCode || employee.empCode.toString().trim() === '') {
+        newEmployee.employeeCode = await this.generateAutoEmployeeCode()
+      } else {
+        newEmployee.employeeCode = employee.empCode
+      }
+
       newEmployee.employeeFirstName = employee.firstName
       newEmployee.employeeLastName = employee.lastName
       newEmployee.employeeSecondLastName = employee.secondLastName
@@ -379,7 +409,15 @@ export default class EmployeeService {
       newEmployee.employeeFirstName = employee.employeeFirstName
       newEmployee.employeeLastName = employee.employeeLastName
       newEmployee.employeeSecondLastName = employee.employeeSecondLastName
-      newEmployee.employeeCode = employee.employeeCode
+
+      // Generar código de empleado automáticamente si no se proporciona
+      const employeeCodeStr = employee.employeeCode?.toString().trim() || ''
+      if (!employeeCodeStr || employeeCodeStr === '') {
+        newEmployee.employeeCode = await this.generateAutoEmployeeCode()
+      } else {
+        newEmployee.employeeCode = employee.employeeCode
+      }
+
       newEmployee.employeePayrollNum = employee.employeePayrollNum
       newEmployee.employeePayrollCode = employee.employeePayrollCode
       newEmployee.employeeHireDate = employee.employeeHireDate
@@ -1181,11 +1219,32 @@ export default class EmployeeService {
           .first()
         let vacationsUsedList = [] as Array<ShiftException>
         if (vacationSetting) {
-          vacationsUsedList = await ShiftException.query()
+          const shiftExceptions = await ShiftException.query()
             .whereNull('shift_exceptions_deleted_at')
             .where('vacation_setting_id', vacationSetting.vacationSettingId)
             .where('employee_id', employee.employeeId)
             .orderBy('shift_exceptions_date', 'asc')
+
+          // Get signatures for all shift exceptions
+          const shiftExceptionIds = shiftExceptions.map((se: ShiftException) => se.shiftExceptionId)
+          const signatures = shiftExceptionIds.length > 0
+            ? await VacationAuthorizationSignature.query()
+                .whereNull('vacation_authorization_signature_deleted_at')
+                .whereIn('shift_exception_id', shiftExceptionIds)
+                .orderBy('vacation_authorization_signature_created_at', 'desc')
+            : []
+
+          // Map shift exceptions to include employeeSignature
+          vacationsUsedList = shiftExceptions.map((shiftException) => {
+            const signature = signatures.find((sig: VacationAuthorizationSignature) =>
+              sig.shiftExceptionId === shiftException.shiftExceptionId
+            )?.vacationAuthorizationSignatureFile
+
+            return {
+              ...shiftException.serialize(),
+              employeeSignature: signature || null
+            } as any
+          })
         }
         yearsWroked.push({ year, yearsPassed, vacationSetting, vacationsUsedList })
       }
@@ -2185,8 +2244,7 @@ export default class EmployeeService {
         throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
       }
 
-      // Validar que la primera fila contenga los encabezados esperados
-      const headers = this.validateExcelHeaders(worksheet)
+      const { headers, headerRowNumber } = this.validateExcelHeaders(worksheet)
 
       // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
       const departments = await Department.query()
@@ -2201,6 +2259,10 @@ export default class EmployeeService {
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
+
+      const employeeTypes = await EmployeeType.query()
+        .whereNull('employee_type_deleted_at')
+        .select('employeeTypeId', 'employeeTypeName')
 
       // Buscar departamento y posición por defecto
       const defaultDepartment = departments.find(dept =>
@@ -2241,10 +2303,9 @@ export default class EmployeeService {
         errors: [] as string[]
       }
 
-      // Procesar cada fila del Excel
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
-        if (rowNumber === 1) return // Saltar encabezados
+        if (rowNumber <= headerRowNumber) return
         rows.push({ row, rowNumber })
       })
 
@@ -2372,13 +2433,8 @@ export default class EmployeeService {
             continue
           }
 
-          // Buscar empleado existente por número de nómina
-          const existingEmployee = existingEmployees.find(
-            (emp) =>
-              emp.employeePayrollCode?.toString() ===
-                employeeData.employeeNumber ||
-              emp.employeeCode.toString() === employeeData.employeeNumber
-          )
+          // Buscar empleado existente por ID (columna oculta) o por número de nómina
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
           if (existingEmployee) {
             // Para empleados existentes, no contamos para el límite
@@ -2418,16 +2474,11 @@ export default class EmployeeService {
       if (results.limitReached) {
         // Procesar solo empleados existentes (actualizaciones)
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
-          const existingEmployee = existingEmployees.find(
-            (emp) =>
-              emp.employeePayrollCode?.toString() ===
-                employeeData.employeeNumber ||
-              emp.employeeCode.toString() === employeeData.employeeNumber
-          )
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
           if (existingEmployee) {
             try {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
               results.updated++
               results.processed++
             } catch (error: any) {
@@ -2445,17 +2496,10 @@ export default class EmployeeService {
 
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
           try {
-            // Buscar empleado existente por número de nómina
-            const existingEmployee = existingEmployees.find(
-              (emp) =>
-                emp.employeePayrollCode?.toString() ===
-                  employeeData.employeeNumber ||
-                emp.employeeCode.toString() === employeeData.employeeNumber
-            )
+            const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
             if (existingEmployee) {
-              // Actualizar empleado existente
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
               results.updated++
               results.processed++
             } else {
@@ -2472,11 +2516,9 @@ export default class EmployeeService {
               const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
               const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-              // Crear persona
               const person = await this.createPerson(employeeData)
-
-              // Crear empleado
-              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode)
+              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+              await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
 
               // Agregar a la lista de empleados creados para enviar a biométricos
               createdEmployees.push(newEmployee)
@@ -2513,6 +2555,21 @@ export default class EmployeeService {
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
     }
+  }
+
+  /**
+   * Buscar empleado existente para importación: primero por ID (columna oculta), luego por número de nómina
+   */
+  private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
+    if (employeeData.employeeId) {
+      const byId = existingEmployees.find((emp) => emp.employeeId === Number(employeeData.employeeId))
+      if (byId) return byId
+    }
+    return existingEmployees.find(
+      (emp) =>
+        emp.employeePayrollCode?.toString() === employeeData.employeeNumber ||
+        emp.employeeCode?.toString() === employeeData.employeeNumber
+    ) ?? null
   }
 
   /**
@@ -2559,7 +2616,12 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
-    const firstRow = worksheet.getRow(1)
+    const r1 = worksheet.getRow(1)
+    const cell1 = (r1.getCell(1).value ?? r1.getCell(2).value ?? '').toString().trim().toLowerCase()
+    const isHeaderRow1 = cell1.includes('id empleado') || cell1.includes('identificador de nómina')
+    const headerRowNumber = isHeaderRow1 ? 1 : 3
+
+    const firstRow = worksheet.getRow(headerRowNumber)
     const headers: string[] = []
 
     firstRow.eachCell((cell: any, colNumber: number) => {
@@ -2731,7 +2793,7 @@ export default class EmployeeService {
       throw this.createHeaderValidationError(fullMessage)
     }
 
-    return headers
+    return { headers, headerRowNumber }
   }
 
   /**
@@ -2740,16 +2802,22 @@ export default class EmployeeService {
   private extractEmployeeDataFromRow(row: any, headers: string[]) {
     const data: any = {}
 
+    const parseYesNo = (v: string): number => {
+      const s = (v || '').toString().trim().toLowerCase()
+      if (s === 'sí' || s === 'si' || s === '1' || s === 'yes') return 1
+      return 0
+    }
+
     row.eachCell((cell: any, colNumber: number) => {
       const header = headers[colNumber]?.toLowerCase() || ''
-      // Para fechas, preservar el valor original (puede ser número de Excel o string)
-      // Para otros campos, convertir a string
       const isDateField = header.includes('fecha')
       const rawValue = cell.value
       const value = isDateField ? (rawValue !== null && rawValue !== undefined ? rawValue : '') : (rawValue?.toString() || '')
 
-
-      if (header.includes('identificador de nómina')) {
+      if (header.includes('id empleado')) {
+        const num = Number(rawValue)
+        if (!Number.isNaN(num) && num > 0) data.employeeId = num
+      } else if (header.includes('identificador de nómina')) {
         data.employeeNumber = value
       } else if (header.includes('unidad de negocio de trabajo')) {
         data.businessUnit = value
@@ -2762,12 +2830,8 @@ export default class EmployeeService {
       } else if (header.includes('apellido materno del empleado')) {
         data.secondLastName = value
       } else if (header.includes('fecha de contratación')) {
-        // Las fechas deben venir en formato yyyy/mm/dd para insertarse directamente
-        // Intentar obtener el texto formateado de la celda primero
         const cellText = cell.text ? cell.text.trim() : null
         const stringValue = rawValue ? rawValue.toString().trim() : null
-
-        // Priorizar formato yyyy/mm/dd o yyyy-mm-dd
         if (cellText && cellText.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
           data.hireDate = cellText
         } else if (stringValue && stringValue.match(/^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/)) {
@@ -2786,29 +2850,17 @@ export default class EmployeeService {
       } else if (header.includes('salario diario')) {
         data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
       } else if (header.includes('fecha de nacimiento')) {
-        // Manejar diferentes formatos que ExcelJS puede devolver
-        // Intentar primero obtener el texto formateado de la celda (ej: "16/08/2021")
         const cellText = cell.text ? cell.text.trim() : null
-
         if (rawValue instanceof Date) {
           data.birthDate = rawValue
         } else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
-          // Si es un objeto con propiedad value (formato de ExcelJS)
           data.birthDate = rawValue.value
         } else if (cellText && cellText.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/)) {
-          // Si hay texto formateado que parece una fecha (dd/mm/yyyy), usarlo
           data.birthDate = cellText
-        } else if (typeof rawValue === 'number') {
-          // Si es un número, podría ser una fecha serial de Excel
-          // Las fechas de Excel son números >= 1 (1 = 1900-01-01)
-          // Fechas razonables están entre 1 y 1000000 (aproximadamente hasta el año 4738)
-          if (rawValue >= 1 && rawValue <= 1000000) {
-            data.birthDate = rawValue // Pasar el número serial para que se convierta
-          } else {
-            data.birthDate = rawValue
-          }
+        } else if (typeof rawValue === 'number' && rawValue >= 1 && rawValue <= 1000000) {
+          data.birthDate = rawValue
         } else {
-          data.birthDate = rawValue || cellText // Usar valor original o texto formateado
+          data.birthDate = rawValue || cellText
         }
       } else if (header.includes('curp')) {
         data.curp = value
@@ -2817,21 +2869,56 @@ export default class EmployeeService {
       } else if (header.includes('nss')) {
         data.nss = value
       } else if (header.includes('correo empresa')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.businessEmail = cellText || ''
+        data.businessEmail = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('correo personal')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.personalEmail = cellText || ''
+        data.personalEmail = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('teléfono empresa')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.businessPhone = cellText || ''
+        data.businessPhone = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('teléfono personal')) {
-        // Usar cell.text que es el texto formateado que ve el usuario
-        const cellText = cell.text ? cell.text.trim() : ''
-        data.personalPhone = cellText || ''
+        data.personalPhone = (cell.text ? cell.text.trim() : '') || ''
+      } else if (header.includes('modalidad de trabajo')) {
+        const v = (value || '').toString().trim()
+        data.employeeWorkSchedule = v.toLowerCase() === 'presencial' ? 'Onsite' : (v.toLowerCase() === 'home office' || v.toLowerCase() === 'remoto' ? 'Remote' : (v === 'Onsite' || v === 'Remote' ? v : ''))
+      } else if (header.includes('discriminar asistencia')) {
+        data.employeeAssistDiscriminator = parseYesNo(value)
+      } else if (header.includes('ignorar ausencias consecutivas')) {
+        data.employeeIgnoreConsecutiveAbsences = parseYesNo(value)
+      } else if (header.includes('autorizar cualquier zona')) {
+        data.employeeAuthorizeAnyZones = parseYesNo(value)
+      } else if (header.includes('género')) {
+        data.personGender = value
+      } else if (header.includes('país de nacimiento')) {
+        data.personPlaceOfBirthCountry = value
+      } else if (header.includes('estado de nacimiento')) {
+        data.personPlaceOfBirthState = value
+      } else if (header.includes('ciudad de nacimiento')) {
+        data.personPlaceOfBirthCity = value
+      } else if (header.includes('estado civil')) {
+        data.personMaritalStatus = this.translateMaritalStatusFromExcel(value)
+      } else if (header.includes('país de residencia')) {
+        data.addressCountry = value
+      } else if (header.includes('estado de residencia')) {
+        data.addressState = value
+      } else if (header.includes('municipio de residencia')) {
+        data.addressTownship = value
+      } else if (header.includes('ciudad de residencia')) {
+        data.addressCity = value
+      } else if (header.includes('colonia') && !header.includes('código')) {
+        data.addressSettlement = value
+      } else if (header.includes('tipo de asentamiento')) {
+        data.addressSettlementType = value
+      } else if (header.includes('entre calle 1')) {
+        data.addressBetweenStreet1 = value
+      } else if (header.includes('entre calle 2')) {
+        data.addressBetweenStreet2 = value
+      } else if (header.includes('calle') && !header.includes('entre calle')) {
+        data.addressStreet = value
+      } else if (header.includes('número interior')) {
+        data.addressInternalNumber = value
+      } else if (header.includes('número exterior')) {
+        data.addressExternalNumber = value
+      } else if (header.includes('código postal')) {
+        data.addressZipcode = value
       }
     })
 
@@ -2839,15 +2926,95 @@ export default class EmployeeService {
   }
 
   /**
+   * Crear o actualizar dirección de residencia del empleado a partir de datos de importación
+   */
+  private async ensureEmployeeResidenceAddress(employeeId: number, employeeData: any): Promise<void> {
+    const hasAddress =
+      (employeeData.addressCountry ?? '') !== '' ||
+      (employeeData.addressState ?? '') !== '' ||
+      (employeeData.addressCity ?? '') !== '' ||
+      (employeeData.addressStreet ?? '') !== '' ||
+      (employeeData.addressZipcode ?? '') !== ''
+    if (!hasAddress) return
+
+    let addressTypeId = 1
+    const addressType = await AddressType.query()
+      .whereNull('deletedAt')
+      .whereRaw('LOWER(address_type_slug) LIKE ?', ['%residencia%'])
+      .first()
+    if (addressType) addressTypeId = addressType.addressTypeId
+    else {
+      const first = await AddressType.query().whereNull('deletedAt').first()
+      if (first) addressTypeId = first.addressTypeId
+    }
+
+    const existingLink = await EmployeeAddress.query()
+      .where('employeeId', employeeId)
+      .whereNull('deletedAt')
+      .preload('address')
+      .first()
+
+    const addressPayload = {
+      addressZipcode: employeeData.addressZipcode || '',
+      addressCountry: employeeData.addressCountry || '',
+      addressState: employeeData.addressState || '',
+      addressTownship: employeeData.addressTownship || '',
+      addressCity: employeeData.addressCity || '',
+      addressSettlement: employeeData.addressSettlement || '',
+      addressSettlementType: employeeData.addressSettlementType || '',
+      addressStreet: employeeData.addressStreet || '',
+      addressInternalNumber: employeeData.addressInternalNumber || '',
+      addressExternalNumber: employeeData.addressExternalNumber || '',
+      addressBetweenStreet1: employeeData.addressBetweenStreet1 || '',
+      addressBetweenStreet2: employeeData.addressBetweenStreet2 || '',
+      addressTypeId
+    }
+
+    if (existingLink?.address) {
+      const addr = existingLink.address
+      addr.addressZipcode = addressPayload.addressZipcode
+      addr.addressCountry = addressPayload.addressCountry
+      addr.addressState = addressPayload.addressState
+      addr.addressTownship = addressPayload.addressTownship
+      addr.addressCity = addressPayload.addressCity
+      addr.addressSettlement = addressPayload.addressSettlement
+      addr.addressSettlementType = addressPayload.addressSettlementType
+      addr.addressStreet = addressPayload.addressStreet
+      addr.addressInternalNumber = addressPayload.addressInternalNumber
+      addr.addressExternalNumber = addressPayload.addressExternalNumber
+      addr.addressBetweenStreet1 = addressPayload.addressBetweenStreet1
+      addr.addressBetweenStreet2 = addressPayload.addressBetweenStreet2
+      addr.addressTypeId = addressPayload.addressTypeId
+      await addr.save()
+    } else {
+      const newAddress = new Address()
+      Object.assign(newAddress, addressPayload)
+      await newAddress.save()
+      const newLink = new EmployeeAddress()
+      newLink.employeeId = employeeId
+      newLink.addressId = newAddress.addressId
+      await newLink.save()
+    }
+  }
+
+  /**
    * Actualizar empleado existente
    */
-  private async updateExistingEmployee(existingEmployee: any, employeeData: any, departments: any[], positions: any[], defaultDepartment: any, defaultPosition: any, businessUnitId: number | null, payrollBusinessUnitId: number | null) {
-    // Actualizar datos del empleado
+  private async updateExistingEmployee(
+    existingEmployee: any,
+    employeeData: any,
+    departments: any[],
+    positions: any[],
+    defaultDepartment: any,
+    defaultPosition: any,
+    businessUnitId: number | null,
+    payrollBusinessUnitId: number | null,
+    employeeTypes: any[] = []
+  ) {
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
     existingEmployee.employeeLastName = employeeData.lastName || existingEmployee.employeeLastName
     existingEmployee.employeeSecondLastName = employeeData.secondLastName || existingEmployee.employeeSecondLastName
 
-    // Actualizar fecha de contratación - asegurarse de que se guarde correctamente
     if (employeeData.hireDate) {
       const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
       if (parsedHireDate) {
@@ -2855,65 +3022,49 @@ export default class EmployeeService {
       }
     }
 
-    existingEmployee.dailySalary = employeeData.dailySalary || existingEmployee.dailySalary
+    existingEmployee.dailySalary = employeeData.dailySalary ?? existingEmployee.dailySalary
 
-    // Actualizar unidades de negocio si se proporcionan
-    if (businessUnitId !== null) {
-      existingEmployee.businessUnitId = businessUnitId
-    }
-    if (payrollBusinessUnitId !== null) {
-      existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
-    }
+    if (businessUnitId !== null) existingEmployee.businessUnitId = businessUnitId
+    if (payrollBusinessUnitId !== null) existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
+    if (employeeData.employeeNumber) existingEmployee.employeePayrollCode = employeeData.employeeNumber
+    if (employeeData.businessEmail !== undefined) existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
+    if (employeeData.businessPhone !== undefined) existingEmployee.employeeBusinessPhone = employeeData.businessPhone || ''
 
-    // Actualizar número de nómina
-    if (employeeData.employeeNumber) {
-      existingEmployee.employeePayrollCode = employeeData.employeeNumber
-    }
+    if (employeeData.employeeAssistDiscriminator !== undefined) existingEmployee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator
+    if (employeeData.employeeIgnoreConsecutiveAbsences !== undefined) existingEmployee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences
+    if (employeeData.employeeAuthorizeAnyZones !== undefined) existingEmployee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones
+    if (employeeData.employeeWorkSchedule === 'Onsite' || employeeData.employeeWorkSchedule === 'Remote') existingEmployee.employeeWorkSchedule = employeeData.employeeWorkSchedule
+    const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
+    if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
-    // Actualizar correo y teléfono empresa
-    if (employeeData.businessEmail !== undefined) {
-      existingEmployee.employeeBusinessEmail = employeeData.businessEmail || ''
-    }
-    if (employeeData.businessPhone !== undefined) {
-      existingEmployee.employeeBusinessPhone = employeeData.businessPhone || ''
-    }
-
-    // Mapear departamento y posición usando búsqueda por similitud
     const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-    if (departmentId !== null) {
-      existingEmployee.departmentId = departmentId
-    }
+    if (departmentId !== null) existingEmployee.departmentId = departmentId
     const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-    if (positionId !== null) {
-      existingEmployee.positionId = positionId
-    }
+    if (positionId !== null) existingEmployee.positionId = positionId
 
     await existingEmployee.save()
 
-    // Actualizar datos de la persona si existe
     if (existingEmployee.person) {
       const person = existingEmployee.person
       person.personFirstname = employeeData.firstName || person.personFirstname
       person.personLastname = employeeData.lastName || person.personLastname
       person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
-      person.personCurp = employeeData.curp || person.personCurp
-      person.personRfc = employeeData.rfc || person.personRfc
-      person.personImssNss = employeeData.nss || person.personImssNss
+      person.personCurp = employeeData.curp ?? person.personCurp
+      person.personRfc = employeeData.rfc ?? person.personRfc
+      person.personImssNss = employeeData.nss ?? person.personImssNss
+      if (employeeData.personGender !== undefined) person.personGender = employeeData.personGender || ''
+      if (employeeData.personPlaceOfBirthCountry !== undefined) person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
+      if (employeeData.personPlaceOfBirthState !== undefined) person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
+      if (employeeData.personPlaceOfBirthCity !== undefined) person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
+      if (employeeData.personMaritalStatus !== undefined) person.personMaritalStatus = employeeData.personMaritalStatus || ''
       const parsedBirthday = this.parseDate(employeeData.birthDate)
-      if (parsedBirthday) {
-        person.personBirthday = parsedBirthday
-      }
-
-      // Actualizar correo y teléfono personal
-      if (employeeData.personalEmail !== undefined) {
-        person.personEmail = employeeData.personalEmail || ''
-      }
-      if (employeeData.personalPhone !== undefined) {
-        person.personPhone = employeeData.personalPhone || ''
-      }
-
+      if (parsedBirthday) person.personBirthday = parsedBirthday
+      if (employeeData.personalEmail !== undefined) person.personEmail = employeeData.personalEmail || ''
+      if (employeeData.personalPhone !== undefined) person.personPhone = employeeData.personalPhone || ''
       await person.save()
     }
+
+    await this.ensureEmployeeResidenceAddress(existingEmployee.employeeId, employeeData)
   }
 
   /**
@@ -2934,6 +3085,81 @@ export default class EmployeeService {
     }
 
     return code
+  }
+
+  /**
+   * Mapear tipo de empleado por nombre (para employeeTypeId cuando se use)
+   */
+  private mapEmployeeType(employeeTypeName: string, employeeTypes: any[]): number | null {
+    if (!employeeTypeName || !employeeTypes.length) return null
+    const name = employeeTypeName.toString().trim().toLowerCase()
+    const found = employeeTypes.find(et => (et.employeeTypeName || '').trim().toLowerCase() === name)
+    return found ? found.employeeTypeId : null
+  }
+
+  /**
+   * Traducir estado civil desde Excel (inglés u otro) a español para guardar en BD
+   */
+  private translateMaritalStatusFromExcel(value: string): string {
+    if (!value || typeof value !== 'string') return ''
+    const v = value.trim().toLowerCase()
+    const map: Record<string, string> = {
+      single: 'Soltero',
+      soltero: 'Soltero',
+      married: 'Casado',
+      casado: 'Casado',
+      divorced: 'Divorciado',
+      divorciado: 'Divorciado',
+      widowed: 'Viudo',
+      viudo: 'Viudo',
+      widow: 'Viuda',
+      viuda: 'Viuda',
+      'unión libre': 'Unión libre',
+      'union libre': 'Unión libre',
+      'domestic partnership': 'Unión libre',
+      other: 'Otro',
+      otro: 'Otro',
+      separated: 'Separado',
+      separado: 'Separado'
+    }
+    return map[v] ?? value.trim()
+  }
+
+  /**
+   * Traducir estado civil desde BD a español para mostrar en Excel
+   */
+  private translateMaritalStatusToSpanish(value: string): string {
+    if (!value || typeof value !== 'string') return ''
+    const v = value.trim().toLowerCase()
+    const map: Record<string, string> = {
+      single: 'Soltero',
+      married: 'Casado',
+      divorced: 'Divorciado',
+      widowed: 'Viudo',
+      widow: 'Viuda',
+      'domestic partnership': 'Unión libre',
+      other: 'Otro',
+      separated: 'Separado'
+    }
+    return map[v] ?? value.trim()
+  }
+
+  /**
+   * Generar código de empleado automáticamente
+   * Obtiene los códigos existentes y genera uno único
+   */
+  private async generateAutoEmployeeCode(): Promise<string> {
+    // Obtener todos los códigos de empleado existentes
+    const existingEmployees = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .select('employee_code')
+
+    const existingCodes = existingEmployees
+      .map(emp => emp.employeeCode?.toString() || '')
+      .filter(code => code.trim() !== '')
+
+    // Generar código único
+    return this.generateUniqueEmployeeCode(existingCodes)
   }
 
   /**
@@ -3026,14 +3252,14 @@ export default class EmployeeService {
     person.personRfc = employeeData.rfc || ''
     person.personImssNss = employeeData.nss || ''
     person.personBirthday = this.parseDate(employeeData.birthDate)
-    person.personGender = '' // No disponible en el Excel
+    person.personGender = employeeData.personGender || ''
     person.personPhone = employeeData.personalPhone || ''
     person.personEmail = employeeData.personalEmail || ''
     person.personPhoneSecondary = ''
-    person.personMaritalStatus = ''
-    person.personPlaceOfBirthCountry = ''
-    person.personPlaceOfBirthState = ''
-    person.personPlaceOfBirthCity = ''
+    person.personMaritalStatus = employeeData.personMaritalStatus || ''
+    person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
+    person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
+    person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
 
     await person.save()
     return person
@@ -3042,7 +3268,7 @@ export default class EmployeeService {
   /**
    * Crear empleado
    */
-  private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string) {
+  private async createEmployee(employeeData: any, personId: number, businessUnitId: number, payrollBusinessUnitId: number, departmentId: number | null, positionId: number | null, employeeCode: string, employeeTypes: any[] = []) {
     const employee = new Employee()
     employee.employeeCode = employeeCode
     employee.employeePayrollCode = employeeData.employeeNumber || employeeCode
@@ -3050,7 +3276,6 @@ export default class EmployeeService {
     employee.employeeLastName = employeeData.lastName || ''
     employee.employeeSecondLastName = employeeData.secondLastName || ''
 
-    // Asegurarse de que la fecha de contratación se guarde correctamente
     if (employeeData.hireDate) {
       const parsedHireDate = this.parseDateToDateTime(employeeData.hireDate)
       if (parsedHireDate) {
@@ -3058,21 +3283,22 @@ export default class EmployeeService {
       }
     }
 
-    employee.companyId = 1 // Valor por defecto
+    employee.companyId = 1
     employee.departmentId = departmentId
     employee.positionId = positionId
     employee.personId = personId
     employee.businessUnitId = businessUnitId
     employee.dailySalary = employeeData.dailySalary || 0
     employee.payrollBusinessUnitId = payrollBusinessUnitId
-    employee.employeeAssistDiscriminator = 0
-    employee.employeeTypeId = 1 // Valor por defecto
+    employee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator !== undefined ? employeeData.employeeAssistDiscriminator : 0
+    employee.employeeTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes) ?? 1
+    employee.employeeWorkSchedule = (employeeData.employeeWorkSchedule === 'Remote' || employeeData.employeeWorkSchedule === 'Onsite') ? employeeData.employeeWorkSchedule : 'Onsite'
     employee.employeeBusinessEmail = employeeData.businessEmail || ''
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
-    employee.employeeIgnoreConsecutiveAbsences = 0
-    employee.employeeAuthorizeAnyZones = 0
+    employee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences !== undefined ? employeeData.employeeIgnoreConsecutiveAbsences : 0
+    employee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones !== undefined ? employeeData.employeeAuthorizeAnyZones : 0
     employee.employeeSyncId = 0
     employee.departmentSyncId = 0
     employee.positionSyncId = 0
@@ -3409,7 +3635,7 @@ export default class EmployeeService {
 
     // Validar NSS
     if (personData.nss && personData.nss.length > 45) {
-      errors.push('El NSS no puedesexceder 45 caracteres')
+      errors.push('El NSS no puede exceder 45 caracteres')
     }
 
     return {
@@ -3818,26 +4044,29 @@ export default class EmployeeService {
   }
 
   /**
-   * Generar plantilla de Excel para importación masiva de empleados
-   * Incluye dropdowns dinámicos para departamentos y sus posiciones asociadas
+   * Generar plantilla de Excel para importación masiva de empleados.
+   * Incluye columna oculta ID Empleado, dropdowns dinámicos y todas las columnas del perfil.
+   * @param options.fillWithExisting - Si true, descarga plantilla llena con empleados existentes
+   * @param options.departmentId - Filtro opcional: solo empleados de este departamento
+   * @param options.positionId - Filtro opcional: solo empleados con esta posición (requiere departmentId válido que tenga esa posición)
    */
-  async generateEmployeeImportTemplate(): Promise<Buffer> {
+  async generateEmployeeImportTemplate(options?: { fillWithExisting?: boolean; departmentId?: number; positionId?: number }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
-    // Obtener el color de la unidad de negocio activa
     const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
 
-    // Obtener unidades de negocio activas
+    const logoUrl = await this.getLogo()
+    await this.addImageLogo(workbook, worksheet, logoUrl)
+
     const businessUnits = await BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
-      .select('businessUnitName')
+      .select('businessUnitId', 'businessUnitName')
 
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
 
-    // Obtener departamentos activos con sus posiciones
     const departments = await Department.query()
       .whereNull('department_deleted_at')
       .preload('departmentPositions', (query) => {
@@ -3850,51 +4079,58 @@ export default class EmployeeService {
 
     const departmentNames = departments.map(dept => dept.departmentName).filter(Boolean)
 
-    // ==============================
-    //   HOJA OCULTA PARA DROPDOWNS
-    // ==============================
+    const workScheduleList = ['Presencial', 'Home office']
+    const yesNoList = ['Sí', 'No']
+    const genderList = ['Hombre', 'Mujer', 'Otro']
+
     const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
 
-    // Unidades de negocio → Columna A (A1:A...)
-    businessUnitNames.forEach((name, i) => {
-      listSheet.getCell(i + 1, 1).value = name
+    let listRow = 1
+    businessUnitNames.forEach((name) => {
+      listSheet.getCell(listRow++, 1).value = name
     })
-
-    // Departamentos → Columna B (B1:B...)
-    departmentNames.forEach((name, i) => {
-      listSheet.getCell(i + 1, 2).value = name
+    const businessUnitRange = `Listas!$A$1:$A$${Math.max(1, businessUnitNames.length)}`
+    listRow = 1
+    departmentNames.forEach((name) => {
+      listSheet.getCell(listRow++, 2).value = name
     })
+    const departmentRange = `Listas!$B$1:$B$${Math.max(1, departmentNames.length)}`
 
-    // ==============================
-    //   MAPEO DEPARTAMENTO-POSICIONES
-    //   Columnas C (Departamento) y D (Posición)
-    // ==============================
-    let currentRow = 1
-
+    let deptPosRow = 1
     departments.forEach((dept) => {
       const deptName = dept.departmentName
       if (!deptName) return
-
       const positions = dept.departmentPositions
         .map(dp => dp.position?.positionName)
         .filter(Boolean)
-
-      // Escribir departamento y sus posiciones
       positions.forEach((posName) => {
-        listSheet.getCell(currentRow, 3).value = deptName
-        listSheet.getCell(currentRow, 4).value = posName
-        currentRow++
+        listSheet.getCell(deptPosRow, 3).value = deptName
+        listSheet.getCell(deptPosRow, 4).value = posName
+        deptPosRow++
       })
     })
 
-    // Rango para validación
-    const businessUnitRange = `Listas!$A$1:$A$${businessUnitNames.length}`
-    const departmentRange = `Listas!$B$1:$B$${departmentNames.length}`
+    workScheduleList.forEach((name, i) => {
+      listSheet.getCell(i + 1, 5).value = name
+    })
+    const workScheduleRange = `Listas!$E$1:$E$${workScheduleList.length}`
 
-    // ==============================
-    //       ENCABEZADOS
-    // ==============================
+    yesNoList.forEach((v, i) => { listSheet.getCell(i + 1, 6).value = v })
+    const yesNoRange = 'Listas!$F$1:$F$2'
+
+    const genderRange = `Listas!$G$1:$G$${Math.max(1, genderList.length)}`
+    genderList.forEach((v, i) => { listSheet.getCell(i + 1, 7).value = v })
+
+    const writeList = (values: string[], colIdx: number) => {
+      const vals = values.length ? values : ['']
+      vals.forEach((v, i) => { listSheet.getCell(i + 1, colIdx).value = v })
+      return `Listas!$${String.fromCharCode(64 + colIdx)}$1:$${String.fromCharCode(64 + colIdx)}$${vals.length}`
+    }
+    const maritalStatusOptions = ['Soltero', 'Casado', 'Divorciado', 'Viudo', 'Unión libre', 'Separado', 'Otro']
+    const maritalRange = writeList(maritalStatusOptions, 11)
+
     const headers = [
+      'ID Empleado',
       'Identificador de nómina',
       'Unidad de negocio de trabajo',
       'Unidad de negocio de nómina',
@@ -3912,10 +4148,30 @@ export default class EmployeeService {
       'Correo empresa',
       'Correo personal',
       'Teléfono Empresa',
-      'Teléfono Personal'
+      'Teléfono Personal',
+      'Modalidad de trabajo',
+      'Discriminar asistencia',
+      'Ignorar ausencias consecutivas',
+      'Autorizar cualquier zona',
+      'Género',
+      'País de nacimiento',
+      'Estado de nacimiento',
+      'Ciudad de nacimiento',
+      'Estado civil',
+      'País de residencia',
+      'Estado de residencia',
+      'Municipio de residencia',
+      'Ciudad de residencia',
+      'Colonia',
+      'Tipo de asentamiento',
+      'Calle',
+      'Número interior',
+      'Número exterior',
+      'Entre calle 1',
+      'Entre calle 2',
+      'Código postal'
     ]
 
-    // Encabezados requeridos (índices 0-4)
     const requiredHeaders = [
       'Identificador de nómina',
       'Unidad de negocio de trabajo',
@@ -3924,30 +4180,36 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
+    worksheet.getRow(1).height = 60
+    const titleRow = worksheet.addRow([''])
+    titleRow.height = 30
+    worksheet.mergeCells(2, 1, 2, 40)
+    titleRow.getCell(1).value = 'Plantilla de importación de empleados'
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+    titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
+    titleRow.getCell(1).border = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } }
+    }
+
     const headerRow = worksheet.addRow(headers)
     headerRow.height = 30
 
-    const requiredHeaderColor = activeBusinessUnitColor // Color de la unidad de negocio activa (formato ARGB)
-    const optionalHeaderColor = 'FFD6D6D6' // Gris claro para opcionales (formato ARGB)
-
-    // Determinar el color del texto para encabezados requeridos basado en la luminosidad del fondo
+    const requiredHeaderColor = activeBusinessUnitColor
+    const optionalHeaderColor = 'FFD6D6D6'
     const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
-    const optionalHeaderTextColor = 'FF001A04' // Texto oscuro para opcionales (formato ARGB)
+    const optionalHeaderTextColor = 'FF001A04'
 
     headerRow.eachCell((cell, colNumber) => {
-      const headerIndex = colNumber - 1
-      const headerValue = headers[headerIndex]
+      const headerValue = headers[colNumber - 1]
       const isRequired = requiredHeaders.includes(headerValue)
-
       const backgroundColor = isRequired ? requiredHeaderColor : optionalHeaderColor
       const textColor = isRequired ? requiredHeaderTextColor : optionalHeaderTextColor
-
       cell.font = { bold: true, size: 9, color: { argb: textColor } }
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: backgroundColor }
-      }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: backgroundColor } }
       cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -3957,86 +4219,152 @@ export default class EmployeeService {
       }
     })
 
-    // ==============================
-    //     ANCHO DE COLUMNAS
-    // ==============================
+    worksheet.getColumn(1).hidden = true
+
     const columnWidths = [
-      25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20,
-      20
+      10, 25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20, 20,
+      22, 20, 28, 24, 12, 18, 18, 18, 14, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
     ]
-    columnWidths.forEach((width, index) => {
-      worksheet.getColumn(index + 1).width = width
+    columnWidths.forEach((w, i) => {
+      worksheet.getColumn(i + 1).width = w
     })
 
-    // ==============================
-    //    VALIDACIONES (DROPDOWNS)
-    // ==============================
-    for (let row = 2; row <= 1000; row++) {
-      // Unidad de negocio de trabajo (columna B)
-      worksheet.getCell(row, 2).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [businessUnitRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione una unidad de negocio válida'
-      }
-
-      // Unidad de negocio de nómina (columna C)
+    for (let row = 4; row <= 1001; row++) {
       worksheet.getCell(row, 3).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [businessUnitRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione una unidad de negocio válida'
+        type: 'list', allowBlank: true, formulae: [businessUnitRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione una unidad de negocio válida'
       }
-
-      // Departamento (columna H)
-      worksheet.getCell(row, 8).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [departmentRange],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Seleccione un departamento válido'
+      worksheet.getCell(row, 4).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [businessUnitRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione una unidad de negocio válida'
       }
-
-      // Posición (columna I) - DROPDOWN DINÁMICO usando INDIRECT con rango filtrado
-      // Esta fórmula busca en la hoja Listas todas las posiciones que corresponden al departamento seleccionado
-      const positionFormula = `INDIRECT("Listas!$D$"&MATCH(H${row},Listas!$C:$C,0)&":$D$"&(MATCH(H${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,H${row})-1))`
-
       worksheet.getCell(row, 9).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [positionFormula],
-        errorStyle: 'warning',
-        showErrorMessage: true,
-        errorTitle: 'Valor inválido',
-        error: 'Primero seleccione un departamento válido'
+        type: 'list', allowBlank: true, formulae: [departmentRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un departamento válido'
       }
+      const positionFormula = `INDIRECT("Listas!$D$"&MATCH(I${row},Listas!$C:$C,0)&":$D$"&(MATCH(I${row},Listas!$C:$C,0)+COUNTIF(Listas!$C:$C,I${row})-1))`
+      worksheet.getCell(row, 10).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [positionFormula],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Primero seleccione un departamento válido'
+      }
+      worksheet.getCell(row, 20).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [workScheduleRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Presencial o Home office'
+      }
+      worksheet.getCell(row, 21).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 22).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 23).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 24).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [genderRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un género válido'
+      }
+      // Columnas 25-27 (país, estado, ciudad de nacimiento): sin dropdown, texto libre
+      worksheet.getCell(row, 28).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [maritalRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
+      }
+      // Columnas 29-40 (residencia): sin dropdown, flexibles para cualquier texto
     }
 
-    // ==============================
-    //       FORMATOS DE COLUMNA
-    // ==============================
-    worksheet.getColumn(7).numFmt = 'yyyy/mm/dd' // Fecha contratación
-    worksheet.getColumn(11).numFmt = 'dd/mm/yyyy' // Fecha nacimiento
-    worksheet.getColumn(10).numFmt = '#,##0.00' // Salario diario
+    worksheet.getColumn(8).numFmt = 'yyyy/mm/dd'
+    worksheet.getColumn(12).numFmt = 'dd/mm/yyyy'
+    worksheet.getColumn(11).numFmt = '#,##0.00'
 
-    // ==============================
-    //     CONGELAR ENCABEZADOS
-    // ==============================
     worksheet.views = [
-      { state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }
+      { state: 'frozen', ySplit: 3, topLeftCell: 'A4', activeCell: 'B4' }
     ]
 
-    // ==============================
-    //       GENERAR ARCHIVO
-    // ==============================
+    if (options?.fillWithExisting) {
+      let employeesQuery = Employee.query()
+        .whereNull('deletedAt')
+        .preload('person')
+        .preload('address', (q) => q.preload('address'))
+        .preload('businessUnit')
+        .preload('department')
+        .preload('position')
+        .preload('employeeType')
+        .orderBy('employee_id')
+
+      if (options.departmentId !== undefined) {
+        employeesQuery = employeesQuery.where('departmentId', options.departmentId)
+      }
+      if (options.positionId !== undefined) {
+        employeesQuery = employeesQuery.where('positionId', options.positionId)
+      }
+
+      const employees = await employeesQuery
+
+      const payrollUnitName = (payrollId: number) =>
+        businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''
+
+      const DateTimeFmt = (d: DateTime | Date | string | null) => {
+        if (!d) return ''
+        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
+        return dt.isValid ? dt.toFormat('yyyy/MM/dd') : ''
+      }
+      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => {
+        if (!d) return ''
+        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
+        return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
+      }
+
+      employees.forEach((emp, idx) => {
+        const rowNum = idx + 4
+        const person = emp.person
+        const resAddress = emp.address?.[0]?.address
+
+        worksheet.getCell(rowNum, 1).value = emp.employeeId
+        worksheet.getCell(rowNum, 2).value = emp.employeePayrollCode ?? emp.employeeCode ?? ''
+        worksheet.getCell(rowNum, 3).value = emp.businessUnit?.businessUnitName ?? ''
+        worksheet.getCell(rowNum, 4).value = payrollUnitName(emp.payrollBusinessUnitId)
+        worksheet.getCell(rowNum, 5).value = emp.employeeFirstName ?? ''
+        worksheet.getCell(rowNum, 6).value = emp.employeeLastName ?? ''
+        worksheet.getCell(rowNum, 7).value = emp.employeeSecondLastName ?? ''
+        worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
+        worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
+        worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
+        worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
+        worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
+        worksheet.getCell(rowNum, 13).value = person?.personCurp ?? ''
+        worksheet.getCell(rowNum, 14).value = person?.personRfc ?? ''
+        worksheet.getCell(rowNum, 15).value = person?.personImssNss ?? ''
+        worksheet.getCell(rowNum, 16).value = emp.employeeBusinessEmail ?? ''
+        worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
+        worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
+        worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
+        worksheet.getCell(rowNum, 20).value = emp.employeeWorkSchedule === 'Remote' ? 'Home office' : (emp.employeeWorkSchedule === 'Onsite' ? 'Presencial' : (emp.employeeWorkSchedule || ''))
+        worksheet.getCell(rowNum, 21).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 22).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 23).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 24).value = person?.personGender ?? ''
+        worksheet.getCell(rowNum, 25).value = person?.personPlaceOfBirthCountry ?? ''
+        worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
+        worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
+        worksheet.getCell(rowNum, 28).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
+        worksheet.getCell(rowNum, 29).value = resAddress?.addressCountry ?? ''
+        worksheet.getCell(rowNum, 30).value = resAddress?.addressState ?? ''
+        worksheet.getCell(rowNum, 31).value = resAddress?.addressTownship ?? ''
+        worksheet.getCell(rowNum, 32).value = resAddress?.addressCity ?? ''
+        worksheet.getCell(rowNum, 33).value = resAddress?.addressSettlement ?? ''
+        worksheet.getCell(rowNum, 34).value = resAddress?.addressSettlementType ?? ''
+        worksheet.getCell(rowNum, 35).value = resAddress?.addressStreet ?? ''
+        worksheet.getCell(rowNum, 36).value = resAddress?.addressInternalNumber ?? ''
+        worksheet.getCell(rowNum, 37).value = resAddress?.addressExternalNumber ?? ''
+        worksheet.getCell(rowNum, 38).value = resAddress?.addressBetweenStreet1 ?? ''
+        worksheet.getCell(rowNum, 39).value = resAddress?.addressBetweenStreet2 ?? ''
+        worksheet.getCell(rowNum, 40).value = resAddress?.addressZipcode ?? ''
+      })
+    }
+
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -5895,5 +6223,640 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // ==============================
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
+ }
+
+  /**
+   * Elimina definitivamente todos los empleados y sus registros relacionados en otras tablas
+   *
+   * Esta función:
+   * 1. Elimina todas las relaciones en employee_shifts
+   * 2. Elimina todas las relaciones en shift_exceptions
+   * 3. Elimina todas las relaciones en employee_addresses
+   * 4. Elimina todas las relaciones en employee_spouses
+   * 5. Elimina todas las relaciones en employee_children
+   * 6. Elimina todas las relaciones en employee_emergency_contacts
+   * 7. Elimina todas las relaciones en employee_shift_changes
+   * 8. Elimina todas las relaciones en user_responsible_employees
+   * 9. Elimina todas las relaciones en employee_contracts
+   * 10. Elimina todas las relaciones en employee_biometric_face_ids
+   * 11. Elimina todas las relaciones en employee_zones
+   * 12. Elimina todas las relaciones en employee_devices
+   * 13. Elimina todas las relaciones en employee_proceeding_files
+   * 14. Elimina todas las relaciones en employee_annotations
+   * 15. Elimina todas las relaciones en employee_assist_calendars
+   * 16. Elimina todas las relaciones en employee_supplies
+   * 17. Elimina todas las relaciones en employee_medical_conditions
+   * 18. Elimina todas las relaciones en employee_banks
+   * 19. Elimina todas las relaciones en employee_records
+   * 20. Elimina todas las relaciones en work_disability_notes
+   * 21. Elimina todas las relaciones en work_disability_period_expenses
+   * 22. Elimina todas las relaciones en work_disability_periods
+   * 23. Elimina todas las relaciones en work_disabilities
+   * 24. Elimina todas las relaciones en exception_requests
+   * 25. Elimina todas las relaciones in reservation_legs
+   * 26. Elimina todas las relaciones in reservation_notes
+   * 27. Elimina todas las relaciones en reservations
+   * 28. Elimina todas las relaciones en pilots
+   * 29. Elimina todas las relaciones en flight_attendants
+   * 30. Elimina todos los empleados
+   * 31. Elimina todos los registros en users
+   * 32. Elimina todos los registros en customers
+   * 33. Elimina todos los registros en persons
+   *
+   * @returns Objeto con el resultado de la operación
+   */
+  async deleteAllEmployees() {
+    try {
+      // Contar registros antes de eliminar
+      const totalEmployees = await Employee.query()
+        .count('* as total')
+      const totalEmployeeShifts = await EmployeeShift.query()
+        .count('* as total')
+      const totalShiftExceptions = await ShiftException.query()
+        .count('* as total')
+      const totalEmployeeContracts = await EmployeeContract.query()
+        .count('* as total')
+      const totalWorkDisabilities = await WorkDisability.query()
+        .count('* as total')
+      const totalWorkDisabilityNotes = await WorkDisabilityNote.query()
+        .count('* as total')
+      const totalWorkDisabilityPeriods = await WorkDisabilityPeriod.query()
+        .count('* as total')
+      const totalWorkDisabilityPeriodExpenses = await WorkDisabilityPeriodExpense.query()
+        .count('* as total')
+      const totalEmployeeAddresses = await EmployeeAddress.query()
+        .count('* as total')
+      const totalEmployeeSpouses = await EmployeeSpouse.query()
+        .count('* as total')
+      const totalEmployeeChildren = await EmployeeChildren.query()
+        .count('* as total')
+      const totalEmployeeEmergencyContacts = await EmployeeEmergencyContact.query()
+        .count('* as total')
+      const totalEmployeeShiftChanges = await EmployeeShiftChange.query()
+        .count('* as total')
+      const totalUserResponsibleEmployees = await UserResponsibleEmployee.query()
+        .count('* as total')
+      const totalEmployeeBiometricFaceIds = await EmployeeBiometricFaceId.query()
+        .count('* as total')
+      const totalEmployeeZones = await EmployeeZone.query()
+        .count('* as total')
+      const totalEmployeeDevices = await EmployeeDevice.query()
+        .count('* as total')
+      const totalExceptionRequests = await ExceptionRequest.query()
+        .count('* as total')
+      const totalReservations = await Reservation.query()
+        .count('* as total')
+      const totalPilots = await Pilot.query()
+        .count('* as total')
+      const totalReservationLegs = await ReservationLeg.query()
+        .count('* as total')
+      const totalReservationNotes = await ReservationNote.query()
+        .count('* as total')
+      const totalFlightAttendants = await FlightAttendant.query()
+        .count('* as total')
+      const totalPersons = await Person.query()
+        .count('* as total')
+      const totalUsers = await User.query()
+        .count('* as total')
+      const totalCustomers = await Customer.query()
+        .count('* as total')
+      const counts = {
+        employees: Number(totalEmployees[0].$extras.total),
+        employeeShifts: Number(totalEmployeeShifts[0].$extras.total),
+        shiftExceptions: Number(totalShiftExceptions[0].$extras.total),
+        employeeContracts: Number(totalEmployeeContracts[0].$extras.total),
+        workDisabilities: Number(totalWorkDisabilities[0].$extras.total),
+        workDisabilityNotes: Number(totalWorkDisabilityNotes[0].$extras.total),
+        employeeAddresses: Number(totalEmployeeAddresses[0].$extras.total),
+        employeeSpouses: Number(totalEmployeeSpouses[0].$extras.total),
+        employeeChildren: Number(totalEmployeeChildren[0].$extras.total),
+        employeeEmergencyContacts: Number(totalEmployeeEmergencyContacts[0].$extras.total),
+        employeeShiftChanges: Number(totalEmployeeShiftChanges[0].$extras.total),
+        userResponsibleEmployees: Number(totalUserResponsibleEmployees[0].$extras.total),
+        employeeBiometricFaceIds: Number(totalEmployeeBiometricFaceIds[0].$extras.total),
+        employeeZones: Number(totalEmployeeZones[0].$extras.total),
+        employeeDevices: Number(totalEmployeeDevices[0].$extras.total),
+        workDisabilityPeriods: Number(totalWorkDisabilityPeriods[0].$extras.total),
+        workDisabilityPeriodExpenses: Number(totalWorkDisabilityPeriodExpenses[0].$extras.total),
+        exceptionRequests: Number(totalExceptionRequests[0].$extras.total),
+        reservations: Number(totalReservations[0].$extras.total),
+        reservationLegs: Number(totalReservationLegs[0].$extras.total),
+        reservationNotes: Number(totalReservationNotes[0].$extras.total),
+        pilots: Number(totalPilots[0].$extras.total),
+        flightAttendants: Number(totalFlightAttendants[0].$extras.total),
+        persons: Number(totalPersons[0].$extras.total),
+        users: Number(totalUsers[0].$extras.total),
+        customers: Number(totalCustomers[0].$extras.total),
+      }
+
+      // 1. Eliminar todas las relaciones en employee_shifts
+      await EmployeeShift.query().delete()
+
+      // 2. Eliminar todas las relaciones en shift_exceptions
+      await ShiftException.query().delete()
+
+      // 3. Eliminar todas las relaciones en employee_contracts
+      await EmployeeContract.query().delete()
+
+      // 4. Eliminar todas las relaciones en employee_addresses
+      await EmployeeAddress.query().delete()
+
+      // 5. Eliminar todas las relaciones en employee_spouses
+      await EmployeeSpouse.query().delete()
+
+      // 6. Eliminar todas las relaciones en employee_children
+      await EmployeeChildren.query().delete()
+
+      // 7. Eliminar todas las relaciones en employee_emergency_contacts
+      await EmployeeEmergencyContact.query().delete()
+
+      // 8. Eliminar todas las relaciones en employee_shift_changes
+      await EmployeeShiftChange.query().delete()
+
+      // 9. Eliminar todas las relaciones en user_responsible_employees
+      await UserResponsibleEmployee.query().delete()
+
+      // 10. Eliminar todas las relaciones en employee_biometric_face_ids
+      await EmployeeBiometricFaceId.query().delete()
+
+      // 11. Eliminar todas las relaciones en employee_zones
+      await EmployeeZone.query().delete()
+
+      // 12. Eliminar todas las relaciones en employee_devices
+      await EmployeeDevice.query().delete()
+
+      // 13. Eliminar todas las relaciones en employee_proceeding_files
+      await EmployeeProceedingFile.query().delete()
+
+      // 14. Eliminar todas las relaciones en employee_annotations
+      await EmployeeAnnotation.query().delete()
+
+      // 15. Eliminar todas las relaciones en employee_assist_calendars
+      await EmployeeAssistCalendar.query().delete()
+
+      // 16. Eliminar todas las relaciones en employee_supplies
+      await EmployeeSupplie.query().delete()
+
+      // 17. Eliminar todas las relaciones en employee_medical_conditions
+      await EmployeeMedicalCondition.query().delete()
+
+      // 18. Eliminar todas las relaciones en employee_banks
+      await EmployeeBank.query().delete()
+
+      // 19. Eliminar todas las relaciones en employee_records
+      await EmployeeRecord.query().delete()
+
+      // 20. Eliminar todas las relaciones en work_disability_notes
+      await WorkDisabilityNote.query().delete()
+
+      // 22. Eliminar todas las relaciones en work_disability_period_expenses
+      await WorkDisabilityPeriodExpense.query().delete()
+
+      // 22. Eliminar todas las relaciones en work_disability_periods
+      await WorkDisabilityPeriod.query().delete()
+
+      // 23. Eliminar todas las relaciones en work_disabilities
+      await WorkDisability.query().delete()
+
+      // 24. Eliminar todas las relaciones en exception_requests
+      await ExceptionRequest.query().delete()
+
+      // 25. Eliminar todas las relaciones en reservation_legs
+      await ReservationLeg.query().delete()
+
+      // 26. Eliminar todas las relaciones in reservation_notes
+      await ReservationNote.query().delete()
+
+      // 27. Eliminar todas las relaciones in reservations
+      await Reservation.query().delete()
+
+      // 28. Eliminar todas las relaciones en pilots
+      await Pilot.query().delete()
+
+      // 29. Eliminar todas las relaciones en flight_attendants
+      await FlightAttendant.query().delete()
+
+      // 30. Eliminar todos los empleados
+      await Employee.query().delete()
+
+      // 31. Eliminar todos los registros en usuarios
+      await User.query().delete()
+
+      // 32. Eliminar todos los registros en customers
+      await Customer.query().delete()
+
+      // 33. Eliminar todos los registros en personas
+      await Person.query().delete()
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Employees deleted successfully',
+        message: 'All employees and their relationships have been deleted successfully',
+        data: {
+          deleted: {
+            employees: counts.employees,
+            employeeShifts: counts.employeeShifts,
+            shiftExceptions: counts.shiftExceptions,
+            employeeContracts: counts.employeeContracts,
+            workDisabilities: counts.workDisabilities,
+            workDisabilityNotes: counts.workDisabilityNotes,
+            workDisabilityPeriods: counts.workDisabilityPeriods,
+            workDisabilityPeriodExpenses: counts.workDisabilityPeriodExpenses,
+            employeeAddresses: counts.employeeAddresses,
+            employeeSpouses: counts.employeeSpouses,
+            employeeChildren: counts.employeeChildren,
+            employeeEmergencyContacts: counts.employeeEmergencyContacts,
+            employeeShiftChanges: counts.employeeShiftChanges,
+            userResponsibleEmployees: counts.userResponsibleEmployees,
+            employeeBiometricFaceIds: counts.employeeBiometricFaceIds,
+            employeeZones: counts.employeeZones,
+            employeeDevices: counts.employeeDevices,
+            exceptionRequests: counts.exceptionRequests,
+            pilots: counts.pilots,
+            reservations: counts.reservations,
+            flightAttendants: counts.flightAttendants,
+            users: counts.users,
+            customers: counts.customers,
+            persons: counts.persons
+          },
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al eliminar todos los empleados:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to delete employees',
+        message: 'An error occurred while trying to delete all employees',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea un empleado demo con los datos proporcionados
+   * @param employeeData - Datos del empleado
+   * @param personId - ID de la persona
+   * @param positionId - ID de la posición
+   * @param departmentId - ID del departamento
+   * @param businessUnitId - ID de la unidad de negocio
+   *
+   * @returns Empleado creado
+   */
+  private async createDemoEmployee(
+    employeeData: {
+      firstName: string
+      lastName: string
+      secondLastName: string
+      code: string,
+      dailySalary: number
+    },
+    personId: number,
+    positionId: number | null,
+    departmentId: number | null,
+    businessUnitId: number
+  ): Promise<Employee> {
+    const employeeType = await EmployeeType.query()
+      .where('employee_type_slug', 'employee')
+      .whereNull('employee_type_deleted_at')
+      .first()
+
+    const employee = new Employee()
+    employee.employeeSyncId = 0
+    employee.employeeCode = employeeData.code
+    employee.employeeFirstName = employeeData.firstName
+    employee.employeeLastName = employeeData.lastName
+    employee.employeeSecondLastName = employeeData.secondLastName || ''
+    employee.employeePayrollNum = employeeData.code
+    employee.employeePayrollCode = employeeData.code
+    employee.employeeHireDate = DateTime.now()
+    employee.companyId = 0
+    employee.departmentId = departmentId
+    employee.positionId = positionId
+    employee.personId = personId
+    employee.businessUnitId = businessUnitId
+    employee.dailySalary = employeeData.dailySalary
+    employee.payrollBusinessUnitId = businessUnitId
+    employee.employeeAssistDiscriminator = 0
+    employee.employeeWorkSchedule = 'Onsite'
+    employee.employeeIgnoreConsecutiveAbsences = 0
+    employee.employeeAuthorizeAnyZones = 0
+    employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
+    employee.departmentSyncId = 0
+    employee.positionSyncId = 0
+
+    if (employeeType?.employeeTypeId) {
+      employee.employeeTypeId = employeeType.employeeTypeId
+    } else {
+      employee.employeeTypeId = 1
+    }
+
+    await employee.save()
+    await this.updateEmployeeSlug(employee)
+    return employee
+  }
+
+  /**
+   * Crea 41 empleados demo y los asigna a las posiciones según el organigrama
+   *
+   * Distribución de empleados por posición:
+   * - Director general: 1
+   * - Asistente de dirección: 1
+   * - Gerente administrativo: 1
+   * - Gerente de recursos humanos: 1
+   * - Reclutador: 1
+   * - Desarrollador de talento: 2
+   * - Gerente de contabilidad: 1
+   * - Encargado de nóminas: 1
+   * - Tesorería: 2
+   * - Director de operaciones: 1
+   * - Auxiliar operativo: 3
+   * - Gerente de proyectos: 1
+   * - Project Manager: 3
+   * - Diseñador gráfico: 1
+   * - Diseñador UX: 2
+   * - Líder de proyecto: 1
+   * - Supervisor de distribución: 1
+   * - Especialista de logística: 1
+   * - Supervisor de producción: 1
+   * - Operador de producción: 10
+   * - Supervisor de marketing: 1
+   * - Content Manager: 1
+   * - Especialista en Relaciones Públicas: 1
+   * - Analista de mercado: 2
+   *
+   * @returns Objeto con el resultado de la operación y los empleados creados
+   */
+  async createEmployeeDemo() {
+    try {
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 0
+
+      // Buscar todas las posiciones necesarias
+      const positionsMap: { [key: string]: Position | null } = {}
+      const positionNames = [
+        'Director general',
+        'Asistente de dirección',
+        'Gerente administrativo',
+        'Gerente de recursos humanos',
+        'Reclutador',
+        'Desarrollador de talento',
+        'Gerente de contabilidad',
+        'Encargado de nóminas',
+        'Tesorería',
+        'Director de operaciones',
+        'Auxiliar operativo',
+        'Gerente de proyectos',
+        'Project Manager',
+        'Diseñador gráfico',
+        'Diseñador UX',
+        'Líder de proyecto',
+        'Supervisor de distribución',
+        'Especialista de logística',
+        'Supervisor de producción',
+        'Operador de producción',
+        'Supervisor de marketing',
+        'Content Manager',
+        'Especialista en Relaciones Públicas',
+        'Analista de mercado',
+      ]
+
+      const positionService = new PositionService(this.i18n)
+      for await (const positionName of positionNames) {
+        positionsMap[positionName] = await positionService.findPositionByName(positionName)
+      }
+
+      // Lista de empleados con sus nombres completos
+      const employeesData = [
+        { firstName: 'Juan', lastName: 'Pérez', secondLastName: 'López', gender: 'Hombre', birthday: '1991-02-14', phone: '1234567890', email: 'juan.perez@example.com', curp: 'PELJ880510HDFLRN01', rfc: 'PELJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'María', lastName: 'González', secondLastName: 'Hernández', gender: 'Mujer', birthday: '1991-11-30', phone: '1234567890', email: 'maria.gonzalez@example.com', curp: 'GONM880510HDFLRN01', rfc: 'GONM880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'José', lastName: 'Martínez', secondLastName: 'Ramírez', gender: 'Hombre', birthday: '1992-01-08', phone: '1234567890', email: 'jose.martinez@example.com', curp: 'MART880510HDFLRN01', rfc: 'MART880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Ana', lastName: 'Rodríguez', secondLastName: 'Cruz', gender: 'Mujer', birthday: '1992-06-19', phone: '1234567890', email: 'ana.rodriguez@example.com', curp: 'RODJ880510HDFLRN01', rfc: 'RODJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Carlos', lastName: 'López', secondLastName: 'García', gender: 'Hombre', birthday: '1992-12-27', phone: '1234567890', email: 'carlos.lopez@example.com', curp: 'LOPG880510HDFLRN01', rfc: 'LOPG880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Guadalupe', lastName: 'Sánchez', secondLastName: 'Flores', gender: 'Mujer', birthday: '1993-05-14', phone: '1234567890', email: 'guadalupe.sanchez@example.com', curp: 'SANF880510HDFLRN01', rfc: 'SANF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Luis', lastName: 'Hernández', secondLastName: 'Torres', gender: 'Hombre', birthday: '1993-10-22', phone: '1234567890', email: 'luis.hernandez@example.com', curp: 'HERT880510HDFLRN01', rfc: 'HERT880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Rosa', lastName: 'Morales', secondLastName: 'Jiménez', gender: 'Mujer', birthday: '1994-02-03', phone: '1234567890', email: 'rosa.morales@example.com', curp: 'MORJ880510HDFLRN01', rfc: 'MORJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Miguel', lastName: 'Ortiz', secondLastName: 'Vega', gender: 'Hombre', birthday: '1994-07-18', phone: '1234567890', email: 'miguel.ortiz@example.com', curp: 'ORTV880510HDFLRN01', rfc: 'ORTV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Carmen', lastName: 'Castillo', secondLastName: 'Reyes', gender: 'Mujer', birthday: '1994-12-09', phone: '1234567890', email: 'carmen.castillo@example.com', curp: 'CAST880510HDFLRN01', rfc: 'CAST880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Jesús', lastName: 'Ramírez', secondLastName: 'Pérez', gender: 'Hombre', birthday: '1995-03-21', phone: '1234567890', email: 'jesus.ramirez@example.com', curp: 'RAMJ880510HDFLRN01', rfc: 'RAMJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Laura', lastName: 'Flores', secondLastName: 'Mendoza', gender: 'Mujer', birthday: '1995-08-02', phone: '1234567890', email: 'laura.flores@example.com', curp: 'FLOL880510HDFLRN01', rfc: 'FLOL880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Francisco', lastName: 'Vargas', secondLastName: 'Soto', gender: 'Hombre', birthday: '1996-01-17', phone: '1234567890', email: 'francisco.vargas@example.com', curp: 'VARS880510HDFLRN01', rfc: 'VARS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Patricia', lastName: 'Rojas', secondLastName: 'Navarro', gender: 'Mujer', birthday: '1996-06-28', phone: '1234567890', email: 'patricia.rojas@example.com', curp: 'ROJ880510HDFLRN01', rfc: 'ROJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Jorge', lastName: 'Medina', secondLastName: 'Aguilar', gender: 'Hombre', birthday: '1996-11-12', phone: '1234567890', email: 'jorge.medina@example.com', curp: 'MEDJ880510HDFLRN01', rfc: 'MEDJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Teresa', lastName: 'Luna', secondLastName: 'Chávez', gender: 'Mujer', birthday: '1997-04-05', phone: '1234567890', email: 'teresa.luna@example.com', curp: 'LUN880510HDFLRN01', rfc: 'LUN880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Pedro', lastName: 'Herrera', secondLastName: 'Salas', gender: 'Hombre', birthday: '1997-09-11', phone: '1234567890', email: 'pedro.herrera@example.com', curp: 'HERP880510HDFLRN01', rfc: 'HERP880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Alejandra', lastName: 'Núñez', secondLastName: 'Pineda', gender: 'Mujer', birthday: '1998-01-26', phone: '1234567890', email: 'alejandra.nunez@example.com', curp: 'NUNE880510HDFLRN01', rfc: 'NUNE880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Manuel', lastName: 'Cruz', secondLastName: 'Romero', gender: 'Hombre', birthday: '1998-06-14', phone: '1234567890', email: 'manuel.cruz@example.com', curp: 'CRUZ880510HDFLRN01', rfc: 'CRUZ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Verónica', lastName: 'Campos', secondLastName: 'Silva', gender: 'Mujer', birthday: '1998-10-03', phone: '1234567890', email: 'veronica.campos@example.com', curp: 'CAMV880510HDFLRN01', rfc: 'CAMV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Ricardo', lastName: 'Mendoza', secondLastName: 'Fuentes', gender: 'Hombre', birthday: '1999-02-19', phone: '1234567890', email: 'ricardo.mendoza@example.com', curp: 'MEND880510HDFLRN01', rfc: 'MEND880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Sofía', lastName: 'Delgado', secondLastName: 'Moreno', gender: 'Mujer', birthday: '1999-07-07', phone: '1234567890', email: 'sofia.delgado@example.com', curp: 'DELF880510HDFLRN01', rfc: 'DELF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Fernando', lastName: 'Reyes', secondLastName: 'Cabrera', gender: 'Hombre', birthday: '2000-01-15', phone: '1234567890', email: 'fernando.reyes@example.com', curp: 'REYF880510HDFLRN01', rfc: 'REYF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Adriana', lastName: 'Pacheco', secondLastName: 'León', gender: 'Mujer', birthday: '2000-04-27', phone: '1234567890', email: 'adriana.pacheco@example.com', curp: 'PACA880510HDFLRN01', rfc: 'PACA880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Daniel', lastName: 'Ibarra', secondLastName: 'Castillo', gender: 'Hombre', birthday: '2000-08-09', phone: '1234567890', email: 'daniel.ibarra@example.com', curp: 'IBAR880510HDFLRN01', rfc: 'IBAR880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Claudia', lastName: 'Espinoza', secondLastName: 'Márquez', gender: 'Mujer', birthday: '2000-11-21', phone: '1234567890', email: 'claudia.espinoza@example.com', curp: 'ESPI880510HDFLRN01', rfc: 'ESPI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Roberto', lastName: 'Villanueva', secondLastName: 'Rocha', gender: 'Hombre', birthday: '2001-03-05', phone: '1234567890', email: 'roberto.villanueva@example.com', curp: 'VILL880510HDFLRN01', rfc: 'VILL880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Gabriela', lastName: 'Cárdenas', secondLastName: 'Bautista', gender: 'Mujer', birthday: '2001-06-18', phone: '1234567890', email: 'gabriela.cardenas@example.com', curp: 'CARD880510HDFLRN01', rfc: 'CARD880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Eduardo', lastName: 'Acosta', secondLastName: 'Beltrán', gender: 'Hombre', birthday: '2001-09-30', phone: '1234567890', email: 'eduardo.acosta@example.com', curp: 'ACOS880510HDFLRN01', rfc: 'ACOS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Daniela', lastName: 'Zúñiga', secondLastName: 'Ortega', gender: 'Mujer', birthday: '2002-01-12', phone: '1234567890', email: 'daniela.zuniga@example.com', curp: 'ZUNI880510HDFLRN01', rfc: 'ZUNI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Javier', lastName: 'Salazar', secondLastName: 'Cortés', gender: 'Hombre', birthday: '2002-04-26', phone: '1234567890', email: 'javier.salazar@example.com', curp: 'SALJ880510HDFLRN01', rfc: 'SALJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Paulina', lastName: 'Montoya', secondLastName: 'Rangel', gender: 'Mujer', birthday: '2002-08-07', phone: '1234567890', email: 'paulina.montoya@example.com', curp: 'MONP880510HDFLRN01', rfc: 'MONP880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Antonio', lastName: 'Galindo', secondLastName: 'Meza', gender: 'Hombre', birthday: '2002-11-19', phone: '1234567890', email: 'antonio.galindo@example.com', curp: 'GALI880510HDFLRN01', rfc: 'GALI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Elizabeth', lastName: 'Peralta', secondLastName: 'Trejo', gender: 'Mujer', birthday: '2003-03-04', phone: '1234567890', email: 'elizabeth.peralta@example.com', curp: 'PERE880510HDFLRN01', rfc: 'PERE880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Raúl', lastName: 'Escobar', secondLastName: 'Nieto', gender: 'Hombre', birthday: '2003-06-16', phone: '1234567890', email: 'raul.escobar@example.com', curp: 'ESCO880510HDFLRN01', rfc: 'ESCO880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+        { firstName: 'Mónica', lastName: 'Valdez', secondLastName: 'Arriaga', gender: 'Mujer', birthday: '2003-10-28', phone: '1234567890', email: 'monica.valdez@example.com', curp: 'VALD880510HDFLRN01', rfc: 'VALD880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Rosa', lastName: 'Gonzalez', secondLastName: 'Hernandez', gender: 'Mujer', birthday: '2004-02-15', phone: '1234567890', email: 'rosa.gonzalez@example.com', curp: 'GONZ880510HDFLRN01', rfc: 'GONZ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Silvia', lastName: 'Orozco', secondLastName: 'Sandoval', gender: 'Mujer', birthday: '2004-05-29', phone: '1234567890', email: 'silvia.orozco@example.com', curp: 'OROS880510HDFLRN01', rfc: 'OROS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Sergio', lastName: 'Tapia', secondLastName: 'Calderón', gender: 'Hombre', birthday: '2004-09-11', phone: '1234567890', email: 'sergio.tapia@example.com', curp: 'TAPI880510HDFLRN01', rfc: 'TAPI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Norma', lastName: 'Álvarez', secondLastName: 'Macías', gender: 'Mujer', birthday: '2005-01-06', phone: '1234567890', email: 'norma.alvarez@example.com', curp: 'ALVM880510HDFLRN01', rfc: 'ALVM880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+{ firstName: 'Víctor', lastName: 'Peña', secondLastName: 'Solís', gender: 'Hombre', birthday: '2005-04-20', phone: '1234567890', email: 'victor.pena@example.com', curp: 'PEÑV880510HDFLRN01', rfc: 'PEÑV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+
+      ]
+
+      // Distribución de empleados por posición según el organigrama
+      const positionAssignments = [
+        { positionName: 'Director general', count: 1 },
+        { positionName: 'Asistente de dirección', count: 1 },
+        { positionName: 'Gerente administrativo', count: 1 },
+        { positionName: 'Gerente de recursos humanos', count: 1 },
+        { positionName: 'Reclutador', count: 1 },
+        { positionName: 'Desarrollador de talento', count: 2 },
+        { positionName: 'Gerente de contabilidad', count: 1 },
+        { positionName: 'Encargado de nóminas', count: 1 },
+        { positionName: 'Tesorería', count: 2 },
+        { positionName: 'Director de operaciones', count: 1 },
+        { positionName: 'Auxiliar operativo', count: 3 },
+        { positionName: 'Gerente de proyectos', count: 1 },
+        { positionName: 'Project Manager', count: 3 },
+        { positionName: 'Diseñador gráfico', count: 1 },
+        { positionName: 'Diseñador UX', count: 2 },
+        { positionName: 'Líder de proyecto', count: 1 },
+        { positionName: 'Supervisor de distribución', count: 1 },
+        { positionName: 'Especialista de logística', count: 1 },
+        { positionName: 'Supervisor de producción', count: 1 },
+        { positionName: 'Operador de producción', count: 10 },
+        { positionName: 'Supervisor de marketing', count: 1 },
+        { positionName: 'Content Manager', count: 1 },
+        { positionName: 'Especialista en Relaciones Públicas', count: 1 },
+        { positionName: 'Analista de mercado', count: 2 },
+      ]
+
+      const createdEmployees: Array<{
+        name: string
+        id: number
+        code: string
+        position: string
+        department: string | null
+      }> = []
+      let employeeIndex = 0
+      let employeeCodeCounter = 1001
+      const personService = new PersonService(this.i18n)
+
+      // Crear empleados según la distribución
+      for await (const assignment of positionAssignments) {
+        const position = positionsMap[assignment.positionName]
+        if (!position) {
+          console.warn(`Position "${assignment.positionName}" not found, skipping...`)
+          continue
+        }
+
+        // Obtener el departamento de la posición
+        const departmentPosition = await DepartmentPosition.query()
+          .where('position_id', position.positionId)
+          .whereNull('department_position_deleted_at')
+          .first()
+
+        const departmentId = departmentPosition?.departmentId || null
+
+        // Obtener el nombre del departamento si existe
+        let departmentName: string | null = null
+        if (departmentId) {
+          const department = await Department.query()
+            .where('department_id', departmentId)
+            .whereNull('department_deleted_at')
+            .first()
+          departmentName = department?.departmentName || null
+        }
+
+        // Crear los empleados para esta posición
+        for (let i = 0; i < assignment.count && employeeIndex < employeesData.length; i++) {
+          const employeeData = employeesData[employeeIndex]
+          const employeeCode = `${employeeCodeCounter.toString().padStart(4, '0')}`
+
+          // Crear persona
+          const person = await personService.createDemoPerson(
+            employeeData.firstName,
+            employeeData.lastName,
+            employeeData.secondLastName,
+            employeeData.gender,
+            employeeData.phone,
+            employeeData.email,
+            employeeData.curp,
+            employeeData.rfc,
+            employeeData.imssNss,
+            employeeData.maritalStatus,
+            employeeData.birthday,
+            employeeData.birthState,
+            employeeData.birthCity,
+            employeeData.birthCountry
+          )
+
+          // Crear empleado
+          const employee = await this.createDemoEmployee(
+            {
+              firstName: employeeData.firstName,
+              lastName: employeeData.lastName,
+              secondLastName: employeeData.secondLastName,
+              code: employeeCode,
+              dailySalary: employeeData.dailySalary
+            },
+            person.personId,
+            position.positionId,
+            departmentId,
+            businessUnitId
+          )
+
+          createdEmployees.push({
+            name: `${employeeData.firstName} ${employeeData.lastName} ${employeeData.secondLastName}`,
+            id: employee.employeeId,
+            code: employeeCode,
+            position: assignment.positionName,
+            department: departmentName,
+          })
+
+          employeeIndex++
+          employeeCodeCounter++
+        }
+      }
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Demo employees created',
+        message: 'The demo employees were created successfully',
+        data: {
+          created: createdEmployees,
+          total: createdEmployees.length,
+        },
+      }
+
+    } catch (error: any) {
+      console.error('Error al crear empleados demo:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error to create demo employees',
+        message: 'An error occurred while trying to create the demo employees',
+        error: error.message,
+        data: null,
+      }
+    }
   }
 }

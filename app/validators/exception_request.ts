@@ -9,6 +9,7 @@ export const storeExceptionRequestValidator = vine.compile(
     exceptionRequestDescription: vine.string().trim().maxLength(255).optional(),
     exceptionRequestCheckInTime: vine.string().trim().maxLength(10).optional(),
     exceptionRequestCheckOutTime: vine.string().trim().maxLength(10).optional(),
+    exceptionRequestPeriodInHours: vine.number().min(0).optional(),
     requestedDate:
       vine.date().transform((value) => DateTime.fromJSDate(value)) || vine.string().maxLength(10),
     role: vine

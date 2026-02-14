@@ -6,6 +6,11 @@ import { LogEmployeeShift } from '../interfaces/MongoDB/log_employee_shift.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
 import { I18n } from '@adonisjs/i18n'
+import User from '#models/user'
+import UserFcmToken from '#models/user_fcm_token'
+import admin from '../../config/firebase.js'
+import Shift from '#models/shift'
+import SystemSettingService from './system_setting_service.js'
 
 export default class EmployeeShiftService {
 
@@ -178,5 +183,63 @@ export default class EmployeeShiftService {
 
   formatDate(date: Date): string {
     return date.toISOString().split('T')[0]
+  }
+
+  async sendNotificationToUser(userId: number, date: string | null, shift: Shift) {
+    const user = await User.query()
+      .where('user_id', userId)
+      .first()
+    if (!user) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'User not found',
+        message: 'User not found with the entered ID',
+        data: { userId: userId },
+      }
+    }
+    const userFcmTokens = await UserFcmToken.query()
+      .where('user_id', userId)
+      .where('user_fcm_token_active', 1)
+      .where('user_fcm_token_last_seen_at', '>', DateTime.now().minus({ days: 50 }).toISO())
+    if (!userFcmTokens) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'User FCM tokens not found',
+        message: 'User FCM tokens not found with the entered ID',
+        data: { userId: userId },
+      }
+    }
+    const systemSettingService = new SystemSettingService()
+    const systemSetting = await systemSettingService.getActive()
+    // se crea el mensaje algo como "Se te ha asignado el turno de 08:00  to 18:00 Rest(NA) a partir del lunes 02 de febrero, 2026"
+    const message = 'Se te ha asignado el turno de ' + shift.shiftName + ' a partir del ' + date
+    for (const userFcmToken of userFcmTokens) {
+      try {
+        const dateTime = DateTime.now().toFormat('yyyy-MM-dd HH:mm:ss')
+        admin.messaging().send({
+          webpush: {
+            notification: {
+              title: 'Turno Asignado ' + dateTime,
+              body: message,
+              icon: systemSetting?.systemSettingFavicon ? systemSetting.systemSettingFavicon : ''
+            },
+          },
+          token: userFcmToken.userFcmToken
+        });
+      } catch (error) {
+        console.error(error)
+      }
+    }
+   
+  
+    return {
+      status: 200,
+      type: 'success',
+      title: 'User FCM tokens found',
+      message: 'User FCM tokens found with the entered ID',
+      data: { userFcmTokens: userFcmTokens },
+    }
   }
 }

@@ -483,6 +483,78 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Display payments in summary',
         systemPermissionSlug: 'display-payments-summary',
         systemModuleId: 7
+      },
+      {
+        systemPermissionId: 127,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 128,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 129,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 130,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 32
+      },
+      {
+        systemPermissionId: 131,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 33
+      },
+      {
+        systemPermissionId: 132,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 33
+      },
+      {
+        systemPermissionId: 133,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 33
+      },
+      {
+        systemPermissionId: 134,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 33
+      },
+      {
+        systemPermissionId: 135,
+        systemPermissionName: 'Show face ID',
+        systemPermissionSlug: 'show-face-id',
+        systemModuleId: 1
+      },
+      {
+        systemPermissionId: 136,
+        systemPermissionName: 'Upload face ID',
+        systemPermissionSlug: 'upload-face-id',
+        systemModuleId: 1
+      },
+      {
+        systemPermissionId: 137,
+        systemPermissionName: 'Show fingers',
+        systemPermissionSlug: 'show-fingers',
+        systemModuleId: 1
+      },
+      {
+        systemPermissionId: 138,
+        systemPermissionName: 'Upload fingers',
+        systemPermissionSlug: 'upload-fingers',
+        systemModuleId: 1
       }
     ]
 

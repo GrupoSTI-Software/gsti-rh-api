@@ -8,6 +8,7 @@
 */
 
 import router from '@adonisjs/core/services/router'
+import Ws from '#services/ws'
 
 import './routes/login_routes.js'
 import './routes/synchronization_routes.js'
@@ -18,6 +19,8 @@ import './routes/employee_biometric_face_id_routes.js'
 import './routes/person_routes.js'
 import './routes/user_routes.js'
 import './routes/zone_routes.js'
+import './routes/access_point_routes.js'
+import './routes/notice_routes.js'
 import './routes/assist_routes.js'
 import './routes/shift_routes.js'
 import './routes/employee_shifts_routes.js'
@@ -108,11 +111,59 @@ import './routes/employee_annotation_routes.js'
 import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
+import './routes/generate_info_demo.js'
 import './routes/employee_device_routes.js'
+import './routes/user_fcm_token_routes.js'
+import './routes/employee_biometric_routes.js'
 
 router.get('/', async ({ view }) => {
   const specUrl = '/swagger.json'
   return view.render('swagger', { specUrl })
+})
+
+router.get('/test-socket', async ({ response }) => {
+  try {
+    // Verificar que el servicio de WebSocket esté disponible
+    if (!Ws.io) {
+      return response.status(503).json({
+        success: false,
+        error: 'Servicio de WebSocket no disponible',
+      })
+    }
+
+    // Datos a enviar
+    const data = {
+      message: 'Hola desde el endpoint',
+      timestamp: new Date().toISOString(),
+      data: {
+        userId: 1,
+        userName: 'Usuario de prueba',
+        additionalInfo: 'Información adicional de ejemplo',
+      },
+    }
+
+    // Emitir mensaje al canal "welcome-ws"
+    Ws.io.emit('enrollment', {
+      serialNumber: 'SYZ8252101326',
+      pin: '1',
+      fingerId: 9,
+      type: 'fingerprint',
+      overwrite: true
+    })
+
+    // Responder al cliente HTTP
+    return response.status(200).json({
+      success: true,
+      message: 'Mensaje enviado al canal welcome-ws',
+      sentData: data,
+    })
+  } catch (error) {
+    console.error('Error al enviar mensaje por WebSocket:', error)
+    return response.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Error desconocido',
+    })
+  }
 })
 
 // router.get('/template-email', async ({ view }) => {

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prueba WebSocket - Registro de Asistencias</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      padding: 30px;
+      max-width: 600px;
+      width: 100%;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      margin-top: 10px;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .status.show {
+      display: block;
+    }
+
+    .status.info {
+      background: #e3f2fd;
+      color: #1976d2;
+      border-left: 4px solid #1976d2;
+    }
+
+    .status.success {
+      background: #e8f5e9;
+      color: #388e3c;
+      border-left: 4px solid #388e3c;
+    }
+
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+      border-left: 4px solid #c62828;
+    }
+
+    .status.loading {
+      background: #fff3e0;
+      color: #f57c00;
+      border-left: 4px solid #f57c00;
+    }
+
+    .connection-status {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .connection-status.connected {
+      background: #4caf50;
+      box-shadow: 0 0 10px #4caf50;
+    }
+
+    .connection-status.disconnected {
+      background: #f44336;
+    }
+
+    .connection-status.connecting {
+      background: #ff9800;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .response-box {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .uuid {
+      font-weight: 600;
+      color: #667eea;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔌 Prueba WebSocket</h1>
+    <p class="subtitle">Registro de Asistencias</p>
+
+    <div class="form-group">
+      <label for="serverUrl">URL del Servidor:</label>
+      <input type="text" id="serverUrl" value="http://localhost:3333" placeholder="http://localhost:3333">
+    </div>
+
+    <div class="form-group">
+      <label for="employeeSyncId">Employee Sync ID:</label>
+      <input type="text" id="employeeSyncId" value="12345" placeholder="12345">
+    </div>
+
+    <div class="form-group">
+      <label for="punchTime">Punch Time (Fecha y Hora):</label>
+      <input type="datetime-local" id="punchTime">
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <button id="connectBtn" onclick="connectAndTest()">Conectar y Probar</button>
+    <button id="disconnectBtn" onclick="disconnect()" style="display: none; background: #f44336; margin-top: 10px;">Desconectar</button>
+
+    <div class="response-box" id="responseBox" style="display: none;"></div>
+  </div>
+
+  <script>
+    let socket = null;
+    const statusEl = document.getElementById('status');
+    const responseBox = document.getElementById('responseBox');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+
+    // Establecer fecha y hora actual por defecto
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    document.getElementById('punchTime').value = now.toISOString().slice(0, 16);
+
+    function showStatus(message, type) {
+      statusEl.textContent = message;
+      statusEl.className = `status show ${type}`;
+    }
+
+    function updateConnectionStatus(status) {
+      const statusText = {
+        'connected': '🟢 Conectado',
+        'disconnected': '🔴 Desconectado',
+        'connecting': '🟡 Conectando...'
+      };
+      showStatus(statusText[status], status === 'connected' ? 'success' : status === 'connecting' ? 'loading' : 'error');
+    }
+
+    function connectAndTest() {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const employeeSyncId = document.getElementById('employeeSyncId').value;
+      const punchTimeValue = document.getElementById('punchTime').value;
+
+      if (!serverUrl || !employeeSyncId) {
+        showStatus('Por favor completa todos los campos requeridos', 'error');
+        return;
+      }
+
+      // Convertir fecha local a Date
+      const punchTime = punchTimeValue ? new Date(punchTimeValue) : new Date();
+
+      showStatus('Conectando al servidor...', 'loading');
+      updateConnectionStatus('connecting');
+      responseBox.style.display = 'none';
+      connectBtn.disabled = true;
+
+      // Crear conexión WebSocket
+      socket = io(serverUrl, {
+        transports: ['websocket', 'polling'],
+        reconnection: false,
+      });
+
+      socket.on('connect', () => {
+        updateConnectionStatus('connected');
+        showStatus(`✅ Conectado al servidor (Socket ID: ${socket.id})`, 'success');
+
+        // Enviar solicitud de registro
+        // IMPORTANTE: Enviamos la fecha como string con zona horaria explícita
+        // para evitar que Socket.IO la convierta a UTC automáticamente
+        // Formato: YYYY-MM-DDTHH:mm:ss-06:00 (México UTC-6)
+        const year = punchTime.getFullYear();
+        const month = String(punchTime.getMonth() + 1).padStart(2, '0');
+        const day = String(punchTime.getDate()).padStart(2, '0');
+        const hours = String(punchTime.getHours()).padStart(2, '0');
+        const minutes = String(punchTime.getMinutes()).padStart(2, '0');
+        const seconds = String(punchTime.getSeconds()).padStart(2, '0');
+        const punchTimeString = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}-06:00`;
+
+        showStatus('📤 Enviando solicitud de registro de asistencia...', 'info');
+        socket.emit('register-assist', {
+          employee_sync_id: employeeSyncId,
+          punch_time: punchTimeString, // Enviamos como string con zona horaria
+        });
+      });
+
+      socket.on('register-assist-response', (response) => {
+        responseBox.style.display = 'block';
+        responseBox.innerHTML = `<strong>📥 Respuesta a tu solicitud:</strong>\n\n${JSON.stringify(response, null, 2)}`;
+
+        if (response.success) {
+          showStatus(`✅ Éxito! UUID: ${response.uuid}`, 'success');
+          responseBox.innerHTML += `\n\n<div class="uuid">🆔 UUID: ${response.uuid}</div>`;
+          responseBox.innerHTML += `\n💬 Mensaje: ${response.message}`;
+        } else {
+          showStatus(`❌ Error: ${response.error}`, 'error');
+        }
+
+        connectBtn.disabled = false;
+      });
+
+      // Escuchar notificaciones de otros clientes registrando asistencias
+      socket.on('assist-registered', (data) => {
+        let notificationBox = document.getElementById('notificationsBox');
+        if (!notificationBox) {
+          // Crear contenedor de notificaciones si no existe
+          notificationBox = document.createElement('div');
+          notificationBox.id = 'notificationsBox';
+          notificationBox.className = 'response-box';
+          notificationBox.style.marginTop = '20px';
+          notificationBox.style.maxHeight = '200px';
+          notificationBox.style.overflowY = 'auto';
+          notificationBox.innerHTML = '<strong>🔔 Notificaciones en tiempo real:</strong>\n\n';
+          document.querySelector('.container').appendChild(notificationBox);
+        }
+
+        const timestamp = new Date(data.timestamp).toLocaleTimeString('es-ES');
+        const notification = `\n[${timestamp}] 📋 Nueva asistencia registrada:\n` +
+          `   🆔 UUID: ${data.uuid}\n` +
+          `   👤 Empleado: ${data.employeeCode} (Sync ID: ${data.employeeSyncId})\n` +
+          `   🕐 Hora: ${new Date(data.punchTime).toLocaleString('es-ES')}\n`;
+
+        notificationBox.innerHTML += notification;
+        notificationBox.scrollTop = notificationBox.scrollHeight;
+
+        // Mostrar notificación temporal en el status
+        const originalStatus = statusEl.textContent;
+        showStatus(`🔔 Nueva asistencia registrada por otro cliente (UUID: ${data.uuid.substring(0, 8)}...)`, 'info');
+        setTimeout(() => {
+          if (originalStatus) {
+            const statusType = statusEl.className.includes('success') ? 'success' :
+                             statusEl.className.includes('error') ? 'error' :
+                             statusEl.className.includes('loading') ? 'loading' : 'info';
+            showStatus(originalStatus, statusType);
+          }
+        }, 3000);
+      });
+
+      socket.on('connect_error', (error) => {
+        updateConnectionStatus('disconnected');
+        showStatus(`❌ Error de conexión: ${error.message}`, 'error');
+        connectBtn.disabled = false;
+      });
+
+      socket.on('disconnect', (reason) => {
+        updateConnectionStatus('disconnected');
+        showStatus(`🔌 Desconectado: ${reason}`, 'info');
+        connectBtn.disabled = false;
+        disconnectBtn.style.display = 'none';
+      });
+
+      disconnectBtn.style.display = 'block';
+    }
+
+    function disconnect() {
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+        updateConnectionStatus('disconnected');
+        showStatus('Desconectado manualmente', 'info');
+        connectBtn.disabled = false;
+        disconnectBtn.style.display = 'none';
+        responseBox.style.display = 'none';
+      }
+    }
+
+    // Limpiar al cerrar la página
+    window.addEventListener('beforeunload', () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    });
+  </script>
+</body>
+</html>
