@@ -5760,7 +5760,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
-    const EMPLOYEE_INFO_BG = 'FFD3D3D3'
+    const EMPLOYEE_INFO_BG = 'f2f2f2'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
     const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
@@ -5776,11 +5776,11 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         case 'ontime':
           return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'FFDDEBF7' // Azul claro
+          return 'b7d8fa' // Azul claro
         case 'delay':
           return 'FFFFC000' // Naranja
         case 'fault':
-          return 'FFF8D7DA' // Rojo claro
+          return 'ffaaa3' // Rojo claro
         case 'exception':
           return 'FFFFFFFF'
         default:
@@ -5987,18 +5987,18 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     const headerColor = activeBusinessUnitColor
     const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'FF424242' // Gris oscuro para fila de días de la semana
-    const subHeaderTextColor = 'FFFFFFFF'
+    const subHeaderColor = 'd9d9d9' // Gris oscuro para fila de días de la semana
+    const subHeaderTextColor = '000000'
 
     // Aplicar formato a la primera fila de encabezados (Departamento, Puesto, Nombre izq; resto centro)
-    row1.eachCell((cell, colNum) => {
+    row1.eachCell((cell) => {
       cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: headerColor }
       }
-      const headerAlign = colNum === 1 || colNum === 2 || colNum === 4 ? 'left' : 'center'
+      const headerAlign = 'center'
       cell.alignment = { vertical: 'middle', horizontal: headerAlign, wrapText: true }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -6162,13 +6162,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             const [line1, line2] = cellText.split('\n')
             cell.value = {
               richText: [
-                { font: { size: 10, color: { argb: 'FF000000' } }, text: line1 + '\n' },
-                { font: { size: 8, color: { argb: 'FF000000' } }, text: line2 }
+                { font: { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }, text: line1 + '\n' },
+                { font: { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }, text: line2 }
               ]
             }
           } else {
             cell.value = cellText
-            cell.font = { size: 10, color: { argb: 'FF000000' } }
+            cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }
           }
           cell.fill = {
             type: 'pattern',
