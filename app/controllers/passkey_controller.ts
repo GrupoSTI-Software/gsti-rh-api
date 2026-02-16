@@ -7,11 +7,9 @@ import {
   verifyRegistrationResponse,
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
+  type RegistrationResponseJSON,
+  type AuthenticationResponseJSON,
 } from '@simplewebauthn/server'
-import type {
-  RegistrationResponseJSON,
-  AuthenticationResponseJSON,
-} from '@simplewebauthn/server/script/deps'
 import env from '../../start/env.js'
 import { DateTime } from 'luxon'
 
@@ -365,7 +363,12 @@ export default class PasskeyController {
       // Generar opciones de autenticación
       const options = await generateAuthenticationOptions({
         rpID: env.get('RP_ID', 'localhost'),
-        allowCredentials: allowCredentials.length > 0 ? allowCredentials : undefined,
+        allowCredentials: allowCredentials.length > 0
+          ? allowCredentials.map(({ id, transports }) => ({
+              id,
+              transports: transports as AuthenticatorTransportFuture[] | undefined,
+            }))
+          : undefined,
         userVerification: 'required',
         timeout: 60000,
       })
@@ -434,15 +437,9 @@ export default class PasskeyController {
    */
   async loginComplete({ request, response }: HttpContext) {
     try {
-      const { credential, email, deviceToken, deviceModel, deviceBrand, deviceType, deviceOs } =
+      const { credential } =
         request.only([
-          'credential',
-          'email',
-          'deviceToken',
-          'deviceModel',
-          'deviceBrand',
-          'deviceType',
-          'deviceOs',
+          'credential'
         ])
 
       // Buscar la credencial en la base de datos
@@ -605,7 +602,7 @@ export default class PasskeyController {
         .count('* as total')
 
       return response.status(200).json({
-        hasPasskeys: Number(count[0].total) > 0,
+        hasPasskeys: Number(count[0].total || 0) > 0,
       })
     } catch (error) {
       console.error('Error en checkPasskeys:', error)
