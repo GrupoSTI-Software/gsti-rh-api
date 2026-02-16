@@ -10,6 +10,7 @@
 import router from '@adonisjs/core/services/router'
 
 import './routes/login_routes.js'
+import './routes/passkey_routes.js'
 import './routes/synchronization_routes.js'
 import './routes/department_routes.js'
 import './routes/position_routes.js'
