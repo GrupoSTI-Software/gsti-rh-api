@@ -21,6 +21,9 @@ import Employee from './employee.js'
  *          employeeBiometricFaceIdPhotoUrl:
  *            type: string
  *            description: URL of the biometric face photo stored in S3
+ *          employeeBiometricFaceIdToken:
+ *            type: string
+ *            description: Token of the biometric face id
  *          employeeBiometricFaceIdCreatedAt:
  *            type: string
  *            format: date-time
@@ -41,6 +44,9 @@ export default class EmployeeBiometricFaceId extends compose(BaseModel, SoftDele
 
   @column()
   declare employeeBiometricFaceIdPhotoUrl: string
+
+  @column()
+  declare employeeBiometricFaceIdToken: string
 
   @column.dateTime({ autoCreate: true })
   declare employeeBiometricFaceIdCreatedAt: DateTime

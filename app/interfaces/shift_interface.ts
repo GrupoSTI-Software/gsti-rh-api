@@ -9,6 +9,8 @@ interface ShiftInterface {
   shiftActiveHours: number
   shiftRestDays: string
   shiftAccumulatedFault: number
+  shiftLunchTime: number | null
+  shiftCompensableLunchSchedule: number | null
   shiftIsChange?: boolean
   shiftCreatedAt: Date | DateTime | string | null
   shiftUpdatedAt: Date | DateTime | string | null
