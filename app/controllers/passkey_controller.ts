@@ -9,6 +9,7 @@ import {
   verifyAuthenticationResponse,
   type RegistrationResponseJSON,
   type AuthenticationResponseJSON,
+  type AuthenticatorTransportFuture,
 } from '@simplewebauthn/server'
 import env from '../../start/env.js'
 import { DateTime } from 'luxon'
@@ -503,7 +504,7 @@ export default class PasskeyController {
         expectedRPID: env.get('RP_ID', 'localhost'),
         credential: {
           id: passkeyCredential.passkeyCredentialIdBase64,
-          publicKey: Buffer.from(passkeyCredential.passkeyCredentialPublicKey, 'base64'),
+          publicKey: new Uint8Array(Buffer.from(passkeyCredential.passkeyCredentialPublicKey, 'base64')),
           counter: passkeyCredential.passkeyCredentialCounter,
           transports: passkeyCredential.passkeyCredentialTransports as any[],
         },
@@ -596,13 +597,14 @@ export default class PasskeyController {
       }
 
       // Contar credenciales activas
-      const count = await PasskeyCredential.query()
+      const countResult = await PasskeyCredential.query()
         .where('userId', user.userId)
         .whereNull('passkey_credential_deleted_at')
         .count('* as total')
 
+      const total = (countResult[0] as unknown as { total: string | number }).total
       return response.status(200).json({
-        hasPasskeys: Number(count[0].total || 0) > 0,
+        hasPasskeys: Number(total || 0) > 0,
       })
     } catch (error) {
       console.error('Error en checkPasskeys:', error)
