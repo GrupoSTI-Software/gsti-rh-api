@@ -17,6 +17,8 @@ import SystemSetting from '#models/system_setting'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
+import Person from '#models/person'
+import Employee from '#models/employee'
 
 export default class UserController {
   /**
@@ -1221,6 +1223,11 @@ export default class UserController {
    *                 description: Person id
    *                 required: true
    *                 default: ''
+   *               userTypeEmail:
+   *                 type: string
+   *                 description: User type email
+   *                 required: true
+   *                 default: 'institutional'
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1314,6 +1321,7 @@ export default class UserController {
       const roleId = request.input('roleId')
       const personId = request.input('personId')
       const systemBussines = env.get('SYSTEM_BUSINESS')
+      const userEmailType = request.input('userEmailType')
       const user = {
         userEmail: userEmail,
         userPassword: userPassword,
@@ -1321,6 +1329,7 @@ export default class UserController {
         roleId: roleId,
         personId: personId,
         userBusinessAccess: systemBussines,
+        userEmailType: userEmailType
       } as User
       const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
@@ -1336,6 +1345,26 @@ export default class UserController {
       }
       const newUser = await userService.create(user)
       if (newUser) {
+        if (newUser.userEmailType === 'personal') {
+          const person = await Person.query()
+            .where('person_id', personId)
+            .whereNull('person_deleted_at')
+            .first()
+          if (person) {
+            person.personEmail = newUser.userEmail
+            await person.save()
+          }
+        } else {
+          const employee = await Employee.query()
+            .where('person_id', personId)
+            .whereNull('employee_deleted_at')
+            .first()
+          if (employee) {
+            employee.employeeBusinessEmail = newUser.userEmail
+            await employee.save()
+          }
+        }
+
         const rawHeaders = request.request.rawHeaders
         const userId = auth.user?.userId
         if (userId) {
@@ -1418,6 +1447,11 @@ export default class UserController {
    *                 description: Person id
    *                 required: true
    *                 default: ''
+   *               userTypeEmail:
+   *                 type: string
+   *                 description: User type email
+   *                 required: true
+   *                 default: 'institutional'
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1514,6 +1548,7 @@ export default class UserController {
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
+      const userEmailType = request.input('userEmailType')
       const user = {
         userId: userId,
         userEmail: userEmail,
@@ -1521,6 +1556,7 @@ export default class UserController {
         userActive: userActive,
         roleId: roleId,
         personId: personId,
+        userEmailType: userEmailType,
       } as User
       if (!userId) {
         response.status(400)
@@ -1559,6 +1595,25 @@ export default class UserController {
       }
       const updateUser = await userService.update(currentUser, user)
       if (updateUser) {
+        if (updateUser.userEmailType === 'personal') {
+          const person = await Person.query()
+            .where('person_id', personId)
+            .whereNull('person_deleted_at')
+            .first()
+          if (person) {
+            person.personEmail = updateUser.userEmail
+            await person.save()
+          }
+        } else {
+          const employee = await Employee.query()
+            .where('person_id', personId)
+            .whereNull('employee_deleted_at')
+            .first()
+          if (employee) {
+            employee.employeeBusinessEmail = updateUser.userEmail
+            await employee.save()
+          }
+        }
         const rawHeaders = request.request.rawHeaders
         const tokenUserId = auth.user?.userId
         if (tokenUserId) {
