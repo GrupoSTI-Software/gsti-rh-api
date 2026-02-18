@@ -5949,6 +5949,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           const calendarData = calendarResult.data as any
           const employeeCalendar = calendarData.employeeCalendar as AssistDayInterface[]
           employeeCalendarsMap.set(employee.employeeId, employeeCalendar)
+        } else {
+          // Empleado no encontrado o respuesta no exitosa: omitir sin fallar (su informacion aparecera en vacio)
+          employeeCalendarsMap.set(employee.employeeId, [])
         }
       } catch (error) {
         console.warn(`Error al obtener calendario para empleado ${employee.employeeId}:`, error)
