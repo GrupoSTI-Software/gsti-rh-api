@@ -345,6 +345,24 @@ export default class SystemSettingController {
    *                 description: System setting restrict future vacation
    *                 required: false
    *                 default: true
+   *               systemSettingMaxAbsencesBeforeAttendanceLock:
+   *                 type: number
+   *                 description: System setting max absences before attendance lock
+   *                 required: false
+   *               systemSettingMaxLateArrivalsBeforeAttendanceLock:
+   *                 type: number
+   *                 description: System setting max late arrivals before attendance lock
+   *                 required: false
+   *               systemSettingPeriodAbsencesBeforeAttendanceLock:
+   *                 type: string
+   *                 description: System setting period absences before attendance lock
+   *                 required: false
+   *                 default: 'monthly'
+   *               systemSettingPeriodLateArrivalsBeforeAttendanceLock:
+   *                 type: string
+   *                 description: System setting period late arrivals before attendance lock
+   *                 required: false
+   *                 default: 'monthly'
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -433,6 +451,13 @@ export default class SystemSettingController {
       const systemSettingActive = request.input('systemSettingActive')
       const systemSettingToleranceCountPerAbsence = request.input('systemSettingToleranceCountPerAbsence')
       const systemSettingRestrictFutureVacation = request.input('systemSettingRestrictFutureVacation')
+      const systemSettingMaxAbsencesBeforeAttendanceLock = request.input('systemSettingMaxAbsencesBeforeAttendanceLock')
+      const systemSettingMaxLateArrivalsBeforeAttendanceLock = request.input('systemSettingMaxLateArrivalsBeforeAttendanceLock')
+      const systemSettingPeriodAbsencesBeforeAttendanceLock = request.input('systemSettingPeriodAbsencesBeforeAttendanceLock')
+      const systemSettingPeriodLateArrivalsBeforeAttendanceLock = request.input('systemSettingPeriodLateArrivalsBeforeAttendanceLock')
+      const parseNullable = (value: any) =>
+        value === 'null' || value === undefined ? null : value
+      
       const systemSetting = {
         systemSettingTradeName: systemSettingTradeName,
         systemSettingSidebarColor: systemSettingSidebarColor,
@@ -445,6 +470,10 @@ export default class SystemSettingController {
         systemSettingRestrictFutureVacation && (systemSettingRestrictFutureVacation === 'true' || systemSettingRestrictFutureVacation === '1')
             ? 1
             : 0,
+        systemSettingMaxAbsencesBeforeAttendanceLock: parseNullable(systemSettingMaxAbsencesBeforeAttendanceLock),
+        systemSettingMaxLateArrivalsBeforeAttendanceLock: parseNullable(systemSettingMaxLateArrivalsBeforeAttendanceLock),
+        systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
+        systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
       const data = await request.validateUsing(createSystemSettingValidator)
@@ -642,16 +671,16 @@ export default class SystemSettingController {
    *                 format: binary
    *                 description: System setting banner
    *                 required: false
- *               systemSettingFavicon:
- *                 type: string
- *                 format: binary
- *                 description: System setting favicon
- *               systemSettingEmployeeAplicationIcon:
- *                 type: string
- *                 format: binary
- *                 description: System setting employee application icon (512x512 PNG, white background, no transparency)
- *                 required: false
- *               systemSettingTradeName:
+   *               systemSettingFavicon:
+   *                 type: string
+   *                 format: binary
+   *                 description: System setting favicon
+   *               systemSettingEmployeeAplicationIcon:
+   *                 type: string
+   *                 format: binary
+   *                 description: System setting employee application icon (512x512 PNG, white background, no transparency)
+   *                 required: false
+   *               systemSettingTradeName:
    *                 type: string
    *                 description: System setting trade name
    *                 required: true
@@ -675,6 +704,24 @@ export default class SystemSettingController {
    *                 description: System setting restrict future vacation
    *                 required: false
    *                 default: true
+   *               systemSettingMaxAbsencesBeforeAttendanceLock:
+   *                 type: number
+   *                 description: System setting max absences before attendance lock
+   *                 required: false
+   *               systemSettingMaxLateArrivalsBeforeAttendanceLock:
+   *                 type: number
+   *                 description: System setting max late arrivals before attendance lock
+   *                 required: false
+   *               systemSettingPeriodAbsencesBeforeAttendanceLock:
+   *                 type: string
+   *                 description: System setting period absences before attendance lock
+   *                 required: false
+   *                 default: 'monthly'
+   *               systemSettingPeriodLateArrivalsBeforeAttendanceLock:
+   *                 type: string
+   *                 description: System setting period late arrivals before attendance lock
+   *                 required: false
+   *                 default: 'monthly'
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -764,6 +811,13 @@ export default class SystemSettingController {
       const systemSettingActive = request.input('systemSettingActive')
       const systemSettingToleranceCountPerAbsence = request.input('systemSettingToleranceCountPerAbsence')
       const systemSettingRestrictFutureVacation = request.input('systemSettingRestrictFutureVacation')
+      const systemSettingMaxAbsencesBeforeAttendanceLock = request.input('systemSettingMaxAbsencesBeforeAttendanceLock')
+      const systemSettingMaxLateArrivalsBeforeAttendanceLock = request.input('systemSettingMaxLateArrivalsBeforeAttendanceLock')
+      const systemSettingPeriodAbsencesBeforeAttendanceLock = request.input('systemSettingPeriodAbsencesBeforeAttendanceLock')
+      const systemSettingPeriodLateArrivalsBeforeAttendanceLock = request.input('systemSettingPeriodLateArrivalsBeforeAttendanceLock')
+      const parseNullable = (value: any) =>
+        value === 'null' || value === undefined ? null : value
+      
       const systemSetting = {
         systemSettingId: systemSettingId,
         systemSettingTradeName: systemSettingTradeName,
@@ -777,6 +831,10 @@ export default class SystemSettingController {
         systemSettingRestrictFutureVacation && (systemSettingRestrictFutureVacation === 'true' || systemSettingRestrictFutureVacation === '1')
             ? 1
             : 0,
+        systemSettingMaxAbsencesBeforeAttendanceLock: parseNullable(systemSettingMaxAbsencesBeforeAttendanceLock),
+        systemSettingMaxLateArrivalsBeforeAttendanceLock: parseNullable(systemSettingMaxLateArrivalsBeforeAttendanceLock),
+        systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
+        systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
       } as SystemSetting
       if (!systemSettingId) {
         response.status(400)
