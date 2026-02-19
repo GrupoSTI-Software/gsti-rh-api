@@ -5664,6 +5664,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * - Festividad: nombre de la festividad; si hay registros de asistencia se muestra como turno normal
    * - Falta para empleado regular: texto "Falta"; Incapacidad y Vacaciones indicados
    * - Departamento, puesto y nombre a la izquierda; resto centrado
+   * - Días u horas futuros (según hora de inicio del turno): se muestra "próximo" en gris claro, no como falta
    *
    * @param startDate - Fecha de inicio del periodo (formato: yyyy-MM-dd)
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
@@ -5706,6 +5707,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       dates.push(currentDate)
       currentDate = currentDate.plus({ days: 1 })
     }
+
+    // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
+    const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
 
     // Obtener unidades de negocio del ENV
     const businessConf = `${env.get('SYSTEM_BUSINESS')}`
@@ -5761,6 +5765,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
     const EMPLOYEE_INFO_BG = 'f2f2f2'
+
+    // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
+    const PROXIMO_BG = 'FFE8E8E8'
+    const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
     const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
@@ -6124,54 +6132,68 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Obtener texto y color para la celda (pasar empleado para discriminado y permisos)
-          const cellText = getDayCellText(dayData, employee)
-          let cellColor = 'FFFFFFFF' // Blanco por defecto
+          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno)
+          const cellDateUtc6 = date.setZone('UTC-6').startOf('day')
+          const isProximo =
+            dayData?.assist?.isFutureDay === true || cellDateUtc6 > todayStartUtc6
 
-          // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
-          if (isDiscriminated) {
-            cellColor = 'FFFFFFFF'
-          } else if (dayData && dayData.assist) {
-            const assist = dayData.assist
+          let cellText: string
+          let cellColor: string
 
-            // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
-            const isSpecialDay = assist.isRestDay ||
-                                 assist.isVacationDate ||
-                                 assist.isWorkDisabilityDate ||
-                                 assist.isHoliday ||
-                                 (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+          if (isProximo) {
+            cellText = 'próximo'
+            cellColor = PROXIMO_BG
+          } else {
+            // Obtener texto y color para la celda (pasar empleado para discriminado y permisos)
+            cellText = getDayCellText(dayData, employee)
+            cellColor = 'FFFFFFFF' // Blanco por defecto
 
-            if (isSpecialDay) {
+            // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
+            if (isDiscriminated) {
               cellColor = 'FFFFFFFF'
-            }
-            // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
-            else if (assist.dateShift) {
-              const checkInStatus = assist.checkInStatus || ''
-              const checkOutStatus = assist.checkOutStatus || ''
-              cellColor = getStatusColor(checkInStatus, checkOutStatus)
-              if (cellColor === 'FFFFFFFF' && assist.dateShift) {
-                cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
+            } else if (dayData && dayData.assist) {
+              const assist = dayData.assist
+
+              // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
+              const isSpecialDay = assist.isRestDay ||
+                                   assist.isVacationDate ||
+                                   assist.isWorkDisabilityDate ||
+                                   assist.isHoliday ||
+                                   (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+
+              if (isSpecialDay) {
+                cellColor = 'FFFFFFFF'
+              }
+              // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
+              else if (assist.dateShift) {
+                const checkInStatus = assist.checkInStatus || ''
+                const checkOutStatus = assist.checkOutStatus || ''
+                cellColor = getStatusColor(checkInStatus, checkOutStatus)
+                if (cellColor === 'FFFFFFFF' && assist.dateShift) {
+                  cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
+                }
+              } else {
+                cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
               }
             } else {
-              cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
+              cellColor = 'FFFFFFFF' // Sin datos o "---" → blanco
             }
-          } else {
-            cellColor = 'FFFFFFFF' // Sin datos o "---" → blanco
           }
 
           // Aplicar valor: si hay dos líneas (hora + turno), primera línea tamaño normal y turno más pequeño
           const cell = worksheet.getCell(currentRow, colNumber)
+          const textColor = isProximo ? PROXIMO_TEXT_COLOR : 'FF000000'
           if (cellText.includes('\n')) {
             const [line1, line2] = cellText.split('\n')
             cell.value = {
               richText: [
-                { font: { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }, text: line1 + '\n' },
-                { font: { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }, text: line2 }
+                { font: { name: 'Calibri', size: 9, color: { argb: textColor } }, text: line1 + '\n' },
+                { font: { name: 'Calibri', size: 9, color: { argb: textColor } }, text: line2 }
               ]
             }
           } else {
             cell.value = cellText
-            cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }
+            cell.font = { name: 'Calibri', size: 9, color: { argb: textColor } }
           }
           cell.fill = {
             type: 'pattern',
