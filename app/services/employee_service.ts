@@ -5767,7 +5767,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     const EMPLOYEE_INFO_BG = 'f2f2f2'
 
     // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
-    const PROXIMO_BG = 'FFE8E8E8'
+    const PROXIMO_BG = 'FFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
