@@ -38,6 +38,8 @@ import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
 import ToleranceService from './tolerance_service.js'
 import EmployeeShift from '#models/employee_shift'
+import User from '#models/user'
+import mail from '@adonisjs/mail/services/main'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -3686,5 +3688,216 @@ export default class AssistsService {
       if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes
     }
     return tardinessToleranceMinutes
+  }
+
+  async getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar: AssistDayInterface[], tardies: number, toleranceCountPerAbsences: number) {
+    let tolerances = 0
+    let delays = 0
+    let earlyOuts = 0
+    let faults = 0
+    let delayFaults = 0
+    let earlyOutsFaults = 0
+    for await (const calendar of employeeCalendar) {
+      if (!calendar.assist.isFutureDay) {
+        if (calendar.assist.dateShift) {
+          if (calendar.assist.checkInStatus !== 'fault') {
+            if (calendar.assist.checkInStatus === 'tolerance') {
+              tolerances += 1
+            } else if (calendar.assist.checkInStatus === 'delay') {
+              delays += 1
+            }
+          }
+          if (calendar.assist.checkOutStatus !== 'fault') {
+            if (calendar.assist.checkOutStatus === 'delay') {
+              earlyOuts += 1
+            }
+          }
+          if (calendar.assist.checkInStatus === 'fault' && !calendar.assist.isRestDay) {
+            faults += 1
+          }
+        }
+      }
+    }
+
+    const delayTolerances = this.getFaultsFromDelays(tolerances, toleranceCountPerAbsences)
+    delays += delayTolerances
+
+    delayFaults = this.getFaultsFromDelays(delays, tardies)
+    earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, tardies)
+    faults = faults + delayFaults + earlyOutsFaults
+    return { faults, delays }
+  }
+
+async verifyAttendanceLock(userId: number) {
+    try {
+      const systemSettingService = new SystemSettingService()
+      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      if (!systemSettingActive) {
+        return {
+          status: 404,
+          type: 'warning',
+          title: 'System setting not found',
+          message: 'The system setting was not found',
+        }
+      }
+      const maxAbsences = systemSettingActive.systemSettingMaxAbsencesBeforeAttendanceLock
+      const maxTardiness = systemSettingActive.systemSettingMaxLateArrivalsBeforeAttendanceLock
+
+      const user = await User.query()
+        .where('user_id', userId)
+        .preload('person')
+        .first()
+      if (!user) {
+        return {
+          status: 404,
+          type: 'warning',
+          title: 'User not found',
+          message: 'The user was not found',
+        }
+      }
+
+      const employee = await Employee.query()
+        .where('person_id', user.person.personId)
+        .whereNull('employee_deleted_at')
+        .first()
+
+      if (!employee) {
+        return {
+          status: 404,
+          type: 'warning',
+          title: 'Employee not found',
+          message: 'The employee was not found',
+        }
+      }
+
+      const page = 1
+      const limit = 999999999999999
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      const resultAssists = await syncAssistsService.index(
+        {
+          date: DateTime.now().startOf('month').toFormat('yyyy-MM-dd'),
+          dateEnd: DateTime.now().endOf('month').toFormat('yyyy-MM-dd'),
+          employeeID: employee.employeeId,
+        },
+        { page, limit }
+      )
+      const data: any = resultAssists.data
+      let faults = 0
+      let delays = 0
+
+      if (data) {
+        const tardies = await this.getTardiesTolerance()
+        const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+        const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+        const result = await this.getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar, tardies, toleranceCountPerAbsences)
+        faults = result.faults
+        delays = result.delays
+      }
+
+      let tradeName = 'BO'
+      const userEmail = env.get('SMTP_USERNAME')
+      let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+      if (systemSettingActive) {
+        if ( systemSettingActive.systemSettingLogo) {
+          backgroundImageLogo = systemSettingActive.systemSettingLogo
+        }
+        if ( systemSettingActive.systemSettingTradeName) {
+          tradeName = systemSettingActive.systemSettingTradeName
+        }
+      }
+
+      if (maxAbsences) {
+        if (faults >= maxAbsences) {
+          if (userEmail) {
+            const emailData = {
+              user: user,
+              backgroundImageLogo,
+              message: 'Has excedido el maximo de faltas al registrar la asistencia',
+            }
+            await mail.send((message) => {
+              message
+              .to(user.userEmail)
+                .from(userEmail, tradeName)
+                .subject('Registro de asistencia bloqueado')
+                .htmlView('emails/attendance_lock', emailData)
+            })
+          emailData.message = 'El empleado excedio el maximo de faltas al registrar la asistencia'
+            await mail.send((message) => {
+              message
+                .to(user.userEmail)
+                .from(userEmail, tradeName)
+                .subject('Registro de asistencia bloqueado')
+                .htmlView('emails/attendance_lock-rh', emailData)
+            })
+          }
+          return {
+            status: 200,
+            type: 'warning',
+            title: 'Registro de asistencia bloqueado',
+            message: 'Has excedido el maximo de faltas al registrar la asistencia',
+            data: {
+              locked: true,
+              type: 'absences',
+            }
+          }
+        }
+      }
+
+      if (maxTardiness) {
+        if (delays >= maxTardiness) {
+          if (userEmail) {
+            const emailData = {
+              user: user,
+              backgroundImageLogo,
+              message: 'Has excedido el maximo de retardos al registrar la asistencia',
+            }
+            await mail.send((message) => {
+              message
+                .to(user.userEmail)
+                .from(userEmail, tradeName)
+                .subject('Registro de asistencia bloqueado')
+                .htmlView('emails/attendance_lock', emailData)
+            })
+            emailData.message = 'El empleado excedio el maximo de retardos al registrar la asistencia'
+            await mail.send((message) => {
+              message
+                .to(user.userEmail)
+                .from(userEmail, tradeName)
+                .subject('Registro de asistencia bloqueado')
+                .htmlView('emails/attendance_lock-rh', emailData)
+            })
+          }
+        
+          return {
+            status: 200,
+            type: 'warning',
+            title: 'Registro de asistencia bloqueado',
+            message: 'Has excedido el maximo de retardos al registrar la asistencia',
+            data: {
+              locked: true,
+              type: 'tardiness',
+            }
+          }
+        }
+      }
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Registro de asistencia',
+        message: 'El empleado no excedio el maximo de faltas o retardos antes',
+        data: {
+          locked: false,
+        }
+      }
+    } catch (error) {
+      console.error('Error to verify attendance lock:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error al verificar el registro de asistencia',
+        message: 'Ocurrio un error al verificar el registro de asistencia',
+        error: error.message,
+      }
+    }
   }
 }
