@@ -3812,7 +3812,7 @@ async verifyAttendanceLock(userId: number) {
             const emailData = {
               user: user,
               backgroundImageLogo,
-              message: 'Has excedido el maximo de faltas al registrar la asistencia',
+              message: 'Has excedido el maximo de faltas al registrar la asistencia.',
             }
             await mail.send((message) => {
               message
@@ -3821,20 +3821,12 @@ async verifyAttendanceLock(userId: number) {
                 .subject('Registro de asistencia bloqueado')
                 .htmlView('emails/attendance_lock', emailData)
             })
-          emailData.message = 'El empleado excedio el maximo de faltas al registrar la asistencia'
-            await mail.send((message) => {
-              message
-                .to(user.userEmail)
-                .from(userEmail, tradeName)
-                .subject('Registro de asistencia bloqueado')
-                .htmlView('emails/attendance_lock-rh', emailData)
-            })
           }
           return {
             status: 200,
             type: 'warning',
             title: 'Registro de asistencia bloqueado',
-            message: 'Has excedido el maximo de faltas al registrar la asistencia',
+            message: 'Has excedido el maximo de faltas al registrar la asistencia.',
             data: {
               locked: true,
               type: 'absences',
@@ -3849,7 +3841,7 @@ async verifyAttendanceLock(userId: number) {
             const emailData = {
               user: user,
               backgroundImageLogo,
-              message: 'Has excedido el maximo de retardos al registrar la asistencia',
+              message: 'Has excedido el maximo de retardos al registrar la asistencia.',
             }
             await mail.send((message) => {
               message
@@ -3857,14 +3849,6 @@ async verifyAttendanceLock(userId: number) {
                 .from(userEmail, tradeName)
                 .subject('Registro de asistencia bloqueado')
                 .htmlView('emails/attendance_lock', emailData)
-            })
-            emailData.message = 'El empleado excedio el maximo de retardos al registrar la asistencia'
-            await mail.send((message) => {
-              message
-                .to(user.userEmail)
-                .from(userEmail, tradeName)
-                .subject('Registro de asistencia bloqueado')
-                .htmlView('emails/attendance_lock-rh', emailData)
             })
           }
         
