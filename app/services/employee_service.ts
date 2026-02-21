@@ -71,6 +71,29 @@ export default class EmployeeService {
     this.i18n = i18n
   }
 
+  /**
+   * Verifica si un valor de filtro (single o array) tiene contenido válido (> 0).
+   */
+  private hasFilterValue(value: number | number[] | null | undefined): boolean {
+    if (value === null || value === undefined) return false
+    if (Array.isArray(value)) return value.length > 0 && value.some((v) => v > 0)
+    return value > 0
+  }
+
+  /**
+   * Aplica un filtro WHERE o WHERE IN según si el valor es un número o un array de números.
+   */
+  private applyIdFilter(query: any, column: string, value: number | number[]): void {
+    if (Array.isArray(value)) {
+      const validIds = value.filter((v) => v > 0)
+      if (validIds.length > 0) {
+        query.whereIn(column, validIds)
+      }
+    } else if (value > 0) {
+      query.where(column, value)
+    }
+  }
+
   async syncCreate(employee: BiometricEmployeeInterface) {
     // Guardar el personId que viene del frontend
     let personIdToDelete = employee.personId || null
@@ -288,12 +311,11 @@ export default class EmployeeService {
           ])
         })
       })
-      .if(filters.departmentId && filters.departmentId > 0, (query) => {
-        query.where('department_id', filters.departmentId)
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
       })
-      .if(filters.departmentId  && filters.departmentId > 0 && filters.positionId  && filters.positionId > 0, (query) => {
-        query.where('department_id', filters.departmentId)
-        query.where('position_id', filters.positionId)
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .if(shiftStartTimeInit || shiftStartTimeEnd || shiftEndTimeStart || shiftEndTimeEnd, (query) => {
         query.whereHas('employeeShifts', (employeeShiftQuery) => {
@@ -966,9 +988,11 @@ export default class EmployeeService {
         ])
         query.orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
       })
-      .if(filters.departmentId && filters.positionId, (query) => {
-        query.where('department_id', filters.departmentId)
-        query.where('position_id', filters.positionId)
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
+      })
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereNotIn('person_id', persons)
       .preload('department')
@@ -1560,12 +1584,11 @@ export default class EmployeeService {
             })
         })
       })
-      .if(filters.departmentId, (query) => {
-        query.where('department_id', filters.departmentId)
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
       })
-      .if(filters.departmentId && filters.positionId, (query) => {
-        query.where('department_id', filters.departmentId)
-        query.where('position_id', filters.positionId)
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereHas('person', (personQuery) => {
         personQuery.whereNotNull('person_birthday')
@@ -1631,12 +1654,11 @@ export default class EmployeeService {
             })
         })
       })
-      .if(filters.departmentId, (query) => {
-        query.where('department_id', filters.departmentId)
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
       })
-      .if(filters.departmentId && filters.positionId, (query) => {
-        query.where('department_id', filters.departmentId)
-        query.where('position_id', filters.positionId)
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereNotNull('employee_hire_date')
       // Solo incluir empleados que empezaron antes del año especificado
@@ -1707,12 +1729,11 @@ export default class EmployeeService {
             })
         })
       })
-      .if(filters.departmentId, (query) => {
-        query.where('department_id', filters.departmentId)
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
       })
-      .if(filters.departmentId && filters.positionId, (query) => {
-        query.where('department_id', filters.departmentId)
-        query.where('position_id', filters.positionId)
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .preload('shift_exceptions', (exceptionQuery) => {
         exceptionQuery.whereNull('shift_exceptions_deleted_at')
@@ -1786,12 +1807,11 @@ export default class EmployeeService {
             })
         })
       })
-      .if(filters.departmentId, (query) => {
-        query.where('department_id', filters.departmentId)
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
       })
-      .if(filters.departmentId && filters.positionId, (query) => {
-        query.where('department_id', filters.departmentId)
-        query.where('position_id', filters.positionId)
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereHas('shift_exceptions', (exceptionQuery) => {
         exceptionQuery.whereNull('shift_exceptions_deleted_at')

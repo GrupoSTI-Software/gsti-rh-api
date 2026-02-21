@@ -37,6 +37,26 @@ import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 
 export default class EmployeeController {
   /**
+   * Parsea un valor de query param que puede ser un número único o una lista separada por comas.
+   * Retorna un número si es un solo valor, un array de números si son varios, o null si no hay valor.
+   */
+  private parseIdOrIds(value: any): number | number[] | null {
+    if (value === null || value === undefined || value === '') {
+      return null
+    }
+    const raw = String(value)
+    if (raw.includes(',')) {
+      const ids = raw
+        .split(',')
+        .map((v: string) => Number(v.trim()))
+        .filter((n: number) => !Number.isNaN(n) && n > 0)
+      return ids.length > 0 ? ids : null
+    }
+    const single = Number(raw)
+    return !Number.isNaN(single) && single > 0 ? single : null
+  }
+
+  /**
    * @swagger
    * /api/synchronization/employees:
    *   post:
@@ -539,8 +559,8 @@ export default class EmployeeController {
       }
 
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const employeeWorkSchedule = request.input('employeeWorkSchedule')
       const onlyInactive = request.input('onlyInactive')
       const employeeTypeId = request.input('employeeTypeId')
@@ -1221,7 +1241,7 @@ export default class EmployeeController {
         .withTrashed()
         .first()
 
-        if (!currentEmployee) {
+      if (!currentEmployee) {
         response.status(404)
 
         return {
@@ -1847,8 +1867,8 @@ export default class EmployeeController {
   async indexWithOutUser({ request, response, i18n }: HttpContext) {
     try {
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
       const filters = {
@@ -3088,8 +3108,8 @@ export default class EmployeeController {
         .whereIn('business_unit_slug', businessList)
       const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const search = request.qs().search
-      const departmentId = request.qs().departmentId
-      const positionId = request.qs().positionId
+      const departmentId = this.parseIdOrIds(request.qs().departmentId)
+      const positionId = this.parseIdOrIds(request.qs().positionId)
       const employeeId = request.qs().employeeId
       const filterStartDate = request.qs().startDate
       const filterEndDate = request.qs().endDate
@@ -3125,11 +3145,18 @@ export default class EmployeeController {
           query.where('employee_id', employeeId)
         })
         .if(departmentId, (query) => {
-          query.where('department_id', departmentId)
+          if (Array.isArray(departmentId)) {
+            query.whereIn('department_id', departmentId)
+          } else {
+            query.where('department_id', departmentId!)
+          }
         })
-        .if(departmentId && positionId, (query) => {
-          query.where('department_id', departmentId)
-          query.where('position_id', positionId)
+        .if(positionId, (query) => {
+          if (Array.isArray(positionId)) {
+            query.whereIn('position_id', positionId)
+          } else {
+            query.where('position_id', positionId!)
+          }
         })
         .if(onlyInactive && (onlyInactive === 'true' || onlyInactive === true), (query) => {
           query.whereNotNull('employee_deleted_at')
@@ -4066,96 +4093,96 @@ export default class EmployeeController {
     }
   }
 
- /**
-   * @swagger
-   * /api/employees/{employeeId}/banks:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Employees
-   *     summary: get banks by employee id
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
+  /**
+    * @swagger
+    * /api/employees/{employeeId}/banks:
+    *   get:
+    *     security:
+    *       - bearerAuth: []
+    *     tags:
+    *       - Employees
+    *     summary: get banks by employee id
+    *     responses:
+    *       '200':
+    *         description: Resource processed successfully
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Processed object
+    *       '404':
+    *         description: Resource not found
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       '400':
+    *         description: The parameters entered are invalid or essential data is missing to process the request
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       default:
+    *         description: Unexpected error
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Error message obtained
+    *                   properties:
+    *                     error:
+    *                       type: string
+    */
   async getZones({ request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
@@ -4335,8 +4362,8 @@ export default class EmployeeController {
         }
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
       const filters = {
         search: search,
@@ -4494,8 +4521,8 @@ export default class EmployeeController {
         }
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
       const filters = {
         search: search,
@@ -4653,8 +4680,8 @@ export default class EmployeeController {
         }
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
       const filters = {
         search: search,
@@ -4823,8 +4850,8 @@ export default class EmployeeController {
         departmentsList = await userService.getRoleDepartments(user.userId)
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const dateStart = request.input('dateStart')
       const dateEnd = request.input('dateEnd')
       const filters = {
