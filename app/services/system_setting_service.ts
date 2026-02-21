@@ -96,7 +96,7 @@ export default class SystemSettingService {
     const businessList = businessConf.split(',')
     let sistemSettingActive = null as SystemSetting | null
 
-    const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at')
+    const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at').preload('systemSettingTolerances')
 
     systemSettings.forEach((sistemSetting) => {
       const units = sistemSetting.systemSettingBusinessUnits

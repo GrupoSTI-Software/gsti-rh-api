@@ -18,7 +18,7 @@ router
     router.post('/', '#controllers/assists_controller.store')
     router.put('/:assistId/inactivate', '#controllers/assists_controller.inactivate')
     router.get('/websocket-docs', '#controllers/assists_controller.websocketDocs')
-    router.get('/verify-attendance-lock', '#controllers/assists_controller.verifyAttendanceLock')
+    router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
   })
   .use(middleware.auth())
   .prefix('/api/v1/assists')

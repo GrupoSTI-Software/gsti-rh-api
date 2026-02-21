@@ -6,6 +6,7 @@ import SystemSettingSystemModule from './system_setting_system_module.js'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import SystemSettingsEmployee from './system_settings_employee.js'
 import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
+import Tolerance from './tolerance.js'
 
 /**
  * @swagger
@@ -149,4 +150,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'systemSettingId',
   })
   declare systemSettingPayrollConfigs: HasMany<typeof SystemSettingPayrollConfig>
+
+  @hasMany(() => Tolerance, {
+    foreignKey: 'systemSettingId',
+  })
+  declare systemSettingTolerances: HasMany<typeof Tolerance>
 }

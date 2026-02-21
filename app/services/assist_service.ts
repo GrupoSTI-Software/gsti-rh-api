@@ -3728,7 +3728,7 @@ export default class AssistsService {
     return { faults, delays }
   }
 
-async verifyAttendanceLock(userId: number) {
+async verifyAttendanceLock(userId: number, type: string) {
     try {
       const systemSettingService = new SystemSettingService()
       const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
@@ -3805,70 +3805,76 @@ async verifyAttendanceLock(userId: number) {
           tradeName = systemSettingActive.systemSettingTradeName
         }
       }
-
-      if (maxAbsences) {
-        if (faults >= maxAbsences) {
-          if (userEmail) {
-            const emailData = {
-              user: user,
-              backgroundImageLogo,
-              message: 'Has excedido el maximo de faltas al registrar la asistencia.',
-            }
-            await mail.send((message) => {
-              message
-              .to(user.userEmail)
-                .from(userEmail, tradeName)
-                .subject('Registro de asistencia bloqueado')
-                .htmlView('emails/attendance_lock', emailData)
-            })
-          }
-          return {
-            status: 200,
-            type: 'warning',
-            title: 'Registro de asistencia bloqueado',
-            message: 'Has excedido el maximo de faltas al registrar la asistencia.',
-            data: {
-              locked: true,
-              type: 'absences',
-            }
-          }
-        }
-      }
-
-      if (maxTardiness) {
-        if (delays >= maxTardiness) {
-          if (userEmail) {
-            const emailData = {
-              user: user,
-              backgroundImageLogo,
-              message: 'Has excedido el maximo de retardos al registrar la asistencia.',
-            }
-            await mail.send((message) => {
-              message
+      if (type === 'absences') {
+        if (maxAbsences) {
+          if (faults >= maxAbsences) {
+            if (userEmail) {
+              const emailData = {
+                user: user,
+                backgroundImageLogo,
+                message: 'Has excedido el maximo de faltas al registrar la asistencia.',
+              }
+              await mail.send((message) => {
+                message
                 .to(user.userEmail)
-                .from(userEmail, tradeName)
-                .subject('Registro de asistencia bloqueado')
-                .htmlView('emails/attendance_lock', emailData)
-            })
+                  .from(userEmail, tradeName)
+                  .subject('Registro de asistencia bloqueado')
+                  .htmlView('emails/attendance_lock', emailData)
+              })
+              await this.sendEmailAttendanceLock(systemSettingActive, 'Ha excedido el maximo de faltas permitidas.', user)
+            }
+            return {
+              status: 200,
+              type: 'warning',
+              title: 'Registro de asistencia bloqueado',
+              message: 'Has excedido el maximo de faltas al registrar la asistencia.',
+              data: {
+                locked: true,
+                type: 'absences',
+              }
+            }
           }
-        
-          return {
-            status: 200,
-            type: 'warning',
-            title: 'Registro de asistencia bloqueado',
-            message: 'Has excedido el maximo de retardos al registrar la asistencia',
-            data: {
-              locked: true,
-              type: 'tardiness',
+        }
+      } else if (type === 'tardiness') {
+        if (maxTardiness) {
+          if (delays >= maxTardiness) {
+            if (userEmail) {
+              const emailData = {
+                user: user,
+                backgroundImageLogo,
+                message: 'Has excedido el maximo de retardos al registrar la asistencia.',
+              }
+              await mail.send((message) => {
+                message
+                  .to(user.userEmail)
+                  .from(userEmail, tradeName)
+                  .subject('Registro de asistencia bloqueado')
+                  .htmlView('emails/attendance_lock', emailData)
+              })
+
+              await this.sendEmailAttendanceLock(systemSettingActive, 'Ha excedido el maximo de retardos permitidos.', user)
+            }
+          
+            return {
+              status: 200,
+              type: 'warning',
+              title: 'Registro de asistencia bloqueado',
+              message: 'Has excedido el maximo de retardos al registrar la asistencia',
+              data: {
+                locked: true,
+                type: 'tardiness',
+              }
             }
           }
         }
       }
+
+     
       return {
         status: 200,
         type: 'success',
         title: 'Registro de asistencia',
-        message: 'El empleado no excedio el maximo de faltas o retardos antes',
+        message: 'El empleado no excedio el maximo de faltas o retardos antes de ser bloqueado.',
         data: {
           locked: false,
         }
@@ -3882,6 +3888,62 @@ async verifyAttendanceLock(userId: number) {
         message: 'Ocurrio un error al verificar el registro de asistencia',
         error: error.message,
       }
+    }
+  }
+  async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
+    let tradeName = 'BO'
+    const userEmail = env.get('SMTP_USERNAME')
+    if (!userEmail) {
+      console.error('Error to send email attendance lock: SMTP_USERNAME not found')
+      return
+    }
+    let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+    if (systemSettingActive) {
+      if ( systemSettingActive.systemSettingLogo) {
+        backgroundImageLogo = systemSettingActive.systemSettingLogo
+      }
+      if ( systemSettingActive.systemSettingTradeName) {
+        tradeName = systemSettingActive.systemSettingTradeName
+      }
+      const emailData = {
+        user: user,
+        backgroundImageLogo,
+        message: newMessage,
+      }
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+
+      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const departments = await Department.query()
+        .whereIn('businessUnitId', businessUnitsList)
+        .whereRaw('UPPER(department_name) LIKE ?', ['%CAPITAL HUMANO%'])
+        .orderBy('department_name', 'asc')
+
+        for await (const department of departments) {
+          const employees = await Employee.query()
+            .where('department_id', department.departmentId)
+            .whereNull('employee_deleted_at')
+            .preload('person', (query) => {
+              query.preload('user')
+            })
+            .orderBy('employee_id', 'asc')
+
+          for await (const employee of employees) {
+            const email = employee.person.user.userEmail
+            if (email) {
+               await mail.send((message) => {
+               message
+               .to(email)
+               .from(userEmail, tradeName)
+               .subject('Registro de asistencia bloqueado - Falta administrativa')
+               .htmlView('emails/attendance_lock_rh', emailData )
+              })
+            }
+          }
+        }
     }
   }
 }

@@ -2004,12 +2004,20 @@ socket.on('assist-registered', (data) => {
 
   /**
    * @swagger
-   * /api/v1/assists/verify-attendance-lock:
+   * /api/v1/assists/verify-attendance-lock/{type}:
    *   get:
    *     summary: verify attendance lock to user in the current month
    *     security:
    *       - bearerAuth: []
    *     tags: [Assists]
+   *     parameters:
+   *       - in: path
+   *         name: type
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Type of verification
+   *         example: "absences" or "tardiness"
    *     responses:
    *       200:
    *         description: Resource action successful
@@ -2070,12 +2078,13 @@ socket.on('assist-registered', (data) => {
    *                   type: string
    *                   example: An unexpected error has occurred on the server
    */
-  async verifyAttendanceLock({ response, i18n, auth }: HttpContext) {
+  async verifyAttendanceLock({ response, i18n, auth, request }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     const userId = auth.user?.userId
+    const type = request.param('type')
     try {
       const assistService = new AssistsService(i18n)
-      const result = await assistService.verifyAttendanceLock(userId as number)
+      const result = await assistService.verifyAttendanceLock(userId as number, type)
       return response.status(result.status).json(result)
     } catch (error) {
       response.status(500)
