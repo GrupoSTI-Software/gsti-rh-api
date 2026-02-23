@@ -51,6 +51,10 @@ export default class SystemSettingService {
     newSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
     newSystemSetting.systemSettingToleranceCountPerAbsence = systemSetting.systemSettingToleranceCountPerAbsence
     newSystemSetting.systemSettingRestrictFutureVacation = systemSetting.systemSettingRestrictFutureVacation
+    newSystemSetting.systemSettingMaxAbsencesBeforeAttendanceLock = systemSetting.systemSettingMaxAbsencesBeforeAttendanceLock
+    newSystemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock
+    newSystemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock = systemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock
+    newSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     await newSystemSetting.save()
     return newSystemSetting
   }
@@ -64,6 +68,10 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingActive = systemSetting.systemSettingActive
     currentSystemSetting.systemSettingToleranceCountPerAbsence = systemSetting.systemSettingToleranceCountPerAbsence
     currentSystemSetting.systemSettingRestrictFutureVacation = systemSetting.systemSettingRestrictFutureVacation
+    currentSystemSetting.systemSettingMaxAbsencesBeforeAttendanceLock = systemSetting.systemSettingMaxAbsencesBeforeAttendanceLock
+    currentSystemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock
+    currentSystemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock = systemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock
+    currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     await currentSystemSetting.save()
     return currentSystemSetting
   }
