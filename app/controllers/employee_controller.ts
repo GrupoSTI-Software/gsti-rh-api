@@ -6657,7 +6657,7 @@ export default class EmployeeController {
    *       - name: startDate
    *         in: query
    *         required: true
-   *         description: Fecha de inicio del periodo (formato: yyyy-MM-dd)
+   *         description: "Fecha de inicio del periodo (formato: yyyy-MM-dd)"
    *         schema:
    *           type: string
    *           format: date
@@ -6665,7 +6665,7 @@ export default class EmployeeController {
    *       - name: endDate
    *         in: query
    *         required: true
-   *         description: Fecha de fin del periodo (formato: yyyy-MM-dd)
+   *         description: "Fecha de fin del periodo (formato: yyyy-MM-dd)"
    *         schema:
    *           type: string
    *           format: date
