@@ -2001,4 +2001,99 @@ socket.on('assist-registered', (data) => {
       ],
     })
   }
+
+  /**
+   * @swagger
+   * /api/v1/assists/verify-attendance-lock/{type}:
+   *   get:
+   *     summary: verify attendance lock to user in the current month
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Assists]
+   *     parameters:
+   *       - in: path
+   *         name: type
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Type of verification
+   *         example: "absences" or "tardiness"
+   *     responses:
+   *       200:
+   *         description: Resource action successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               example: {}
+   *       400:
+   *         description: Bad request - missing or invalid parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: warning
+   *                 title:
+   *                   type: string
+   *                   example: Invalid parameters
+   *                 message:
+   *                   type: string
+   *                   example: Start date and end date are required
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Server Error
+   *                 message:
+   *                   type: string
+   *                   example: An unexpected error has occurred on the server
+   */
+  async verifyAttendanceLock({ response, i18n, auth, request }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    const userId = auth.user?.userId
+    const type = request.param('type')
+    try {
+      const assistService = new AssistsService(i18n)
+      const result = await assistService.verifyAttendanceLock(userId as number, type)
+      return response.status(result.status).json(result)
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
 }

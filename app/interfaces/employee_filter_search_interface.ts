@@ -2,8 +2,8 @@ interface EmployeeFilterSearchInterface {
   search: string
   page: number
   limit: number
-  departmentId: number
-  positionId: number
+  departmentId: number | number[]
+  positionId: number | number[]
   employeeWorkSchedule: string
   employeeTypeId?: number
   ignoreDiscriminated?: number

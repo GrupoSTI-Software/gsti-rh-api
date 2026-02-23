@@ -6,6 +6,7 @@ import SystemSettingSystemModule from './system_setting_system_module.js'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import SystemSettingsEmployee from './system_settings_employee.js'
 import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
+import Tolerance from './tolerance.js'
 
 /**
  * @swagger
@@ -53,8 +54,15 @@ import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
  *          systemSettingAnniversaryEmails:
  *            type: number
  *            description: System setting anniversary emails status to activate or deactivate the anniversary emails from the command "anniversary_email" by default is false as 0
- *          systemSettingCreatedAt:
+ *          systemSettingMaxAbsencesBeforeAttendanceLock:
+ *            type: number
+ *            description: System setting max absences before attendance lock
+ *          systemSettingMaxLateArrivalsBeforeAttendanceLock:
+ *            type: number
+ *            description: System setting max late arrivals before attendance lock
+ *          systemSettingPeriodAbsencesBeforeAttendanceLock:
  *            type: string
+ *            description: System setting period absences before attendance lock
  *          systemSettingUpdatedAt:
  *            type: string
  *          systemSettingDeletedAt:
@@ -101,6 +109,18 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   @column()
   declare systemSettingAnniversaryEmails: number | 0 // 0 for false, 1 for true
 
+  @column()
+  declare systemSettingMaxAbsencesBeforeAttendanceLock: number | null
+
+  @column()
+  declare systemSettingMaxLateArrivalsBeforeAttendanceLock: number | null
+
+  @column()
+  declare systemSettingPeriodAbsencesBeforeAttendanceLock: string
+
+  @column()
+  declare systemSettingPeriodLateArrivalsBeforeAttendanceLock: string
+
   @column.dateTime({ autoCreate: true })
   declare systemSettingCreatedAt: DateTime
 
@@ -129,4 +149,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'systemSettingId',
   })
   declare systemSettingPayrollConfigs: HasMany<typeof SystemSettingPayrollConfig>
+
+  @hasMany(() => Tolerance, {
+    foreignKey: 'systemSettingId',
+  })
+  declare systemSettingTolerances: HasMany<typeof Tolerance>
 }
