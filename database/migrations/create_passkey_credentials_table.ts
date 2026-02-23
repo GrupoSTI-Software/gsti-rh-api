@@ -13,7 +13,7 @@ export default class extends BaseSchema {
         .inTable('users')
         .onDelete('CASCADE')
         .notNullable()
-      table.text('passkey_credential_id_base64').notNullable().unique()
+      table.string('passkey_credential_id_base64', 512).notNullable().unique()
       table.text('passkey_credential_public_key').notNullable()
       table.bigInteger('passkey_credential_counter').defaultTo(0).notNullable()
       table.string('passkey_credential_device_name', 255).nullable()
@@ -27,7 +27,6 @@ export default class extends BaseSchema {
 
       // Índices para optimizar búsquedas
       table.index('user_id')
-      table.index('passkey_credential_id_base64')
     })
   }
 
