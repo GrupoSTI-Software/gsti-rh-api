@@ -2397,7 +2397,7 @@ export default class EmployeeService {
       // Si llegamos aquí, todos los registros tienen los campos requeridos
       // Ahora procesar todas las filas para validar y contar empleados nuevos
       let newEmployeesCount = 0
-      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null }> = []
+      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
       for (const { row, rowNumber } of rows) {
         results.totalRows++
@@ -2453,16 +2453,20 @@ export default class EmployeeService {
             continue
           }
 
-          // Buscar empleado existente por ID (columna oculta) o por número de nómina
+          // Referencia principal: ID de empleado (columna oculta). Con ID = actualizar; sin ID = crear.
+          const hasEmployeeId = employeeData.employeeId && Number(employeeData.employeeId) > 0
           const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
-          if (existingEmployee) {
-            // Para empleados existentes, no contamos para el límite
-            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
+          if (hasEmployeeId) {
+            if (existingEmployee) {
+              validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: true })
+            } else {
+              results.skipped++
+              results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeData.employeeId} no encontrado`)
+            }
           } else {
-            // Para empleados nuevos, contamos el total
             newEmployeesCount++
-            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
+            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: false })
           }
 
         } catch (error: any) {
@@ -2492,61 +2496,64 @@ export default class EmployeeService {
 
       // Si se alcanzó el límite, no procesar más empleados nuevos
       if (results.limitReached) {
-        // Procesar solo empleados existentes (actualizaciones)
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
-
-          if (existingEmployee) {
-            try {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-              results.updated++
-              results.processed++
-            } catch (error: any) {
-              results.skipped++
-              results.errors.push(`Fila ${rowNumber}: ${error.message}`)
-            }
-          } else {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
+          if (!isUpdate) {
             results.skipped++
             results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+            continue
+          }
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          if (!existingEmployee) continue
+          try {
+            await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+            results.updated++
+            results.processed++
+          } catch (error: any) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
           }
         }
       } else {
-        // Procesar todos los empleados (creaciones y actualizaciones)
-        const createdEmployees: Employee[] = [] // Array para almacenar empleados creados
+        const createdEmployees: Employee[] = []
 
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           try {
-            const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
-
-            if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-              results.updated++
-              results.processed++
-            } else {
-              // Generar código de empleado único si no se proporciona
-              let employeeCode = employeeData.employeeNumber
-              if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-                employeeCode = this.generateUniqueEmployeeCode(
-                  existingEmployeeCodes
-                )
+            if (isUpdate) {
+              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+              if (existingEmployee) {
+                await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+                results.updated++
+                results.processed++
               }
-              existingEmployeeCodes.push(employeeCode)
-
-              // Mapear departamento y posición usando búsqueda por similitud
-              const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-              const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-
-              const person = await this.createPerson(employeeData)
-              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
-              await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
-
-              // Agregar a la lista de empleados creados para enviar a biométricos
-              createdEmployees.push(newEmployee)
-
-              results.created++
-              results.processed++
+              continue
             }
 
+            // Crear nuevo empleado: verificar CURP duplicado antes de crear
+            if (employeeData.curp && String(employeeData.curp).trim() !== '') {
+              const curpExists = await this.personWithCurpExists(employeeData.curp)
+              if (curpExists) {
+                results.skipped++
+                results.errors.push(`Fila ${rowNumber}: CURP duplicado - ${employeeData.curp?.toString().trim()}`)
+                continue
+              }
+            }
+
+            let employeeCode = employeeData.employeeNumber
+            if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+              employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+            }
+            existingEmployeeCodes.push(employeeCode)
+
+            const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+            const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+            const person = await this.createPerson(employeeData)
+            const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+            await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+
+            createdEmployees.push(newEmployee)
+            results.created++
+            results.processed++
           } catch (error: any) {
             results.skipped++
             results.errors.push(`Fila ${rowNumber}: ${error.message}`)
@@ -2578,18 +2585,29 @@ export default class EmployeeService {
   }
 
   /**
-   * Buscar empleado existente para importación: primero por ID (columna oculta), luego por número de nómina
+   * Buscar empleado existente para importación solo por ID (columna oculta).
+   * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
    */
   private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
     if (employeeData.employeeId) {
-      const byId = existingEmployees.find((emp) => emp.employeeId === Number(employeeData.employeeId))
-      if (byId) return byId
+      const id = Number(employeeData.employeeId)
+      if (!Number.isNaN(id) && id > 0) {
+        return existingEmployees.find((emp) => emp.employeeId === id) ?? null
+      }
     }
-    return existingEmployees.find(
-      (emp) =>
-        emp.employeePayrollCode?.toString() === employeeData.employeeNumber ||
-        emp.employeeCode?.toString() === employeeData.employeeNumber
-    ) ?? null
+    return null
+  }
+
+  /**
+   * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
+   */
+  private async personWithCurpExists(curp: string): Promise<boolean> {
+    if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
+    const found = await Person.query()
+      .whereRaw('LOWER(TRIM(person_curp)) = ?', [curp.trim().toLowerCase()])
+      .whereNull('deletedAt')
+      .first()
+    return !!found
   }
 
   /**
@@ -5684,6 +5702,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * - Festividad: nombre de la festividad; si hay registros de asistencia se muestra como turno normal
    * - Falta para empleado regular: texto "Falta"; Incapacidad y Vacaciones indicados
    * - Departamento, puesto y nombre a la izquierda; resto centrado
+   * - Días u horas futuros (según hora de inicio del turno): se muestra "próximo" en gris claro, no como falta
    *
    * @param startDate - Fecha de inicio del periodo (formato: yyyy-MM-dd)
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
@@ -5726,6 +5745,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       dates.push(currentDate)
       currentDate = currentDate.plus({ days: 1 })
     }
+
+    // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
+    const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
 
     // Obtener unidades de negocio del ENV
     const businessConf = `${env.get('SYSTEM_BUSINESS')}`
@@ -5781,6 +5803,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
     const EMPLOYEE_INFO_BG = 'f2f2f2'
+
+    // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
+    const PROXIMO_BG = 'FFFFFF'
+    const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
     const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
@@ -6144,54 +6170,68 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Obtener texto y color para la celda (pasar empleado para discriminado y permisos)
-          const cellText = getDayCellText(dayData, employee)
-          let cellColor = 'FFFFFFFF' // Blanco por defecto
+          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno)
+          const cellDateUtc6 = date.setZone('UTC-6').startOf('day')
+          const isProximo =
+            dayData?.assist?.isFutureDay === true || cellDateUtc6 > todayStartUtc6
 
-          // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
-          if (isDiscriminated) {
-            cellColor = 'FFFFFFFF'
-          } else if (dayData && dayData.assist) {
-            const assist = dayData.assist
+          let cellText: string
+          let cellColor: string
 
-            // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
-            const isSpecialDay = assist.isRestDay ||
-                                 assist.isVacationDate ||
-                                 assist.isWorkDisabilityDate ||
-                                 assist.isHoliday ||
-                                 (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+          if (isProximo) {
+            cellText = 'próximo'
+            cellColor = PROXIMO_BG
+          } else {
+            // Obtener texto y color para la celda (pasar empleado para discriminado y permisos)
+            cellText = getDayCellText(dayData, employee)
+            cellColor = 'FFFFFFFF' // Blanco por defecto
 
-            if (isSpecialDay) {
+            // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
+            if (isDiscriminated) {
               cellColor = 'FFFFFFFF'
-            }
-            // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
-            else if (assist.dateShift) {
-              const checkInStatus = assist.checkInStatus || ''
-              const checkOutStatus = assist.checkOutStatus || ''
-              cellColor = getStatusColor(checkInStatus, checkOutStatus)
-              if (cellColor === 'FFFFFFFF' && assist.dateShift) {
-                cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
+            } else if (dayData && dayData.assist) {
+              const assist = dayData.assist
+
+              // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
+              const isSpecialDay = assist.isRestDay ||
+                                   assist.isVacationDate ||
+                                   assist.isWorkDisabilityDate ||
+                                   assist.isHoliday ||
+                                   (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+
+              if (isSpecialDay) {
+                cellColor = 'FFFFFFFF'
+              }
+              // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
+              else if (assist.dateShift) {
+                const checkInStatus = assist.checkInStatus || ''
+                const checkOutStatus = assist.checkOutStatus || ''
+                cellColor = getStatusColor(checkInStatus, checkOutStatus)
+                if (cellColor === 'FFFFFFFF' && assist.dateShift) {
+                  cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
+                }
+              } else {
+                cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
               }
             } else {
-              cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
+              cellColor = 'FFFFFFFF' // Sin datos o "---" → blanco
             }
-          } else {
-            cellColor = 'FFFFFFFF' // Sin datos o "---" → blanco
           }
 
           // Aplicar valor: si hay dos líneas (hora + turno), primera línea tamaño normal y turno más pequeño
           const cell = worksheet.getCell(currentRow, colNumber)
+          const textColor = isProximo ? PROXIMO_TEXT_COLOR : 'FF000000'
           if (cellText.includes('\n')) {
             const [line1, line2] = cellText.split('\n')
             cell.value = {
               richText: [
-                { font: { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }, text: line1 + '\n' },
-                { font: { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }, text: line2 }
+                { font: { name: 'Calibri', size: 9, color: { argb: textColor } }, text: line1 + '\n' },
+                { font: { name: 'Calibri', size: 9, color: { argb: textColor } }, text: line2 }
               ]
             }
           } else {
             cell.value = cellText
-            cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }
+            cell.font = { name: 'Calibri', size: 9, color: { argb: textColor } }
           }
           cell.fill = {
             type: 'pattern',

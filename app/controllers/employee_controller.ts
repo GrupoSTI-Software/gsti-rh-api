@@ -1277,10 +1277,21 @@ export default class EmployeeController {
           data: { ...data },
         }
       }
+      const previousEmail = currentEmployee.employeeBusinessEmail
 
       const updateEmployee = await employeeService.update(currentEmployee, employee)
 
       if (updateEmployee) {
+        const user = await User.query()
+          .where('person_id', currentEmployee.personId)
+          .where('user_email', previousEmail)
+          .whereNull('user_deleted_at')
+          .first()
+        if (user) {
+          user.userEmail = employee.employeeBusinessEmail
+          await user.save()
+        }
+
         response.status(201)
         return {
           type: 'success',
@@ -6673,7 +6684,7 @@ export default class EmployeeController {
    *       - name: startDate
    *         in: query
    *         required: true
-   *         description: Fecha de inicio del periodo (formato: yyyy-MM-dd)
+   *         description: "Fecha de inicio del periodo (formato: yyyy-MM-dd)"
    *         schema:
    *           type: string
    *           format: date
@@ -6681,7 +6692,7 @@ export default class EmployeeController {
    *       - name: endDate
    *         in: query
    *         required: true
-   *         description: Fecha de fin del periodo (formato: yyyy-MM-dd)
+   *         description: "Fecha de fin del periodo (formato: yyyy-MM-dd)"
    *         schema:
    *           type: string
    *           format: date
