@@ -62,7 +62,6 @@ import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
  *          systemSettingPeriodAbsencesBeforeAttendanceLock:
  *            type: string
  *            description: System setting period absences before attendance lock
- *            type: string
  *          systemSettingUpdatedAt:
  *            type: string
  *          systemSettingDeletedAt:
