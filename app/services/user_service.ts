@@ -44,7 +44,7 @@ export default class UserService {
       })
     const rolesIds = roles.map((item) => item.roleId)
 
-    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id']
+    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id', 'user_email_type']
     const users = await User.query()
       .whereNull('user_deleted_at')
       .whereIn('role_id', rolesIds)
@@ -91,6 +91,7 @@ export default class UserService {
     newUser.roleId = user.roleId
     newUser.personId = user.personId
     newUser.userBusinessAccess = user.userBusinessAccess
+    newUser.userEmailType = user.userEmailType
     await newUser.save()
     return newUser
   }
@@ -103,6 +104,7 @@ export default class UserService {
     currentUser.userActive = user.userActive
     currentUser.roleId = user.roleId
     currentUser.personId = user.personId
+    currentUser.userEmailType = user.userEmailType
     await currentUser.save()
     if (!user.userActive) {
       await ApiToken.query().where('tokenable_id', currentUser.userId).delete()
@@ -123,7 +125,7 @@ export default class UserService {
   }
 
   async show(userId: number) {
-    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id']
+    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id', 'user_email_type']
     const user = await User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)

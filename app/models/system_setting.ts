@@ -63,7 +63,6 @@ import Tolerance from './tolerance.js'
  *          systemSettingPeriodAbsencesBeforeAttendanceLock:
  *            type: string
  *            description: System setting period absences before attendance lock
- *            type: string
  *          systemSettingUpdatedAt:
  *            type: string
  *          systemSettingDeletedAt:
