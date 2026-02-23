@@ -7,6 +7,7 @@ import {
 import { DateTime } from 'luxon'
 import EmployeeShiftService from '#services/employee_shift_service'
 import { EmployeeShiftFilterInterface } from '../interfaces/employee_shift_filter_interface.js'
+import Shift from '#models/shift'
 
 export default class EmployeeShiftController {
   /**
@@ -179,6 +180,13 @@ export default class EmployeeShiftController {
       const rawHeaders = request.request.rawHeaders
       const userId = auth.user?.userId
       if (userId) {
+        const shift = await Shift.query()
+          .where('shift_id', shiftId)
+          .first()
+        if (shift) {
+          const dateFormat = DateTime.fromJSDate(new Date(employeeShiftDate)).setZone('UTC').setLocale(i18n.locale).toFormat('EEEE dd MMMM, yyyy')
+          await employeeShiftService.sendNotificationToUser(userId, dateFormat, shift)
+        }
         const logEmployeeShift = await employeeShiftService.createActionLog(rawHeaders, 'store')
         logEmployeeShift.user_id = userId
         logEmployeeShift.record_current = JSON.parse(JSON.stringify(newEmployeeShift))

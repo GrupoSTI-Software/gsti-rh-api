@@ -17,6 +17,8 @@ import SystemSetting from '#models/system_setting'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
+import Person from '#models/person'
+import Employee from '#models/employee'
 
 export default class UserController {
   /**
@@ -579,6 +581,11 @@ export default class UserController {
    *                 type: string
    *                 description: User email
    *                 default: ''
+   *               isApp:
+   *                 type: boolean
+   *                 description: Is app
+   *                 default: false
+   *                 required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -663,6 +670,7 @@ export default class UserController {
   async recoveryPassword({ request, response }: HttpContext) {
     try {
       const url = request.header('origin')
+      const isApp = request.all().isApp
       if (url) {
         const hostData = this.getUrlInfo(url)
         const user = await User.query()
@@ -681,6 +689,10 @@ export default class UserController {
           }
         }
         user.userToken = encrypted
+        if (isApp) {
+          const pinCode = Math.floor(100000 + Math.random() * 900000)
+          user.pinCode = pinCode.toString()
+        }
         user.save()
         let tradeName = 'BO'
         let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
@@ -699,6 +711,8 @@ export default class UserController {
           token: user.userToken,
           host_data: hostData,
           backgroundImageLogo,
+          isApp,
+          pinCode: user.pinCode,
         }
         const userEmail = env.get('SMTP_USERNAME')
         if (userEmail) {
@@ -990,6 +1004,7 @@ export default class UserController {
         : userPassword
       user.userPassword = userPassword
       user.userToken = ''
+      user.pinCode = ''
       user.save()
       const url = request.header('origin')
       if (url) {
@@ -1208,6 +1223,11 @@ export default class UserController {
    *                 description: Person id
    *                 required: true
    *                 default: ''
+   *               userTypeEmail:
+   *                 type: string
+   *                 description: User type email
+   *                 required: true
+   *                 default: 'institutional'
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1301,6 +1321,7 @@ export default class UserController {
       const roleId = request.input('roleId')
       const personId = request.input('personId')
       const systemBussines = env.get('SYSTEM_BUSINESS')
+      const userEmailType = request.input('userEmailType')
       const user = {
         userEmail: userEmail,
         userPassword: userPassword,
@@ -1308,6 +1329,7 @@ export default class UserController {
         roleId: roleId,
         personId: personId,
         userBusinessAccess: systemBussines,
+        userEmailType: userEmailType
       } as User
       const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
@@ -1323,6 +1345,26 @@ export default class UserController {
       }
       const newUser = await userService.create(user)
       if (newUser) {
+        if (newUser.userEmailType === 'personal') {
+          const person = await Person.query()
+            .where('person_id', personId)
+            .whereNull('person_deleted_at')
+            .first()
+          if (person) {
+            person.personEmail = newUser.userEmail
+            await person.save()
+          }
+        } else {
+          const employee = await Employee.query()
+            .where('person_id', personId)
+            .whereNull('employee_deleted_at')
+            .first()
+          if (employee) {
+            employee.employeeBusinessEmail = newUser.userEmail
+            await employee.save()
+          }
+        }
+
         const rawHeaders = request.request.rawHeaders
         const userId = auth.user?.userId
         if (userId) {
@@ -1405,6 +1447,11 @@ export default class UserController {
    *                 description: Person id
    *                 required: true
    *                 default: ''
+   *               userTypeEmail:
+   *                 type: string
+   *                 description: User type email
+   *                 required: true
+   *                 default: 'institutional'
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1501,6 +1548,7 @@ export default class UserController {
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
+      const userEmailType = request.input('userEmailType')
       const user = {
         userId: userId,
         userEmail: userEmail,
@@ -1508,6 +1556,7 @@ export default class UserController {
         userActive: userActive,
         roleId: roleId,
         personId: personId,
+        userEmailType: userEmailType,
       } as User
       if (!userId) {
         response.status(400)
@@ -1546,6 +1595,25 @@ export default class UserController {
       }
       const updateUser = await userService.update(currentUser, user)
       if (updateUser) {
+        if (updateUser.userEmailType === 'personal') {
+          const person = await Person.query()
+            .where('person_id', personId)
+            .whereNull('person_deleted_at')
+            .first()
+          if (person) {
+            person.personEmail = updateUser.userEmail
+            await person.save()
+          }
+        } else {
+          const employee = await Employee.query()
+            .where('person_id', personId)
+            .whereNull('employee_deleted_at')
+            .first()
+          if (employee) {
+            employee.employeeBusinessEmail = updateUser.userEmail
+            await employee.save()
+          }
+        }
         const rawHeaders = request.request.rawHeaders
         const tokenUserId = auth.user?.userId
         if (tokenUserId) {
@@ -2210,6 +2278,139 @@ export default class UserController {
         title: 'Users',
         message: 'The employees assigned were found successfully',
         data: { data: employeesAssigned },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/auth/request/code-verify/{pinCode}:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Users
+   *     summary: verify password recovery code
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: pinCode
+   *         schema:
+   *           type: string
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async verifyRequestPinCode({ params, response }: HttpContext) {
+    try {
+      const user = await User.query()
+        .where('pin_code', params.pinCode)
+        .whereNull('user_deleted_at')
+        .first()
+      if (!user) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Pin code verification',
+          message: 'Invalid pin code',
+          data: {},
+        }
+      }
+      user.pinCode = ''
+      await user.save()
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Pin code verification',
+        message: 'The pin code is valid',
+        data: { user: user, token: user.userToken },
       }
     } catch (error) {
       response.status(500)

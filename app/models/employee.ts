@@ -231,6 +231,9 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
 
   @belongsTo(() => Person, {
     foreignKey: 'personId',
+    onQuery: (query) => {
+      query.preload('user')
+    },
   })
   declare person: BelongsTo<typeof Person>
 

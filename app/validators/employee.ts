@@ -10,12 +10,17 @@ export const createEmployeeValidator = vine.compile(
       .minLength(1)
       .maxLength(200)
       .unique(async (_db, value) => {
+        // Solo validar unicidad si el valor está presente y no está vacío
+        if (!value || value.trim() === '') {
+          return true
+        }
         const existingCode = await Employee.query()
           .where('employee_code', value)
           .whereNull('employee_deleted_at')
           .first()
         return !existingCode
-      }),
+      })
+      .optional(),
     employeeFirstName: vine.string().trim().minLength(0).maxLength(25).optional(),
     employeeLastName: vine.string().trim().minLength(0).maxLength(25).optional(),
     employeeSecondLastName: vine.string().trim().minLength(0).maxLength(25).optional(),

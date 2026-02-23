@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
 import env from '#start/env'
@@ -35,6 +36,26 @@ import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 // const client = wrapper(axios.create({ jar }))
 
 export default class EmployeeController {
+  /**
+   * Parsea un valor de query param que puede ser un número único o una lista separada por comas.
+   * Retorna un número si es un solo valor, un array de números si son varios, o null si no hay valor.
+   */
+  private parseIdOrIds(value: any): number | number[] | null {
+    if (value === null || value === undefined || value === '') {
+      return null
+    }
+    const raw = String(value)
+    if (raw.includes(',')) {
+      const ids = raw
+        .split(',')
+        .map((v: string) => Number(v.trim()))
+        .filter((n: number) => !Number.isNaN(n) && n > 0)
+      return ids.length > 0 ? ids : null
+    }
+    const single = Number(raw)
+    return !Number.isNaN(single) && single > 0 ? single : null
+  }
+
   /**
    * @swagger
    * /api/synchronization/employees:
@@ -538,8 +559,8 @@ export default class EmployeeController {
       }
 
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const employeeWorkSchedule = request.input('employeeWorkSchedule')
       const onlyInactive = request.input('onlyInactive')
       const employeeTypeId = request.input('employeeTypeId')
@@ -1220,7 +1241,7 @@ export default class EmployeeController {
         .withTrashed()
         .first()
 
-        if (!currentEmployee) {
+      if (!currentEmployee) {
         response.status(404)
 
         return {
@@ -1256,10 +1277,21 @@ export default class EmployeeController {
           data: { ...data },
         }
       }
+      const previousEmail = currentEmployee.employeeBusinessEmail
 
       const updateEmployee = await employeeService.update(currentEmployee, employee)
 
       if (updateEmployee) {
+        const user = await User.query()
+          .where('person_id', currentEmployee.personId)
+          .where('user_email', previousEmail)
+          .whereNull('user_deleted_at')
+          .first()
+        if (user) {
+          user.userEmail = employee.employeeBusinessEmail
+          await user.save()
+        }
+
         response.status(201)
         return {
           type: 'success',
@@ -1846,8 +1878,8 @@ export default class EmployeeController {
   async indexWithOutUser({ request, response, i18n }: HttpContext) {
     try {
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
       const filters = {
@@ -3087,8 +3119,8 @@ export default class EmployeeController {
         .whereIn('business_unit_slug', businessList)
       const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const search = request.qs().search
-      const departmentId = request.qs().departmentId
-      const positionId = request.qs().positionId
+      const departmentId = this.parseIdOrIds(request.qs().departmentId)
+      const positionId = this.parseIdOrIds(request.qs().positionId)
       const employeeId = request.qs().employeeId
       const filterStartDate = request.qs().startDate
       const filterEndDate = request.qs().endDate
@@ -3124,11 +3156,18 @@ export default class EmployeeController {
           query.where('employee_id', employeeId)
         })
         .if(departmentId, (query) => {
-          query.where('department_id', departmentId)
+          if (Array.isArray(departmentId)) {
+            query.whereIn('department_id', departmentId)
+          } else {
+            query.where('department_id', departmentId!)
+          }
         })
-        .if(departmentId && positionId, (query) => {
-          query.where('department_id', departmentId)
-          query.where('position_id', positionId)
+        .if(positionId, (query) => {
+          if (Array.isArray(positionId)) {
+            query.whereIn('position_id', positionId)
+          } else {
+            query.where('position_id', positionId!)
+          }
         })
         .if(onlyInactive && (onlyInactive === 'true' || onlyInactive === true), (query) => {
           query.whereNotNull('employee_deleted_at')
@@ -3276,16 +3315,54 @@ export default class EmployeeController {
    *       500:
    *         description: Error al generar la plantilla
    */
-  async getTemplateExcel({ response, i18n }: HttpContext) {
+  async getTemplateExcel({ request, response, i18n }: HttpContext) {
     try {
+      const fillWithExisting = request.input('fillWithExisting') === true ||
+        request.input('fillWithExisting') === '1' ||
+        request.input('fillWithExisting') === 'true'
+
+      const departmentIdParam = request.input('departmentId')
+      const positionIdParam = request.input('positionId')
+      const departmentId = departmentIdParam !== undefined && departmentIdParam !== '' ? Number(departmentIdParam) : undefined
+      const positionId = positionIdParam !== undefined && positionIdParam !== '' ? Number(positionIdParam) : undefined
+
+      if (positionId !== undefined && !Number.isNaN(positionId)) {
+        if (departmentId === undefined || Number.isNaN(departmentId)) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validación',
+            message: 'Si se envía posición (positionId) debe enviarse también un departamento válido (departmentId) al que pertenezca esa posición.',
+          }
+        }
+        const positionInDepartment = await DepartmentPosition.query()
+          .where('departmentId', departmentId)
+          .where('positionId', positionId)
+          .whereNull('deletedAt')
+          .first()
+        if (!positionInDepartment) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validación',
+            message: 'La posición indicada no pertenece al departamento indicado. Envíe un departmentId y positionId válidos (la posición debe estar asignada a ese departamento).',
+          }
+        }
+      }
+
       const employeeService = new EmployeeService(i18n)
-      const buffer = await employeeService.generateEmployeeImportTemplate()
+      const buffer = await employeeService.generateEmployeeImportTemplate({
+        fillWithExisting,
+        departmentId: departmentId !== undefined && !Number.isNaN(departmentId) ? departmentId : undefined,
+        positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
+      })
 
       response.header(
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', 'attachment; filename=plantilla-importacion-empleados.xlsx')
+      const filename = fillWithExisting ? 'plantilla-empleados-con-datos.xlsx' : 'plantilla-importacion-empleados.xlsx'
+      response.header('Content-Disposition', `attachment; filename=${filename}`)
       response.status(200)
       response.send(buffer)
     } catch (error: any) {
@@ -4027,96 +4104,96 @@ export default class EmployeeController {
     }
   }
 
- /**
-   * @swagger
-   * /api/employees/{employeeId}/banks:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Employees
-   *     summary: get banks by employee id
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
+  /**
+    * @swagger
+    * /api/employees/{employeeId}/banks:
+    *   get:
+    *     security:
+    *       - bearerAuth: []
+    *     tags:
+    *       - Employees
+    *     summary: get banks by employee id
+    *     responses:
+    *       '200':
+    *         description: Resource processed successfully
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Processed object
+    *       '404':
+    *         description: Resource not found
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       '400':
+    *         description: The parameters entered are invalid or essential data is missing to process the request
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       default:
+    *         description: Unexpected error
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Error message obtained
+    *                   properties:
+    *                     error:
+    *                       type: string
+    */
   async getZones({ request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
@@ -4296,8 +4373,8 @@ export default class EmployeeController {
         }
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
       const filters = {
         search: search,
@@ -4455,8 +4532,8 @@ export default class EmployeeController {
         }
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
       const filters = {
         search: search,
@@ -4614,8 +4691,8 @@ export default class EmployeeController {
         }
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
       const filters = {
         search: search,
@@ -4784,8 +4861,8 @@ export default class EmployeeController {
         departmentsList = await userService.getRoleDepartments(user.userId)
       }
       const search = request.input('search')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
       const dateStart = request.input('dateStart')
       const dateEnd = request.input('dateEnd')
       const filters = {
@@ -6579,6 +6656,235 @@ export default class EmployeeController {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al generar la plantilla',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/attendance-report:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Generar reporte de asistencia en Excel
+   *     description: |
+   *       Genera un reporte de asistencia en Excel agrupado por departamento.
+   *       Muestra empleados con sus turnos y colores según el estado de asistencia.
+   *       - Verde: ontime
+   *       - Azul: tolerance
+   *       - Naranja: delay
+   *       - Rojo: fault
+   *       - Blanco: excepciones, festividades, vacaciones
+   *     produces:
+   *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   *     parameters:
+   *       - name: startDate
+   *         in: query
+   *         required: true
+   *         description: "Fecha de inicio del periodo (formato: yyyy-MM-dd)"
+   *         schema:
+   *           type: string
+   *           format: date
+   *           example: "2024-10-01"
+   *       - name: endDate
+   *         in: query
+   *         required: true
+   *         description: "Fecha de fin del periodo (formato: yyyy-MM-dd)"
+   *         schema:
+   *           type: string
+   *           format: date
+   *           example: "2024-10-31"
+   *       - name: departmentIds
+   *         in: query
+   *         required: false
+   *         description: IDs de departamentos a filtrar (separados por comas)
+   *         schema:
+   *           type: string
+   *           example: "1,2,3"
+   *       - name: employeeIds
+   *         in: query
+   *         required: false
+   *         description: IDs de empleados a filtrar (separados por comas)
+   *         schema:
+   *           type: string
+   *           example: "1,2,3"
+   *     responses:
+   *       '200':
+   *         description: Archivo Excel generado exitosamente
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       '400':
+   *         description: Error de validación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *       '500':
+   *         description: Error del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: string
+   */
+  async getAttendanceReport({ auth, request, response, i18n }: HttpContext) {
+    try {
+      await auth.check()
+
+      const startDate = request.input('startDate')
+      const endDate = request.input('endDate')
+      const departmentIdsParam = request.input('departmentIds')
+      const employeeIdsParam = request.input('employeeIds')
+
+      // Validar que las fechas sean proporcionadas
+      if (!startDate || !endDate) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Las fechas de inicio (startDate) y fin (endDate) son requeridas',
+        }
+      }
+
+      // Validar formato de fechas
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+      if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Validation error',
+          message: 'Las fechas deben tener el formato yyyy-MM-dd (ejemplo: 2024-10-01)',
+        }
+      }
+
+      // Parsear departmentIds si se proporciona
+      let departmentIds: number[] | undefined
+      if (departmentIdsParam) {
+        try {
+          if (Array.isArray(departmentIdsParam)) {
+            departmentIds = departmentIdsParam.map((id) => {
+              const numId = typeof id === 'string' ? Number.parseInt(id, 10) : id
+              if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                throw new Error('IDs inválidos')
+              }
+              return numId
+            })
+          } else if (typeof departmentIdsParam === 'string') {
+            departmentIds = departmentIdsParam
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length > 0)
+              .map((id) => {
+                const numId = Number.parseInt(id, 10)
+                if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                  throw new Error('IDs inválidos')
+                }
+                return numId
+              })
+          } else {
+            const numId = typeof departmentIdsParam === 'number' ? departmentIdsParam : Number.parseInt(String(departmentIdsParam), 10)
+            if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+              throw new Error('ID inválido')
+            }
+            departmentIds = [numId]
+          }
+        } catch (error: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: 'departmentIds debe ser una cadena de números separados por comas (ejemplo: "1,2,3") o un número',
+          }
+        }
+      }
+
+      // Parsear employeeIds si se proporciona
+      let employeeIds: number[] | undefined
+      if (employeeIdsParam) {
+        try {
+          if (Array.isArray(employeeIdsParam)) {
+            employeeIds = employeeIdsParam.map((id) => {
+              const numId = typeof id === 'string' ? Number.parseInt(id, 10) : id
+              if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                throw new Error('IDs inválidos')
+              }
+              return numId
+            })
+          } else if (typeof employeeIdsParam === 'string') {
+            employeeIds = employeeIdsParam
+              .split(',')
+              .map((id) => id.trim())
+              .filter((id) => id.length > 0)
+              .map((id) => {
+                const numId = Number.parseInt(id, 10)
+                if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+                  throw new Error('IDs inválidos')
+                }
+                return numId
+              })
+          } else {
+            const numId = typeof employeeIdsParam === 'number' ? employeeIdsParam : Number.parseInt(String(employeeIdsParam), 10)
+            if (Number.isNaN(numId) || !Number.isInteger(numId)) {
+              throw new Error('ID inválido')
+            }
+            employeeIds = [numId]
+          }
+        } catch (error: any) {
+          response.status(400)
+          return {
+            type: 'error',
+            title: 'Validation error',
+            message: 'employeeIds debe ser una cadena de números separados por comas (ejemplo: "1,2,3") o un número',
+          }
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const buffer = await employeeService.generateAttendanceReport(
+        startDate,
+        endDate,
+        departmentIds,
+        employeeIds
+      )
+
+      // Configurar headers para la descarga del archivo
+      response.header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      response.header(
+        'Content-Disposition',
+        `attachment; filename="reporte-asistencia-${startDate}-${endDate}.xlsx"`
+      )
+      response.status(200)
+      return response.send(buffer)
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'Ocurrió un error inesperado al generar el reporte de asistencia',
         error: error.message,
       }
     }
