@@ -3,6 +3,7 @@ import { createPersonValidator, updatePersonValidator } from '../validators/pers
 import Person from '#models/person'
 import PersonService from '#services/person_service'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
+import User from '#models/user'
 
 export default class PersonController {
   /**
@@ -566,6 +567,7 @@ export default class PersonController {
           data: { ...person },
         }
       }
+      const previousEmail = currentPerson.personEmail
       const personService = new PersonService(i18n)
       const data = await request.validateUsing(updatePersonValidator)
       const verifyInfo = await personService.verifyInfo(person)
@@ -580,6 +582,15 @@ export default class PersonController {
       }
       const updatePerson = await personService.update(currentPerson, person)
       if (updatePerson) {
+        const user = await User.query()
+          .where('person_id', currentPerson.personId)
+          .where('user_email', previousEmail)
+          .whereNull('user_deleted_at')
+          .first()
+        if (user) {
+          user.userEmail = person.personEmail
+          await user.save()
+        }
         response.status(201)
         return {
           type: 'success',
