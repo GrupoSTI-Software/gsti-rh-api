@@ -2377,7 +2377,7 @@ export default class EmployeeService {
       // Si llegamos aquí, todos los registros tienen los campos requeridos
       // Ahora procesar todas las filas para validar y contar empleados nuevos
       let newEmployeesCount = 0
-      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null }> = []
+      const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
       for (const { row, rowNumber } of rows) {
         results.totalRows++
@@ -2433,16 +2433,20 @@ export default class EmployeeService {
             continue
           }
 
-          // Buscar empleado existente por ID (columna oculta) o por número de nómina
+          // Referencia principal: ID de empleado (columna oculta). Con ID = actualizar; sin ID = crear.
+          const hasEmployeeId = employeeData.employeeId && Number(employeeData.employeeId) > 0
           const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
 
-          if (existingEmployee) {
-            // Para empleados existentes, no contamos para el límite
-            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
+          if (hasEmployeeId) {
+            if (existingEmployee) {
+              validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: true })
+            } else {
+              results.skipped++
+              results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeData.employeeId} no encontrado`)
+            }
           } else {
-            // Para empleados nuevos, contamos el total
             newEmployeesCount++
-            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId })
+            validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: false })
           }
 
         } catch (error: any) {
@@ -2472,61 +2476,64 @@ export default class EmployeeService {
 
       // Si se alcanzó el límite, no procesar más empleados nuevos
       if (results.limitReached) {
-        // Procesar solo empleados existentes (actualizaciones)
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
-
-          if (existingEmployee) {
-            try {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-              results.updated++
-              results.processed++
-            } catch (error: any) {
-              results.skipped++
-              results.errors.push(`Fila ${rowNumber}: ${error.message}`)
-            }
-          } else {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
+          if (!isUpdate) {
             results.skipped++
             results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+            continue
+          }
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          if (!existingEmployee) continue
+          try {
+            await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+            results.updated++
+            results.processed++
+          } catch (error: any) {
+            results.skipped++
+            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
           }
         }
       } else {
-        // Procesar todos los empleados (creaciones y actualizaciones)
-        const createdEmployees: Employee[] = [] // Array para almacenar empleados creados
+        const createdEmployees: Employee[] = []
 
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId } of validRows) {
+        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           try {
-            const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
-
-            if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-              results.updated++
-              results.processed++
-            } else {
-              // Generar código de empleado único si no se proporciona
-              let employeeCode = employeeData.employeeNumber
-              if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-                employeeCode = this.generateUniqueEmployeeCode(
-                  existingEmployeeCodes
-                )
+            if (isUpdate) {
+              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+              if (existingEmployee) {
+                await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+                results.updated++
+                results.processed++
               }
-              existingEmployeeCodes.push(employeeCode)
-
-              // Mapear departamento y posición usando búsqueda por similitud
-              const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-              const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-
-              const person = await this.createPerson(employeeData)
-              const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
-              await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
-
-              // Agregar a la lista de empleados creados para enviar a biométricos
-              createdEmployees.push(newEmployee)
-
-              results.created++
-              results.processed++
+              continue
             }
 
+            // Crear nuevo empleado: verificar CURP duplicado antes de crear
+            if (employeeData.curp && String(employeeData.curp).trim() !== '') {
+              const curpExists = await this.personWithCurpExists(employeeData.curp)
+              if (curpExists) {
+                results.skipped++
+                results.errors.push(`Fila ${rowNumber}: CURP duplicado - ${employeeData.curp?.toString().trim()}`)
+                continue
+              }
+            }
+
+            let employeeCode = employeeData.employeeNumber
+            if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+              employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+            }
+            existingEmployeeCodes.push(employeeCode)
+
+            const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+            const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+            const person = await this.createPerson(employeeData)
+            const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+            await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+
+            createdEmployees.push(newEmployee)
+            results.created++
+            results.processed++
           } catch (error: any) {
             results.skipped++
             results.errors.push(`Fila ${rowNumber}: ${error.message}`)
@@ -2558,18 +2565,29 @@ export default class EmployeeService {
   }
 
   /**
-   * Buscar empleado existente para importación: primero por ID (columna oculta), luego por número de nómina
+   * Buscar empleado existente para importación solo por ID (columna oculta).
+   * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
    */
   private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
     if (employeeData.employeeId) {
-      const byId = existingEmployees.find((emp) => emp.employeeId === Number(employeeData.employeeId))
-      if (byId) return byId
+      const id = Number(employeeData.employeeId)
+      if (!Number.isNaN(id) && id > 0) {
+        return existingEmployees.find((emp) => emp.employeeId === id) ?? null
+      }
     }
-    return existingEmployees.find(
-      (emp) =>
-        emp.employeePayrollCode?.toString() === employeeData.employeeNumber ||
-        emp.employeeCode?.toString() === employeeData.employeeNumber
-    ) ?? null
+    return null
+  }
+
+  /**
+   * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
+   */
+  private async personWithCurpExists(curp: string): Promise<boolean> {
+    if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
+    const found = await Person.query()
+      .whereRaw('LOWER(TRIM(person_curp)) = ?', [curp.trim().toLowerCase()])
+      .whereNull('deletedAt')
+      .first()
+    return !!found
   }
 
   /**
