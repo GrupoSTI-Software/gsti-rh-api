@@ -3304,6 +3304,37 @@ export default class EmployeeController {
    *     description: Genera un archivo Excel con los encabezados necesarios y dropdowns para facilitar la importación masiva de empleados
    *     produces:
    *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   *     parameters:
+   *       - in: query
+   *         name: fillWithExisting
+   *         required: false
+   *         schema:
+   *           type: boolean
+   *         description: Si es true, la plantilla se llena con los empleados existentes (aplicando filtros si se envían).
+   *       - in: query
+   *         name: departmentId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Filtro opcional; solo empleados de este departamento (cuando fillWithExisting es true).
+   *       - in: query
+   *         name: positionId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Filtro opcional; solo empleados con esta posición (requiere departmentId; cuando fillWithExisting es true).
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Filtro opcional; solo empleados de esta unidad de negocio de trabajo (cuando fillWithExisting es true).
+   *       - in: query
+   *         name: payrollBusinessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Filtro opcional; solo empleados de esta unidad de negocio de nómina (cuando fillWithExisting es true).
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -3323,8 +3354,12 @@ export default class EmployeeController {
 
       const departmentIdParam = request.input('departmentId')
       const positionIdParam = request.input('positionId')
+      const businessUnitIdParam = request.input('businessUnitId')
+      const payrollBusinessUnitIdParam = request.input('payrollBusinessUnitId')
       const departmentId = departmentIdParam !== undefined && departmentIdParam !== '' ? Number(departmentIdParam) : undefined
       const positionId = positionIdParam !== undefined && positionIdParam !== '' ? Number(positionIdParam) : undefined
+      const businessUnitId = businessUnitIdParam !== undefined && businessUnitIdParam !== '' ? Number(businessUnitIdParam) : undefined
+      const payrollBusinessUnitId = payrollBusinessUnitIdParam !== undefined && payrollBusinessUnitIdParam !== '' ? Number(payrollBusinessUnitIdParam) : undefined
 
       if (positionId !== undefined && !Number.isNaN(positionId)) {
         if (departmentId === undefined || Number.isNaN(departmentId)) {
@@ -3355,6 +3390,8 @@ export default class EmployeeController {
         fillWithExisting,
         departmentId: departmentId !== undefined && !Number.isNaN(departmentId) ? departmentId : undefined,
         positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
+        businessUnitId: businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
+        payrollBusinessUnitId: payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
       })
 
       response.header(
@@ -6494,6 +6531,18 @@ export default class EmployeeController {
    *           type: boolean
    *         description: Si es true, genera un reporte mostrando los turnos asignados actuales con colores (solo lectura). Si es false o no se proporciona, genera un template editable.
    *         example: true
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Filtro opcional; solo incluir empleados de esta unidad de negocio de trabajo.
+   *       - in: query
+   *         name: payrollBusinessUnitId
+   *         required: false
+   *         schema:
+   *           type: integer
+   *         description: Filtro opcional; solo incluir empleados de esta unidad de negocio de nómina.
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -6552,6 +6601,8 @@ export default class EmployeeController {
       const endDate = request.input('endDate')
       const employeeIdsParam = request.input('employeeIds')
       const isReportParam = request.input('isReport')
+      const businessUnitIdParam = request.input('businessUnitId')
+      const payrollBusinessUnitIdParam = request.input('payrollBusinessUnitId')
 
       // Convertir isReport a boolean
       const isReport = isReportParam === 'true' || isReportParam === true
@@ -6631,12 +6682,17 @@ export default class EmployeeController {
         }
       }
 
+      const businessUnitId = businessUnitIdParam !== undefined && businessUnitIdParam !== '' ? Number(businessUnitIdParam) : undefined
+      const payrollBusinessUnitId = payrollBusinessUnitIdParam !== undefined && payrollBusinessUnitIdParam !== '' ? Number(payrollBusinessUnitIdParam) : undefined
+
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateShiftAssignmentTemplate(
         startDate,
         endDate,
         employeeIds,
-        isReport
+        isReport,
+        businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
+        payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined
       )
 
       // Configurar headers para la descarga del archivo
