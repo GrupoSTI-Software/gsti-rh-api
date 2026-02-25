@@ -4378,9 +4378,9 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 2).value = emp.employeePayrollCode ?? emp.employeeCode ?? ''
         worksheet.getCell(rowNum, 3).value = emp.businessUnit?.businessUnitName ?? ''
         worksheet.getCell(rowNum, 4).value = payrollUnitName(emp.payrollBusinessUnitId)
-        worksheet.getCell(rowNum, 5).value = emp.employeeFirstName ?? ''
-        worksheet.getCell(rowNum, 6).value = emp.employeeLastName ?? ''
-        worksheet.getCell(rowNum, 7).value = emp.employeeSecondLastName ?? ''
+        worksheet.getCell(rowNum, 5).value = (emp.employeeFirstName ?? '').toUpperCase()
+        worksheet.getCell(rowNum, 6).value = (emp.employeeLastName ?? '').toUpperCase()
+        worksheet.getCell(rowNum, 7).value = (emp.employeeSecondLastName ?? '').toUpperCase()
         worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
         worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
@@ -5011,7 +5011,7 @@ async generateShiftAssignmentTemplate(
   employees.forEach((employee, index) => {
     const row = startDataRow + index
     worksheet.getRow(row).height = 45
-    const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+    const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
     const positionName = employee.position?.positionName || 'Sin posición'
 
 
