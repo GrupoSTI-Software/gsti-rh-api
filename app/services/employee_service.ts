@@ -4087,8 +4087,16 @@ export default class EmployeeService {
    * @param options.fillWithExisting - Si true, descarga plantilla llena con empleados existentes
    * @param options.departmentId - Filtro opcional: solo empleados de este departamento
    * @param options.positionId - Filtro opcional: solo empleados con esta posición (requiere departmentId válido que tenga esa posición)
+   * @param options.businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
+   * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
    */
-  async generateEmployeeImportTemplate(options?: { fillWithExisting?: boolean; departmentId?: number; positionId?: number }): Promise<Buffer> {
+  async generateEmployeeImportTemplate(options?: {
+    fillWithExisting?: boolean
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+  }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
@@ -4338,6 +4346,12 @@ export default class EmployeeService {
       if (options.positionId !== undefined) {
         employeesQuery = employeesQuery.where('positionId', options.positionId)
       }
+      if (options.businessUnitId !== undefined) {
+        employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
+      }
+      if (options.payrollBusinessUnitId !== undefined) {
+        employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+      }
 
       const employees = await employeesQuery
 
@@ -4364,9 +4378,9 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 2).value = emp.employeePayrollCode ?? emp.employeeCode ?? ''
         worksheet.getCell(rowNum, 3).value = emp.businessUnit?.businessUnitName ?? ''
         worksheet.getCell(rowNum, 4).value = payrollUnitName(emp.payrollBusinessUnitId)
-        worksheet.getCell(rowNum, 5).value = emp.employeeFirstName ?? ''
-        worksheet.getCell(rowNum, 6).value = emp.employeeLastName ?? ''
-        worksheet.getCell(rowNum, 7).value = emp.employeeSecondLastName ?? ''
+        worksheet.getCell(rowNum, 5).value = (emp.employeeFirstName ?? '').toUpperCase()
+        worksheet.getCell(rowNum, 6).value = (emp.employeeLastName ?? '').toUpperCase()
+        worksheet.getCell(rowNum, 7).value = (emp.employeeSecondLastName ?? '').toUpperCase()
         worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
         worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
@@ -4414,13 +4428,17 @@ export default class EmployeeService {
  * @param endDate - Fecha de fin (formato: yyyy-MM-dd)
  * @param employeeIds - IDs opcionales de empleados a filtrar
  * @param isReport - Si es true, genera un reporte con turnos asignados basados en applySince
+ * @param businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
+ * @param payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
 async generateShiftAssignmentTemplate(
   startDate: string,
   endDate: string,
   employeeIds?: number[],
-  isReport?: boolean
+  isReport?: boolean,
+  businessUnitId?: number,
+  payrollBusinessUnitId?: number
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4547,10 +4565,18 @@ async generateShiftAssignmentTemplate(
 
   const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
-  // Obtener empleados activos con sus posiciones (solo de las unidades de negocio del ENV)
-  let employeesQuery = Employee.query()
-    .whereNull('deletedAt')
-    .whereIn('businessUnitId', businessUnitsList)
+  // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
+  // si no, se restringe a las unidades de negocio del ENV
+  let employeesQuery = Employee.query().whereNull('deletedAt')
+
+  if (businessUnitId !== undefined) {
+    employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
+  } else {
+    employeesQuery = employeesQuery.whereIn('businessUnitId', businessUnitsList)
+  }
+  if (payrollBusinessUnitId !== undefined) {
+    employeesQuery = employeesQuery.where('payrollBusinessUnitId', payrollBusinessUnitId)
+  }
 
   // Filtrar por IDs de empleados si se proporcionan
   if (employeeIds && employeeIds.length > 0) {
@@ -4985,7 +5011,7 @@ async generateShiftAssignmentTemplate(
   employees.forEach((employee, index) => {
     const row = startDataRow + index
     worksheet.getRow(row).height = 45
-    const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
+    const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
     const positionName = employee.position?.positionName || 'Sin posición'
 
 
