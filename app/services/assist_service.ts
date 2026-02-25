@@ -51,6 +51,7 @@ export default class AssistsService {
     this.i18n = i18n
     this.localeToUse = i18n.locale
   }
+
   async getExcelByEmployeeAssistance(
     employee: Employee,
     filters: AssistEmployeeExcelFilterInterface
@@ -3728,7 +3729,7 @@ export default class AssistsService {
     return { faults, delays }
   }
 
-async verifyAttendanceLock(userId: number, type: string) {
+  async verifyAttendanceLock(userId: number, type: string) {
     try {
       const systemSettingService = new SystemSettingService()
       const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
@@ -3854,7 +3855,7 @@ async verifyAttendanceLock(userId: number, type: string) {
 
               await this.sendEmailAttendanceLock(systemSettingActive, 'Ha excedido el maximo de retardos permitidos.', user)
             }
-          
+
             return {
               status: 200,
               type: 'warning',
@@ -3869,7 +3870,7 @@ async verifyAttendanceLock(userId: number, type: string) {
         }
       }
 
-     
+
       return {
         status: 200,
         type: 'success',
@@ -3890,6 +3891,7 @@ async verifyAttendanceLock(userId: number, type: string) {
       }
     }
   }
+
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
     let tradeName = 'BO'
     const userEmail = env.get('SMTP_USERNAME')
