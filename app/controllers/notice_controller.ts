@@ -2,6 +2,9 @@ import { HttpContext } from '@adonisjs/core/http'
 import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
+import UploadService from '#services/upload_service'
+import Env from '#start/env'
+import path from 'node:path'
 
 export default class NoticeController {
   /**
@@ -170,6 +173,15 @@ export default class NoticeController {
    *                   type: number
    *                 description: Array of employee IDs to send notice to
    *                 required: false
+   *               noticeType:
+   *                 type: string
+   *                 description: Notice type (text, image, pdf)
+   *                 required: false
+   *                 default: 'text'
+   *               noticeFile:
+   *                 type: string
+   *                 format: binary
+   *                 description: The file to upload:
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -183,6 +195,7 @@ export default class NoticeController {
       const notice = {
         noticeSubject: (request.input('noticeSubject', '') || '').toString().trim(),
         noticeDescription: (request.input('noticeDescription', '') || '').toString().trim(),
+        noticeType: (request.input('noticeType', 'text') || '').toString().trim(),
       } as Notice
 
       const noticeService = new NoticeService(i18n)
@@ -197,6 +210,58 @@ export default class NoticeController {
           data: { ...notice },
         }
       }
+      const validationOptions = {
+        types: ['image', 'pdf'],
+        size: '',
+      }
+
+      const file = request.file('noticeFile', validationOptions)
+      if (file) {
+        // solo se pueden recibir imagenes y pdfs
+        // validate file required
+        if (!file) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a file valid',
+            message: 'Missing data to process',
+            data: file,
+          }
+        }
+        const disallowedExtensions = [
+          'mp4',
+          'avi',
+          'mkv',
+          'mov',
+          'wmv',
+          'flv', // Video
+          'mp3',
+          'wav',
+          'flac',
+          'aac',
+          'ogg', // Audio
+        ]
+        // Verificar si la extensión del archivo está en la lista de no permitidas
+        if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a file valid',
+            message: 'Missing data to process',
+            data: file,
+          }
+        }
+        
+
+        const fileName = `${new Date().getTime()}_${file.clientName}`
+        const uploadService = new UploadService()
+        const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+        notice.noticeDescription = fileUrl
+      }
+     
+
       const newNotice = await noticeService.create(notice, recipientEmployeeIds)
       response.status(201)
       return {
@@ -234,6 +299,16 @@ export default class NoticeController {
    *           type: number
    *         description: Notice id
    *         required: true
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               noticeFile:
+   *                 type: string
+   *                 format: binary
+   *                 description: The file to upload:
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -271,6 +346,7 @@ export default class NoticeController {
         noticeId,
         noticeSubject: (request.input('noticeSubject', '') || '').toString().trim(),
         noticeDescription: (request.input('noticeDescription', '') || '').toString().trim(),
+        noticeType: (request.input('noticeType', 'text') || '').toString().trim(),
       } as Notice
 
       const resendOnUpdate = request.input('resendOnUpdate', true) !== false // Por defecto true si no se especifica
@@ -288,6 +364,63 @@ export default class NoticeController {
           message: verifyInfo.message,
           data: { ...notice },
         }
+      }
+      const validationOptions = {
+        types: ['image', 'pdf'],
+        size: '',
+      }
+
+      const file = request.file('noticeFile', validationOptions)
+      if (file) {
+        // solo se pueden recibir imagenes y pdfs
+        // validate file required
+        if (!file) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a file valid',
+            message: 'Missing data to process',
+            data: file,
+          }
+        }
+        const disallowedExtensions = [
+          'mp4',
+          'avi',
+          'mkv',
+          'mov',
+          'wmv',
+          'flv', // Video
+          'mp3',
+          'wav',
+          'flac',
+          'aac',
+          'ogg', // Audio
+        ]
+        // Verificar si la extensión del archivo está en la lista de no permitidas
+        if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a file valid',
+            message: 'Missing data to process',
+            data: file,
+          }
+        }
+
+        const fileName = `${new Date().getTime()}_${file.clientName}`
+        const uploadService = new UploadService()
+        if (notice.noticeDescription) {
+          const fileNameWithExt = decodeURIComponent(
+            path.basename(notice.noticeDescription)
+          )
+
+          const fileKey = `${Env.get('AWS_ROOT_PATH')}/notices/${fileNameWithExt}`
+          await uploadService.deleteFile(fileKey)
+        }
+        const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+        notice.noticeDescription = fileUrl
       }
       const updateNotice = await noticeService.update(currentNotice, notice, resendOnUpdate, recipientEmployeeIds)
       response.status(201)

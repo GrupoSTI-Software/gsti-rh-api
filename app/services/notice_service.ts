@@ -7,9 +7,12 @@ import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
 import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
+import UploadService from '#services/upload_service'
+import path from 'node:path'
 
 // Lista de desarrollo para pruebas - solo estos emails recibirán notificaciones en desarrollo
 const DEVELOPMENT_EMAIL_LIST = [
+  'jsoto@siler-mx.com',
   //'rogelio.jinestas@gmail.com',
   'wramirez@siler-mx.com',
   'wilvardo@gmail.com'
@@ -109,6 +112,7 @@ export default class NoticeService {
     newNotice.noticeDescription = notice.noticeDescription
     newNotice.noticeSentCount = 0
     newNotice.noticeSentAt = null
+    newNotice.noticeType = notice.noticeType
 
     // Obtener empleados seleccionados
     const employees = await Employee.query()
@@ -165,6 +169,7 @@ export default class NoticeService {
   async update(currentNotice: Notice, notice: Notice, sendEmails: boolean = true, recipientEmployeeIds: number[] = []) {
     currentNotice.noticeSubject = notice.noticeSubject
     currentNotice.noticeDescription = notice.noticeDescription
+    currentNotice.noticeType = notice.noticeType
     await currentNotice.save()
 
     // Actualizar destinatarios siempre que se proporcione un array
@@ -198,6 +203,7 @@ export default class NoticeService {
 
       // Actualizar la lista de emails en el notice
       currentNotice.noticeRecipientEmails = JSON.stringify(recipientEmails)
+      
       await currentNotice.save()
 
       // Obtener destinatarios existentes
@@ -374,7 +380,50 @@ export default class NoticeService {
       }
     }
 
-    for (const recipient of recipients) {
+
+     // Detectar si la descripción es una URL o path de archivo para adjuntarlo
+     let attachmentBuffer: Buffer | null = null
+     let attachmentFilename = ''
+     let attachmentContentType = ''
+
+     const description = (notice.noticeDescription || '').trim()
+     const isUrl = /^https?:\/\//i.test(description)
+     const isFilePath = !isUrl && /\.(pdf|png|jpg|jpeg|gif|webp|svg)$/i.test(description)
+
+     if (isUrl || isFilePath) {
+       try {
+         if (isUrl) {
+           const response = await fetch(description)
+           if (response.ok) {
+             const arrayBuffer = await response.arrayBuffer()
+             attachmentBuffer = Buffer.from(arrayBuffer)
+             attachmentFilename = decodeURIComponent(path.basename(new URL(description).pathname))
+           }
+         } else {
+           const uploadService = new UploadService()
+           attachmentBuffer = await uploadService.downloadFileBuffer(description)
+           attachmentFilename = decodeURIComponent(path.basename(description))
+         }
+
+         if (attachmentFilename) {
+           const ext = path.extname(attachmentFilename).toLowerCase()
+           const mimeTypes: Record<string, string> = {
+             '.pdf': 'application/pdf',
+             '.png': 'image/png',
+             '.jpg': 'image/jpeg',
+             '.jpeg': 'image/jpeg',
+             '.gif': 'image/gif',
+             '.webp': 'image/webp',
+             '.svg': 'image/svg+xml',
+           }
+           attachmentContentType = mimeTypes[ext] || 'application/octet-stream'
+         }
+       } catch (error) {
+         console.error('Error al descargar archivo para adjuntar al correo:', error)
+       }
+     }
+
+     for (const recipient of recipients) {
       try {
         // En desarrollo, solo enviar a emails de la lista de desarrollo
         let emailToSend = recipient.employeeEmail
@@ -406,21 +455,30 @@ export default class NoticeService {
               noticeDescription: notice.noticeDescription,
               tradeName,
               backgroundImageLogo,
+              noticeType: notice.noticeType,
             })
+   
+          if (attachmentBuffer && attachmentFilename) {
+            message.attachData(attachmentBuffer, {
+              filename: attachmentFilename,
+              contentType: attachmentContentType,
+            })
+          }
         })
 
-        recipient.noticeRecipientSent = true
-        recipient.noticeRecipientSentAt = DateTime.now()
-        recipient.noticeRecipientError = null
-        await recipient.save()
-        sentCount++
-      } catch (error: any) {
-        recipient.noticeRecipientSent = false
-        recipient.noticeRecipientSentAt = null
-        recipient.noticeRecipientError = error.message || 'Unknown error'
-        await recipient.save()
-        failedCount++
-      }
+          recipient.noticeRecipientSent = true
+          recipient.noticeRecipientSentAt = DateTime.now()
+          recipient.noticeRecipientError = null
+          await recipient.save()
+          sentCount++
+        } catch (error: any) {
+          recipient.noticeRecipientSent = false
+          recipient.noticeRecipientSentAt = null
+          recipient.noticeRecipientError = error.message || 'Unknown error'
+          await recipient.save()
+          failedCount++
+        }
+      
     }
 
     // Actualizar el aviso con la información de envío

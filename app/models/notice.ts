@@ -21,6 +21,9 @@ import NoticeRecipient from './notice_recipient.js'
  *         noticeDescription:
  *           type: string
  *           description: Notice description/content (HTML rich text)
+ *         noticeType:
+ *           type: string
+ *           description: Notice type (text, image, pdf)
  *         noticeRecipientEmails:
  *           type: string
  *           description: JSON array of recipient emails
@@ -50,6 +53,9 @@ export default class Notice extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare noticeDescription: string
+
+  @column()
+  declare noticeType: string
 
   @column()
   declare noticeRecipientEmails: string | null

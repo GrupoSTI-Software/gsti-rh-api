@@ -173,5 +173,9 @@
   "the_relation_department_position_has_employees_assigned": "La relación departamento-puesto tiene empleados asignados",
   "the_departments_and_positions_were_created_successfully": "Los departamentos y puestos fueron creados exitosamente",
   "the_information_was_created_successfully": "La información fue creada exitosamente",
-  "information": "Información"
+  "information": "Información",
+  "notice": "Aviso",
+  "notice_sent_successfully": "Aviso enviado exitosamente",
+  "sent": "enviado",
+  "failed": "fallido"
 }
