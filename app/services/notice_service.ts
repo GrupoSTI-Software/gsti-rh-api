@@ -9,6 +9,7 @@ import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
+import Env from '#start/env'
 
 // Lista de desarrollo para pruebas - solo estos emails recibirán notificaciones en desarrollo
 const DEVELOPMENT_EMAIL_LIST = [
@@ -508,7 +509,7 @@ export default class NoticeService {
         data: { ...notice },
       }
     }
-    if (!notice.noticeDescription || notice.noticeDescription.trim() === '') {
+    if ((!notice.noticeDescription || notice.noticeDescription.trim() === '') && notice.noticeType === 'text') {
       return {
         status: 400,
         type: 'warning',
@@ -523,6 +524,17 @@ export default class NoticeService {
       title: this.t('info_verify_successfully'),
       message: this.t('info_verify_successfully'),
       data: { ...notice },
+    }
+  }
+
+  async deleteFileS3(fileUrl: string) {
+    if (fileUrl && /^https?:\/\//i.test(fileUrl.trim())) {
+      const uploadService = new UploadService()
+      const fileNameWithExt = decodeURIComponent(
+        path.basename(fileUrl)
+      )
+      const fileKey = `${Env.get('AWS_ROOT_PATH')}/notices/${fileNameWithExt}`
+      await uploadService.deleteFile(fileKey)
     }
   }
 }

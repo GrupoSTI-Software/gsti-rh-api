@@ -27,6 +27,6 @@ export const updateNoticeValidator = vine.compile(
     noticeDescription: vine
       .string()
       .trim()
-      .minLength(1),
+      .minLength(1).optional(),
   })
 )

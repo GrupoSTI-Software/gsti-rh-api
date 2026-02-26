@@ -3,8 +3,6 @@ import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
 import UploadService from '#services/upload_service'
-import Env from '#start/env'
-import path from 'node:path'
 
 export default class NoticeController {
   /**
@@ -369,21 +367,16 @@ export default class NoticeController {
         types: ['image', 'pdf'],
         size: '',
       }
-
+      const uploadService = new UploadService()
       const file = request.file('noticeFile', validationOptions)
+      if (notice.noticeType === 'text') {
+       await noticeService.deleteFileS3(currentNotice.noticeDescription)
+      }
+
+      
       if (file) {
         // solo se pueden recibir imagenes y pdfs
         // validate file required
-        if (!file) {
-          response.status(400)
-          return {
-            status: 400,
-            type: 'warning',
-            title: 'Please upload a file valid',
-            message: 'Missing data to process',
-            data: file,
-          }
-        }
         const disallowedExtensions = [
           'mp4',
           'avi',
@@ -410,15 +403,8 @@ export default class NoticeController {
         }
 
         const fileName = `${new Date().getTime()}_${file.clientName}`
-        const uploadService = new UploadService()
-        if (notice.noticeDescription) {
-          const fileNameWithExt = decodeURIComponent(
-            path.basename(notice.noticeDescription)
-          )
-
-          const fileKey = `${Env.get('AWS_ROOT_PATH')}/notices/${fileNameWithExt}`
-          await uploadService.deleteFile(fileKey)
-        }
+        
+        await noticeService.deleteFileS3(currentNotice.noticeDescription)
         const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
         notice.noticeDescription = fileUrl
       }
