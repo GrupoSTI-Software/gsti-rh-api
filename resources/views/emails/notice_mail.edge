@@ -24,6 +24,8 @@
         <div style="border: 1px dashed #e3ebf6; padding: 1.5rem; border-radius: 0.3rem; text-align: left; font-size: 0.9rem; text-wrap: pretty; margin-top: 1rem;">
           {{{ noticeDescription }}}
         </div>
+      @elseif (noticeType === 'image')
+        <img src="{{ noticeDescription }}" style="width: 100%; height: auto; object-fit: cover; margin-top: 1rem;">
       @endif
      
       

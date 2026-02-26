@@ -390,7 +390,7 @@ export default class NoticeService {
      const isUrl = /^https?:\/\//i.test(description)
      const isFilePath = !isUrl && /\.(pdf|png|jpg|jpeg|gif|webp|svg)$/i.test(description)
 
-     if (isUrl || isFilePath) {
+     if ((isUrl || isFilePath) && notice.noticeType === 'pdf') {
        try {
          if (isUrl) {
            const response = await fetch(description)
@@ -409,12 +409,6 @@ export default class NoticeService {
            const ext = path.extname(attachmentFilename).toLowerCase()
            const mimeTypes: Record<string, string> = {
              '.pdf': 'application/pdf',
-             '.png': 'image/png',
-             '.jpg': 'image/jpeg',
-             '.jpeg': 'image/jpeg',
-             '.gif': 'image/gif',
-             '.webp': 'image/webp',
-             '.svg': 'image/svg+xml',
            }
            attachmentContentType = mimeTypes[ext] || 'application/octet-stream'
          }
