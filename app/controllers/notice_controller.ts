@@ -347,7 +347,7 @@ export default class NoticeController {
    *                 type: array
    *                 items:
    *                   type: number
-   *                   description: The files to delete (notice file id)
+   *                   description: Notice file id
    *                 required: false
    *     responses:
    *       '201':
@@ -410,9 +410,20 @@ export default class NoticeController {
         size: '',
       }
       const uploadService = new UploadService()
+      const noticeFileService = new NoticeFileService()
+      const filesDeleted = request.input('filesDeleted') || []
+      for (const fileDeleted of filesDeleted) {
+        const noticeFile = await NoticeFile.query()
+          .whereNull('notice_file_deleted_at')
+          .where('notice_file_id', fileDeleted)
+          .first()
+        if (noticeFile) {
+          await noticeFileService.delete(noticeFile)
+          await noticeService.deleteFileS3(noticeFile.noticeFilePath)
+        }
+      }
 
       if (notice.noticeType === 'image' || notice.noticeType === 'pdf') {
-
       const file = request.file('noticeFile', validationOptions)
         if (file) {
           // solo se pueden recibir imagenes y pdfs
@@ -449,19 +460,9 @@ export default class NoticeController {
           notice.noticeDescription = fileUrl
         }
       } else if (notice.noticeType === 'text') {
-        const noticeFileService = new NoticeFileService()
+        
         await noticeService.deleteFileS3(currentNotice.noticeDescription)
-        const filesDeleted = request.input('filesDeleted', []) || []
-        for (const fileDeleted of filesDeleted) {
-          const noticeFile = await NoticeFile.query()
-            .whereNull('notice_file_deleted_at')
-            .where('notice_file_id', fileDeleted)
-            .first()
-          if (noticeFile) {
-            await noticeFileService.delete(noticeFile)
-            await noticeService.deleteFileS3(noticeFile.noticeFilePath)
-          }
-        }
+      
         const files = request.files('files', validationOptions)
         if (files) {
           for (const file of files) {

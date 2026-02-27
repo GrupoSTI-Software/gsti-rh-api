@@ -213,22 +213,22 @@ export default class NoticeService {
         .whereNull('notice_recipient_deleted_at')
         .where('notice_id', currentNotice.noticeId)
 
-      const existingEmployeeIds = existingRecipients
-        .map((r) => r.employeeId)
-        .filter((id): id is number => id !== null)
+      // const existingEmployeeIds = existingRecipients
+      //  .map((r) => r.employeeId)
+      //  .filter((id): id is number => id !== null)
 
       // Identificar destinatarios a agregar y eliminar
-      const removedEmployeeIds = existingEmployeeIds.filter((id) => !recipientEmployeeIds.includes(id))
+      //const removedEmployeeIds = existingEmployeeIds.filter((id) => !recipientEmployeeIds.includes(id))
 
 
       // Eliminar destinatarios que ya no están en la lista
-      if (removedEmployeeIds.length > 0) {
-        await NoticeRecipient.query()
-          .whereNull('notice_recipient_deleted_at')
-          .where('notice_id', currentNotice.noticeId)
-          .whereIn('employee_id', removedEmployeeIds)
-          .delete()
-      }
+      // if (removedEmployeeIds.length > 0) {
+      //   await NoticeRecipient.query()
+      //     .whereNull('notice_recipient_deleted_at')
+      //     .where('notice_id', currentNotice.noticeId)
+      //     .whereIn('employee_id', removedEmployeeIds)
+      //     .delete()
+      // }
 
       // Agregar nuevos destinatarios
       for (const recipient of recipientData) {
@@ -284,6 +284,7 @@ export default class NoticeService {
     let query = Notice.query()
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
+      .preload('files')
 
     // Si se proporciona employeeId, filtrar el preload de recipients
     if (employeeId) {
