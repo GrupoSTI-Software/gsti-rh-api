@@ -44,6 +44,7 @@ export default class NoticeService {
       .if(filters.search, (q) => {
         q.whereRaw('UPPER(notice_subject) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
       })
+      .preload('files')
 
     // Si se proporciona employeeId, filtrar por notice_recipients y hacer preload
     if (filters.employeeId) {
@@ -107,7 +108,7 @@ export default class NoticeService {
     return Number(count[0]?.$extras.total || 0)
   }
 
-  async create(notice: Notice, recipientEmployeeIds: number[] = [], sendEmails: boolean = true) {
+  async create(notice: Notice, recipientEmployeeIds: number[] = []) {
     const newNotice = new Notice()
     newNotice.noticeSubject = notice.noticeSubject
     newNotice.noticeDescription = notice.noticeDescription
@@ -160,9 +161,9 @@ export default class NoticeService {
     }
 
     // Enviar correos automáticamente al crear
-    if (sendEmails && recipientData.length > 0) {
-      await this.sendNoticeEmails(newNotice.noticeId, false)
-    }
+    // if (sendEmails && recipientData.length > 0) {
+    //   await this.sendNoticeEmails(newNotice.noticeId, false)
+    // }
 
     return newNotice
   }
@@ -337,12 +338,15 @@ export default class NoticeService {
    * @param noticeId ID del aviso
    * @param isUpdate Si es true, agrega prefijo "Update" o "Actualización" al subject
    */
-  private async sendNoticeEmails(noticeId: number, isUpdate: boolean = false) {
+   async sendNoticeEmails(noticeId: number, isUpdate: boolean = false) {
     const notice = await Notice.query()
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
       .preload('recipients', (query) => {
         query.whereNull('notice_recipient_deleted_at')
+      })
+      .preload('files', (query) => {
+        query.whereNull('notice_file_deleted_at')
       })
       .first()
 
@@ -382,7 +386,20 @@ export default class NoticeService {
     }
 
 
-     // Detectar si la descripción es una URL o path de archivo para adjuntarlo
+     const mimeTypes: Record<string, string> = {
+       '.pdf': 'application/pdf',
+       '.png': 'image/png',
+       '.jpg': 'image/jpeg',
+       '.jpeg': 'image/jpeg',
+       '.gif': 'image/gif',
+       '.webp': 'image/webp',
+       '.svg': 'image/svg+xml',
+       '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+       '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+       '.csv': 'text/csv',
+     }
+
+     // Adjunto único cuando la descripción es una URL/path (tipo pdf o image)
      let attachmentBuffer: Buffer | null = null
      let attachmentFilename = ''
      let attachmentContentType = ''
@@ -408,13 +425,49 @@ export default class NoticeService {
 
          if (attachmentFilename) {
            const ext = path.extname(attachmentFilename).toLowerCase()
-           const mimeTypes: Record<string, string> = {
-             '.pdf': 'application/pdf',
-           }
            attachmentContentType = mimeTypes[ext] || 'application/octet-stream'
          }
        } catch (error) {
          console.error('Error al descargar archivo para adjuntar al correo:', error)
+       }
+     }
+
+     // Archivos múltiples cuando el tipo es text y tiene noticeFiles asociados
+     const fileAttachments: Array<{ buffer: Buffer; filename: string; contentType: string }> = []
+
+     if (notice.noticeType === 'text' && notice.files && notice.files.length > 0) {
+       const uploadService = new UploadService()
+       for (const noticeFile of notice.files) {
+         const filePath = (noticeFile.noticeFilePath || '').trim()
+         if (!filePath) continue
+
+         try {
+           let fileBuffer: Buffer | null = null
+           let fileName = ''
+
+           if (/^https?:\/\//i.test(filePath)) {
+             const response = await fetch(filePath)
+             if (response.ok) {
+               const arrayBuffer = await response.arrayBuffer()
+               fileBuffer = Buffer.from(arrayBuffer)
+               fileName = decodeURIComponent(path.basename(new URL(filePath).pathname))
+             }
+           } else {
+             fileBuffer = await uploadService.downloadFileBuffer(filePath)
+             fileName = decodeURIComponent(path.basename(filePath))
+           }
+
+           if (fileBuffer && fileName) {
+             const ext = path.extname(fileName).toLowerCase()
+             fileAttachments.push({
+               buffer: fileBuffer,
+               filename: fileName,
+               contentType: mimeTypes[ext] || 'application/octet-stream',
+             })
+           }
+         } catch (error) {
+           console.error(`Error al descargar archivo adjunto ${filePath}:`, error)
+         }
        }
      }
 
@@ -457,6 +510,13 @@ export default class NoticeService {
             message.attachData(attachmentBuffer, {
               filename: attachmentFilename,
               contentType: attachmentContentType,
+            })
+          }
+
+          for (const file of fileAttachments) {
+            message.attachData(file.buffer, {
+              filename: file.filename,
+              contentType: file.contentType,
             })
           }
         })

@@ -3,6 +3,8 @@ import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
 import UploadService from '#services/upload_service'
+import NoticeFileService from '#services/notice_file_service'
+import NoticeFile from '#models/notice_file'
 
 export default class NoticeController {
   /**
@@ -180,6 +182,12 @@ export default class NoticeController {
    *                 type: string
    *                 format: binary
    *                 description: The file to upload:
+   *               files:
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                   format: binary
+   *                   description: The files to upload (excel, doc, ppt, pdf, image, txt)
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -208,59 +216,81 @@ export default class NoticeController {
           data: { ...notice },
         }
       }
-      const validationOptions = {
-        types: ['image', 'pdf'],
-        size: '',
-      }
-
-      const file = request.file('noticeFile', validationOptions)
-      if (file) {
-        // solo se pueden recibir imagenes y pdfs
-        // validate file required
-        if (!file) {
-          response.status(400)
-          return {
-            status: 400,
-            type: 'warning',
-            title: 'Please upload a file valid',
-            message: 'Missing data to process',
-            data: file,
-          }
-        }
-        const disallowedExtensions = [
-          'mp4',
-          'avi',
-          'mkv',
-          'mov',
-          'wmv',
-          'flv', // Video
-          'mp3',
-          'wav',
-          'flac',
-          'aac',
-          'ogg', // Audio
-        ]
-        // Verificar si la extensión del archivo está en la lista de no permitidas
-        if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
-          response.status(400)
-          return {
-            status: 400,
-            type: 'warning',
-            title: 'Please upload a file valid',
-            message: 'Missing data to process',
-            data: file,
-          }
-        }
-        
-
-        const fileName = `${new Date().getTime()}_${file.clientName}`
-        const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
-        notice.noticeDescription = fileUrl
-      }
-     
-
       const newNotice = await noticeService.create(notice, recipientEmployeeIds)
+      if (notice.noticeType === 'image' || notice.noticeType === 'pdf') {
+        const validationOptions = {
+          types: ['image', 'pdf'],
+          size: '',
+        }
+        const file = request.file('noticeFile', validationOptions)
+        if (file) {
+          // solo se pueden recibir imagenes y pdfs
+          // validate file required
+          if (!file) {
+            response.status(400)
+            return {
+              status: 400,
+              type: 'warning',
+              title: 'Please upload a file valid',
+              message: 'Missing data to process',
+              data: file,
+            }
+          }
+          const disallowedExtensions = [
+            'mp4',
+            'avi',
+            'mkv',
+            'mov',
+            'wmv',
+            'flv', // Video
+            'mp3',
+            'wav',
+            'flac',
+            'aac',
+            'ogg', // Audio
+          ]
+          // Verificar si la extensión del archivo está en la lista de no permitidas
+          if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
+            response.status(400)
+            return {
+              status: 400,
+              type: 'warning',
+              title: 'Please upload a file valid',
+              message: 'Missing data to process',
+              data: file,
+            }
+          }
+          
+  
+          const fileName = `${new Date().getTime()}_${file.clientName}`
+          const uploadService = new UploadService()
+          const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+          notice.noticeDescription = fileUrl
+        }
+      } else if (notice.noticeType === 'text') {
+        const validationOptions = {
+          types: ['excel', 'doc', 'ppt', 'pdf', 'image', 'txt'],
+          size: '',
+        }
+        const files = request.files('files', validationOptions)
+       
+        if (files) {
+          const noticeFileService = new NoticeFileService()
+          for (const file of files) {
+            const fileName = `${new Date().getTime()}_${file.clientName}`
+            const uploadService = new UploadService()
+            const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+            const noticeFile = {
+              noticeId: newNotice.noticeId,
+              noticeFilePath: fileUrl,
+            } as NoticeFile
+            await noticeFileService.create(noticeFile)
+          }
+        }
+      }
+      await noticeService.sendNoticeEmails(newNotice.noticeId, false)
+
+      
       response.status(201)
       return {
         type: 'success',
@@ -307,6 +337,18 @@ export default class NoticeController {
    *                 type: string
    *                 format: binary
    *                 description: The file to upload:
+   *               files:
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                   format: binary
+   *                   description: The files to upload (excel, doc, ppt, pdf, image, txt)
+   *               filesDeleted:
+   *                 type: array
+   *                 items:
+   *                   type: number
+   *                   description: The files to delete (notice file id)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -368,46 +410,72 @@ export default class NoticeController {
         size: '',
       }
       const uploadService = new UploadService()
-      const file = request.file('noticeFile', validationOptions)
-      if (notice.noticeType === 'text') {
-       await noticeService.deleteFileS3(currentNotice.noticeDescription)
-      }
 
-      
-      if (file) {
-        // solo se pueden recibir imagenes y pdfs
-        // validate file required
-        const disallowedExtensions = [
-          'mp4',
-          'avi',
-          'mkv',
-          'mov',
-          'wmv',
-          'flv', // Video
-          'mp3',
-          'wav',
-          'flac',
-          'aac',
-          'ogg', // Audio
-        ]
-        // Verificar si la extensión del archivo está en la lista de no permitidas
-        if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
-          response.status(400)
-          return {
-            status: 400,
-            type: 'warning',
-            title: 'Please upload a file valid',
-            message: 'Missing data to process',
-            data: file,
+      if (notice.noticeType === 'image' || notice.noticeType === 'pdf') {
+
+      const file = request.file('noticeFile', validationOptions)
+        if (file) {
+          // solo se pueden recibir imagenes y pdfs
+          // validate file required
+          const disallowedExtensions = [
+            'mp4',
+            'avi',
+            'mkv',
+            'mov',
+            'wmv',
+            'flv', // Video
+            'mp3',
+            'wav',
+            'flac',
+            'aac',
+            'ogg', // Audio
+          ]
+          // Verificar si la extensión del archivo está en la lista de no permitidas
+          if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
+            response.status(400)
+            return {
+              status: 400,
+              type: 'warning',
+              title: 'Please upload a file valid',
+              message: 'Missing data to process',
+              data: file,
+            }
+          }
+  
+          const fileName = `${new Date().getTime()}_${file.clientName}`
+          
+          await noticeService.deleteFileS3(currentNotice.noticeDescription)
+          const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+          notice.noticeDescription = fileUrl
+        }
+      } else if (notice.noticeType === 'text') {
+        const noticeFileService = new NoticeFileService()
+        await noticeService.deleteFileS3(currentNotice.noticeDescription)
+        const filesDeleted = request.input('filesDeleted', []) || []
+        for (const fileDeleted of filesDeleted) {
+          const noticeFile = await NoticeFile.query()
+            .whereNull('notice_file_deleted_at')
+            .where('notice_file_id', fileDeleted)
+            .first()
+          if (noticeFile) {
+            await noticeFileService.delete(noticeFile)
+            await noticeService.deleteFileS3(noticeFile.noticeFilePath)
           }
         }
-
-        const fileName = `${new Date().getTime()}_${file.clientName}`
-        
-        await noticeService.deleteFileS3(currentNotice.noticeDescription)
-        const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
-        notice.noticeDescription = fileUrl
+        const files = request.files('files', validationOptions)
+        if (files) {
+          for (const file of files) {
+            const fileName = `${new Date().getTime()}_${file.clientName}`
+            const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+            const noticeFile = {
+              noticeId: notice.noticeId,
+              noticeFilePath: fileUrl,
+            } as NoticeFile
+            await noticeFileService.create(noticeFile)
+          }
+        }
       }
+      
       const updateNotice = await noticeService.update(currentNotice, notice, resendOnUpdate, recipientEmployeeIds)
       response.status(201)
       return {
