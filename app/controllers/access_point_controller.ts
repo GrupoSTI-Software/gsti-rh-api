@@ -1,6 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import AccessPoint from '#models/access_point'
 import AccessPointService from '#services/access_point_service'
+import Ws from '#services/ws'
 import { createAccessPointValidator, updateAccessPointValidator } from '#validators/access_point'
 import { DateTime } from 'luxon'
 
@@ -55,6 +56,25 @@ export default class AccessPointController {
         page,
         limit,
       })
+
+      const CONNECTION_TIMEOUT_MS = 15000
+      const now = DateTime.now()
+      const list = accessPoints.all()
+      for (const ap of list) {
+        const lastConnection = ap.accessPointLastConnection
+        const isOlderThanTimeout =
+          !lastConnection ||
+          now.diff(lastConnection, 'milliseconds').as('milliseconds') > CONNECTION_TIMEOUT_MS
+        if (isOlderThanTimeout && ap.accessPointStatus !== 0) {
+          await accessPointService.updateConnectionStatus(
+            ap.accessPointId,
+            0,
+            lastConnection ?? null
+          )
+          ap.accessPointStatus = 0
+        }
+      }
+
       response.status(200)
       return {
         type: 'success',
@@ -156,11 +176,12 @@ export default class AccessPointController {
           : null,
         accessPointStatus: request.input('accessPointStatus') !== undefined
           ? Number(request.input('accessPointStatus'))
-          : 0,
-        accessPointLastConnection: request.input('accessPointLastConnection')
-          ? DateTime.fromISO(request.input('accessPointLastConnection').toString())
-          : null,
+          : 0
       } as AccessPoint
+
+      if (request.input('accessPointLastConnection')) {
+        accessPoint.accessPointLastConnection = DateTime.fromISO(request.input('accessPointLastConnection').toString())
+      }
 
       const accessPointService = new AccessPointService(i18n)
       await request.validateUsing(createAccessPointValidator)
@@ -305,6 +326,15 @@ export default class AccessPointController {
         logAccessPoint.record_current = JSON.parse(JSON.stringify(updateAccessPoint))
         await accessPointService.saveActionOnLog(logAccessPoint)
       }
+      const serialNumber = updateAccessPoint.accessPointSerialNumber
+      if (serialNumber && Ws.io) {
+        const alias = updateAccessPoint.accessPointName
+        Ws.io.emit(`zkdevice-info-from:${serialNumber}`, {
+          alias,
+          serial_number: serialNumber,
+          active: updateAccessPoint.accessPointActive,
+        })
+      }
       response.status(201)
       return {
         type: 'success',
@@ -383,6 +413,12 @@ export default class AccessPointController {
         logAccessPoint.record_current = JSON.parse(JSON.stringify(deletedAccessPoint))
         await accessPointService.saveActionOnLog(logAccessPoint)
       }
+
+      const serialNumber = currentAccessPoint.accessPointSerialNumber
+      if (serialNumber && Ws.io) {
+        Ws.io.emit(`zkdevice-delete-from:${serialNumber}`)
+      }
+
       response.status(201)
       return {
         type: 'success',
@@ -437,7 +473,7 @@ export default class AccessPointController {
         }
       }
       const accessPointService = new AccessPointService(i18n)
-      const accessPoint = await accessPointService.show(accessPointId)
+      let accessPoint = await accessPointService.show(accessPointId)
       if (!accessPoint) {
         response.status(404)
         return {
@@ -447,6 +483,25 @@ export default class AccessPointController {
           data: { accessPointId },
         }
       }
+
+      const CONNECTION_TIMEOUT_MS = 10000
+      const now = DateTime.now()
+      const lastConnection = accessPoint.accessPointLastConnection
+      const isOlderThanTimeout =
+        !lastConnection ||
+        now.diff(lastConnection, 'milliseconds').as('milliseconds') > CONNECTION_TIMEOUT_MS
+
+      if (isOlderThanTimeout && accessPoint.accessPointStatus !== 0) {
+        const updated = await accessPointService.updateConnectionStatus(
+          accessPointId,
+          0,
+          lastConnection ?? null
+        )
+        if (updated) {
+          accessPoint = updated
+        }
+      }
+
       response.status(200)
       return {
         type: 'success',
@@ -482,22 +537,6 @@ export default class AccessPointController {
    *           type: number
    *         description: Access point id
    *         required: true
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             required:
-   *               - accessPointStatus
-   *             properties:
-   *               accessPointStatus:
-   *                 type: number
-   *                 description: Connection status (0 = offline, 1 = online)
-   *                 enum: [0, 1]
-   *               accessPointLastConnection:
-   *                 type: string
-   *                 format: date-time
-   *                 description: Last connection timestamp (ISO 8601 format). Si no se envía, se usa la fecha/hora actual.
    *     responses:
    *       '200':
    *         description: Connection status updated successfully
@@ -535,57 +574,62 @@ export default class AccessPointController {
         }
       }
 
-      const status = Number(request.input('accessPointStatus'))
-      if (status !== 0 && status !== 1) {
+      const serialNumber = currentAccessPoint.accessPointSerialNumber
+      if (!serialNumber || String(serialNumber).trim() === '') {
         response.status(400)
         return {
           type: 'warning',
-          title: t('validation_data'),
-          message: t('invalid_status_value'),
-          data: { accessPointStatus: status },
-        }
-      }
-
-      const lastConnectionInput = request.input('accessPointLastConnection')
-      let lastConnection: DateTime | null = null
-
-      if (lastConnectionInput) {
-        try {
-          lastConnection = DateTime.fromISO(lastConnectionInput.toString())
-          if (!lastConnection.isValid) {
-            lastConnection = DateTime.local()
-          }
-        } catch (error) {
-          lastConnection = DateTime.local()
-        }
-      } else {
-        // Si no se envía la fecha, usar la fecha/hora actual
-        lastConnection = DateTime.local()
-      }
-
-      const accessPointService = new AccessPointService(i18n)
-      const updatedAccessPoint = await accessPointService.updateConnectionStatus(
-        accessPointId,
-        status,
-        lastConnection
-      )
-
-      if (!updatedAccessPoint) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('access_point') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('access_point') }),
+          title: t('access_point'),
+          message: t('missing_data_to_process'),
           data: { accessPointId },
         }
       }
 
-      response.status(200)
-      return {
-        type: 'success',
-        title: t('access_point'),
-        message: t('connection_status_updated_successfully'),
-        data: { accessPoint: updatedAccessPoint },
+      if (!Ws.io) {
+        response.status(503)
+        return {
+          type: 'warning',
+          title: t('access_point'),
+          message: t('connection_status_no_response_from_device'),
+          data: { accessPoint: currentAccessPoint },
+        }
+      }
+
+      const eventName = `zkdevice-info-request:${serialNumber}`
+      const timeoutMs = 8000
+
+      const responsePromise = Ws.waitForZkDeviceInfo(serialNumber, timeoutMs)
+      Ws.io.emit(eventName, { serial_number: serialNumber })
+
+      try {
+        const deviceInfoResult = await responsePromise
+        const resultPayload = deviceInfoResult as { accessPoint?: AccessPoint }
+        const accessPointIdFromDevice = resultPayload?.accessPoint?.accessPointId ?? currentAccessPoint.accessPointId
+
+        const accessPoint = await AccessPoint.query()
+          .whereNull('access_point_deleted_at')
+          .where('access_point_id', accessPointIdFromDevice)
+          .firstOrFail()
+
+        response.status(200)
+        return {
+          type: 'success',
+          title: t('access_point'),
+          message: t('connection_status_updated_successfully'),
+          data: { accessPoint },
+        }
+      } catch (err) {
+        const isTimeout = err instanceof Error && err.message === 'TIMEOUT'
+        response.status(isTimeout ? 408 : 503)
+        return {
+          type: 'warning',
+          title: t('access_point'),
+          message: t('connection_status_no_response_from_device'),
+          data: {
+            accessPoint: currentAccessPoint,
+            connectionObtained: false,
+          },
+        }
       }
     } catch (error) {
       response.status(500)

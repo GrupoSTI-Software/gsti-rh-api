@@ -32,6 +32,6 @@ export const updateAccessPointValidator = vine.compile(
     accessPointFirmware: vine.string().trim().maxLength(100).optional(),
     accessPointPlatform: vine.string().trim().maxLength(100).optional(),
     accessPointStatus: vine.number().in([0, 1]).optional(),
-    accessPointLastConnection: vine.date().optional(),
+    // accessPointLastConnection: vine.date().optional(),
   })
 )
