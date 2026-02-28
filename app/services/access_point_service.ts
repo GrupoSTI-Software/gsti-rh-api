@@ -106,6 +106,20 @@ export default class AccessPointService {
     return accessPoint ? accessPoint : null
   }
 
+  /**
+   * Busca un punto de acceso por serial_number (atributo único de referencia del dispositivo).
+   */
+  async findBySerialNumber(serialNumber: string): Promise<AccessPoint | null> {
+    if (!serialNumber || String(serialNumber).trim() === '') {
+      return null
+    }
+    const accessPoint = await AccessPoint.query()
+      .whereNull('access_point_deleted_at')
+      .where('access_point_serial_number', String(serialNumber).trim())
+      .first()
+    return accessPoint ?? null
+  }
+
   async verifyInfo(accessPoint: AccessPoint) {
     const businessUnit = await BusinessUnit.query()
       .whereNull('business_unit_deleted_at')

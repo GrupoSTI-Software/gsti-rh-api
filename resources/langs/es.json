@@ -173,5 +173,8 @@
   "the_relation_department_position_has_employees_assigned": "La relación departamento-puesto tiene empleados asignados",
   "the_departments_and_positions_were_created_successfully": "Los departamentos y puestos fueron creados exitosamente",
   "the_information_was_created_successfully": "La información fue creada exitosamente",
-  "information": "Información"
+  "information": "Información",
+  "access_point": "Punto de acceso",
+  "connection_status_updated_successfully": "Estado de conexión actualizado correctamente",
+  "connection_status_no_response_from_device": "No se obtuvo respuesta del dispositivo; verifique que esté encendido y conectado."
 }

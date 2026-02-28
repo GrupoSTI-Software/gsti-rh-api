@@ -1,7 +1,11 @@
 import Ws from '#services/ws'
 import AssistsService from '#services/assist_service'
 import EmployeeBiometricService from '#services/employee_biometric_service'
+import AccessPoint from '#models/access_point'
+import AccessPointService from '#services/access_point_service'
+import BusinessUnit from '#models/business_unit'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { DateTime } from 'luxon'
 
 Ws.boot()
 
@@ -402,6 +406,154 @@ if (Ws.io) {
         socket.emit('biometric-status-response', {
           success: false,
           error: error instanceof Error ? error.message : 'Error desconocido al solicitar estatus',
+        })
+      }
+    })
+
+    /**
+     * Handler para información de dispositivo (reloj checador / SpeedFace).
+     * Registra o actualiza el punto de acceso (AccessPoint) usando serial_number como identificador único.
+     * Si el dispositivo ya existe → actualiza. Si no existe → crea (requiere ACCESS_POINT_DEFAULT_BUSINESS_UNIT_ID en .env).
+     */
+    socket.on('device-info', async (data: {
+      serial_number: string
+      ip: string
+      last_seen: string
+      alias: string
+      device_name: string
+      firmware: string
+      mac: string
+      platform: string
+      user_count: string
+      event_type: string
+      is_online: boolean
+      active_employees_count: number
+    }) => {
+      try {
+        const serialNumber = (data?.serial_number ?? '').toString().trim()
+        if (!serialNumber) {
+          socket.emit('device-info-ack', {
+            success: false,
+            error: 'serial_number es requerido',
+          })
+          return
+        }
+
+        const payload = {
+          serial_number: serialNumber,
+          ip: (data?.ip ?? '').toString().trim() || null,
+          last_seen: (data?.last_seen ?? '').toString().trim() || null,
+          alias: (data?.alias ?? '').toString().trim() || '',
+          device_name: (data?.device_name ?? '').toString().trim() || null,
+          firmware: (data?.firmware ?? '').toString().trim() || null,
+          mac: (data?.mac ?? '').toString().trim() || null,
+          platform: (data?.platform ?? '').toString().trim() || null,
+          user_count: (data?.user_count ?? '').toString().trim() || '',
+          event_type: (data?.event_type ?? '').toString().trim() || '',
+          is_online: (data?.is_online ?? false),
+        }
+
+        const i18n = i18nManager.locale(i18nManager.defaultLocale)
+        const accessPointService = new AccessPointService(i18n)
+        const existing = await accessPointService.findBySerialNumber(serialNumber)
+
+        const lastConnection = payload.last_seen
+          ? DateTime.fromISO(payload.last_seen, { zone: 'utc' })
+          : null
+
+        if (existing) {
+          // Actualizar dispositivo existente (serial_number no cambia)
+          const updateData = {
+            accessPointName: payload.alias,
+            businessUnitId: existing.businessUnitId,
+            accessPointActive: existing.accessPointActive,
+            accessPointSerialNumber: serialNumber,
+            accessPointDeviceName: payload.device_name,
+            accessPointIp: payload.ip,
+            accessPointMac: payload.mac,
+            accessPointFirmware: payload.firmware,
+            accessPointPlatform: payload.platform,
+            accessPointStatus: payload.is_online ? 1 : 0,
+            accessPointLastConnection: lastConnection,
+          } as AccessPoint
+          const updated = await accessPointService.update(existing, updateData)
+          if (Ws.io) {
+            Ws.io.emit('device-info-received', {
+              ...payload,
+              accessPointId: updated.accessPointId,
+              action: 'updated',
+            })
+          }
+          socket.emit('device-info-ack', {
+            success: true,
+            serial_number: serialNumber,
+            action: 'updated',
+            accessPointId: updated.accessPointId,
+          })
+          // Resolver promesa pendiente de updateConnectionStatus si existía
+          Ws.resolveZkDeviceInfo(serialNumber, { success: true, accessPoint: updated, action: 'updated' })
+          return
+        }
+
+        // Dispositivo nuevo: usar la primera unidad de negocio existente
+        const firstBusinessUnit = await BusinessUnit.query()
+          .whereNull('business_unit_deleted_at')
+          .orderBy('business_unit_id', 'asc')
+          .first()
+        if (!firstBusinessUnit?.businessUnitId) {
+          socket.emit('device-info-ack', {
+            success: false,
+            error: 'No hay unidad de negocio registrada. Regístrela desde la API primero.',
+            serial_number: serialNumber,
+          })
+          return
+        }
+
+        const newAccessPoint = {
+          accessPointName: payload.alias || serialNumber,
+          businessUnitId: firstBusinessUnit.businessUnitId,
+          accessPointActive: 1,
+          accessPointSerialNumber: serialNumber,
+          accessPointDeviceName: payload.device_name,
+          accessPointIp: payload.ip,
+          accessPointMac: payload.mac,
+          accessPointFirmware: payload.firmware,
+          accessPointPlatform: payload.platform,
+          accessPointStatus: 1,
+          accessPointLastConnection: lastConnection,
+        } as AccessPoint
+
+        const verifyInfo = await accessPointService.verifyInfo(newAccessPoint)
+        if (verifyInfo.status !== 200) {
+          socket.emit('device-info-ack', {
+            success: false,
+            error: verifyInfo.message || i18n.formatMessage('entity_was_not_found', { entity: i18n.formatMessage('business_unit') }),
+            serial_number: serialNumber,
+          })
+          return
+        }
+
+        const created = await accessPointService.create(newAccessPoint)
+        if (Ws.io) {
+          Ws.io.emit('device-info-received', {
+            ...payload,
+            accessPointId: created.accessPointId,
+            action: 'created',
+          })
+        }
+        socket.emit('device-info-ack', {
+          success: true,
+          serial_number: serialNumber,
+          action: 'created',
+          accessPointId: created.accessPointId,
+        })
+        // Resolver promesa pendiente de updateConnectionStatus si existía
+        Ws.resolveZkDeviceInfo(serialNumber, { success: true, accessPoint: created, action: 'created' })
+      } catch (error) {
+        console.error('Error al procesar device-info:', error)
+        socket.emit('device-info-ack', {
+          success: false,
+          error: error instanceof Error ? error.message : 'Error al procesar device-info',
         })
       }
     })
