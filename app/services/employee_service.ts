@@ -5722,7 +5722,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * El reporte muestra:
    * - Empleados agrupados por departamento
    * - Columnas: departamento, puesto, número de nómina, nombre del empleado, fechas del periodo
-   * - Para cada día: hora llegada - hora salida y debajo el turno (colores en gama de grises)
+   * - Para cada día: hora llegada - hora salida y debajo el turno (colores del backOffice #C6EFCE, #b7d8fa, #FFFFC000, #ffaaa3)
    * - Empleados discriminados: celda sin color de estatus; sin registros se muestra "---" y no el turno
    * - Permisos (solo falta a laborar, llegar tarde, Día de descanso, Nuevo ingreso): "Permiso: nombre"; llegar tarde con hora asignada
    * - Festividad: nombre de la festividad; si hay registros de asistencia se muestra como turno normal
@@ -5903,32 +5903,51 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       }
 
       const assist = dayData.assist
-      const hasAttendance = !!(assist.checkIn || assist.checkOut)
+      // Asistencia: checks directos o vía assitFlatList (días de descanso/festivos envían null en checkIn/checkOut pero sí traen flatList)
+      const hasAttendance = !!(
+        assist.checkIn ||
+        assist.checkOut ||
+        (assist.assitFlatList && assist.assitFlatList.length > 0)
+      )
 
       // Empleado discriminado sin registros en el día: no mostrar turno, mostrar "---"
       if (isDiscriminated && !hasAttendance) {
         return '---'
       }
 
-      // Caso festivo con registros de asistencia: omitir nombre de festividad y mostrar como turno normal
+      // Caso festivo con registros de asistencia: mostrar checks y turno/nombre festividad
       if (assist.isHoliday && hasAttendance) {
         const timeLine = formatTimeLine(assist)
         const shiftText = getShiftDisplayText(assist)
-        return shiftText ? `${timeLine}\n${shiftText}`.trim() : timeLine || ''
+        const holidayLabel = assist.holiday?.holidayName || 'Festivo'
+        return shiftText ? `${timeLine}\n${shiftText}`.trim() : (timeLine ? `${timeLine}\n${holidayLabel}` : holidayLabel)
       }
 
-      // Situaciones especiales (sin registros o sin mostrar como turno normal)
-      if (assist.isVacationDate) return 'Vacaciones'
-      if (assist.isWorkDisabilityDate) return 'Incapacidad'
-      if (assist.isHoliday && assist.holiday?.holidayName) return assist.holiday.holidayName
-      if (assist.isHoliday) return 'Festivo'
+      // Situaciones especiales: si hay checks de entrada/salida, mostrarlos siempre junto al tipo de día
+      if (assist.isVacationDate) {
+        const timeLine = formatTimeLine(assist)
+        return hasAttendance && timeLine ? `${timeLine}\nVacaciones` : 'Vacaciones'
+      }
+      if (assist.isWorkDisabilityDate) {
+        const timeLine = formatTimeLine(assist)
+        return hasAttendance && timeLine ? `${timeLine}\nIncapacidad` : 'Incapacidad'
+      }
+      if (assist.isHoliday && assist.holiday?.holidayName) {
+        const timeLine = formatTimeLine(assist)
+        return hasAttendance && timeLine ? `${timeLine}\n${assist.holiday.holidayName}` : assist.holiday.holidayName
+      }
+      if (assist.isHoliday) {
+        const timeLine = formatTimeLine(assist)
+        return hasAttendance && timeLine ? `${timeLine}\nFestivo` : 'Festivo'
+      }
 
-      // Permisos: solo considerar falta a laborar, llegar tarde, Día de descanso, Nuevo ingreso
+      // Permisos: solo considerar falta a laborar, llegar tarde, Día de descanso, Nuevo ingreso (si hay checks, mostrarlos)
       if (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0) {
         const permissionExceptions = assist.exceptions.filter(
           (ex) => ex.exceptionType && PERMISSION_SLUGS.has(ex.exceptionType.exceptionTypeSlug)
         )
         if (permissionExceptions.length > 0) {
+          const timeLine = formatTimeLine(assist)
           const parts: string[] = []
           for (const ex of permissionExceptions) {
             const name = ex.exceptionType?.exceptionTypeTypeName || 'Permiso'
@@ -5939,18 +5958,24 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             } else if (slug === 'late-arrival') {
               const time = ex.shiftExceptionCheckInTime ? String(ex.shiftExceptionCheckInTime).trim() : ''
               const permText = time ? `Permiso: ${name} (${time})` : `Permiso: ${name}`
-              const timeLine = formatTimeLine(assist)
               parts.push(timeLine ? `${timeLine}\n${permText}` : permText)
+            } else if (slug === 'rest-day') {
+              // Día de descanso: si hay checks, mostrarlos siempre
+              parts.push(hasAttendance && timeLine ? `${timeLine}\nDía de Descanso` : 'Día de Descanso')
             } else {
-              parts.push(`Permiso: ${name}`)
+              parts.push(timeLine && hasAttendance ? `${timeLine}\nPermiso: ${name}` : `Permiso: ${name}`)
             }
           }
           return parts.join(', ')
         }
       }
 
-      // Día de descanso (sin excepción de permiso explícita)
-      if (assist.isRestDay && !assist.isHoliday) return 'Día de Descanso'
+      // Día de descanso (sin excepción de permiso explícita): si hay checks de entrada/salida, mostrarlos siempre
+      if (assist.isRestDay && !assist.isHoliday) {
+        const timeLine = formatTimeLine(assist)
+        if (hasAttendance && timeLine) return `${timeLine}\nDía de Descanso`
+        return 'Día de Descanso'
+      }
 
       // Falta para empleado regular: sin registros y día laborable con fault o excepción de falta (siempre mostrar turno)
       if (!hasAttendance) {
@@ -5982,28 +6007,52 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       return 'sin turno'
     }
 
-    // Formatea "hora llegada - hora salida" con las horas REALES de marcación (como en el frontend).
-    // Usar checkIn/checkOut.assistPunchTimeUtc en UTC-6, no checkInDateTime/checkOutDateTime (estos son del turno).
-    function formatTimeLine(assist: AssistDayInterface['assist']): string {
-      if (!assist) return ''
-      const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
-        if (value === null || value === undefined) return null
-        try {
-          const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
-          if (!dt?.isValid) return null
-          return dt.setZone('UTC-6').toFormat('HH:mm')
-        } catch {
-          return null
-        }
+    // Convierte un valor a HH:mm en zona UTC-6 (como en el frontend).
+    const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
+      if (value === null || value === undefined) return null
+      try {
+        const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
+        if (!dt?.isValid) return null
+        return dt.setZone('UTC-6').toFormat('HH:mm')
+      } catch {
+        return null
       }
+    }
+
+    // Formatea "hora llegada - hora salida" con las horas REALES de marcación.
+    // Usa checkIn/checkOut cuando existen; si vienen null (ej. días de descanso), usa assitFlatList.
+    function getTimeLineForAssist(assist: AssistDayInterface['assist']): string {
+      if (!assist) return ''
       const inRaw = assist.checkIn?.assistPunchTimeUtc
       const outRaw = assist.checkOut?.assistPunchTimeUtc
-      const inStr = toLocalHHmm(inRaw)
-      const outStr = toLocalHHmm(outRaw)
-      if (inStr && outStr) return `${inStr} - ${outStr}`
-      if (inStr) return inStr
+      if (inRaw !== null && inRaw !== undefined || outRaw !== null && outRaw !== undefined) {
+        const inStr = toLocalHHmm(inRaw)
+        const outStr = toLocalHHmm(outRaw)
+        if (inStr && outStr) return `${inStr} - ${outStr}`
+        if (inStr) return inStr
+        return ''
+      }
+      // Días especiales (descanso, vacaciones, etc.): el servicio puede enviar checkIn/checkOut null
+      // pero los checks vienen en assitFlatList; usarlos para mostrar entrada/salida.
+      const flatList = assist.assitFlatList
+      if (flatList && flatList.length > 0) {
+        const sorted = [...flatList].sort((a: any, b: any) => {
+          const ta = DateTime.fromISO(String(a.assistPunchTimeUtc), { setZone: true }).toMillis()
+          const tb = DateTime.fromISO(String(b.assistPunchTimeUtc), { setZone: true }).toMillis()
+          return ta - tb
+        })
+        const first = sorted[0]
+        const last = sorted[sorted.length - 1]
+        const inStr = toLocalHHmm(first?.assistPunchTimeUtc)
+        const outStr = first !== last ? toLocalHHmm(last?.assistPunchTimeUtc) : null
+        if (inStr && outStr) return `${inStr} - ${outStr}`
+        if (inStr) return inStr
+      }
       return ''
     }
+
+    // Alias para no cambiar todas las llamadas que ya usan formatTimeLine (ahora usan getTimeLineForAssist).
+    const formatTimeLine = getTimeLineForAssist
 
     // Consultar asistencias para todos los empleados
     const syncAssistsService = new SyncAssistsService(this.i18n)

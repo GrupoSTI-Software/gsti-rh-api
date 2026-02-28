@@ -2017,7 +2017,7 @@ socket.on('assist-registered', (data) => {
    *         schema:
    *           type: string
    *         description: Type of verification
-   *         example: "absences" or "tardiness"
+   *         example: "absences"
    *     responses:
    *       200:
    *         description: Resource action successful

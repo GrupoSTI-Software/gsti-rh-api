@@ -176,5 +176,9 @@
   "information": "Información",
   "access_point": "Punto de acceso",
   "connection_status_updated_successfully": "Estado de conexión actualizado correctamente",
-  "connection_status_no_response_from_device": "No se obtuvo respuesta del dispositivo; verifique que esté encendido y conectado."
+  "connection_status_no_response_from_device": "No se obtuvo respuesta del dispositivo; verifique que esté encendido y conectado.",
+  "notice": "Aviso",
+  "notice_sent_successfully": "Aviso enviado exitosamente",
+  "sent": "enviado",
+  "failed": "fallido"
 }
