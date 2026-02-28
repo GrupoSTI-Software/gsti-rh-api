@@ -179,7 +179,7 @@ export default class NoticeController {
    *               noticeFile:
    *                 type: string
    *                 format: binary
-   *                 description: The file to upload:
+   *                 description: The file to upload
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -251,14 +251,14 @@ export default class NoticeController {
             data: file,
           }
         }
-        
+
 
         const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
         const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
         notice.noticeDescription = fileUrl
       }
-     
+
 
       const newNotice = await noticeService.create(notice, recipientEmployeeIds)
       response.status(201)
@@ -306,7 +306,7 @@ export default class NoticeController {
    *               noticeFile:
    *                 type: string
    *                 format: binary
-   *                 description: The file to upload:
+   *                 description: The file to upload
    *     responses:
    *       '201':
    *         description: Resource processed successfully
