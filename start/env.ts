@@ -65,4 +65,11 @@ export default await Env.create(new URL('../', import.meta.url), {
   MONGODB_PASSWORD: Env.schema.string.optional(),
   MONGODB_DB_NAME: Env.schema.string.optional(),
   DB_NAME: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables for configuring basic auth for documentation
+  |----------------------------------------------------------
+  */
+  BASIC_AUTH_USER: Env.schema.string.optional(),
+  BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
 })

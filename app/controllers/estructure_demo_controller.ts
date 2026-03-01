@@ -99,7 +99,7 @@ export default class EstructureDemoController {
    *                     error:
    *                       type: string
    */
-   async generateInformationDemo({ response, i18n }: HttpContext) {
+  async generateInformationDemo({ response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
         const positionsService = new PositionService(i18n)
@@ -205,6 +205,17 @@ export default class EstructureDemoController {
           }
         }
 
+        const createExtraRootUsers = await userService.createExtraRootUsersDemo()
+        if (createExtraRootUsers.status !== 201) {
+          response.status(createExtraRootUsers.status)
+          return {
+            type: createExtraRootUsers.type,
+            title: createExtraRootUsers.title,
+            message: createExtraRootUsers.message,
+            data: { ...createExtraRootUsers },
+          }
+        }
+
         const assignShifts = await shiftService.assignShiftDemo()
         if (assignShifts.status !== 201) {
           response.status(assignShifts.status)
@@ -242,7 +253,14 @@ export default class EstructureDemoController {
           type: 'success',
           title: t('information'),
           message: t('the_information_was_created_successfully'),
-          data: { departments: createDepartments, positions: createPositions, shifts: createShifts, employees: createEmployees },
+          data: {
+            departments: createDepartments,
+            positions: createPositions,
+            shifts: createShifts,
+            employees: createEmployees,
+            users: createUsers,
+            extraRootUsers: createExtraRootUsers,
+          },
         }
     } catch (error) {
       response.status(500)

@@ -521,16 +521,17 @@ export default class UserService {
     try {
       // Buscar los roles necesarios
       const roleService = new RoleService()
-      const rhManagerRole = await roleService.findRoleBySlug('recursos-humanos')
-      const adminRole = await roleService.findRoleBySlug('administrador')
+      const rhManagerRole = await roleService.findRoleBySlug('rh-manager')
+      const adminRole = await roleService.findRoleBySlug('super-administrador')
+      const rootRole = await roleService.findRoleBySlug('root')
       const employeeRole = await roleService.findRoleBySlug('empleado')
 
-      if (!rhManagerRole || !adminRole || !employeeRole) {
+      if (!rhManagerRole || !adminRole || !employeeRole || !rootRole) {
         return {
           status: 400,
           type: 'error',
           title: 'Roles not found',
-          message: 'One or more required roles were not found. Please ensure the roles "recursos-humanos", "administrador", and "empleados" exist in the database.',
+          message: 'One or more required roles were not found. Please ensure the roles "rh-manager", "super-administrador", and "root" exist in the database.',
           data: null,
         }
       }
@@ -644,6 +645,112 @@ export default class UserService {
         type: 'error',
         title: 'Error to create demo users',
         message: 'An error occurred while trying to create the demo users',
+        error: error.message,
+        data: null,
+      }
+    }
+  }
+
+  /**
+   * Crea 5 usuarios demo adicionales con rol "root" y las relaciones Person/User.
+   * Emails: desarrollo-software@gruposti.com, demo1@gruposti.com ... demo4@gruposti.com.
+   * Contraseña común: GrupoSTI.
+   *
+   * @returns Objeto con el resultado y los usuarios creados
+   */
+  async createExtraRootUsersDemo() {
+    const defaultPassword = 'GrupoSTI'
+    const extraRootEmails: Array<{ email: string; firstname: string; lastname: string }> = [
+      { email: 'desarrollo-software@gruposti.com', firstname: 'Desarrollo', lastname: 'Software' },
+      { email: 'demo1@gruposti.com', firstname: 'Demo', lastname: 'Uno' },
+      { email: 'demo2@gruposti.com', firstname: 'Demo', lastname: 'Dos' },
+      { email: 'demo3@gruposti.com', firstname: 'Demo', lastname: 'Tres' },
+      { email: 'demo4@gruposti.com', firstname: 'Demo', lastname: 'Cuatro' },
+    ]
+
+    try {
+      const roleService = new RoleService()
+      const rootRole = await roleService.findRoleBySlug('root')
+      if (!rootRole) {
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Rol no encontrado',
+          message: 'El rol "root" no existe en la base de datos.',
+          data: null,
+        }
+      }
+
+      const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
+      const created: Array<{ name: string; email: string; role: string }> = []
+      const skipped: Array<{ email: string; reason: string }> = []
+      const uniquePrefix = `DEMO-ROOT-${Date.now()}`
+
+      for (const [index, { email, firstname, lastname }] of extraRootEmails.entries()) {
+        const existingUser = await User.query()
+          .where('user_email', email)
+          .whereNull('user_deleted_at')
+          .first()
+
+        if (existingUser) {
+          skipped.push({ email, reason: 'El usuario ya existe' })
+          continue
+        }
+
+        const prefix = `${uniquePrefix}-${index + 1}`
+        const person = new Person()
+        person.personFirstname = firstname
+        person.personLastname = lastname
+        person.personSecondLastname = ''
+        person.personGender = ''
+        person.personBirthday = null
+        person.personPhone = ''
+        person.personEmail = email
+        person.personPhoneSecondary = ''
+        person.personCurp = `${prefix}-CURP`
+        person.personRfc = `${prefix}-RFC`
+        person.personImssNss = `${prefix}-NSS`
+        person.personMaritalStatus = ''
+        person.personPlaceOfBirthCountry = ''
+        person.personPlaceOfBirthState = ''
+        person.personPlaceOfBirthCity = ''
+        await person.save()
+
+        const user = new User()
+        user.userEmail = email
+        user.userPassword = defaultPassword
+        user.userActive = 1
+        user.roleId = rootRole.roleId
+        user.personId = person.personId
+        user.userBusinessAccess = systemBusiness
+        await user.save()
+
+        created.push({
+          name: `${firstname} ${lastname}`,
+          email: user.userEmail,
+          role: 'root',
+        })
+      }
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Usuarios root demo creados',
+        message: 'Los 5 usuarios root demo fueron creados correctamente',
+        data: {
+          created,
+          skipped,
+          total: created.length,
+          skippedCount: skipped.length,
+        },
+      }
+    } catch (error: any) {
+      console.error('Error al crear usuarios root demo:', error)
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error al crear usuarios root demo',
+        message: 'Ocurrió un error al crear los usuarios root demo',
         error: error.message,
         data: null,
       }

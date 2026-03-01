@@ -3,7 +3,7 @@ import { SwaggerConfig } from 'adonisjs-6-swagger'
 export default {
   uiEnabled: false, //disable or enable swaggerUi route
   uiUrl: 'docs', // url path to swaggerUI
-  specEnabled: true, //disable or enable swagger.json route
+  specEnabled: false, //disable or enable swagger.json route
   specUrl: '/swagger.json',
 
   middleware: [], // middlewares array, for protect your swagger docs and spec endpoints
@@ -12,7 +12,7 @@ export default {
     definition: {
       openapi: '3.0.0',
       info: {
-        title: 'SAE Principal API',
+        title: 'Principal API',
         version: '1.0.0',
         description: 'My application with swagger docs',
       },

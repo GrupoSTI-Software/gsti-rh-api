@@ -7,9 +7,13 @@ import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
 import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
+import UploadService from '#services/upload_service'
+import path from 'node:path'
+import Env from '#start/env'
 
 // Lista de desarrollo para pruebas - solo estos emails recibirán notificaciones en desarrollo
 const DEVELOPMENT_EMAIL_LIST = [
+  'jsoto@siler-mx.com',
   //'rogelio.jinestas@gmail.com',
   'wramirez@siler-mx.com',
   'wilvardo@gmail.com'
@@ -40,6 +44,7 @@ export default class NoticeService {
       .if(filters.search, (q) => {
         q.whereRaw('UPPER(notice_subject) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
       })
+      .preload('files')
 
     // Si se proporciona employeeId, filtrar por notice_recipients y hacer preload
     if (filters.employeeId) {
@@ -103,12 +108,13 @@ export default class NoticeService {
     return Number(count[0]?.$extras.total || 0)
   }
 
-  async create(notice: Notice, recipientEmployeeIds: number[] = [], sendEmails: boolean = true) {
+  async create(notice: Notice, recipientEmployeeIds: number[] = []) {
     const newNotice = new Notice()
     newNotice.noticeSubject = notice.noticeSubject
     newNotice.noticeDescription = notice.noticeDescription
     newNotice.noticeSentCount = 0
     newNotice.noticeSentAt = null
+    newNotice.noticeType = notice.noticeType
 
     // Obtener empleados seleccionados
     const employees = await Employee.query()
@@ -155,9 +161,9 @@ export default class NoticeService {
     }
 
     // Enviar correos automáticamente al crear
-    if (sendEmails && recipientData.length > 0) {
-      await this.sendNoticeEmails(newNotice.noticeId, false)
-    }
+    // if (sendEmails && recipientData.length > 0) {
+    //   await this.sendNoticeEmails(newNotice.noticeId, false)
+    // }
 
     return newNotice
   }
@@ -165,6 +171,7 @@ export default class NoticeService {
   async update(currentNotice: Notice, notice: Notice, sendEmails: boolean = true, recipientEmployeeIds: number[] = []) {
     currentNotice.noticeSubject = notice.noticeSubject
     currentNotice.noticeDescription = notice.noticeDescription
+    currentNotice.noticeType = notice.noticeType
     await currentNotice.save()
 
     // Actualizar destinatarios siempre que se proporcione un array
@@ -198,6 +205,7 @@ export default class NoticeService {
 
       // Actualizar la lista de emails en el notice
       currentNotice.noticeRecipientEmails = JSON.stringify(recipientEmails)
+      
       await currentNotice.save()
 
       // Obtener destinatarios existentes
@@ -205,22 +213,22 @@ export default class NoticeService {
         .whereNull('notice_recipient_deleted_at')
         .where('notice_id', currentNotice.noticeId)
 
-      const existingEmployeeIds = existingRecipients
-        .map((r) => r.employeeId)
-        .filter((id): id is number => id !== null)
+      // const existingEmployeeIds = existingRecipients
+      //  .map((r) => r.employeeId)
+      //  .filter((id): id is number => id !== null)
 
       // Identificar destinatarios a agregar y eliminar
-      const removedEmployeeIds = existingEmployeeIds.filter((id) => !recipientEmployeeIds.includes(id))
+      //const removedEmployeeIds = existingEmployeeIds.filter((id) => !recipientEmployeeIds.includes(id))
 
 
       // Eliminar destinatarios que ya no están en la lista
-      if (removedEmployeeIds.length > 0) {
-        await NoticeRecipient.query()
-          .whereNull('notice_recipient_deleted_at')
-          .where('notice_id', currentNotice.noticeId)
-          .whereIn('employee_id', removedEmployeeIds)
-          .delete()
-      }
+      // if (removedEmployeeIds.length > 0) {
+      //   await NoticeRecipient.query()
+      //     .whereNull('notice_recipient_deleted_at')
+      //     .where('notice_id', currentNotice.noticeId)
+      //     .whereIn('employee_id', removedEmployeeIds)
+      //     .delete()
+      // }
 
       // Agregar nuevos destinatarios
       for (const recipient of recipientData) {
@@ -276,6 +284,7 @@ export default class NoticeService {
     let query = Notice.query()
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
+      .preload('files')
 
     // Si se proporciona employeeId, filtrar el preload de recipients
     if (employeeId) {
@@ -330,12 +339,15 @@ export default class NoticeService {
    * @param noticeId ID del aviso
    * @param isUpdate Si es true, agrega prefijo "Update" o "Actualización" al subject
    */
-  private async sendNoticeEmails(noticeId: number, isUpdate: boolean = false) {
+   async sendNoticeEmails(noticeId: number, isUpdate: boolean = false) {
     const notice = await Notice.query()
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
       .preload('recipients', (query) => {
         query.whereNull('notice_recipient_deleted_at')
+      })
+      .preload('files', (query) => {
+        query.whereNull('notice_file_deleted_at')
       })
       .first()
 
@@ -374,7 +386,93 @@ export default class NoticeService {
       }
     }
 
-    for (const recipient of recipients) {
+
+     const mimeTypes: Record<string, string> = {
+       '.pdf': 'application/pdf',
+       '.png': 'image/png',
+       '.jpg': 'image/jpeg',
+       '.jpeg': 'image/jpeg',
+       '.gif': 'image/gif',
+       '.webp': 'image/webp',
+       '.svg': 'image/svg+xml',
+       '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+       '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+       '.csv': 'text/csv',
+     }
+
+     // Adjunto único cuando la descripción es una URL/path (tipo pdf o image)
+     let attachmentBuffer: Buffer | null = null
+     let attachmentFilename = ''
+     let attachmentContentType = ''
+
+     const description = (notice.noticeDescription || '').trim()
+     const isUrl = /^https?:\/\//i.test(description)
+     const isFilePath = !isUrl && /\.(pdf|png|jpg|jpeg|gif|webp|svg)$/i.test(description)
+
+     if ((isUrl || isFilePath) && notice.noticeType === 'pdf') {
+       try {
+         if (isUrl) {
+           const response = await fetch(description)
+           if (response.ok) {
+             const arrayBuffer = await response.arrayBuffer()
+             attachmentBuffer = Buffer.from(arrayBuffer)
+             attachmentFilename = decodeURIComponent(path.basename(new URL(description).pathname))
+           }
+         } else {
+           const uploadService = new UploadService()
+           attachmentBuffer = await uploadService.downloadFileBuffer(description)
+           attachmentFilename = decodeURIComponent(path.basename(description))
+         }
+
+         if (attachmentFilename) {
+           const ext = path.extname(attachmentFilename).toLowerCase()
+           attachmentContentType = mimeTypes[ext] || 'application/octet-stream'
+         }
+       } catch (error) {
+         console.error('Error al descargar archivo para adjuntar al correo:', error)
+       }
+     }
+
+     // Archivos múltiples cuando el tipo es text y tiene noticeFiles asociados
+     const fileAttachments: Array<{ buffer: Buffer; filename: string; contentType: string }> = []
+
+     if (notice.noticeType === 'text' && notice.files && notice.files.length > 0) {
+       const uploadService = new UploadService()
+       for (const noticeFile of notice.files) {
+         const filePath = (noticeFile.noticeFilePath || '').trim()
+         if (!filePath) continue
+
+         try {
+           let fileBuffer: Buffer | null = null
+           let fileName = ''
+
+           if (/^https?:\/\//i.test(filePath)) {
+             const response = await fetch(filePath)
+             if (response.ok) {
+               const arrayBuffer = await response.arrayBuffer()
+               fileBuffer = Buffer.from(arrayBuffer)
+               fileName = decodeURIComponent(path.basename(new URL(filePath).pathname))
+             }
+           } else {
+             fileBuffer = await uploadService.downloadFileBuffer(filePath)
+             fileName = decodeURIComponent(path.basename(filePath))
+           }
+
+           if (fileBuffer && fileName) {
+             const ext = path.extname(fileName).toLowerCase()
+             fileAttachments.push({
+               buffer: fileBuffer,
+               filename: fileName,
+               contentType: mimeTypes[ext] || 'application/octet-stream',
+             })
+           }
+         } catch (error) {
+           console.error(`Error al descargar archivo adjunto ${filePath}:`, error)
+         }
+       }
+     }
+
+     for (const recipient of recipients) {
       try {
         // En desarrollo, solo enviar a emails de la lista de desarrollo
         let emailToSend = recipient.employeeEmail
@@ -406,21 +504,37 @@ export default class NoticeService {
               noticeDescription: notice.noticeDescription,
               tradeName,
               backgroundImageLogo,
+              noticeType: notice.noticeType,
             })
+   
+          if (attachmentBuffer && attachmentFilename) {
+            message.attachData(attachmentBuffer, {
+              filename: attachmentFilename,
+              contentType: attachmentContentType,
+            })
+          }
+
+          for (const file of fileAttachments) {
+            message.attachData(file.buffer, {
+              filename: file.filename,
+              contentType: file.contentType,
+            })
+          }
         })
 
-        recipient.noticeRecipientSent = true
-        recipient.noticeRecipientSentAt = DateTime.now()
-        recipient.noticeRecipientError = null
-        await recipient.save()
-        sentCount++
-      } catch (error: any) {
-        recipient.noticeRecipientSent = false
-        recipient.noticeRecipientSentAt = null
-        recipient.noticeRecipientError = error.message || 'Unknown error'
-        await recipient.save()
-        failedCount++
-      }
+          recipient.noticeRecipientSent = true
+          recipient.noticeRecipientSentAt = DateTime.now()
+          recipient.noticeRecipientError = null
+          await recipient.save()
+          sentCount++
+        } catch (error: any) {
+          recipient.noticeRecipientSent = false
+          recipient.noticeRecipientSentAt = null
+          recipient.noticeRecipientError = error.message || 'Unknown error'
+          await recipient.save()
+          failedCount++
+        }
+      
     }
 
     // Actualizar el aviso con la información de envío
@@ -456,7 +570,7 @@ export default class NoticeService {
         data: { ...notice },
       }
     }
-    if (!notice.noticeDescription || notice.noticeDescription.trim() === '') {
+    if ((!notice.noticeDescription || notice.noticeDescription.trim() === '') && notice.noticeType === 'text') {
       return {
         status: 400,
         type: 'warning',
@@ -471,6 +585,17 @@ export default class NoticeService {
       title: this.t('info_verify_successfully'),
       message: this.t('info_verify_successfully'),
       data: { ...notice },
+    }
+  }
+
+  async deleteFileS3(fileUrl: string) {
+    if (fileUrl && /^https?:\/\//i.test(fileUrl.trim())) {
+      const uploadService = new UploadService()
+      const fileNameWithExt = decodeURIComponent(
+        path.basename(fileUrl)
+      )
+      const fileKey = `${Env.get('AWS_ROOT_PATH')}/notices/${fileNameWithExt}`
+      await uploadService.deleteFile(fileKey)
     }
   }
 }

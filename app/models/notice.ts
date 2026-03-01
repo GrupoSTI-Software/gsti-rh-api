@@ -4,6 +4,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import NoticeRecipient from './notice_recipient.js'
+import NoticeFile from './notice_file.js'
 
 /**
  * @swagger
@@ -21,6 +22,9 @@ import NoticeRecipient from './notice_recipient.js'
  *         noticeDescription:
  *           type: string
  *           description: Notice description/content (HTML rich text)
+ *         noticeType:
+ *           type: string
+ *           description: Notice type (text, image, pdf)
  *         noticeRecipientEmails:
  *           type: string
  *           description: JSON array of recipient emails
@@ -52,6 +56,9 @@ export default class Notice extends compose(BaseModel, SoftDeletes) {
   declare noticeDescription: string
 
   @column()
+  declare noticeType: string
+
+  @column()
   declare noticeRecipientEmails: string | null
 
   @column()
@@ -73,4 +80,9 @@ export default class Notice extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'noticeId',
   })
   declare recipients: HasMany<typeof NoticeRecipient>
+
+  @hasMany(() => NoticeFile, {
+    foreignKey: 'noticeId',
+  })
+  declare files: HasMany<typeof NoticeFile>
 }

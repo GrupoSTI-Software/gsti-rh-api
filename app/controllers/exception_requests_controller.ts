@@ -20,6 +20,9 @@ import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
 import NotificationEmailService from '#services/notification_email_service'
 
+/** Slugs de roles de RRHH que ven solicitudes sin jefe directo con usuario */
+const RRHH_ROLE_SLUGS = ['rh-manager', 'recursos-humanos'] as const
+
 export default class ExceptionRequestsController {
   /**
    * @swagger
@@ -824,13 +827,15 @@ export default class ExceptionRequestsController {
     try {
       await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      if (!user) {
+        return response.status(401).json({
+          type: 'error',
+          title: 'Unauthorized',
+          message: 'Usuario no autenticado',
+        })
       }
+      await user.preload('role')
+      const roleSlug = user.role.roleSlug
 
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
@@ -850,7 +855,10 @@ export default class ExceptionRequestsController {
         status = null
       }
 
-      // Construir la consulta base
+      // Visibilidad: root ve todo; RRHH ve solo solicitudes sin jefe directo con usuario; resto solo las de sus subordinados directos
+      const isRoot = roleSlug === 'root'
+      const isRHH = RRHH_ROLE_SLUGS.includes(roleSlug as (typeof RRHH_ROLE_SLUGS)[number])
+
       const query = ExceptionRequest.query()
         .preload('employee', (employeeQuery) => {
           employeeQuery.preload('department')
@@ -874,15 +882,22 @@ export default class ExceptionRequestsController {
             employeeQuery.where('employeeId', employeeName)
           })
         })
-        .whereHas('employee', (employeeQuery) => {
-          employeeQuery.if(userResponsibleId &&
-            typeof userResponsibleId && userResponsibleId > 0,
-            (queryUserResponsible) => {
-              queryUserResponsible.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
-                userResponsibleEmployeeQuery.where('userId', userResponsibleId!)
+        .if(!isRoot, (q) => {
+          if (isRHH) {
+            // RRHH: solo solicitudes cuyo empleado NO tiene jefe directo con usuario vigente
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereDoesntHave('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userResponsibleEmployeeDirectBoss', 1).whereHas('user', () => {})
               })
-            }
-          )
+            })
+          } else {
+            // Gerente/jefe: solo solicitudes de empleados cuyo jefe directo (primero) es el usuario actual
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereHas('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userId', user.userId).where('userResponsibleEmployeeDirectBoss', 1)
+              })
+            })
+          }
         })
         .orderByRaw(`CASE
                    WHEN exception_request_status = 'pending' THEN 1
@@ -922,8 +937,13 @@ export default class ExceptionRequestsController {
    * @swagger
    * /api/exception-requests/unread:
    *   get:
+   *     security:
+   *       - bearerAuth: []
    *     summary: Get unread exception requests
-   *     description: Fetch unread exception requests filtered by RH and managerial read status.
+   *     description: |
+   *       Requiere autenticación. Devuelve solo las solicitudes no leídas visibles para el usuario:
+   *       - Root ve todas. RRHH (rh-manager, recursos-humanos) ve solo las de empleados sin jefe directo con usuario.
+   *       - El resto ve solo las de empleados cuyo jefe directo es el usuario actual.
    *     tags:
    *       - ExceptionRequests
    *     parameters:
@@ -980,33 +1000,79 @@ export default class ExceptionRequestsController {
    *         description: Internal server error
    */
 
-  async getUnreadExceptionRequests({ request, response }: HttpContext) {
-    const rhReadFilter = request.input('rhRead')
-    const gerencialReadFilter = request.input('gerencialRead')
+  async getUnreadExceptionRequests({ auth, request, response }: HttpContext) {
+    try {
+      await auth.check()
+      const user = auth.user
+      if (!user) {
+        return response.status(401).json({
+          type: 'error',
+          title: 'Unauthorized',
+          message: 'Usuario no autenticado',
+        })
+      }
+      await user.preload('role')
+      const roleSlug = user.role.roleSlug
+      const isRoot = roleSlug === 'root'
+      const isRHH = RRHH_ROLE_SLUGS.includes(roleSlug as (typeof RRHH_ROLE_SLUGS)[number])
 
-    const query = ExceptionRequest.query()
-      .if(rhReadFilter !== undefined, (q) => {
-        q.where('exceptionRequestRhRead', rhReadFilter)
-      })
-      .if(gerencialReadFilter !== undefined, (q) => {
-        q.where('exceptionRequestGerencialRead', gerencialReadFilter)
-      })
-      .if(rhReadFilter === undefined && gerencialReadFilter === undefined, (q) => {
-        q.where('exceptionRequestRhRead', 0).where('exceptionRequestGerencialRead', 0)
-      })
+      const rhReadFilter = request.input('rhRead')
+      const gerencialReadFilter = request.input('gerencialRead')
 
-    const exceptionRequests = await query.exec()
+      const query = ExceptionRequest.query()
+        .if(rhReadFilter !== undefined, (q) => {
+          q.where('exceptionRequestRhRead', rhReadFilter)
+        })
+        .if(gerencialReadFilter !== undefined, (q) => {
+          q.where('exceptionRequestGerencialRead', gerencialReadFilter)
+        })
+        .if(rhReadFilter === undefined && gerencialReadFilter === undefined, (q) => {
+          q.where('exceptionRequestRhRead', 0).where('exceptionRequestGerencialRead', 0)
+        })
+        .if(!isRoot, (q) => {
+          if (isRHH) {
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereDoesntHave('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userResponsibleEmployeeDirectBoss', 1).whereHas('user', () => {})
+              })
+            })
+          } else {
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereHas('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userId', user.userId).where('userResponsibleEmployeeDirectBoss', 1)
+              })
+            })
+          }
+        })
 
-    return response
-      .status(200)
-      .json(
-        formatResponse(
-          'success',
-          'Successfully fetched unread exception requests',
-          'Resources fetched',
-          exceptionRequests
+      const exceptionRequests = await query.exec()
+
+      return response
+        .status(200)
+        .json(
+          formatResponse(
+            'success',
+            'Successfully fetched unread exception requests',
+            'Resources fetched',
+            exceptionRequests
+          )
         )
-      )
+    } catch (error) {
+      if (error.code === 'E_UNAUTHORIZED_ACCESS') {
+        return response.status(401).json({
+          type: 'error',
+          title: 'Unauthorized',
+          message: 'Usuario no autenticado',
+        })
+      }
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
   }
 
   /**

@@ -28,6 +28,14 @@ export default class extends BaseSeeder {
         roleDescription: 'Root',
         roleActive: 1,
         roleBusinessAccess: 'gsti-rh'
+      },
+      {
+        roleId: 4,
+        roleName: 'Empleado',
+        roleSlug: 'empleado',
+        roleDescription: 'Empleado',
+        roleActive: 1,
+        roleBusinessAccess: 'gsti-rh'
       }
     ]
 
