@@ -9,6 +9,7 @@
 
 import router from '@adonisjs/core/services/router'
 import Ws from '#services/ws'
+import { middleware } from './kernel.js'
 
 import './routes/login_routes.js'
 import './routes/passkey_routes.js'
@@ -117,10 +118,26 @@ import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
 
-router.get('/', async ({ view }) => {
-  const specUrl = '/swagger.json'
-  return view.render('swagger', { specUrl })
-})
+router
+  .get('/', async ({ view }) => {
+    const specUrl = '/swagger.json'
+    return view.render('swagger', { specUrl })
+  })
+  .use(middleware.basicAuth())
+
+router
+  .get('/swagger.json', async ({ response }) => {
+    const app = await import('@adonisjs/core/services/app')
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    
+    const swaggerFilePath = path.default.join(app.default.appRoot.pathname, 'docs', 'swagger.json')
+    const swaggerContent = await fs.default.readFile(swaggerFilePath, 'utf-8')
+    
+    response.header('Content-Type', 'application/json')
+    return response.send(swaggerContent)
+  })
+  .use(middleware.basicAuth())
 
 router.get('/test-socket', async ({ response }) => {
   try {
