@@ -10,6 +10,8 @@ import SystemSetting from '#models/system_setting'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
 import Env from '#start/env'
+import UserFcmToken from '#models/user_fcm_token'
+import admin from '../../config/firebase.js'
 
 // Lista de desarrollo para pruebas - solo estos emails recibirán notificaciones en desarrollo
 const DEVELOPMENT_EMAIL_LIST = [
@@ -345,6 +347,15 @@ export default class NoticeService {
       .where('notice_id', noticeId)
       .preload('recipients', (query) => {
         query.whereNull('notice_recipient_deleted_at')
+        query.preload('employee', (employeeQuery) => {
+          employeeQuery.whereNull('employee_deleted_at')
+          employeeQuery.preload('person', (personQuery) => {
+            personQuery.whereNull('person_deleted_at')
+            personQuery.preload('user', (userQuery) => {
+              userQuery.whereNull('user_deleted_at')
+            })
+          })
+        })
       })
       .preload('files', (query) => {
         query.whereNull('notice_file_deleted_at')
@@ -472,6 +483,7 @@ export default class NoticeService {
        }
      }
 
+
      for (const recipient of recipients) {
       try {
         // En desarrollo, solo enviar a emails de la lista de desarrollo
@@ -521,6 +533,38 @@ export default class NoticeService {
             })
           }
         })
+
+        if (recipient.employee) {
+          if (recipient.employee.person && recipient.employee.person.user) {
+            const userId = recipient.employee.person.user.userId
+            const userFcmTokens = await UserFcmToken.query()
+              .where('user_id', userId)
+              .where('user_fcm_token_active', 1)
+              .where('user_fcm_token_last_seen_at', '>', DateTime.now().minus({ days: 50 }).toISO())
+            if (userFcmTokens) {
+              for (const userFcmToken of userFcmTokens) {
+                try {
+                  // enviar id para poder ver el aviso en la app
+                  admin.messaging().send({
+                    webpush: {
+                      notification: {
+                        title: this.t('new_notice'),
+                        body: notice.noticeSubject,
+                        icon: systemSettingActive?.systemSettingFavicon ? systemSettingActive.systemSettingFavicon : ''
+                      },
+                      data: {
+                        noticeId: noticeId.toString()
+                      }
+                    },
+                    token: userFcmToken.userFcmToken
+                  });
+                } catch (error) {
+                  console.error(error)
+                }
+              }
+            }
+          }
+        }
 
           recipient.noticeRecipientSent = true
           recipient.noticeRecipientSentAt = DateTime.now()
