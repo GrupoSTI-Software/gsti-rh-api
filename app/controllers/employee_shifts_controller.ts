@@ -8,6 +8,7 @@ import { DateTime } from 'luxon'
 import EmployeeShiftService from '#services/employee_shift_service'
 import { EmployeeShiftFilterInterface } from '../interfaces/employee_shift_filter_interface.js'
 import Shift from '#models/shift'
+import Employee from '#models/employee'
 
 export default class EmployeeShiftController {
   /**
@@ -177,6 +178,13 @@ export default class EmployeeShiftController {
       const date = typeof employeeShiftDate === 'string' ? new Date(employeeShiftDate) : employeeShiftDate
       await employeeShiftService.updateAssistCalendar(employeeShift.employeeId, date)
 
+      const employee = await Employee.query()
+        .where('employee_id', employeeId)
+        .preload('person', (query) => {
+          query.preload('user')
+        })
+        .first()
+
       const rawHeaders = request.request.rawHeaders
       const userId = auth.user?.userId
       if (userId) {
@@ -184,8 +192,11 @@ export default class EmployeeShiftController {
           .where('shift_id', shiftId)
           .first()
         if (shift) {
-          const dateFormat = DateTime.fromJSDate(new Date(employeeShiftDate)).setZone('UTC').setLocale(i18n.locale).toFormat('EEEE dd MMMM, yyyy')
-          await employeeShiftService.sendNotificationToUser(userId, dateFormat, shift)
+          const user = employee?.person?.user
+          if (user) {
+            const dateFormat = DateTime.fromJSDate(new Date(employeeShiftDate)).setZone('UTC').setLocale(i18n.locale).toFormat('EEEE dd MMMM, yyyy')
+            await employeeShiftService.sendNotificationToUser(user.userId, dateFormat, shift)
+          }
         }
         const logEmployeeShift = await employeeShiftService.createActionLog(rawHeaders, 'store')
         logEmployeeShift.user_id = userId
