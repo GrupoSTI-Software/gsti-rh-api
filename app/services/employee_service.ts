@@ -5977,6 +5977,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         return 'Día de Descanso'
       }
 
+      if (assist.isSundayBonus) {
+        const timeLine = formatTimeLine(assist)
+        if (hasAttendance && timeLine) return `${timeLine}\nPrima Dominical`
+        return 'Prima Dominical'
+      }
+
       // Falta para empleado regular: sin registros y día laborable con fault o excepción de falta (siempre mostrar turno)
       if (!hasAttendance) {
         if (assist.hasExceptions && assist.exceptions?.some(
