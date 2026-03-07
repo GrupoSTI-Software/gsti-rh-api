@@ -48,6 +48,9 @@ import { compose } from '@adonisjs/core/helpers'
  *          format: date-time
  *        assistActive:
  *          type: integer
+ *        assistType:
+ *          type: string
+ *          enum: [check, eatin, eatout]
  *        assistUsed:
  *          type: integer
  *        assistCreatedAt:
@@ -102,6 +105,9 @@ export default class Assist extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare assistActive: number
+
+  @column()
+  declare assistType: string
 
   @column.dateTime({ autoCreate: true })
   declare assistPunchTime: DateTime

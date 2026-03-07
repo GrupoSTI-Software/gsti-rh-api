@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import { HttpContext } from '@adonisjs/core/http'
 import User from '../models/user.js'
+import ApiToken from '../models/api_token.js'
 import PasskeyCredential from '../models/passkey_credential.js'
 import {
   generateRegistrationOptions,
@@ -526,14 +527,20 @@ export default class PasskeyController {
       passkeyCredential.passkeyCredentialLastUsedAt = DateTime.now()
       await passkeyCredential.save()
 
-      // Generar token de acceso
+      // Generar token de acceso — solo eliminar tokens previos de la app
       const user = passkeyCredential.user
+      await ApiToken.query()
+        .where('tokenable_id', user.userId)
+        .where('origin', 'app')
+        .delete()
+
       const token = await User.accessTokens.create(user, ['*'], {
         expiresIn: '24 hours',
       })
 
-      // Registrar dispositivo si se proporcionó información
-      // (Similar a como se hace en el login tradicional)
+      await ApiToken.query()
+        .where('id', String(token.identifier))
+        .update({ origin: 'app' })
 
       return response.status(200).json({
         type: 'success',
