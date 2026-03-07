@@ -101,8 +101,24 @@ export default class ShiftExceptionController {
       }
       const shiftExceptionsSaved = [] as Array<ShiftException>
       const shiftExceptionsError = [] as Array<ShiftExceptionErrorInterface>
-      for (let i = 0; i < daysToApply; i++) {
-        const currentDate = shiftExceptionsDate.plus({ days: i }).toISODate()
+
+      const exceptionType = await ExceptionType.query()
+        .whereNull('exception_type_deleted_at')
+        .where('exception_type_id', exceptionTypeId)
+        .first()
+      const isVacation = exceptionType?.exceptionTypeSlug === 'vacation'
+
+      const datesToCreate: string[] = isVacation && daysToApply > 0
+        ? await new ShiftExceptionService(i18n).getVacationBusinessDays(
+            employeeId,
+            shiftExceptionsDate,
+            daysToApply
+          )
+        : Array.from({ length: daysToApply }, (_, i) =>
+            shiftExceptionsDate.plus({ days: i }).toISODate()
+          )
+
+      for (const currentDate of datesToCreate) {
         const shiftException = {
           employeeId: employeeId,
           shiftExceptionsDescription: shiftExceptionsDescription,
@@ -137,16 +153,7 @@ export default class ShiftExceptionController {
                 )
                 logShiftException.user_id = userId
                 logShiftException.record_current = JSON.parse(JSON.stringify(newShiftException))
-                const exceptionType = await ExceptionType.query()
-                  .whereNull('exception_type_deleted_at')
-                  .where('exception_type_slug', 'vacation')
-                  .first()
-                let table = 'log_shift_exceptions'
-                if (exceptionType) {
-                  if (exceptionType.exceptionTypeId === newShiftException.exceptionTypeId) {
-                    table = 'log_vacations'
-                  }
-                }
+                const table = isVacation ? 'log_vacations' : 'log_shift_exceptions'
                 await shiftExceptionService.saveActionOnLog(logShiftException, table)
               }
               await newShiftException.load('exceptionType')

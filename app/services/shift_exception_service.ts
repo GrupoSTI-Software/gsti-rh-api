@@ -10,6 +10,11 @@ import ExceptionType from '#models/exception_type'
 import Employee from '#models/employee'
 import { I18n } from '@adonisjs/i18n'
 import EmployeeShift from '#models/employee_shift'
+import ShiftForEmployeeService from './shift_for_employees_service.js'
+import type { ShiftRecordInterface } from '../interfaces/shift_record_interface.js'
+import type { EmployeeRecordInterface } from '../interfaces/employee_record_interface.js'
+import Holiday from '#models/holiday'
+import env from '#start/env'
 
 export default class ShiftExceptionService {
 
@@ -269,5 +274,189 @@ export default class ShiftExceptionService {
 
   formatDate(date: Date): string {
     return date.toISOString().split('T')[0]
+  }
+
+  /**
+   * Obtiene el turno asignado al empleado para una fecha, respetando apply_since
+   * (misma lógica que SyncAssistsService.getAssignedDateShift).
+   */
+  private getAssignedDateShiftForDate(
+    compareDateTime: DateTime,
+    dailyShifts: ShiftRecordInterface[]
+  ): ShiftRecordInterface | undefined {
+    const checkTime = compareDateTime.setZone('UTC-6')
+    const availableShifts = dailyShifts.filter((shift) => {
+      const shiftDate = DateTime.fromJSDate(new Date(shift.employeShiftsApplySince)).setZone('UTC-6')
+      return checkTime >= shiftDate
+    })
+    const sorted = availableShifts.sort(
+      (a, b) =>
+        new Date(b.employeShiftsApplySince).getTime() -
+        new Date(a.employeShiftsApplySince).getTime()
+    )
+    return sorted[0]
+  }
+
+  /**
+   * Indica si el día es de descanso según el turno (shiftRestDays, 1-7).
+   * Misma lógica que SyncAssistsService.isRestDay usando día natural en UTC-6.
+   */
+  private isRestDayForShift(dayDate: DateTime, shiftRestDays: string): boolean {
+    const naturalDay = dayDate.setZone('UTC-6').toFormat('c')
+    const restDays = shiftRestDays.split(',').map((d) => d.trim())
+    return restDays.some((d) => Number.parseInt(d, 10) === Number.parseInt(naturalDay, 10))
+  }
+
+  /**
+   * Slugs de tipos de excepción que se consideran "no laborables" para asignar vacaciones:
+   * descanso por permiso, permiso de falta, permiso de incapacidad, incapacidad por maternidad.
+   * Esos días se saltan al calcular días hábiles para vacaciones.
+   */
+  private static readonly EXCEPTION_SLUGS_NON_WORK_DAY = new Set([
+    'rest-day', // descanso como permiso
+    'absence-from-work', // permiso de falta
+    'falta-por-incapacidad', // permiso de incapacidad
+    'incapacidad-por-maternidad', // incapacidad por maternidad
+    // si es necesario agregar más, agregar aquí 
+  ])
+
+  /**
+   * Obtiene las fechas que son días hábiles (laborales) para el empleado en el rango,
+   * excluyendo: días de descanso del turno, festivos de descanso oficial, y días con
+   * excepciones de descanso/permiso/falta/incapacidad.
+   * Usado para vacaciones: solo se asignan días que son laborales.
+   */
+  async getVacationBusinessDays(
+    employeeId: number,
+    startDate: DateTime,
+    daysToApply: number
+  ): Promise<string[]> {
+    if (daysToApply <= 0) {
+      return []
+    }
+
+    const dateStart = startDate.setZone('UTC-6').startOf('day')
+    const rangeEnd = dateStart.plus({ days: Math.max(daysToApply * 3 + 31, 90) })
+    const filterDateStart = dateStart.minus({ years: 10 }).toFormat('yyyy-LL-dd')
+    const filterDateEnd = rangeEnd.toFormat('yyyy-LL-dd')
+
+    const serviceResponse = await new ShiftForEmployeeService().getEmployeeShifts(
+      { dateStart: filterDateStart, dateEnd: filterDateEnd, employeeId },
+      999999,
+      1
+    )
+
+    if (serviceResponse.status !== 200 || !serviceResponse.data?.data) {
+      return []
+    }
+
+    const dailyShifts = (serviceResponse.data.data as EmployeeRecordInterface[])[0]
+    const employeeShifts: ShiftRecordInterface[] = (dailyShifts?.employeeShifts ||
+      []) as ShiftRecordInterface[]
+
+    if (employeeShifts.length === 0) {
+      return []
+    }
+
+    const [officialHolidayDates, datesWithRestOrPermission] = await Promise.all([
+      this.getOfficialHolidayDatesInRange(
+        dateStart.toFormat('yyyy-LL-dd'),
+        rangeEnd.toFormat('yyyy-LL-dd')
+      ),
+      this.getDatesWithRestOrPermissionExceptions(
+        employeeId,
+        dateStart.toFormat('yyyy-LL-dd'),
+        rangeEnd.toFormat('yyyy-LL-dd')
+      ),
+    ])
+
+    const businessDays: string[] = []
+    let current = dateStart
+
+    while (businessDays.length < daysToApply && current <= rangeEnd) {
+      const dateShift = this.getAssignedDateShiftForDate(current, employeeShifts)
+      if (!dateShift?.shift) {
+        current = current.plus({ days: 1 })
+        continue
+      }
+      const isRest = this.isRestDayForShift(current, dateShift.shift.shiftRestDays)
+      const dateStr = current.toFormat('yyyy-LL-dd')
+      const isOfficialHoliday = officialHolidayDates.has(dateStr)
+      const hasRestOrPermissionException = datesWithRestOrPermission.has(dateStr)
+      if (!isRest && !isOfficialHoliday && !hasRestOrPermissionException) {
+        businessDays.push(dateStr)
+      }
+      current = current.plus({ days: 1 })
+    }
+
+    return businessDays
+  }
+
+  /**
+   * Devuelve las fechas (yyyy-MM-dd) en las que el empleado tiene alguna excepción
+   * que se considera no laborable: descanso como permiso, falta, incapacidad, maternidad.
+   */
+  private async getDatesWithRestOrPermissionExceptions(
+    employeeId: number,
+    firstDate: string,
+    lastDate: string
+  ): Promise<Set<string>> {
+    const slugs = ShiftExceptionService.EXCEPTION_SLUGS_NON_WORK_DAY
+    const exceptions = await ShiftException.query()
+      .where('employee_id', employeeId)
+      .whereRaw('DATE(shift_exceptions_date) >= ?', [firstDate])
+      .whereRaw('DATE(shift_exceptions_date) <= ?', [lastDate])
+      .whereNull('shift_exceptions_deleted_at')
+      .preload('exceptionType')
+      .select('shift_exceptions_date', 'exception_type_id')
+
+    const dates = new Set<string>()
+    for (const ex of exceptions) {
+      const slug = ex.exceptionType?.exceptionTypeSlug
+      if (slug && slugs.has(slug)) {
+        const d =
+          typeof ex.shiftExceptionsDate === 'string'
+            ? ex.shiftExceptionsDate
+            : DateTime.fromJSDate(ex.shiftExceptionsDate as unknown as Date).toFormat('yyyy-LL-dd')
+        dates.add(d.split('T')[0])
+      }
+    }
+    return dates
+  }
+
+  /**
+   * Carga fechas de festivos con descanso oficial en el rango y las devuelve como Set.
+   */
+  private async getOfficialHolidayDatesInRange(
+    firstDate: string,
+    lastDate: string
+  ): Promise<Set<string>> {
+    const businessConf = env.get('SYSTEM_BUSINESS', '')
+    const businessList = businessConf ? businessConf.split(',').map((b) => b.trim()) : []
+
+    const query = Holiday.query()
+      .where('holidayDate', '>=', firstDate)
+      .where('holidayDate', '<=', lastDate)
+      .where('holidayIsOfficialRestDay', true)
+      .whereNull('holiday_deleted_at')
+
+    if (businessList.length > 0) {
+      query.andWhere((q) => {
+        businessList.forEach((business) => {
+          q.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+        })
+      })
+    }
+
+    const holidays = await query.select('holidayDate')
+    const dates = new Set<string>()
+    for (const h of holidays) {
+      const d =
+        typeof h.holidayDate === 'string'
+          ? h.holidayDate
+          : DateTime.fromJSDate(h.holidayDate as unknown as Date).toFormat('yyyy-LL-dd')
+      dates.add(d)
+    }
+    return dates
   }
 }

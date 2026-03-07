@@ -19,6 +19,33 @@ if (Ws.io) {
       socket.join(`room-${_data.room}`)
     })
 
+    /**
+     * Handler para registrar un dispositivo ZKTeco cuando se conecta
+     * El cliente debe emitir este evento con { serial_number: string }
+     */
+    socket.on('zk-device-register', (data) => {
+      const serialNumber = data?.serial_number || data?.serialNumber
+      if (serialNumber) {
+        Ws.registerZkDeviceSocket(serialNumber, socket)
+        socket.emit('zk-device-register-ack', { success: true, serial_number: serialNumber })
+      } else {
+        socket.emit('zk-device-register-ack', { success: false, error: 'serial_number es requerido' })
+      }
+    })
+
+    /**
+     * Handler para limpiar el registro cuando el dispositivo ZKTeco se desconecta
+     */
+    socket.on('disconnect', () => {
+      // Buscar y eliminar este socket de los dispositivos registrados
+      for (const [serialNumber, registeredSocket] of Ws.zkDeviceSockets) {
+        if (registeredSocket.id === socket.id) {
+          Ws.unregisterZkDeviceSocket(serialNumber)
+          break
+        }
+      }
+    })
+
     // Log para depuración: registrar todos los eventos recibidos
     const originalEmit = socket.emit.bind(socket)
     socket.emit = function (event: string, ...args: any[]) {

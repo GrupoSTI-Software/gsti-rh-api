@@ -71,6 +71,11 @@ export default class UserController {
    *                 description: Device os
    *                 default: ''
    *                 required: false
+   *               deviceOrigin:
+   *                 type: string
+   *                 description: Device origin
+   *                 default: ''
+   *                 required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -154,6 +159,9 @@ export default class UserController {
    */
   async login({ request, response, i18n }: HttpContext) {
     try {
+      // el tipo de token es el tipo de dispositivo que se esta usando se debe sacar del origin
+      const deviceOrigin = request.input('deviceOrigin')
+      const origin = deviceOrigin === 'app' ? 'app' : 'web'
       const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
@@ -254,16 +262,24 @@ export default class UserController {
         }
        }
 
-      await ApiToken.query().where('tokenable_id', user.userId).delete()
+
+      await ApiToken.query()
+        .where('tokenable_id', user.userId)
+        .where('origin', origin)
+        .delete()
 
       if (Ws.io) {
         try {
-          Ws.io.emit(`user-forze-logout:${user.userEmail}`, {})
+          Ws.io.emit(`user-forze-logout:${user.userEmail}:${origin}`, {})
         } catch (error) {}
       }
 
       const userVerify = await User.verifyCredentials(userEmail, userPassword)
       const token = await User.accessTokens.create(user)
+
+      await ApiToken.query()
+        .where('id', String(token.identifier))
+        .update({ origin })
 
       if (userVerify && token && user.userBusinessAccess) {
         const userBusinessAccessArray = user.userBusinessAccess.split(',')
@@ -297,12 +313,12 @@ export default class UserController {
           const userAgent = userService.getHeaderValue(rawHeaders, 'User-Agent')
           const secChUaPlatform = userService.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
           const secChUa = userService.getHeaderValue(rawHeaders, 'sec-ch-ua')
-          const origin = userService.getHeaderValue(rawHeaders, 'Origin')
+          const originHeader = userService.getHeaderValue(rawHeaders, 'Origin')
           await LogStore.set('log_authentication', {
             user_agent: userAgent,
             sec_ch_ua_platform: secChUaPlatform,
             sec_ch_ua: secChUa,
-            origin: origin,
+            origin: originHeader,
             date: date ? date : '',
             user_id: user.userId,
           } as LogAuthentication)
@@ -456,6 +472,15 @@ export default class UserController {
    *     summary: logout
    *     produces:
    *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               deviceOrigin:
+   *                 type: string
+   *                 description: Device origin
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -537,11 +562,17 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async logout({ auth, response }: HttpContext) {
+  async logout({ auth, request, response }: HttpContext) {
     try {
       const user = await auth.authenticateUsing(['api'])
-      await auth.use('api').authenticate()
-      await ApiToken.query().where('tokenable_id', auth.user!.userId).delete()
+      const deviceOrigin = request.input('deviceOrigin')
+      const origin = deviceOrigin === 'app' ? 'app' : 'web'
+
+      await ApiToken.query()
+        .where('tokenable_id', user.userId)
+        .where('origin', origin)
+        .delete()
+
       response.status(200)
       return {
         type: 'success',
