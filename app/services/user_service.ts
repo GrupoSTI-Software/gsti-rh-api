@@ -20,6 +20,9 @@ import { I18n } from '@adonisjs/i18n'
 import RoleDepartment from '#models/role_department'
 import Position from '#models/position'
 import RoleService from './role_service.js'
+import EmployeeType from '#models/employee_type'
+import Shift from '#models/shift'
+import EmployeeShift from '#models/employee_shift'
 
 export default class UserService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -666,6 +669,17 @@ export default class UserService {
       { email: 'demo2@gruposti.com', firstname: 'Demo', lastname: 'Dos' },
       { email: 'demo3@gruposti.com', firstname: 'Demo', lastname: 'Tres' },
       { email: 'demo4@gruposti.com', firstname: 'Demo', lastname: 'Cuatro' },
+      { email: 'demo5@gruposti.com', firstname: 'Demo', lastname: 'Cinco' },
+      { email: 'demo6@gruposti.com', firstname: 'Demo', lastname: 'Seis' },
+      { email: 'demo7@gruposti.com', firstname: 'Demo', lastname: 'Siete' },
+      { email: 'demo8@gruposti.com', firstname: 'Demo', lastname: 'Ocho' },
+      { email: 'demo9@gruposti.com', firstname: 'Demo', lastname: 'Nueve' },
+      { email: 'demo10@gruposti.com', firstname: 'Demo', lastname: 'Diez' },
+      { email: 'demo11@gruposti.com', firstname: 'Demo', lastname: 'Once' },
+      { email: 'demo12@gruposti.com', firstname: 'Demo', lastname: 'Doce' },
+      { email: 'demo13@gruposti.com', firstname: 'Demo', lastname: 'Trece' },
+      { email: 'demo14@gruposti.com', firstname: 'Demo', lastname: 'Catorce' },
+      { email: 'demo15@gruposti.com', firstname: 'Demo', lastname: 'Quince' },
     ]
 
     try {
@@ -682,6 +696,41 @@ export default class UserService {
       }
 
       const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnit = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnit?.businessUnitId || 0
+
+      const employeeType = await EmployeeType.query()
+        .where('employee_type_slug', 'employee')
+        .whereNull('employee_type_deleted_at')
+        .first()
+
+      let shift = await Shift.query()
+        .where('shift_name', '08:00 to 17:00 - Rest (Sat, Sun)')
+        .whereNull('shift_deleted_at')
+        .first()
+
+      if (!shift) {
+        shift = await Shift.query()
+          .whereNull('shift_deleted_at')
+          .first()
+      }
+
+      if (!shift) {
+        return {
+          status: 400,
+          type: 'error',
+          title: 'Turno no encontrado',
+          message: 'El turno "08:00 to 17:00 - Rest (Sat, Sun)" no existe en la base de datos.',
+          data: null,
+        }
+      }
+
       const created: Array<{ name: string; email: string; role: string }> = []
       const skipped: Array<{ email: string; reason: string }> = []
       const uniquePrefix = `DEMO-ROOT-${Date.now()}`
@@ -725,6 +774,39 @@ export default class UserService {
         user.userBusinessAccess = systemBusiness
         await user.save()
 
+        const employeeCode = `ROOT-${prefix}-${index + 1}`
+        const employee = new Employee()
+        employee.employeeSyncId = 0
+        employee.employeeCode = employeeCode
+        employee.employeeFirstName = firstname
+        employee.employeeLastName = lastname
+        employee.employeeSecondLastName = ''
+        employee.employeePayrollNum = employeeCode
+        employee.employeePayrollCode = employeeCode
+        employee.employeeHireDate = DateTime.now()
+        employee.companyId = 0
+        employee.departmentId = 999
+        employee.positionId = 999
+        employee.personId = person.personId
+        employee.businessUnitId = businessUnitId
+        employee.dailySalary = 0
+        employee.payrollBusinessUnitId = businessUnitId
+        employee.employeeAssistDiscriminator = 0
+        employee.employeeWorkSchedule = 'Onsite'
+        employee.employeeIgnoreConsecutiveAbsences = 0
+        employee.employeeAuthorizeAnyZones = 0
+        employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
+        employee.departmentSyncId = 0
+        employee.positionSyncId = 0
+        employee.employeeTypeId = employeeType?.employeeTypeId || 1
+        await employee.save()
+
+        const employeeShift = new EmployeeShift()
+        employeeShift.employeeId = employee.employeeId
+        employeeShift.shiftId = shift.shiftId
+        employeeShift.employeShiftsApplySince = DateTime.now().toFormat('yyyy-MM-dd')
+        await employeeShift.save()
+
         created.push({
           name: `${firstname} ${lastname}`,
           email: user.userEmail,
@@ -736,7 +818,7 @@ export default class UserService {
         status: 201,
         type: 'success',
         title: 'Usuarios root demo creados',
-        message: 'Los 5 usuarios root demo fueron creados correctamente',
+        message: 'Los 16 usuarios root demo fueron creados correctamente',
         data: {
           created,
           skipped,

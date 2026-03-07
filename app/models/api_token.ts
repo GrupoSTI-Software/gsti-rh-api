@@ -13,6 +13,9 @@ import { DateTime } from 'luxon'
  *          type:
  *            type: string
  *            description: Token type
+ *          origin:
+ *            type: string
+ *            description: Token origin
  *          token:
  *            type: string
  *            description: Token
@@ -39,6 +42,9 @@ export default class ApiToken extends BaseModel {
 
   @column()
   declare type: string
+
+  @column()
+  declare origin: string
 
   @column()
   declare token: string

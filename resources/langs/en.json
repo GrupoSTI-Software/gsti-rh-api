@@ -177,5 +177,6 @@
   "notice": "Notice",
   "notice_sent_successfully": "Notice sent successfully",
   "sent": "sent",
-  "failed": "failed"
+  "failed": "failed",
+  "new_notice": "New notice"
 }
