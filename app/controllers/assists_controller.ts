@@ -893,6 +893,12 @@ export default class AssistsController {
    *                 description: Assist precision
    *                 required: false
    *                 default: ''
+   *               assistType:
+   *                 type: string
+   *                 description: Assist type
+   *                 required: false
+   *                 default: 'check'
+   *                 enum: [check, eatin, eatout]
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -982,6 +988,7 @@ export default class AssistsController {
       const assistLongitude = request.input('assistLongitude')
       const assistLatitude = request.input('assistLatitude')
       const assistPrecision = request.input('assistPrecision')
+      const assistType = request.input('assistType')
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeId)
@@ -1028,6 +1035,7 @@ export default class AssistsController {
         assistEmpId: employeeId,
         assistTerminalId: null,
         assistSyncId: 0,
+        assistType: assistType,
         assistPunchTime: dateTimePunchTime,
         assistPunchTimeUtc: dateTimePunchTime,
         assistPunchTimeOrigin: dateTimePunchTime,
