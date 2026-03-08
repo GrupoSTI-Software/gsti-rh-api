@@ -96,6 +96,21 @@ export default class EmployeeService {
     }
   }
 
+  /**
+   * Genera una fecha aleatoria entre 5 años y 1 año en el pasado.
+   */
+  private getRandomPastDate(): DateTime {
+    const now = DateTime.now()
+    const oneYearAgo = now.minus({ years: 1 })
+    const fiveYearsAgo = now.minus({ years: 5 })
+    
+    const startTimestamp = fiveYearsAgo.toMillis()
+    const endTimestamp = oneYearAgo.toMillis()
+    const randomTimestamp = startTimestamp + Math.random() * (endTimestamp - startTimestamp)
+    
+    return DateTime.fromMillis(randomTimestamp)
+  }
+
   async syncCreate(employee: BiometricEmployeeInterface) {
     // Guardar el personId que viene del frontend
     let personIdToDelete = employee.personId || null
@@ -6721,11 +6736,11 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     employee.employeeCode = employeeData.code
     employee.employeeFirstName = employeeData.firstName
     employee.employeeLastName = employeeData.lastName
-    employee.employeeSecondLastName = employeeData.secondLastName || ''
+    employee.employeeSecondLastName = employeeData.secondLastName || '.'
     employee.employeePayrollNum = employeeData.code
     employee.employeePayrollCode = employeeData.code
-    employee.employeeHireDate = DateTime.now()
-    employee.companyId = 0
+    employee.employeeHireDate = this.getRandomPastDate()
+    employee.companyId = 1
     employee.departmentId = departmentId
     employee.positionId = positionId
     employee.personId = personId
@@ -6829,87 +6844,87 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
       // Lista de empleados con sus nombres completos
       const employeesData = [
-        { firstName: 'Juan', lastName: 'Pérez', secondLastName: 'López', gender: 'Hombre', birthday: '1991-02-14', phone: '1234567890', email: 'juan.perez@example.com', curp: 'PELJ880510HDFLRN01', rfc: 'PELJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Juan', lastName: 'Pérez', secondLastName: 'López', gender: 'Hombre', birthday: '1991-02-14', phone: '1234567890', email: 'juan.perez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'María', lastName: 'González', secondLastName: 'Hernández', gender: 'Mujer', birthday: '1991-11-30', phone: '1234567890', email: 'maria.gonzalez@example.com', curp: 'GONM880510HDFLRN01', rfc: 'GONM880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'María', lastName: 'González', secondLastName: 'Hernández', gender: 'Mujer', birthday: '1991-11-30', phone: '1234567890', email: 'maria.gonzalez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'José', lastName: 'Martínez', secondLastName: 'Ramírez', gender: 'Hombre', birthday: '1992-01-08', phone: '1234567890', email: 'jose.martinez@example.com', curp: 'MART880510HDFLRN01', rfc: 'MART880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'José', lastName: 'Martínez', secondLastName: 'Ramírez', gender: 'Hombre', birthday: '1992-01-08', phone: '1234567890', email: 'jose.martinez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Ana', lastName: 'Rodríguez', secondLastName: 'Cruz', gender: 'Mujer', birthday: '1992-06-19', phone: '1234567890', email: 'ana.rodriguez@example.com', curp: 'RODJ880510HDFLRN01', rfc: 'RODJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Ana', lastName: 'Rodríguez', secondLastName: 'Cruz', gender: 'Mujer', birthday: '1992-06-19', phone: '1234567890', email: 'ana.rodriguez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Carlos', lastName: 'López', secondLastName: 'García', gender: 'Hombre', birthday: '1992-12-27', phone: '1234567890', email: 'carlos.lopez@example.com', curp: 'LOPG880510HDFLRN01', rfc: 'LOPG880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Carlos', lastName: 'López', secondLastName: 'García', gender: 'Hombre', birthday: '1992-12-27', phone: '1234567890', email: 'carlos.lopez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Guadalupe', lastName: 'Sánchez', secondLastName: 'Flores', gender: 'Mujer', birthday: '1993-05-14', phone: '1234567890', email: 'guadalupe.sanchez@example.com', curp: 'SANF880510HDFLRN01', rfc: 'SANF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Guadalupe', lastName: 'Sánchez', secondLastName: 'Flores', gender: 'Mujer', birthday: '1993-05-14', phone: '1234567890', email: 'guadalupe.sanchez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Luis', lastName: 'Hernández', secondLastName: 'Torres', gender: 'Hombre', birthday: '1993-10-22', phone: '1234567890', email: 'luis.hernandez@example.com', curp: 'HERT880510HDFLRN01', rfc: 'HERT880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Luis', lastName: 'Hernández', secondLastName: 'Torres', gender: 'Hombre', birthday: '1993-10-22', phone: '1234567890', email: 'luis.hernandez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Rosa', lastName: 'Morales', secondLastName: 'Jiménez', gender: 'Mujer', birthday: '1994-02-03', phone: '1234567890', email: 'rosa.morales@example.com', curp: 'MORJ880510HDFLRN01', rfc: 'MORJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Rosa', lastName: 'Morales', secondLastName: 'Jiménez', gender: 'Mujer', birthday: '1994-02-03', phone: '1234567890', email: 'rosa.morales@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Miguel', lastName: 'Ortiz', secondLastName: 'Vega', gender: 'Hombre', birthday: '1994-07-18', phone: '1234567890', email: 'miguel.ortiz@example.com', curp: 'ORTV880510HDFLRN01', rfc: 'ORTV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Miguel', lastName: 'Ortiz', secondLastName: 'Vega', gender: 'Hombre', birthday: '1994-07-18', phone: '1234567890', email: 'miguel.ortiz@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Carmen', lastName: 'Castillo', secondLastName: 'Reyes', gender: 'Mujer', birthday: '1994-12-09', phone: '1234567890', email: 'carmen.castillo@example.com', curp: 'CAST880510HDFLRN01', rfc: 'CAST880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Carmen', lastName: 'Castillo', secondLastName: 'Reyes', gender: 'Mujer', birthday: '1994-12-09', phone: '1234567890', email: 'carmen.castillo@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Jesús', lastName: 'Ramírez', secondLastName: 'Pérez', gender: 'Hombre', birthday: '1995-03-21', phone: '1234567890', email: 'jesus.ramirez@example.com', curp: 'RAMJ880510HDFLRN01', rfc: 'RAMJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Jesús', lastName: 'Ramírez', secondLastName: 'Pérez', gender: 'Hombre', birthday: '1995-03-21', phone: '1234567890', email: 'jesus.ramirez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Laura', lastName: 'Flores', secondLastName: 'Mendoza', gender: 'Mujer', birthday: '1995-08-02', phone: '1234567890', email: 'laura.flores@example.com', curp: 'FLOL880510HDFLRN01', rfc: 'FLOL880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Laura', lastName: 'Flores', secondLastName: 'Mendoza', gender: 'Mujer', birthday: '1995-08-02', phone: '1234567890', email: 'laura.flores@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Francisco', lastName: 'Vargas', secondLastName: 'Soto', gender: 'Hombre', birthday: '1996-01-17', phone: '1234567890', email: 'francisco.vargas@example.com', curp: 'VARS880510HDFLRN01', rfc: 'VARS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Francisco', lastName: 'Vargas', secondLastName: 'Soto', gender: 'Hombre', birthday: '1996-01-17', phone: '1234567890', email: 'francisco.vargas@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Patricia', lastName: 'Rojas', secondLastName: 'Navarro', gender: 'Mujer', birthday: '1996-06-28', phone: '1234567890', email: 'patricia.rojas@example.com', curp: 'ROJ880510HDFLRN01', rfc: 'ROJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Patricia', lastName: 'Rojas', secondLastName: 'Navarro', gender: 'Mujer', birthday: '1996-06-28', phone: '1234567890', email: 'patricia.rojas@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Jorge', lastName: 'Medina', secondLastName: 'Aguilar', gender: 'Hombre', birthday: '1996-11-12', phone: '1234567890', email: 'jorge.medina@example.com', curp: 'MEDJ880510HDFLRN01', rfc: 'MEDJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Jorge', lastName: 'Medina', secondLastName: 'Aguilar', gender: 'Hombre', birthday: '1996-11-12', phone: '1234567890', email: 'jorge.medina@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Teresa', lastName: 'Luna', secondLastName: 'Chávez', gender: 'Mujer', birthday: '1997-04-05', phone: '1234567890', email: 'teresa.luna@example.com', curp: 'LUN880510HDFLRN01', rfc: 'LUN880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Teresa', lastName: 'Luna', secondLastName: 'Chávez', gender: 'Mujer', birthday: '1997-04-05', phone: '1234567890', email: 'teresa.luna@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Pedro', lastName: 'Herrera', secondLastName: 'Salas', gender: 'Hombre', birthday: '1997-09-11', phone: '1234567890', email: 'pedro.herrera@example.com', curp: 'HERP880510HDFLRN01', rfc: 'HERP880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Pedro', lastName: 'Herrera', secondLastName: 'Salas', gender: 'Hombre', birthday: '1997-09-11', phone: '1234567890', email: 'pedro.herrera@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Alejandra', lastName: 'Núñez', secondLastName: 'Pineda', gender: 'Mujer', birthday: '1998-01-26', phone: '1234567890', email: 'alejandra.nunez@example.com', curp: 'NUNE880510HDFLRN01', rfc: 'NUNE880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Alejandra', lastName: 'Núñez', secondLastName: 'Pineda', gender: 'Mujer', birthday: '1998-01-26', phone: '1234567890', email: 'alejandra.nunez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Manuel', lastName: 'Cruz', secondLastName: 'Romero', gender: 'Hombre', birthday: '1998-06-14', phone: '1234567890', email: 'manuel.cruz@example.com', curp: 'CRUZ880510HDFLRN01', rfc: 'CRUZ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Manuel', lastName: 'Cruz', secondLastName: 'Romero', gender: 'Hombre', birthday: '1998-06-14', phone: '1234567890', email: 'manuel.cruz@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Verónica', lastName: 'Campos', secondLastName: 'Silva', gender: 'Mujer', birthday: '1998-10-03', phone: '1234567890', email: 'veronica.campos@example.com', curp: 'CAMV880510HDFLRN01', rfc: 'CAMV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Verónica', lastName: 'Campos', secondLastName: 'Silva', gender: 'Mujer', birthday: '1998-10-03', phone: '1234567890', email: 'veronica.campos@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Ricardo', lastName: 'Mendoza', secondLastName: 'Fuentes', gender: 'Hombre', birthday: '1999-02-19', phone: '1234567890', email: 'ricardo.mendoza@example.com', curp: 'MEND880510HDFLRN01', rfc: 'MEND880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Ricardo', lastName: 'Mendoza', secondLastName: 'Fuentes', gender: 'Hombre', birthday: '1999-02-19', phone: '1234567890', email: 'ricardo.mendoza@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Sofía', lastName: 'Delgado', secondLastName: 'Moreno', gender: 'Mujer', birthday: '1999-07-07', phone: '1234567890', email: 'sofia.delgado@example.com', curp: 'DELF880510HDFLRN01', rfc: 'DELF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Sofía', lastName: 'Delgado', secondLastName: 'Moreno', gender: 'Mujer', birthday: '1999-07-07', phone: '1234567890', email: 'sofia.delgado@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Fernando', lastName: 'Reyes', secondLastName: 'Cabrera', gender: 'Hombre', birthday: '2000-01-15', phone: '1234567890', email: 'fernando.reyes@example.com', curp: 'REYF880510HDFLRN01', rfc: 'REYF880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Fernando', lastName: 'Reyes', secondLastName: 'Cabrera', gender: 'Hombre', birthday: '2000-01-15', phone: '1234567890', email: 'fernando.reyes@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Adriana', lastName: 'Pacheco', secondLastName: 'León', gender: 'Mujer', birthday: '2000-04-27', phone: '1234567890', email: 'adriana.pacheco@example.com', curp: 'PACA880510HDFLRN01', rfc: 'PACA880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Adriana', lastName: 'Pacheco', secondLastName: 'León', gender: 'Mujer', birthday: '2000-04-27', phone: '1234567890', email: 'adriana.pacheco@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Daniel', lastName: 'Ibarra', secondLastName: 'Castillo', gender: 'Hombre', birthday: '2000-08-09', phone: '1234567890', email: 'daniel.ibarra@example.com', curp: 'IBAR880510HDFLRN01', rfc: 'IBAR880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Daniel', lastName: 'Ibarra', secondLastName: 'Castillo', gender: 'Hombre', birthday: '2000-08-09', phone: '1234567890', email: 'daniel.ibarra@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Claudia', lastName: 'Espinoza', secondLastName: 'Márquez', gender: 'Mujer', birthday: '2000-11-21', phone: '1234567890', email: 'claudia.espinoza@example.com', curp: 'ESPI880510HDFLRN01', rfc: 'ESPI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Claudia', lastName: 'Espinoza', secondLastName: 'Márquez', gender: 'Mujer', birthday: '2000-11-21', phone: '1234567890', email: 'claudia.espinoza@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Roberto', lastName: 'Villanueva', secondLastName: 'Rocha', gender: 'Hombre', birthday: '2001-03-05', phone: '1234567890', email: 'roberto.villanueva@example.com', curp: 'VILL880510HDFLRN01', rfc: 'VILL880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Roberto', lastName: 'Villanueva', secondLastName: 'Rocha', gender: 'Hombre', birthday: '2001-03-05', phone: '1234567890', email: 'roberto.villanueva@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Gabriela', lastName: 'Cárdenas', secondLastName: 'Bautista', gender: 'Mujer', birthday: '2001-06-18', phone: '1234567890', email: 'gabriela.cardenas@example.com', curp: 'CARD880510HDFLRN01', rfc: 'CARD880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Gabriela', lastName: 'Cárdenas', secondLastName: 'Bautista', gender: 'Mujer', birthday: '2001-06-18', phone: '1234567890', email: 'gabriela.cardenas@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Eduardo', lastName: 'Acosta', secondLastName: 'Beltrán', gender: 'Hombre', birthday: '2001-09-30', phone: '1234567890', email: 'eduardo.acosta@example.com', curp: 'ACOS880510HDFLRN01', rfc: 'ACOS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Eduardo', lastName: 'Acosta', secondLastName: 'Beltrán', gender: 'Hombre', birthday: '2001-09-30', phone: '1234567890', email: 'eduardo.acosta@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Daniela', lastName: 'Zúñiga', secondLastName: 'Ortega', gender: 'Mujer', birthday: '2002-01-12', phone: '1234567890', email: 'daniela.zuniga@example.com', curp: 'ZUNI880510HDFLRN01', rfc: 'ZUNI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Daniela', lastName: 'Zúñiga', secondLastName: 'Ortega', gender: 'Mujer', birthday: '2002-01-12', phone: '1234567890', email: 'daniela.zuniga@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Javier', lastName: 'Salazar', secondLastName: 'Cortés', gender: 'Hombre', birthday: '2002-04-26', phone: '1234567890', email: 'javier.salazar@example.com', curp: 'SALJ880510HDFLRN01', rfc: 'SALJ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Javier', lastName: 'Salazar', secondLastName: 'Cortés', gender: 'Hombre', birthday: '2002-04-26', phone: '1234567890', email: 'javier.salazar@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Paulina', lastName: 'Montoya', secondLastName: 'Rangel', gender: 'Mujer', birthday: '2002-08-07', phone: '1234567890', email: 'paulina.montoya@example.com', curp: 'MONP880510HDFLRN01', rfc: 'MONP880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Paulina', lastName: 'Montoya', secondLastName: 'Rangel', gender: 'Mujer', birthday: '2002-08-07', phone: '1234567890', email: 'paulina.montoya@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Antonio', lastName: 'Galindo', secondLastName: 'Meza', gender: 'Hombre', birthday: '2002-11-19', phone: '1234567890', email: 'antonio.galindo@example.com', curp: 'GALI880510HDFLRN01', rfc: 'GALI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Antonio', lastName: 'Galindo', secondLastName: 'Meza', gender: 'Hombre', birthday: '2002-11-19', phone: '1234567890', email: 'antonio.galindo@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Elizabeth', lastName: 'Peralta', secondLastName: 'Trejo', gender: 'Mujer', birthday: '2003-03-04', phone: '1234567890', email: 'elizabeth.peralta@example.com', curp: 'PERE880510HDFLRN01', rfc: 'PERE880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Elizabeth', lastName: 'Peralta', secondLastName: 'Trejo', gender: 'Mujer', birthday: '2003-03-04', phone: '1234567890', email: 'elizabeth.peralta@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Raúl', lastName: 'Escobar', secondLastName: 'Nieto', gender: 'Hombre', birthday: '2003-06-16', phone: '1234567890', email: 'raul.escobar@example.com', curp: 'ESCO880510HDFLRN01', rfc: 'ESCO880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Raúl', lastName: 'Escobar', secondLastName: 'Nieto', gender: 'Hombre', birthday: '2003-06-16', phone: '1234567890', email: 'raul.escobar@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-        { firstName: 'Mónica', lastName: 'Valdez', secondLastName: 'Arriaga', gender: 'Mujer', birthday: '2003-10-28', phone: '1234567890', email: 'monica.valdez@example.com', curp: 'VALD880510HDFLRN01', rfc: 'VALD880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Mónica', lastName: 'Valdez', secondLastName: 'Arriaga', gender: 'Mujer', birthday: '2003-10-28', phone: '1234567890', email: 'monica.valdez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-{ firstName: 'Rosa', lastName: 'Gonzalez', secondLastName: 'Hernandez', gender: 'Mujer', birthday: '2004-02-15', phone: '1234567890', email: 'rosa.gonzalez@example.com', curp: 'GONZ880510HDFLRN01', rfc: 'GONZ880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Rosa', lastName: 'Gonzalez', secondLastName: 'Hernandez', gender: 'Mujer', birthday: '2004-02-15', phone: '1234567890', email: 'rosa.gonzalez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-{ firstName: 'Silvia', lastName: 'Orozco', secondLastName: 'Sandoval', gender: 'Mujer', birthday: '2004-05-29', phone: '1234567890', email: 'silvia.orozco@example.com', curp: 'OROS880510HDFLRN01', rfc: 'OROS880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Silvia', lastName: 'Orozco', secondLastName: 'Sandoval', gender: 'Mujer', birthday: '2004-05-29', phone: '1234567890', email: 'silvia.orozco@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-{ firstName: 'Sergio', lastName: 'Tapia', secondLastName: 'Calderón', gender: 'Hombre', birthday: '2004-09-11', phone: '1234567890', email: 'sergio.tapia@example.com', curp: 'TAPI880510HDFLRN01', rfc: 'TAPI880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Sergio', lastName: 'Tapia', secondLastName: 'Calderón', gender: 'Hombre', birthday: '2004-09-11', phone: '1234567890', email: 'sergio.tapia@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-{ firstName: 'Norma', lastName: 'Álvarez', secondLastName: 'Macías', gender: 'Mujer', birthday: '2005-01-06', phone: '1234567890', email: 'norma.alvarez@example.com', curp: 'ALVM880510HDFLRN01', rfc: 'ALVM880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Norma', lastName: 'Álvarez', secondLastName: 'Macías', gender: 'Mujer', birthday: '2005-01-06', phone: '1234567890', email: 'norma.alvarez@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
-{ firstName: 'Víctor', lastName: 'Peña', secondLastName: 'Solís', gender: 'Hombre', birthday: '2005-04-20', phone: '1234567890', email: 'victor.pena@example.com', curp: 'PEÑV880510HDFLRN01', rfc: 'PEÑV880510AB1', imssNss: '12128800101', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
+        { firstName: 'Víctor', lastName: 'Peña', secondLastName: 'Solís', gender: 'Hombre', birthday: '2005-04-20', phone: '1234567890', email: 'victor.pena@example.com', curp: '', rfc: '', imssNss: '', maritalStatus: 'Single', birthPlace: 'México', birthState: 'México', birthCity: 'México', birthCountry: 'México', dailySalary: 1000 },
 
       ]
 
