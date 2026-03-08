@@ -31,6 +31,21 @@ export default class UserService {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
+  /**
+   * Genera una fecha aleatoria entre 5 años y 1 año en el pasado.
+   */
+  private getRandomPastDate(): DateTime {
+    const now = DateTime.now()
+    const oneYearAgo = now.minus({ years: 1 })
+    const fiveYearsAgo = now.minus({ years: 5 })
+    
+    const startTimestamp = fiveYearsAgo.toMillis()
+    const endTimestamp = oneYearAgo.toMillis()
+    const randomTimestamp = startTimestamp + Math.random() * (endTimestamp - startTimestamp)
+    
+    return DateTime.fromMillis(randomTimestamp)
+  }
+
   async index(filters: UserFilterSearchInterface) {
     const systemBussines = env.get('SYSTEM_BUSINESS')
     const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
@@ -750,15 +765,15 @@ export default class UserService {
         const person = new Person()
         person.personFirstname = firstname
         person.personLastname = lastname
-        person.personSecondLastname = ''
+        person.personSecondLastname = 'gsti'
         person.personGender = ''
         person.personBirthday = null
         person.personPhone = ''
         person.personEmail = email
         person.personPhoneSecondary = ''
-        person.personCurp = `${prefix}-CURP`
-        person.personRfc = `${prefix}-RFC`
-        person.personImssNss = `${prefix}-NSS`
+        person.personCurp = ''
+        person.personRfc = ''
+        person.personImssNss = ''
         person.personMaritalStatus = ''
         person.personPlaceOfBirthCountry = ''
         person.personPlaceOfBirthState = ''
@@ -780,11 +795,11 @@ export default class UserService {
         employee.employeeCode = employeeCode
         employee.employeeFirstName = firstname
         employee.employeeLastName = lastname
-        employee.employeeSecondLastName = ''
+        employee.employeeSecondLastName = 'gsti'
         employee.employeePayrollNum = employeeCode
         employee.employeePayrollCode = employeeCode
-        employee.employeeHireDate = DateTime.now()
-        employee.companyId = 0
+        employee.employeeHireDate = this.getRandomPastDate()
+        employee.companyId = 1
         employee.departmentId = 999
         employee.positionId = 999
         employee.personId = person.personId

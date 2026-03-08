@@ -321,7 +321,7 @@ export default class PersonService {
     const person = new Person()
     person.personFirstname = firstName
     person.personLastname = lastName
-    person.personSecondLastname = secondLastName || ''
+    person.personSecondLastname = secondLastName || '.'
     person.personGender = gender
     person.personPhone = phone
     person.personEmail = email
