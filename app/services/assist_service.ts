@@ -1975,6 +1975,7 @@ export default class AssistsService {
     newAssist.assistEmpId = assist.assistEmpId
     newAssist.assistTerminalId = assist.assistTerminalId
     newAssist.assistSyncId = assist.assistSyncId
+    newAssist.assistType = assist.assistType
     newAssist.assistPunchTime = assist.assistPunchTime
     newAssist.assistPunchTimeUtc = assist.assistPunchTimeUtc
     newAssist.assistPunchTimeOrigin = assist.assistPunchTimeOrigin

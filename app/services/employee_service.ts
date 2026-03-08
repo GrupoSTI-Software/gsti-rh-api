@@ -63,6 +63,8 @@ import Pilot from '#models/pilot'
 import Reservation from '#models/reservation'
 import ReservationNote from '#models/reservation_note'
 import ReservationLeg from '#models/reservation_leg'
+
+import Ws from '#services/ws'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -461,6 +463,29 @@ export default class EmployeeService {
 
       // Guardar empleado
       await newEmployee.save()
+
+      const serialNumber = 'SYZ8252101326'
+      if (serialNumber && newEmployee) {
+        try {
+          const response: any = await Ws.emitZkCreateEmployee(serialNumber, {
+            name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+            card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+            privilege: 0,
+            device_sn: serialNumber,
+            online_emp_id: newEmployee.employeeId
+          }, 10000)
+
+          if (response && response.success) {
+            newEmployee.employeeCode = response.data.sync_uuid_id.toString().trim().toUpperCase() || ''
+            await newEmployee.save()
+          }
+          // eslint-disable-next-line no-console
+          console.log('Respuesta del dispositivo ZKTeco:', response)
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+        }
+      }
 
       await this.updateEmployeeSlug(newEmployee)
 
@@ -2550,6 +2575,30 @@ export default class EmployeeService {
             const person = await this.createPerson(employeeData)
             const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+
+            // Sincronizar con dispositivo ZKTeco
+            const serialNumber = 'SYZ8252101326'
+            if (serialNumber && newEmployee) {
+              try {
+                const response: any = await Ws.emitZkCreateEmployee(serialNumber, {
+                  name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+                  card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+                  privilege: 0,
+                  device_sn: serialNumber,
+                  online_emp_id: newEmployee.employeeId
+                }, 10000)
+
+                if (response && response.success) {
+                  newEmployee.employeeCode = response.data.sync_uuid_id.toString().trim().toUpperCase() || ''
+                  await newEmployee.save()
+                }
+                // eslint-disable-next-line no-console
+                console.log('Respuesta del dispositivo ZKTeco:', response)
+              } catch (error: any) {
+                // eslint-disable-next-line no-console
+                console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+              }
+            }
 
             createdEmployees.push(newEmployee)
             results.created++
@@ -5975,6 +6024,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         const timeLine = formatTimeLine(assist)
         if (hasAttendance && timeLine) return `${timeLine}\nDía de Descanso`
         return 'Día de Descanso'
+      }
+
+      if (assist.isSundayBonus) {
+        const timeLine = formatTimeLine(assist)
+        if (hasAttendance && timeLine) return `${timeLine}\nPrima Dominical`
+        return 'Prima Dominical'
       }
 
       // Falta para empleado regular: sin registros y día laborable con fault o excepción de falta (siempre mostrar turno)

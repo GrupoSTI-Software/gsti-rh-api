@@ -1271,6 +1271,7 @@ export default class SyncAssistsService {
       this.hasSomeExceptionTimeCheckOut(dateAssistItem)
       this.hasSomeException(employeeID, dateAssistItem, employee)
       this.verifyCheckOutToday(dateAssistItem)
+      this.applySundayBonusStatusOverride(dateAssistItem)
 
       if (dateAssistItem.assist.dateShift) {
         const isShiftChanged = dateAssistItem.assist.dateShift.shiftIsChange
@@ -1597,6 +1598,18 @@ export default class SyncAssistsService {
         isStartWorkday = true
         isRestWorkday = false
 
+        if (dateAssistItem.assist.exceptions.length > 0) {
+          dateAssistItem.assist.checkInStatus = ''
+        }
+      }
+
+      const isSunday = Number.parseInt(evaluatedDay.toFormat('c'), 10) === 7
+      const applySundayBonusDay = dateAssistItem.assist.exceptions.find(
+        (ex) => ex.exceptionType?.exceptionTypeSlug === 'apply-sunday-bonus'
+      )
+      if (isSunday && applySundayBonusDay) {
+        isStartWorkday = true
+        isRestWorkday = false
         if (dateAssistItem.assist.exceptions.length > 0) {
           dateAssistItem.assist.checkInStatus = ''
         }
@@ -2267,7 +2280,13 @@ export default class SyncAssistsService {
   private isSundayBonus(checkAssist: AssistDayInterface) {
     const currentDate = DateTime.fromISO(`${checkAssist.day}T00:00:00.000-06:00`, { setZone: true }).setZone('UTC-6')
     const naturalDay = currentDate.toFormat('c')
-    checkAssist.assist.isSundayBonus = Number.parseInt(`${naturalDay}`) === 7 && ( !!checkAssist?.assist?.checkIn || !!checkAssist?.assist?.checkOut )
+    const isSunday = Number.parseInt(`${naturalDay}`) === 7
+    const hasApplySundayBonusException = checkAssist?.assist?.exceptions?.some(
+      (ex) => ex.exceptionType?.exceptionTypeSlug === 'apply-sunday-bonus'
+    )
+    checkAssist.assist.isSundayBonus =
+      (isSunday && (!!checkAssist?.assist?.checkIn || !!checkAssist?.assist?.checkOut)) ||
+      (isSunday && !!hasApplySundayBonusException)
 
     if (!checkAssist.assist.isSundayBonus && checkAssist?.assist?.assitFlatList) {
       checkAssist.assist.assitFlatList.forEach(assistFlat => {
@@ -2277,6 +2296,30 @@ export default class SyncAssistsService {
       })
     }
 
+    if (isSunday && hasApplySundayBonusException) {
+      checkAssist.assist.checkInStatus = 'ontime'
+      checkAssist.assist.checkOutStatus = 'ontime'
+    }
+
+    return checkAssist
+  }
+
+  private applySundayBonusStatusOverride(checkAssist: AssistDayInterface) {
+    if (!checkAssist?.assist?.exceptions?.length) {
+      return checkAssist
+    }
+    const isSunday =
+      Number.parseInt(
+        DateTime.fromISO(`${checkAssist.day}T00:00:00.000-06:00`, { setZone: true }).setZone('UTC-6').toFormat('c'),
+        10
+      ) === 7
+    const hasApplySundayBonus = checkAssist.assist.exceptions.some(
+      (ex) => ex.exceptionType?.exceptionTypeSlug === 'apply-sunday-bonus'
+    )
+    if (isSunday && hasApplySundayBonus) {
+      checkAssist.assist.checkInStatus = 'ontime'
+      checkAssist.assist.checkOutStatus = 'ontime'
+    }
     return checkAssist
   }
 
