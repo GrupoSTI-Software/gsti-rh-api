@@ -135,6 +135,9 @@ export default class ExceptionType extends compose(BaseModel, SoftDeletes) {
   @column()
   declare exceptionTypeCanMasive: boolean
 
+  @column()
+  declare exceptionTypeCanEmployeeRequests: boolean
+
   @column.dateTime({ autoCreate: true })
   declare exceptionTypeCreatedAt: DateTime
 

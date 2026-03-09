@@ -1543,6 +1543,89 @@ export default class EmployeeService {
     return null
   }
 
+  /**
+   * Obtiene el periodo de vacaciones más antiguo que tenga días disponibles para el empleado.
+   * Usado al aprobar solicitudes de vacaciones para asignar el día al periodo más antiguo con cupo.
+   * @param employee - Empleado
+   * @param vacationDate - Fecha de la vacación solicitada
+   * @returns { vacationSettingId, year } del periodo más antiguo con días disponibles, o null
+   */
+  async getOldestAvailableVacationPeriod(
+    employee: Employee,
+    vacationDate: DateTime
+  ): Promise<{ vacationSettingId: number; year: number } | null> {
+    if (!employee.employeeHireDate) {
+      return null
+    }
+
+    const vacationYear = vacationDate.year
+    const start = DateTime.fromISO(employee.employeeHireDate.toString())
+
+    if (!start.isValid) {
+      return null
+    }
+
+    const employeeType = await EmployeeType.query()
+      .whereNull('employee_type_deleted_at')
+      .where('employee_type_id', employee.employeeTypeId)
+      .first()
+
+    let employeeIsCrew = false
+    if (employeeType) {
+      if (
+        employeeType.employeeTypeSlug === 'pilot' ||
+        employeeType.employeeTypeSlug === 'flight-attendant'
+      ) {
+        employeeIsCrew = true
+      }
+    }
+
+    const month = start.month
+    const day = start.day
+    const startYear = start.year
+
+    for (let checkYear = startYear; checkYear <= vacationYear; checkYear++) {
+      const yearsPassed = checkYear - startYear
+
+      const checkFormattedDate = DateTime.fromObject({
+        year: checkYear,
+        month: month,
+        day: day,
+      }).toFormat('yyyy-MM-dd')
+
+      const vacationSetting = await VacationSetting.query()
+        .whereNull('vacation_setting_deleted_at')
+        .where('vacation_setting_years_of_service', yearsPassed)
+        .where('vacation_setting_apply_since', '<=', checkFormattedDate)
+        .if(employeeIsCrew, (query) => {
+          query.where('vacation_setting_crew', 1)
+        })
+        .orderBy('vacation_setting_years_of_service', 'desc')
+        .first()
+
+      if (!vacationSetting) {
+        continue
+      }
+
+      const vacationsUsed = await ShiftException.query()
+        .whereNull('shift_exceptions_deleted_at')
+        .where('vacation_setting_id', vacationSetting.vacationSettingId)
+        .where('employee_id', employee.employeeId)
+
+      const daysUsed = vacationsUsed.length
+      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+
+      if (daysAvailable > 0) {
+        return {
+          vacationSettingId: vacationSetting.vacationSettingId,
+          year: checkYear,
+        }
+      }
+    }
+
+    return null
+  }
+
   async verifyExistPhoto(url: string) {
     try {
       const response = await axios.head(url)
