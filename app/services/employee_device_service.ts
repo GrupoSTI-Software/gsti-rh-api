@@ -68,6 +68,7 @@ export default class EmployeeDeviceService {
         data: { ...employeeDevice },
       }
     }
+
     return {
       status: 200,
       type: 'success',
