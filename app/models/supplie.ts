@@ -7,6 +7,7 @@ import SupplyType from './supply_type.js'
 import * as relations from '@adonisjs/lucid/types/relations'
 import SupplieCaracteristic from './supplie_caracteristic.js'
 import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
+import SupplyValueHistory from './supply_value_history.js'
 
 /**
  * @swagger
@@ -30,6 +31,17 @@ import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
  *         supplyTypeId:
  *           type: number
  *           description: Supply type ID
+ *         supplyAcquisitionDate:
+ *           type: string
+ *           format: date
+ *           nullable: true
+ *           description: Fecha de adquisición del insumo
+ *         supplyAcquisitionValue:
+ *           type: number
+ *           format: decimal
+ *           minimum: 0
+ *           nullable: true
+ *           description: Valor original de adquisición del insumo (no permite valores negativos)
  *         supplyStatus:
  *           type: string
  *           description: Supply status
@@ -59,6 +71,8 @@ import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
  *         supplyName: 'Supply Name'
  *         supplyDescription: 'Supply Description'
  *         supplyTypeId: 1
+ *         supplyAcquisitionDate: '2025-01-15'
+ *         supplyAcquisitionValue: 2500.00
  *         supplyStatus: 'active'
  *         supplyDeactivationReason: 'Supply Deactivation Reason'
  *         supplyDeactivationDate: '2025-02-12T12:00:00Z'
@@ -83,6 +97,12 @@ export default class Supplie extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare supplyTypeId: number
+
+  @column.date()
+  declare supplyAcquisitionDate: DateTime | null
+
+  @column()
+  declare supplyAcquisitionValue: number | null
 
   @column()
   declare supplyStatus: 'active' | 'inactive' | 'lost' | 'damaged'
@@ -117,4 +137,9 @@ export default class Supplie extends compose(BaseModel, SoftDeletes) {
 
   @hasMany(() => SupplieCaracteristicValue)
   declare supplieCaracteristicValues: relations.HasMany<typeof SupplieCaracteristicValue>
+
+  @hasMany(() => SupplyValueHistory, {
+    foreignKey: 'supplyId',
+  })
+  declare supplyValueHistories: relations.HasMany<typeof SupplyValueHistory>
 }

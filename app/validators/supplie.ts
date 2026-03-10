@@ -7,6 +7,8 @@ export const createSupplieValidator = vine.compile(
     supplyDescription: vine.string().trim().maxLength(1000).optional(),
     supplyTypeId: vine.number().positive(),
     supplyStatus: vine.enum(['active', 'inactive', 'lost', 'damaged']).optional(),
+    supplyAcquisitionDate: vine.string().trim().optional().nullable(),
+    supplyAcquisitionValue: vine.number().min(0).optional().nullable(),
   })
 )
 
@@ -17,6 +19,8 @@ export const updateSupplieValidator = vine.compile(
     supplyDescription: vine.string().trim().maxLength(1000).optional(),
     supplyTypeId: vine.number().positive().optional(),
     supplyStatus: vine.enum(['active', 'inactive', 'lost', 'damaged']).optional(),
+    supplyAcquisitionDate: vine.string().trim().optional().nullable(),
+    supplyAcquisitionValue: vine.number().min(0).optional().nullable(),
   })
 )
 

@@ -69,6 +69,8 @@ export default class SupplieService {
     supplyDescription?: string
     supplyTypeId: number
     supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
+    supplyAcquisitionDate?: string | null
+    supplyAcquisitionValue?: number | null
   }) {
     // Check if file number already exists
     const existingSupply = await Supplie.query()
@@ -79,7 +81,13 @@ export default class SupplieService {
       throw new Error('Supply with this file number already exists')
     }
 
-    return await Supplie.create(data)
+    const createData: any = { ...data }
+
+    if (data.supplyAcquisitionDate) {
+      createData.supplyAcquisitionDate = DateTime.fromISO(data.supplyAcquisitionDate)
+    }
+
+    return await Supplie.create(createData)
   }
 
   /**
@@ -91,6 +99,8 @@ export default class SupplieService {
     supplyDescription?: string
     supplyTypeId?: number
     supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
+    supplyAcquisitionDate?: string | null
+    supplyAcquisitionValue?: number | null
   }) {
     const supply = await Supplie.findOrFail(id)
 
@@ -106,7 +116,15 @@ export default class SupplieService {
       }
     }
 
-    supply.merge(data)
+    const updateData: any = { ...data }
+
+    if (data.supplyAcquisitionDate !== undefined) {
+      updateData.supplyAcquisitionDate = data.supplyAcquisitionDate
+        ? DateTime.fromISO(data.supplyAcquisitionDate)
+        : null
+    }
+
+    supply.merge(updateData)
     await supply.save()
 
     return supply
