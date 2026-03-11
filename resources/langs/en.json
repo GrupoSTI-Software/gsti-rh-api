@@ -150,6 +150,8 @@
   "vacation_bonus": "Vac. bonus",
   "leveling": "Leveling",
   "bonus": "Bonus",
+  "employee_bonuses": "Employee bonuses",
+  "cannot_modify_past_bonus": "Cannot modify a bonus with an expired payment date",
   "others": "Others",
   "to": "to",
   "from": "from",
