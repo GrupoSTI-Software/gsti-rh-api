@@ -66,7 +66,7 @@ export default class EmployeeBonusController {
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
-      const bonusService = new EmployeeBonusService(i18n)
+      const bonusService = new EmployeeBonusService()
       const bonuses = await bonusService.index({
         search,
         page,
@@ -153,7 +153,7 @@ export default class EmployeeBonusController {
       } as unknown as EmployeeBonus
 
       await request.validateUsing(createEmployeeBonusValidator)
-      const bonusService = new EmployeeBonusService(i18n)
+      const bonusService = new EmployeeBonusService()
       const newBonus = await bonusService.create(bonus)
       response.status(201)
       return {
@@ -243,7 +243,7 @@ export default class EmployeeBonusController {
           data: { employeeBonusId },
         }
       }
-      const bonusService = new EmployeeBonusService(i18n)
+      const bonusService = new EmployeeBonusService()
       if (bonusService.isPaymentDateExpired(currentBonus.employeeBonusPaymentDate)) {
         response.status(422)
         return {
@@ -334,7 +334,7 @@ export default class EmployeeBonusController {
           data: { employeeBonusId },
         }
       }
-      const bonusService = new EmployeeBonusService(i18n)
+      const bonusService = new EmployeeBonusService()
       if (bonusService.isPaymentDateExpired(currentBonus.employeeBonusPaymentDate)) {
         response.status(422)
         return {
@@ -398,7 +398,7 @@ export default class EmployeeBonusController {
           data: { employeeBonusId },
         }
       }
-      const bonusService = new EmployeeBonusService(i18n)
+      const bonusService = new EmployeeBonusService()
       const bonus = await bonusService.show(employeeBonusId)
       if (!bonus) {
         response.status(404)
@@ -462,7 +462,7 @@ export default class EmployeeBonusController {
           data: {},
         }
       }
-      const bonusService = new EmployeeBonusService(i18n)
+      const bonusService = new EmployeeBonusService()
       const concepts = await bonusService.getConceptsByEmployee(employeeId)
       response.status(200)
       return {

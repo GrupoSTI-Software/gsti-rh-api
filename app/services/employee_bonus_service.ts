@@ -1,14 +1,9 @@
 import EmployeeBonus from '#models/employee_bonus'
 import { EmployeeBonusFilterSearchInterface } from '../interfaces/employee_bonus_filter_search_interface.js'
-import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
 
 export default class EmployeeBonusService {
-  private t: (key: string, params?: { [key: string]: string | number }) => string
 
-  constructor(i18n: I18n) {
-    this.t = i18n.formatMessage.bind(i18n)
-  }
 
   async index(filters: EmployeeBonusFilterSearchInterface) {
     const selectedColumns = [
