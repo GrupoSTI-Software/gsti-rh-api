@@ -1888,11 +1888,24 @@ export default class EmployeeService {
   }
 
   async getUserResponsible(employeeId: number, userId: number) {
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+
     const userResponsibleEmployees = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
       .where('employee_id', employeeId)
       .whereHas('user', (userQuery) => {
         userQuery.whereNull('user_deleted_at')
+        userQuery.whereHas('person', (personQuery) => {
+          personQuery.whereHas('employee', (employeeQuery) => {
+            employeeQuery.whereIn('businessUnitId', businessUnitsList)
+            employeeQuery.whereNull('employee_deleted_at')
+          })
+        })
       })
       .if(userId && typeof userId && userId > 0, (userQuery) => {
         userQuery.where('user_id', userId)
