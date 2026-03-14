@@ -289,6 +289,24 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   })
   declare emergencyContact: HasOne<typeof EmployeeEmergencyContact>
 
+  /** Contacto de emergencia principal (el que se usa en la plantilla Excel de importación) */
+  @hasOne(() => EmployeeEmergencyContact, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_emergency_contact_deleted_at')
+      query.where('employee_emergency_contact_is_primary', true)
+    },
+  })
+  declare primaryEmergencyContact: HasOne<typeof EmployeeEmergencyContact>
+
+  @hasMany(() => EmployeeEmergencyContact, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_emergency_contact_deleted_at')
+    },
+  })
+  declare emergencyContacts: HasMany<typeof EmployeeEmergencyContact>
+
   @hasMany(() => EmployeeShiftChange, {
     foreignKey: 'employeeIdFrom',
     onQuery: (query) => {

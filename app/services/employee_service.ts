@@ -2315,10 +2315,15 @@ export default class EmployeeService {
         .whereNull('position_deleted_at')
         .select('positionId', 'positionName')
 
-      const businessUnits = await BusinessUnit.query()
+      const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+      const businessUnitsQuery = BusinessUnit.query()
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
+      if (systemBusinessSlugs.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+      }
+      const businessUnits = await businessUnitsQuery
 
       const employeeTypes = await EmployeeType.query()
         .whereNull('employee_type_deleted_at')
@@ -2590,6 +2595,7 @@ export default class EmployeeService {
             const person = await this.createPerson(employeeData)
             const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+            await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
 
             // Sincronizar con dispositivo ZKTeco
             const serialNumber = 'SYZ8252101326'
@@ -2706,7 +2712,12 @@ export default class EmployeeService {
       'Correo empresa',
       'Correo personal',
       'Teléfono Empresa',
-      'Teléfono Personal'
+      'Teléfono Personal',
+      'Nombre contacto emergencia',
+      'Apellido paterno contacto emergencia',
+      'Apellido materno contacto emergencia',
+      'Parentesco contacto emergencia',
+      'Teléfono contacto emergencia'
     ]
 
     // Encabezados requeridos que deben estar presentes
@@ -2997,6 +3008,16 @@ export default class EmployeeService {
         data.personPlaceOfBirthCity = value
       } else if (header.includes('estado civil')) {
         data.personMaritalStatus = this.translateMaritalStatusFromExcel(value)
+      } else if (header.includes('nombre contacto emergencia')) {
+        data.emergencyContactFirstname = value
+      } else if (header.includes('apellido paterno contacto emergencia')) {
+        data.emergencyContactLastname = value
+      } else if (header.includes('apellido materno contacto emergencia')) {
+        data.emergencyContactSecondLastname = value
+      } else if (header.includes('parentesco contacto emergencia')) {
+        data.emergencyContactRelationship = value
+      } else if (header.includes('teléfono contacto emergencia')) {
+        data.emergencyContactPhone = value
       } else if (header.includes('país de residencia')) {
         data.addressCountry = value
       } else if (header.includes('estado de residencia')) {
@@ -3100,6 +3121,55 @@ export default class EmployeeService {
   }
 
   /**
+   * Crear o actualizar el contacto de emergencia principal a partir de datos de importación.
+   * Solo se modifica si hay al menos un campo de contacto de emergencia en employeeData.
+   */
+  private async ensureEmployeePrimaryEmergencyContact(employeeId: number, employeeData: any): Promise<void> {
+    const firstname = (employeeData.emergencyContactFirstname ?? '').toString().trim()
+    const lastname = (employeeData.emergencyContactLastname ?? '').toString().trim()
+    const secondLastname = (employeeData.emergencyContactSecondLastname ?? '').toString().trim()
+    const relationship = (employeeData.emergencyContactRelationship ?? '').toString().trim()
+    const phone = (employeeData.emergencyContactPhone ?? '').toString().trim()
+    const hasAny = firstname !== '' || lastname !== '' || secondLastname !== '' || relationship !== '' || phone !== ''
+    if (!hasAny) return
+
+    const existingContacts = await EmployeeEmergencyContact.query()
+      .where('employeeId', employeeId)
+      .whereNull('employee_emergency_contact_deleted_at')
+
+    let primaryContact = existingContacts.find(c => c.employeeEmergencyContactIsPrimary === true)
+    if (!primaryContact) {
+      primaryContact = existingContacts[0] ?? null
+    }
+
+    if (primaryContact) {
+      primaryContact.employeeEmergencyContactFirstname = firstname || primaryContact.employeeEmergencyContactFirstname
+      primaryContact.employeeEmergencyContactLastname = lastname || primaryContact.employeeEmergencyContactLastname
+      primaryContact.employeeEmergencyContactSecondLastname = secondLastname || primaryContact.employeeEmergencyContactSecondLastname
+      primaryContact.employeeEmergencyContactRelationship = relationship || primaryContact.employeeEmergencyContactRelationship
+      primaryContact.employeeEmergencyContactPhone = phone || primaryContact.employeeEmergencyContactPhone
+      primaryContact.employeeEmergencyContactIsPrimary = true
+      await primaryContact.save()
+      for (const other of existingContacts) {
+        if (other.employeeEmergencyContactId !== primaryContact!.employeeEmergencyContactId && other.employeeEmergencyContactIsPrimary) {
+          other.employeeEmergencyContactIsPrimary = false
+          await other.save()
+        }
+      }
+    } else {
+      const newContact = new EmployeeEmergencyContact()
+      newContact.employeeId = employeeId
+      newContact.employeeEmergencyContactFirstname = firstname || ' '
+      newContact.employeeEmergencyContactLastname = lastname || ' '
+      newContact.employeeEmergencyContactSecondLastname = secondLastname || ' '
+      newContact.employeeEmergencyContactRelationship = relationship || ' '
+      newContact.employeeEmergencyContactPhone = phone || ' '
+      newContact.employeeEmergencyContactIsPrimary = true
+      await newContact.save()
+    }
+  }
+
+  /**
    * Actualizar empleado existente
    */
   private async updateExistingEmployee(
@@ -3167,6 +3237,7 @@ export default class EmployeeService {
     }
 
     await this.ensureEmployeeResidenceAddress(existingEmployee.employeeId, employeeData)
+    await this.ensureEmployeePrimaryEmergencyContact(existingEmployee.employeeId, employeeData)
   }
 
   /**
@@ -4169,12 +4240,16 @@ export default class EmployeeService {
     const logoUrl = await this.getLogo()
     await this.addImageLogo(workbook, worksheet, logoUrl)
 
-    const businessUnits = await BusinessUnit.query()
+    const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+    const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
       .select('businessUnitId', 'businessUnitName')
-
+    if (systemBusinessSlugs.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+    }
+    const businessUnits = await businessUnitsQuery
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
 
     const departments = await Department.query()
@@ -4268,6 +4343,11 @@ export default class EmployeeService {
       'Estado de nacimiento',
       'Ciudad de nacimiento',
       'Estado civil',
+      'Nombre contacto emergencia',
+      'Apellido paterno contacto emergencia',
+      'Apellido materno contacto emergencia',
+      'Parentesco contacto emergencia',
+      'Teléfono contacto emergencia',
       'País de residencia',
       'Estado de residencia',
       'Municipio de residencia',
@@ -4293,7 +4373,7 @@ export default class EmployeeService {
     worksheet.getRow(1).height = 60
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
-    worksheet.mergeCells(2, 1, 2, 40)
+    worksheet.mergeCells(2, 1, 2, 45)
     titleRow.getCell(1).value = 'Plantilla de importación de empleados'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
     titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
@@ -4333,7 +4413,7 @@ export default class EmployeeService {
 
     const columnWidths = [
       10, 25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20, 20,
-      22, 20, 28, 24, 12, 18, 18, 18, 14, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
+      22, 20, 28, 24, 12, 18, 18, 18, 14, 25, 25, 25, 20, 20, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
     ]
     columnWidths.forEach((w, i) => {
       worksheet.getColumn(i + 1).width = w
@@ -4382,7 +4462,8 @@ export default class EmployeeService {
         type: 'list', allowBlank: true, formulae: [maritalRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
       }
-      // Columnas 29-40 (residencia): sin dropdown, flexibles para cualquier texto
+      // Columnas 29-33 (contacto emergencia): texto libre
+      // Columnas 34-45 (residencia): sin dropdown, flexibles para cualquier texto
     }
 
     worksheet.getColumn(8).numFmt = 'yyyy/mm/dd'
@@ -4402,6 +4483,7 @@ export default class EmployeeService {
         .preload('department')
         .preload('position')
         .preload('employeeType')
+        .preload('emergencyContacts')
         .orderBy('employee_id')
 
       if (options.departmentId !== undefined) {
@@ -4415,6 +4497,13 @@ export default class EmployeeService {
       }
       if (options.payrollBusinessUnitId !== undefined) {
         employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+      }
+
+      const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
+      if (allowedBusinessUnitIds.length > 0) {
+        employeesQuery = employeesQuery.where((q) => {
+          q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn('payrollBusinessUnitId', allowedBusinessUnitIds)
+        })
       }
 
       const employees = await employeesQuery
@@ -4437,6 +4526,7 @@ export default class EmployeeService {
         const rowNum = idx + 4
         const person = emp.person
         const resAddress = emp.address?.[0]?.address
+        const primaryContact = emp.emergencyContacts?.find((c: any) => c.employeeEmergencyContactIsPrimary) ?? emp.emergencyContacts?.[0]
 
         worksheet.getCell(rowNum, 1).value = emp.employeeId
         worksheet.getCell(rowNum, 2).value = emp.employeePayrollCode ?? emp.employeeCode ?? ''
@@ -4466,18 +4556,23 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
         worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
         worksheet.getCell(rowNum, 28).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
-        worksheet.getCell(rowNum, 29).value = resAddress?.addressCountry ?? ''
-        worksheet.getCell(rowNum, 30).value = resAddress?.addressState ?? ''
-        worksheet.getCell(rowNum, 31).value = resAddress?.addressTownship ?? ''
-        worksheet.getCell(rowNum, 32).value = resAddress?.addressCity ?? ''
-        worksheet.getCell(rowNum, 33).value = resAddress?.addressSettlement ?? ''
-        worksheet.getCell(rowNum, 34).value = resAddress?.addressSettlementType ?? ''
-        worksheet.getCell(rowNum, 35).value = resAddress?.addressStreet ?? ''
-        worksheet.getCell(rowNum, 36).value = resAddress?.addressInternalNumber ?? ''
-        worksheet.getCell(rowNum, 37).value = resAddress?.addressExternalNumber ?? ''
-        worksheet.getCell(rowNum, 38).value = resAddress?.addressBetweenStreet1 ?? ''
-        worksheet.getCell(rowNum, 39).value = resAddress?.addressBetweenStreet2 ?? ''
-        worksheet.getCell(rowNum, 40).value = resAddress?.addressZipcode ?? ''
+        worksheet.getCell(rowNum, 29).value = primaryContact?.employeeEmergencyContactFirstname ?? ''
+        worksheet.getCell(rowNum, 30).value = primaryContact?.employeeEmergencyContactLastname ?? ''
+        worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
+        worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
+        worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactPhone ?? ''
+        worksheet.getCell(rowNum, 34).value = resAddress?.addressCountry ?? ''
+        worksheet.getCell(rowNum, 35).value = resAddress?.addressState ?? ''
+        worksheet.getCell(rowNum, 36).value = resAddress?.addressTownship ?? ''
+        worksheet.getCell(rowNum, 37).value = resAddress?.addressCity ?? ''
+        worksheet.getCell(rowNum, 38).value = resAddress?.addressSettlement ?? ''
+        worksheet.getCell(rowNum, 39).value = resAddress?.addressSettlementType ?? ''
+        worksheet.getCell(rowNum, 40).value = resAddress?.addressStreet ?? ''
+        worksheet.getCell(rowNum, 41).value = resAddress?.addressInternalNumber ?? ''
+        worksheet.getCell(rowNum, 42).value = resAddress?.addressExternalNumber ?? ''
+        worksheet.getCell(rowNum, 43).value = resAddress?.addressBetweenStreet1 ?? ''
+        worksheet.getCell(rowNum, 44).value = resAddress?.addressBetweenStreet2 ?? ''
+        worksheet.getCell(rowNum, 45).value = resAddress?.addressZipcode ?? ''
       })
     }
 
