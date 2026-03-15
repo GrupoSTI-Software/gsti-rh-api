@@ -117,6 +117,7 @@ import './routes/generate_info_demo.js'
 import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
+import './routes/employee_bonus_routes.js'
 
 router
   .get('/', async ({ view }) => {
