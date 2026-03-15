@@ -65,6 +65,8 @@ import ReservationNote from '#models/reservation_note'
 import ReservationLeg from '#models/reservation_leg'
 
 import Ws from '#services/ws'
+import AccessPoint from '#models/access_point'
+import AccessPointEmployee from '#models/access_point_employee'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -103,11 +105,11 @@ export default class EmployeeService {
     const now = DateTime.now()
     const oneYearAgo = now.minus({ years: 1 })
     const fiveYearsAgo = now.minus({ years: 5 })
-    
+
     const startTimestamp = fiveYearsAgo.toMillis()
     const endTimestamp = oneYearAgo.toMillis()
     const randomTimestamp = startTimestamp + Math.random() * (endTimestamp - startTimestamp)
-    
+
     return DateTime.fromMillis(randomTimestamp)
   }
 
@@ -434,7 +436,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async create(employee: Employee, usersResponsible: User[]) {
+  async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
     // Guardar el personId que viene del frontend
     const personIdToDelete = employee.personId || null
 
@@ -479,23 +481,21 @@ export default class EmployeeService {
       // Guardar empleado
       await newEmployee.save()
 
-      const serialNumber = 'SYZ8252101326'
-      if (serialNumber && newEmployee) {
+      if (newEmployee) {
         try {
-          const response: any = await Ws.emitZkCreateEmployee(serialNumber, {
+          const response: any = await Ws.emitZkCreateEmployee(undefined, {
             name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
             card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
             privilege: 0,
-            device_sn: serialNumber,
-            online_emp_id: newEmployee.employeeId
+            online_emp_id: newEmployee.employeeId,
+            device_sn: SNDeviceList
           }, 10000)
 
           if (response && response.success) {
-            newEmployee.employeeCode = response.data.sync_uuid_id.toString().trim().toUpperCase() || ''
+            newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
             await newEmployee.save()
+            await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
           }
-          // eslint-disable-next-line no-console
-          console.log('Respuesta del dispositivo ZKTeco:', response)
         } catch (error) {
           // eslint-disable-next-line no-console
           console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
@@ -521,6 +521,8 @@ export default class EmployeeService {
       throw error
     }
   }
+
+
 
   async update(currentEmployee: Employee, employee: Employee) {
     currentEmployee.employeeFirstName = employee.employeeFirstName
@@ -2592,20 +2594,20 @@ export default class EmployeeService {
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
 
             // Sincronizar con dispositivo ZKTeco
-            const serialNumber = 'SYZ8252101326'
-            if (serialNumber && newEmployee) {
+            if (newEmployee) {
               try {
-                const response: any = await Ws.emitZkCreateEmployee(serialNumber, {
+                const response: any = await Ws.emitZkCreateEmployee(undefined, {
                   name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
                   card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
                   privilege: 0,
-                  device_sn: serialNumber,
+                  device_sn: 'SYZ8252101326,SYZ8252101498',
                   online_emp_id: newEmployee.employeeId
                 }, 10000)
 
                 if (response && response.success) {
-                  newEmployee.employeeCode = response.data.sync_uuid_id.toString().trim().toUpperCase() || ''
+                  newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
                   await newEmployee.save()
+                  await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
                 }
                 // eslint-disable-next-line no-console
                 console.log('Respuesta del dispositivo ZKTeco:', response)
@@ -7065,6 +7067,50 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         error: error.message,
         data: null,
       }
+    }
+  }
+
+  /**
+   * Asigna un empleado a los puntos de acceso por serial number y pin correspondientes
+   * @param employee - Empleado a asignar
+   * @param SNDeviceList - Lista de seriales de los dispositivos asignados al empleado
+   * @param pinsByDevices - Lista de pines por dispositivo asignados al empleado
+   * @returns void
+   */
+  private async assignEmployeeToAccessPoints(employee: Employee, SNDeviceList: string[], pinsByDevices: Record<string, string>) {
+    try {
+      for await (const deviceSerialNumber of SNDeviceList) {
+        const accessPoint = await AccessPoint.query()
+          .where('access_point_serial_number', deviceSerialNumber)
+          .whereNull('access_point_deleted_at')
+          .first()
+
+        if (!accessPoint) {
+          continue
+        }
+
+        const checkAccessPointRelation = await AccessPointEmployee.query()
+          .where('employee_id', employee.employeeId)
+          .where('access_point_id', accessPoint.accessPointId)
+          .whereNull('access_point_employee_deleted_at')
+          .first()
+
+        const employeeDevicePIN = pinsByDevices[deviceSerialNumber] as string
+
+        if (!employeeDevicePIN) {
+          continue
+        }
+
+        if (!checkAccessPointRelation) {
+          const newAccessPointEmployee = new AccessPointEmployee()
+          newAccessPointEmployee.employeeId = employee.employeeId
+          newAccessPointEmployee.accessPointId = accessPoint.accessPointId
+          newAccessPointEmployee.accessPointEmployeePin = employeeDevicePIN
+          await newAccessPointEmployee.save()
+        }
+      }
+    } catch (error) {
+      console.error('Error to assign employee to access points:', error)
     }
   }
 }
