@@ -5,6 +5,8 @@ import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
 import { LogAccessPoint } from '../interfaces/MongoDB/log_access_point.js'
 import { LogStore } from '#models/MongoDB/log_store'
+import Employee from '#models/employee'
+import AccessPointEmployee from '#models/access_point_employee'
 
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -188,5 +190,18 @@ export default class AccessPointService {
   getHeaderValue(headers: Array<string>, headerName: string) {
     const index = headers.indexOf(headerName)
     return index !== -1 ? headers[index + 1] : null
+  }
+
+  /**
+   * Obtiene los puntos de acceso asignados a un empleado
+   * @param employee - Empleado
+   * @returns Puntos de acceso
+   */
+  async getAccessPointsByEmployee(employee: Employee) {
+    const accessPoints = await AccessPointEmployee.query()
+      .whereNull('access_point_employee_deleted_at')
+      .where('employee_id', employee.employeeId)
+      .preload('accessPoint')
+    return accessPoints ?? null
   }
 }
