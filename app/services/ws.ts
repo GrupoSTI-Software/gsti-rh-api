@@ -111,21 +111,28 @@ class Ws {
   }
 
   /**
-   * Emite un evento de creación de empleado a un dispositivo ZKTeco específico y espera su respuesta
-   * @param serialNumber Serial del dispositivo
+   * Emite un evento de creación de empleado a un dispositivo ZKTeco específico y espera su respuesta.
+   * Si no se proporciona serialNumber (o es vacío), se usa el primer dispositivo conectado disponible
+   * y el conector asignará el dispositivo por defecto.
+   * @param serialNumber Serial del dispositivo (opcional)
    * @param data Datos del empleado a crear
    * @param timeoutMs Tiempo máximo de espera en ms
    * @returns Promesa que se resuelve con la respuesta del dispositivo o se rechaza por timeout
    */
-  async emitZkCreateEmployee(serialNumber: string, data: any, timeoutMs: number = 10000): Promise<unknown> {
-    const key = String(serialNumber).trim()
-    if (!key) {
-      return Promise.reject(new Error('serial_number vacío'))
-    }
+  async emitZkCreateEmployee(serialNumber: string | undefined, data: any, timeoutMs: number = 10000): Promise<unknown> {
+    const key = String(serialNumber ?? '').trim()
 
-    const socket = this.zkDeviceSockets.get(key)
-    if (!socket) {
-      return Promise.reject(new Error(`Dispositivo ZKTeco con serial ${key} no está conectado`))
+    let socket: Socket | undefined
+    if (key) {
+      socket = this.zkDeviceSockets.get(key)
+      if (!socket) {
+        return Promise.reject(new Error(`Dispositivo ZKTeco con serial ${key} no está conectado`))
+      }
+    } else {
+      socket = this.zkDeviceSockets.values().next().value as Socket | undefined
+      if (!socket) {
+        return Promise.reject(new Error('No hay dispositivos ZKTeco conectados'))
+      }
     }
 
     // Crear una clave única para esta solicitud (serial + timestamp + random)

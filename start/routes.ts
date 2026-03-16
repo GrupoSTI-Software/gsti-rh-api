@@ -100,6 +100,7 @@ import './routes/supply_type.js'
 import './routes/supplie_caracteristics.js'
 import './routes/supplie_caracteristic_values.js'
 import './routes/supplies.js'
+import './routes/supply_value_histories.js'
 import './routes/employee_supplies.js'
 import './routes/employee_supplies_response_contracts.js'
 import './routes/employee_supply_assignament_photo.js'
@@ -118,6 +119,7 @@ import './routes/generate_info_demo.js'
 import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
+import './routes/employee_bonus_routes.js'
 
 router
   .get('/', async ({ view }) => {

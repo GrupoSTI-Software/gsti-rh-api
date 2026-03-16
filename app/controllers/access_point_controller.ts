@@ -4,6 +4,7 @@ import AccessPointService from '#services/access_point_service'
 import Ws from '#services/ws'
 import { createAccessPointValidator, updateAccessPointValidator } from '#validators/access_point'
 import { DateTime } from 'luxon'
+import EmployeeService from '#services/employee_service'
 
 export default class AccessPointController {
   /**
@@ -637,6 +638,54 @@ export default class AccessPointController {
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+  async getAccessPointsByEmployee({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = Number(request.param('employeeId'))
+      if (!employeeId || Number.isNaN(employeeId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'Datos incompletos para procesar, el ID del empleado no fue encontrado',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Employee not found',
+          message: 'El empleado no fue encontrado con el ID proporcionado',
+          data: { employeeId },
+        }
+      }
+
+      const accessPointService = new AccessPointService(i18n)
+      const accessPoints = await accessPointService.getAccessPointsByEmployee(employee)
+
+      response.status(200)
+
+      return {
+        type: 'success',
+        title: 'Puntos de acceso',
+        message: 'Los puntos de acceso fueron encontrados exitosamente',
+        data: { accessPoints },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado en el servidor',
         error: error.message,
       }
     }
