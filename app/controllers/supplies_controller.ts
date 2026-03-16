@@ -164,6 +164,17 @@ export default class SuppliesController {
    *                 type: string
    *                 enum: [active, inactive, lost, damaged]
    *                 description: Supply status
+   *               supplyAcquisitionDate:
+   *                 type: string
+   *                 format: date
+   *                 nullable: true
+   *                 description: Fecha de adquisición del insumo
+   *               supplyAcquisitionValue:
+   *                 type: number
+   *                 format: decimal
+   *                 minimum: 0
+   *                 nullable: true
+   *                 description: Valor de adquisición del insumo (no permite valores negativos)
    *     responses:
    *       201:
    *         description: Supply created successfully
@@ -228,6 +239,17 @@ export default class SuppliesController {
    *                 type: string
    *                 enum: [active, inactive, lost, damaged]
    *                 description: Supply status
+   *               supplyAcquisitionDate:
+   *                 type: string
+   *                 format: date
+   *                 nullable: true
+   *                 description: Fecha de adquisición del insumo
+   *               supplyAcquisitionValue:
+   *                 type: number
+   *                 format: decimal
+   *                 minimum: 0
+   *                 nullable: true
+   *                 description: Valor de adquisición del insumo (no permite valores negativos)
    *     responses:
    *       200:
    *         description: Supply updated successfully

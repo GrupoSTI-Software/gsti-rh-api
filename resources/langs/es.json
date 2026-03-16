@@ -150,6 +150,8 @@
   "vacation_bonus": "P. vac.",
   "leveling": "Nivelación",
   "bonus": "Bono",
+  "employee_bonuses": "Bonificaciones del empleado",
+  "cannot_modify_past_bonus": "No se puede modificar una bonificación con fecha de pago vencida",
   "others": "Otros",
   "to": "hasta",
   "from": "desde",

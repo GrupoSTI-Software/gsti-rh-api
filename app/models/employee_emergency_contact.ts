@@ -62,6 +62,10 @@ export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDel
   @column()
   declare employeeId: number
 
+  /** Contacto principal: el que se muestra y edita en la plantilla de importación de empleados */
+  @column()
+  declare employeeEmergencyContactIsPrimary: boolean
+
   @column.dateTime({ autoCreate: true })
   declare employeeEmergencyContactCreatedAt: DateTime
 
