@@ -393,6 +393,24 @@ export default class EmployeeService {
       .if(filters.employeeTypeId, (query) => {
         query.where('employee_type_id', filters.employeeTypeId ? filters.employeeTypeId : 0)
       })
+      .if(
+        filters.forNotifications && (filters.forNotifications === 'true' || filters.forNotifications === true),
+        (query) => {
+          // Solo empleados viables para notificaciones: ser usuario y tener al menos un email (empresa o personal)
+          query.whereHas('person', (personQuery) => {
+            personQuery.whereHas('user', () => {})
+          })
+          query.where((subQuery) => {
+            subQuery
+              .whereRaw('(employee_business_email IS NOT NULL AND TRIM(employee_business_email) != ?)', [''])
+              .orWhereHas('person', (personQuery) => {
+                personQuery
+                  .whereNotNull('person_email')
+                  .whereRaw('TRIM(person_email) != ?', [''])
+              })
+          })
+        }
+      )
       .if(filters.userResponsibleId &&
         typeof filters.userResponsibleId && filters.userResponsibleId > 0,
         (query) => {

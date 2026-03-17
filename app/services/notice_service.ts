@@ -118,12 +118,20 @@ export default class NoticeService {
     newNotice.noticeSentAt = null
     newNotice.noticeType = notice.noticeType
 
-    // Obtener empleados seleccionados
+    // Obtener empleados seleccionados (con email de empresa o, si no, email personal)
     const employees = await Employee.query()
       .whereNull('employee_deleted_at')
       .whereIn('employee_id', recipientEmployeeIds)
-      .whereNotNull('employee_business_email')
-      .where('employee_business_email', '!=', '')
+      .where((query) => {
+        query
+          .whereRaw('(employee_business_email IS NOT NULL AND TRIM(employee_business_email) != ?)', [''])
+          .orWhereHas('person', (personQuery) => {
+            personQuery
+              .whereNotNull('person_email')
+              .whereRaw('TRIM(person_email) != ?', [''])
+          })
+      })
+      .preload('person')
 
     const recipientEmails: string[] = []
     const recipientData: Array<{
@@ -133,8 +141,10 @@ export default class NoticeService {
     }> = []
 
     for (const employee of employees) {
-      if (employee.employeeBusinessEmail) {
-        const email = employee.employeeBusinessEmail.trim()
+      const businessEmail = (employee.employeeBusinessEmail || '').trim()
+      const personalEmail = (employee.person?.personEmail || '').trim()
+      const email = businessEmail || personalEmail
+      if (email) {
         recipientEmails.push(email)
         recipientData.push({
           employeeId: employee.employeeId,
@@ -178,13 +188,20 @@ export default class NoticeService {
 
     // Actualizar destinatarios siempre que se proporcione un array
     if (recipientEmployeeIds.length > 0) {
-      // Obtener empleados seleccionados
+      // Obtener empleados seleccionados (con email de empresa o, si no, email personal)
       const employees = await Employee.query()
         .whereNull('employee_deleted_at')
         .whereIn('employee_id', recipientEmployeeIds)
-        .whereNotNull('employee_business_email')
-        .where('employee_business_email', '!=', '')
-
+        .where((query) => {
+          query
+            .whereRaw('(employee_business_email IS NOT NULL AND TRIM(employee_business_email) != ?)', [''])
+            .orWhereHas('person', (personQuery) => {
+              personQuery
+                .whereNotNull('person_email')
+                .whereRaw('TRIM(person_email) != ?', [''])
+            })
+        })
+        .preload('person')
 
       const recipientEmails: string[] = []
       const recipientData: Array<{
@@ -194,8 +211,10 @@ export default class NoticeService {
       }> = []
 
       for (const employee of employees) {
-        if (employee.employeeBusinessEmail) {
-          const email = employee.employeeBusinessEmail.trim()
+        const businessEmail = (employee.employeeBusinessEmail || '').trim()
+        const personalEmail = (employee.person?.personEmail || '').trim()
+        const email = businessEmail || personalEmail
+        if (email) {
           recipientEmails.push(email)
           recipientData.push({
             employeeId: employee.employeeId,

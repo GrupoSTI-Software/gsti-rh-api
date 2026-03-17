@@ -449,6 +449,12 @@ export default class EmployeeController {
    *         description: Payroll Business Unit Id
    *         schema:
    *           type: integer
+   *       - name: forNotifications
+   *         in: query
+   *         required: false
+   *         description: Si se envía, solo devuelve empleados viables para notificaciones (con usuario y con email empresa o personal)
+   *         schema:
+   *           type: boolean
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -577,6 +583,7 @@ export default class EmployeeController {
       const shiftEndTime = request.input('shiftEndTime')
       const businessUnitId = request.input('businessUnitId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
+      const forNotifications = request.input('forNotifications')
 
       const filters = {
         search: search,
@@ -599,6 +606,7 @@ export default class EmployeeController {
         shiftEndTime: shiftEndTime,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        forNotifications: forNotifications,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)
@@ -606,12 +614,27 @@ export default class EmployeeController {
 
       response.status(200)
 
+      // Con forNotifications, añadir email a usar (empresa o personal) para que el cliente pueda mostrar/enviar
+      const isForNotifications = forNotifications && (forNotifications === 'true' || forNotifications === true)
+      const employeesPayload = isForNotifications
+        ? (() => {
+            const paginatorJson = employees.toJSON()
+            const data = (paginatorJson.data || []).map((emp: any) => {
+              const businessEmail = emp.employee_business_email?.trim?.() || emp.employeeBusinessEmail?.trim?.() || ''
+              const personalEmail = emp.person?.person_email?.trim?.() || emp.person?.personEmail?.trim?.() || ''
+              const notificationEmail = businessEmail || personalEmail
+              return { ...emp, notificationEmail }
+            })
+            return { ...paginatorJson, data }
+          })()
+        : employees
+
       return {
         type: 'success',
         title: 'Employees',
         message: 'The employees were found successfully',
         data: {
-          employees,
+          employees: employeesPayload,
         },
       }
     } catch (error) {

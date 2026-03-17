@@ -25,6 +25,8 @@ interface EmployeeFilterSearchInterface {
   shiftEndTime?: string
   businessUnitId?: number
   payrollBusinessUnitId?: number
+  /** Si es true, solo devuelve empleados viables para notificaciones: con usuario y con email (empresa o personal). */
+  forNotifications?: boolean | string
 }
 
 export type { EmployeeFilterSearchInterface }
