@@ -121,8 +121,23 @@ export default class ExceptionTypeController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response ,auth}: HttpContext) {
     try {
+      await auth.check()
+      const user = auth.user
+      if (!user) {
+        return response.status(401).json({
+          type: 'error',
+          title: 'Unauthorized',
+          message: 'Usuario no autenticado',
+        })
+      }
+      await user.load('role')
+      var canEmployeeRequests = false
+      const roleSlug = user.role.roleSlug
+      if (roleSlug !== 'employee') {
+        canEmployeeRequests = true
+      }
       const search = request.input('search')
       const onlyActive = request.input('onlyActive', true)
       const page = request.input('page', 1)
@@ -134,7 +149,7 @@ export default class ExceptionTypeController {
         limit: limit,
       } as ExceptionTypeFilterSearchInterface
       const exceptionTypeService = new ExceptionTypeService()
-      const exceptionTypes = await exceptionTypeService.index(filters)
+      const exceptionTypes = await exceptionTypeService.index(filters, canEmployeeRequests)
       response.status(200)
       return {
         type: 'success',

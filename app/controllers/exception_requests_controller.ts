@@ -19,6 +19,7 @@ import { ExceptionRequestErrorInterface } from '../interfaces/exception_request_
 import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
 import NotificationEmailService from '#services/notification_email_service'
+import EmployeeService from '#services/employee_service'
 
 /** Slugs de roles de RRHH que ven solicitudes sin jefe directo con usuario */
 const RRHH_ROLE_SLUGS = ['rh-manager', 'recursos-humanos'] as const
@@ -155,6 +156,53 @@ export default class ExceptionRequestsController {
       }
     }
     if (status === 'accepted') {
+      const exceptionType = await ExceptionType.query()
+        .whereNull('exception_type_deleted_at')
+        .where('exception_type_id', exceptionRequest.exceptionTypeId)
+        .first()
+
+      const isVacation = exceptionType?.exceptionTypeSlug === 'vacation'
+
+      let vacationSettingId: number | null = null
+      if (isVacation) {
+        const employee = await Employee.query()
+          .whereNull('employee_deleted_at')
+          .where('employee_id', exceptionRequest.employeeId)
+          .first()
+        if (!employee) {
+          return response.status(400).json({
+            type: 'error',
+            title: 'Empleado no encontrado',
+            message: 'No se puede aprobar la solicitud de vacaciones: empleado no encontrado.',
+            data: { exceptionRequestId: exceptionRequest.exceptionRequestId },
+          })
+        }
+        const requestedDate = exceptionRequest.requestedDate
+          ? DateTime.fromJSDate(new Date(exceptionRequest.requestedDate.toString())).setZone('UTC-6')
+          : null
+        if (!requestedDate?.isValid) {
+          return response.status(400).json({
+            type: 'error',
+            title: 'Fecha inválida',
+            message: 'La fecha solicitada no es válida.',
+            data: { exceptionRequestId: exceptionRequest.exceptionRequestId },
+          })
+        }
+        const employeeService = new EmployeeService(i18n)
+        const oldestPeriod = await employeeService.getOldestAvailableVacationPeriod(employee, requestedDate)
+        if (!oldestPeriod) {
+          return response.status(400).json({
+            type: 'error',
+            title: 'Sin días de vacaciones disponibles',
+            message:
+              'No hay periodos de vacaciones con días disponibles para asignar. El empleado no tiene días hábiles en ningún periodo según años trabajados.',
+            errorCode: 'EXCPT.REQ.APPR.001',
+            data: { exceptionRequestId: exceptionRequest.exceptionRequestId, employeeId: exceptionRequest.employeeId },
+          })
+        }
+        vacationSettingId = oldestPeriod.vacationSettingId
+      }
+
       const shiftExceptionService = new ShiftExceptionService(i18n)
       const shiftException = {
         shiftExceptionId: 0,
@@ -166,7 +214,7 @@ export default class ExceptionRequestsController {
               .toJSDate()
           : null,
         exceptionTypeId: exceptionRequest.exceptionTypeId,
-        vacationSettingId: null,
+        vacationSettingId,
         shiftExceptionCheckInTime: exceptionRequest.exceptionRequestCheckInTime,
         shiftExceptionCheckOutTime: exceptionRequest.exceptionRequestCheckOutTime,
       } as ShiftException
@@ -189,16 +237,7 @@ export default class ExceptionRequestsController {
           logShiftException.user_id = userId
           logShiftException.record_current = JSON.parse(JSON.stringify(newShiftException))
 
-          const exceptionType = await ExceptionType.query()
-            .whereNull('exception_type_deleted_at')
-            .where('exception_type_slug', 'vacation')
-            .first()
-          let table = 'log_shift_exceptions'
-          if (exceptionType) {
-            if (exceptionType.exceptionTypeId === newShiftException.exceptionTypeId) {
-              table = 'log_vacations'
-            }
-          }
+          const table = isVacation ? 'log_vacations' : 'log_shift_exceptions'
           await shiftExceptionService.saveActionOnLog(logShiftException, table)
         }
 

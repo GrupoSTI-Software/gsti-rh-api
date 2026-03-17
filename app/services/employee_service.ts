@@ -65,6 +65,8 @@ import ReservationNote from '#models/reservation_note'
 import ReservationLeg from '#models/reservation_leg'
 
 import Ws from '#services/ws'
+import AccessPoint from '#models/access_point'
+import AccessPointEmployee from '#models/access_point_employee'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -103,11 +105,11 @@ export default class EmployeeService {
     const now = DateTime.now()
     const oneYearAgo = now.minus({ years: 1 })
     const fiveYearsAgo = now.minus({ years: 5 })
-    
+
     const startTimestamp = fiveYearsAgo.toMillis()
     const endTimestamp = oneYearAgo.toMillis()
     const randomTimestamp = startTimestamp + Math.random() * (endTimestamp - startTimestamp)
-    
+
     return DateTime.fromMillis(randomTimestamp)
   }
 
@@ -434,7 +436,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async create(employee: Employee, usersResponsible: User[]) {
+  async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
     // Guardar el personId que viene del frontend
     const personIdToDelete = employee.personId || null
 
@@ -479,23 +481,21 @@ export default class EmployeeService {
       // Guardar empleado
       await newEmployee.save()
 
-      const serialNumber = 'SYZ8252101326'
-      if (serialNumber && newEmployee) {
+      if (newEmployee) {
         try {
-          const response: any = await Ws.emitZkCreateEmployee(serialNumber, {
+          const response: any = await Ws.emitZkCreateEmployee(undefined, {
             name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
             card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
             privilege: 0,
-            device_sn: serialNumber,
-            online_emp_id: newEmployee.employeeId
+            online_emp_id: newEmployee.employeeId,
+            device_sn: SNDeviceList
           }, 10000)
 
           if (response && response.success) {
-            newEmployee.employeeCode = response.data.sync_uuid_id.toString().trim().toUpperCase() || ''
+            newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
             await newEmployee.save()
+            await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
           }
-          // eslint-disable-next-line no-console
-          console.log('Respuesta del dispositivo ZKTeco:', response)
         } catch (error) {
           // eslint-disable-next-line no-console
           console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
@@ -521,6 +521,8 @@ export default class EmployeeService {
       throw error
     }
   }
+
+
 
   async update(currentEmployee: Employee, employee: Employee) {
     currentEmployee.employeeFirstName = employee.employeeFirstName
@@ -1543,6 +1545,89 @@ export default class EmployeeService {
     return null
   }
 
+  /**
+   * Obtiene el periodo de vacaciones más antiguo que tenga días disponibles para el empleado.
+   * Usado al aprobar solicitudes de vacaciones para asignar el día al periodo más antiguo con cupo.
+   * @param employee - Empleado
+   * @param vacationDate - Fecha de la vacación solicitada
+   * @returns { vacationSettingId, year } del periodo más antiguo con días disponibles, o null
+   */
+  async getOldestAvailableVacationPeriod(
+    employee: Employee,
+    vacationDate: DateTime
+  ): Promise<{ vacationSettingId: number; year: number } | null> {
+    if (!employee.employeeHireDate) {
+      return null
+    }
+
+    const vacationYear = vacationDate.year
+    const start = DateTime.fromISO(employee.employeeHireDate.toString())
+
+    if (!start.isValid) {
+      return null
+    }
+
+    const employeeType = await EmployeeType.query()
+      .whereNull('employee_type_deleted_at')
+      .where('employee_type_id', employee.employeeTypeId)
+      .first()
+
+    let employeeIsCrew = false
+    if (employeeType) {
+      if (
+        employeeType.employeeTypeSlug === 'pilot' ||
+        employeeType.employeeTypeSlug === 'flight-attendant'
+      ) {
+        employeeIsCrew = true
+      }
+    }
+
+    const month = start.month
+    const day = start.day
+    const startYear = start.year
+
+    for (let checkYear = startYear; checkYear <= vacationYear; checkYear++) {
+      const yearsPassed = checkYear - startYear
+
+      const checkFormattedDate = DateTime.fromObject({
+        year: checkYear,
+        month: month,
+        day: day,
+      }).toFormat('yyyy-MM-dd')
+
+      const vacationSetting = await VacationSetting.query()
+        .whereNull('vacation_setting_deleted_at')
+        .where('vacation_setting_years_of_service', yearsPassed)
+        .where('vacation_setting_apply_since', '<=', checkFormattedDate)
+        .if(employeeIsCrew, (query) => {
+          query.where('vacation_setting_crew', 1)
+        })
+        .orderBy('vacation_setting_years_of_service', 'desc')
+        .first()
+
+      if (!vacationSetting) {
+        continue
+      }
+
+      const vacationsUsed = await ShiftException.query()
+        .whereNull('shift_exceptions_deleted_at')
+        .where('vacation_setting_id', vacationSetting.vacationSettingId)
+        .where('employee_id', employee.employeeId)
+
+      const daysUsed = vacationsUsed.length
+      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+
+      if (daysAvailable > 0) {
+        return {
+          vacationSettingId: vacationSetting.vacationSettingId,
+          year: checkYear,
+        }
+      }
+    }
+
+    return null
+  }
+
   async verifyExistPhoto(url: string) {
     try {
       const response = await axios.head(url)
@@ -1888,11 +1973,24 @@ export default class EmployeeService {
   }
 
   async getUserResponsible(employeeId: number, userId: number) {
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+
     const userResponsibleEmployees = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
       .where('employee_id', employeeId)
       .whereHas('user', (userQuery) => {
         userQuery.whereNull('user_deleted_at')
+        userQuery.whereHas('person', (personQuery) => {
+          personQuery.whereHas('employee', (employeeQuery) => {
+            employeeQuery.whereIn('businessUnitId', businessUnitsList)
+            employeeQuery.whereNull('employee_deleted_at')
+          })
+        })
       })
       .if(userId && typeof userId && userId > 0, (userQuery) => {
         userQuery.where('user_id', userId)
@@ -2315,10 +2413,15 @@ export default class EmployeeService {
         .whereNull('position_deleted_at')
         .select('positionId', 'positionName')
 
-      const businessUnits = await BusinessUnit.query()
+      const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+      const businessUnitsQuery = BusinessUnit.query()
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
+      if (systemBusinessSlugs.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+      }
+      const businessUnits = await businessUnitsQuery
 
       const employeeTypes = await EmployeeType.query()
         .whereNull('employee_type_deleted_at')
@@ -2590,22 +2693,23 @@ export default class EmployeeService {
             const person = await this.createPerson(employeeData)
             const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+            await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
 
             // Sincronizar con dispositivo ZKTeco
-            const serialNumber = 'SYZ8252101326'
-            if (serialNumber && newEmployee) {
+            if (newEmployee) {
               try {
-                const response: any = await Ws.emitZkCreateEmployee(serialNumber, {
+                const response: any = await Ws.emitZkCreateEmployee(undefined, {
                   name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
                   card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
                   privilege: 0,
-                  device_sn: serialNumber,
+                  device_sn: 'SYZ8252101326,SYZ8252101498',
                   online_emp_id: newEmployee.employeeId
                 }, 10000)
 
                 if (response && response.success) {
-                  newEmployee.employeeCode = response.data.sync_uuid_id.toString().trim().toUpperCase() || ''
+                  newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
                   await newEmployee.save()
+                  await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
                 }
                 // eslint-disable-next-line no-console
                 console.log('Respuesta del dispositivo ZKTeco:', response)
@@ -2706,7 +2810,12 @@ export default class EmployeeService {
       'Correo empresa',
       'Correo personal',
       'Teléfono Empresa',
-      'Teléfono Personal'
+      'Teléfono Personal',
+      'Nombre contacto emergencia',
+      'Apellido paterno contacto emergencia',
+      'Apellido materno contacto emergencia',
+      'Parentesco contacto emergencia',
+      'Teléfono contacto emergencia'
     ]
 
     // Encabezados requeridos que deben estar presentes
@@ -2997,6 +3106,16 @@ export default class EmployeeService {
         data.personPlaceOfBirthCity = value
       } else if (header.includes('estado civil')) {
         data.personMaritalStatus = this.translateMaritalStatusFromExcel(value)
+      } else if (header.includes('nombre contacto emergencia')) {
+        data.emergencyContactFirstname = value
+      } else if (header.includes('apellido paterno contacto emergencia')) {
+        data.emergencyContactLastname = value
+      } else if (header.includes('apellido materno contacto emergencia')) {
+        data.emergencyContactSecondLastname = value
+      } else if (header.includes('parentesco contacto emergencia')) {
+        data.emergencyContactRelationship = value
+      } else if (header.includes('teléfono contacto emergencia')) {
+        data.emergencyContactPhone = value
       } else if (header.includes('país de residencia')) {
         data.addressCountry = value
       } else if (header.includes('estado de residencia')) {
@@ -3100,6 +3219,55 @@ export default class EmployeeService {
   }
 
   /**
+   * Crear o actualizar el contacto de emergencia principal a partir de datos de importación.
+   * Solo se modifica si hay al menos un campo de contacto de emergencia en employeeData.
+   */
+  private async ensureEmployeePrimaryEmergencyContact(employeeId: number, employeeData: any): Promise<void> {
+    const firstname = (employeeData.emergencyContactFirstname ?? '').toString().trim()
+    const lastname = (employeeData.emergencyContactLastname ?? '').toString().trim()
+    const secondLastname = (employeeData.emergencyContactSecondLastname ?? '').toString().trim()
+    const relationship = (employeeData.emergencyContactRelationship ?? '').toString().trim()
+    const phone = (employeeData.emergencyContactPhone ?? '').toString().trim()
+    const hasAny = firstname !== '' || lastname !== '' || secondLastname !== '' || relationship !== '' || phone !== ''
+    if (!hasAny) return
+
+    const existingContacts = await EmployeeEmergencyContact.query()
+      .where('employeeId', employeeId)
+      .whereNull('employee_emergency_contact_deleted_at')
+
+    let primaryContact = existingContacts.find(c => c.employeeEmergencyContactIsPrimary === true)
+    if (!primaryContact) {
+      primaryContact = existingContacts[0] ?? null
+    }
+
+    if (primaryContact) {
+      primaryContact.employeeEmergencyContactFirstname = firstname || primaryContact.employeeEmergencyContactFirstname
+      primaryContact.employeeEmergencyContactLastname = lastname || primaryContact.employeeEmergencyContactLastname
+      primaryContact.employeeEmergencyContactSecondLastname = secondLastname || primaryContact.employeeEmergencyContactSecondLastname
+      primaryContact.employeeEmergencyContactRelationship = relationship || primaryContact.employeeEmergencyContactRelationship
+      primaryContact.employeeEmergencyContactPhone = phone || primaryContact.employeeEmergencyContactPhone
+      primaryContact.employeeEmergencyContactIsPrimary = true
+      await primaryContact.save()
+      for (const other of existingContacts) {
+        if (other.employeeEmergencyContactId !== primaryContact!.employeeEmergencyContactId && other.employeeEmergencyContactIsPrimary) {
+          other.employeeEmergencyContactIsPrimary = false
+          await other.save()
+        }
+      }
+    } else {
+      const newContact = new EmployeeEmergencyContact()
+      newContact.employeeId = employeeId
+      newContact.employeeEmergencyContactFirstname = firstname || ' '
+      newContact.employeeEmergencyContactLastname = lastname || ' '
+      newContact.employeeEmergencyContactSecondLastname = secondLastname || ' '
+      newContact.employeeEmergencyContactRelationship = relationship || ' '
+      newContact.employeeEmergencyContactPhone = phone || ' '
+      newContact.employeeEmergencyContactIsPrimary = true
+      await newContact.save()
+    }
+  }
+
+  /**
    * Actualizar empleado existente
    */
   private async updateExistingEmployee(
@@ -3167,6 +3335,7 @@ export default class EmployeeService {
     }
 
     await this.ensureEmployeeResidenceAddress(existingEmployee.employeeId, employeeData)
+    await this.ensureEmployeePrimaryEmergencyContact(existingEmployee.employeeId, employeeData)
   }
 
   /**
@@ -4169,12 +4338,16 @@ export default class EmployeeService {
     const logoUrl = await this.getLogo()
     await this.addImageLogo(workbook, worksheet, logoUrl)
 
-    const businessUnits = await BusinessUnit.query()
+    const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+    const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
       .select('businessUnitId', 'businessUnitName')
-
+    if (systemBusinessSlugs.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+    }
+    const businessUnits = await businessUnitsQuery
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
 
     const departments = await Department.query()
@@ -4268,6 +4441,11 @@ export default class EmployeeService {
       'Estado de nacimiento',
       'Ciudad de nacimiento',
       'Estado civil',
+      'Nombre contacto emergencia',
+      'Apellido paterno contacto emergencia',
+      'Apellido materno contacto emergencia',
+      'Parentesco contacto emergencia',
+      'Teléfono contacto emergencia',
       'País de residencia',
       'Estado de residencia',
       'Municipio de residencia',
@@ -4293,7 +4471,7 @@ export default class EmployeeService {
     worksheet.getRow(1).height = 60
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
-    worksheet.mergeCells(2, 1, 2, 40)
+    worksheet.mergeCells(2, 1, 2, 45)
     titleRow.getCell(1).value = 'Plantilla de importación de empleados'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
     titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
@@ -4333,7 +4511,7 @@ export default class EmployeeService {
 
     const columnWidths = [
       10, 25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20, 20,
-      22, 20, 28, 24, 12, 18, 18, 18, 14, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
+      22, 20, 28, 24, 12, 18, 18, 18, 14, 25, 25, 25, 20, 20, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
     ]
     columnWidths.forEach((w, i) => {
       worksheet.getColumn(i + 1).width = w
@@ -4382,7 +4560,8 @@ export default class EmployeeService {
         type: 'list', allowBlank: true, formulae: [maritalRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
       }
-      // Columnas 29-40 (residencia): sin dropdown, flexibles para cualquier texto
+      // Columnas 29-33 (contacto emergencia): texto libre
+      // Columnas 34-45 (residencia): sin dropdown, flexibles para cualquier texto
     }
 
     worksheet.getColumn(8).numFmt = 'yyyy/mm/dd'
@@ -4402,6 +4581,7 @@ export default class EmployeeService {
         .preload('department')
         .preload('position')
         .preload('employeeType')
+        .preload('emergencyContacts')
         .orderBy('employee_id')
 
       if (options.departmentId !== undefined) {
@@ -4415,6 +4595,13 @@ export default class EmployeeService {
       }
       if (options.payrollBusinessUnitId !== undefined) {
         employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+      }
+
+      const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
+      if (allowedBusinessUnitIds.length > 0) {
+        employeesQuery = employeesQuery.where((q) => {
+          q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn('payrollBusinessUnitId', allowedBusinessUnitIds)
+        })
       }
 
       const employees = await employeesQuery
@@ -4437,6 +4624,7 @@ export default class EmployeeService {
         const rowNum = idx + 4
         const person = emp.person
         const resAddress = emp.address?.[0]?.address
+        const primaryContact = emp.emergencyContacts?.find((c: any) => c.employeeEmergencyContactIsPrimary) ?? emp.emergencyContacts?.[0]
 
         worksheet.getCell(rowNum, 1).value = emp.employeeId
         worksheet.getCell(rowNum, 2).value = emp.employeePayrollCode ?? emp.employeeCode ?? ''
@@ -4466,18 +4654,23 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
         worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
         worksheet.getCell(rowNum, 28).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
-        worksheet.getCell(rowNum, 29).value = resAddress?.addressCountry ?? ''
-        worksheet.getCell(rowNum, 30).value = resAddress?.addressState ?? ''
-        worksheet.getCell(rowNum, 31).value = resAddress?.addressTownship ?? ''
-        worksheet.getCell(rowNum, 32).value = resAddress?.addressCity ?? ''
-        worksheet.getCell(rowNum, 33).value = resAddress?.addressSettlement ?? ''
-        worksheet.getCell(rowNum, 34).value = resAddress?.addressSettlementType ?? ''
-        worksheet.getCell(rowNum, 35).value = resAddress?.addressStreet ?? ''
-        worksheet.getCell(rowNum, 36).value = resAddress?.addressInternalNumber ?? ''
-        worksheet.getCell(rowNum, 37).value = resAddress?.addressExternalNumber ?? ''
-        worksheet.getCell(rowNum, 38).value = resAddress?.addressBetweenStreet1 ?? ''
-        worksheet.getCell(rowNum, 39).value = resAddress?.addressBetweenStreet2 ?? ''
-        worksheet.getCell(rowNum, 40).value = resAddress?.addressZipcode ?? ''
+        worksheet.getCell(rowNum, 29).value = primaryContact?.employeeEmergencyContactFirstname ?? ''
+        worksheet.getCell(rowNum, 30).value = primaryContact?.employeeEmergencyContactLastname ?? ''
+        worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
+        worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
+        worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactPhone ?? ''
+        worksheet.getCell(rowNum, 34).value = resAddress?.addressCountry ?? ''
+        worksheet.getCell(rowNum, 35).value = resAddress?.addressState ?? ''
+        worksheet.getCell(rowNum, 36).value = resAddress?.addressTownship ?? ''
+        worksheet.getCell(rowNum, 37).value = resAddress?.addressCity ?? ''
+        worksheet.getCell(rowNum, 38).value = resAddress?.addressSettlement ?? ''
+        worksheet.getCell(rowNum, 39).value = resAddress?.addressSettlementType ?? ''
+        worksheet.getCell(rowNum, 40).value = resAddress?.addressStreet ?? ''
+        worksheet.getCell(rowNum, 41).value = resAddress?.addressInternalNumber ?? ''
+        worksheet.getCell(rowNum, 42).value = resAddress?.addressExternalNumber ?? ''
+        worksheet.getCell(rowNum, 43).value = resAddress?.addressBetweenStreet1 ?? ''
+        worksheet.getCell(rowNum, 44).value = resAddress?.addressBetweenStreet2 ?? ''
+        worksheet.getCell(rowNum, 45).value = resAddress?.addressZipcode ?? ''
       })
     }
 
@@ -7065,6 +7258,50 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         error: error.message,
         data: null,
       }
+    }
+  }
+
+  /**
+   * Asigna un empleado a los puntos de acceso por serial number y pin correspondientes
+   * @param employee - Empleado a asignar
+   * @param SNDeviceList - Lista de seriales de los dispositivos asignados al empleado
+   * @param pinsByDevices - Lista de pines por dispositivo asignados al empleado
+   * @returns void
+   */
+  private async assignEmployeeToAccessPoints(employee: Employee, SNDeviceList: string[], pinsByDevices: Record<string, string>) {
+    try {
+      for await (const deviceSerialNumber of SNDeviceList) {
+        const accessPoint = await AccessPoint.query()
+          .where('access_point_serial_number', deviceSerialNumber)
+          .whereNull('access_point_deleted_at')
+          .first()
+
+        if (!accessPoint) {
+          continue
+        }
+
+        const checkAccessPointRelation = await AccessPointEmployee.query()
+          .where('employee_id', employee.employeeId)
+          .where('access_point_id', accessPoint.accessPointId)
+          .whereNull('access_point_employee_deleted_at')
+          .first()
+
+        const employeeDevicePIN = pinsByDevices[deviceSerialNumber] as string
+
+        if (!employeeDevicePIN) {
+          continue
+        }
+
+        if (!checkAccessPointRelation) {
+          const newAccessPointEmployee = new AccessPointEmployee()
+          newAccessPointEmployee.employeeId = employee.employeeId
+          newAccessPointEmployee.accessPointId = accessPoint.accessPointId
+          newAccessPointEmployee.accessPointEmployeePin = employeeDevicePIN
+          await newAccessPointEmployee.save()
+        }
+      }
+    } catch (error) {
+      console.error('Error to assign employee to access points:', error)
     }
   }
 }

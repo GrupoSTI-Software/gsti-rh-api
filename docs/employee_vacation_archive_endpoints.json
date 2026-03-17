@@ -1,0 +1,521 @@
+{
+  "module": "Archivador de vacaciones (evidencias)",
+  "basePath": "/api/employee-vacation-archives",
+  "authentication": "Bearer token requerido (middleware.auth())",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/employee-vacation-archives",
+      "summary": "Crear archivador de vacaciones",
+      "description": "Crea un archivador (contenedor) para subir después evidencias (fotos/PDF). Las excepciones de turno se vinculan al subir cada evidencia (contenido).",
+      "request": {
+        "contentType": "application/json",
+        "body": {
+          "employeeId": { "type": "number", "required": true, "description": "ID del empleado" },
+          "vacationSettingId": { "type": "number", "required": true, "description": "ID de la configuración de vacaciones" }
+        },
+        "example": {
+          "employeeId": 1,
+          "vacationSettingId": 2
+        }
+      },
+      "responses": {
+        "201": {
+          "description": "Archivador creado correctamente",
+          "example": {
+            "type": "success",
+            "title": "Archivador creado",
+            "message": "El archivador de vacaciones fue creado correctamente",
+            "data": {
+              "employeeVacationArchiveId": 1,
+              "employeeId": 1,
+              "vacationSettingId": 2,
+              "employeeVacationArchiveCreatedAt": "2025-03-13T12:00:00.000Z",
+              "employeeVacationArchiveUpdatedAt": "2025-03-13T12:00:00.000Z"
+            }
+          }
+        },
+        "400": {
+          "description": "Datos incompletos",
+          "example": {
+            "type": "error",
+            "title": "Datos incompletos",
+            "message": "Se requieren employeeId y vacationSettingId",
+            "errorCode": "VAC.ARCH.VAL.001",
+            "data": null
+          },
+          "possibleCodes": ["VAC.ARCH.VAL.001"]
+        },
+        "404": {
+          "description": "Empleado o configuración no encontrados",
+          "example": {
+            "type": "error",
+            "title": "Empleado no encontrado",
+            "message": "El empleado indicado no existe o fue eliminado.",
+            "errorCode": "VAC.ARCH.002",
+            "data": null
+          },
+          "possibleCodes": ["VAC.ARCH.002", "VAC.ARCH.004"]
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/employee-vacation-archives",
+      "summary": "Listar archivadores",
+      "description": "Lista archivadores de vacaciones con filtros opcionales.",
+      "request": {
+        "queryParams": {
+          "employeeId": { "type": "number", "required": false, "description": "Filtrar por empleado" },
+          "vacationSettingId": { "type": "number", "required": false, "description": "Filtrar por configuración de vacaciones" },
+          "shiftExceptionId": { "type": "number", "required": false, "description": "Archivadores que tienen al menos un contenido (evidencia) vinculado a esta excepción de turno" }
+        },
+        "example": "GET /api/employee-vacation-archives?employeeId=1&shiftExceptionId=10"
+      },
+      "responses": {
+        "200": {
+          "description": "Lista de archivadores",
+          "example": {
+            "type": "success",
+            "title": "Archivadores",
+            "message": "Lista de archivadores de vacaciones",
+            "data": [
+              {
+                "employeeVacationArchiveId": 1,
+                "employeeId": 1,
+                "vacationSettingId": 2,
+                "employee": {},
+                "vacationSetting": {},
+                "contents": []
+              }
+            ]
+          }
+        },
+        "500": {
+          "description": "Error interno",
+          "example": {
+            "type": "error",
+            "title": "Error del servidor",
+            "message": "Ocurrió un error inesperado",
+            "data": { "error": "..." }
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId",
+      "summary": "Obtener archivador por ID",
+      "description": "Devuelve un archivador con sus contenidos y excepciones de turno vinculadas.",
+      "request": {
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true }
+        },
+        "example": "GET /api/employee-vacation-archives/1"
+      },
+      "responses": {
+        "200": {
+          "description": "Archivador con contenidos y shiftExceptions",
+          "example": {
+            "type": "success",
+            "title": "Archivador",
+            "message": "Archivador de vacaciones",
+            "data": {
+              "employeeVacationArchiveId": 1,
+              "employeeId": 1,
+              "vacationSettingId": 2,
+              "employee": {},
+              "vacationSetting": {},
+              "contents": []
+            }
+          }
+        },
+        "400": {
+          "description": "ID inválido",
+          "example": {
+            "type": "error",
+            "title": "ID inválido",
+            "message": "Se requiere employeeVacationArchiveId",
+            "errorCode": "VAC.ARCH.VAL.002",
+            "data": null
+          }
+        },
+        "404": {
+          "description": "Archivador no encontrado",
+          "example": {
+            "type": "error",
+            "title": "Archivador de vacaciones no encontrado",
+            "message": "No existe un archivador de vacaciones con el identificador proporcionado o fue eliminado.",
+            "errorCode": "VAC.ARCH.001",
+            "data": null
+          }
+        }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId",
+      "summary": "Eliminar archivador de vacaciones",
+      "description": "Elimina el archivador (soft delete) y toda la información relacionada: contenidos (evidencias) con borrado de archivos en S3 y relaciones pivote con excepciones de turno.",
+      "request": {
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true }
+        },
+        "example": "DELETE /api/employee-vacation-archives/1"
+      },
+      "responses": {
+        "200": {
+          "description": "Archivador eliminado",
+          "example": {
+            "type": "success",
+            "title": "Archivador eliminado",
+            "message": "El archivador de vacaciones y toda su información relacionada fueron eliminados correctamente",
+            "data": {
+              "employeeVacationArchiveId": 1,
+              "employeeId": 1,
+              "vacationSettingId": 2,
+              "employeeVacationArchiveCreatedAt": "2025-03-13T12:00:00.000Z",
+              "employeeVacationArchiveUpdatedAt": "2025-03-13T12:00:00.000Z"
+            }
+          }
+        },
+        "400": {
+          "description": "ID inválido",
+          "example": {
+            "type": "error",
+            "title": "ID inválido",
+            "message": "Se requiere employeeVacationArchiveId",
+            "errorCode": "VAC.ARCH.VAL.002",
+            "data": null
+          }
+        },
+        "404": {
+          "description": "Archivador no encontrado",
+          "example": {
+            "type": "error",
+            "title": "Archivador de vacaciones no encontrado",
+            "message": "No existe un archivador de vacaciones con el identificador proporcionado o fue eliminado.",
+            "errorCode": "VAC.ARCH.001",
+            "data": null
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId/contents",
+      "summary": "Subir evidencia (foto o PDF)",
+      "description": "Sube un archivo al S3 y lo registra como contenido del archivador. Opcionalmente vincula excepciones de turno (tipo vacation) a esta evidencia. Máximo 5MB. Tipos: jpg, jpeg, png, gif, webp, pdf.",
+      "request": {
+        "contentType": "multipart/form-data",
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true }
+        },
+        "body": {
+          "file": { "type": "file", "required": true, "description": "Imagen o PDF, máx. 5MB" },
+          "description": { "type": "string", "required": false, "description": "Descripción opcional" },
+          "shiftExceptionIds": { "type": "array", "required": false, "items": "number", "description": "IDs de excepciones de turno (vacation) a vincular a esta evidencia (JSON array o separados por coma)" }
+        },
+        "example": "POST /api/employee-vacation-archives/1/contents con form-data: file=<archivo>, description=Evidencia de viaje, shiftExceptionIds=[10,11]"
+      },
+      "responses": {
+        "201": {
+          "description": "Archivo subido correctamente",
+          "example": {
+            "type": "success",
+            "title": "Evidencia subida",
+            "message": "El archivo de evidencia fue subido correctamente",
+            "data": {
+              "employeeVacationArchiveContentId": 1,
+              "employeeVacationArchiveId": 1,
+              "employeeVacationArchiveContentDescription": "Evidencia de viaje",
+              "employeeVacationArchiveContentFile": "path/s3/key",
+              "employeeVacationArchiveContentActive": true,
+              "employeeVacationArchiveContentCreatedAt": "2025-03-13T12:00:00.000Z",
+              "employeeVacationArchiveContentUpdatedAt": "2025-03-13T12:00:00.000Z"
+            }
+          }
+        },
+        "400": {
+          "description": "Archivo no enviado, tipo no permitido o excede 5MB",
+          "example": {
+            "type": "error",
+            "title": "Archivo no proporcionado",
+            "message": "No se envió ningún archivo en la petición. Debe adjuntar una foto o PDF como evidencia.",
+            "errorCode": "VAC.ARCH.005",
+            "data": null
+          },
+          "possibleCodes": ["VAC.ARCH.005", "VAC.ARCH.006", "VAC.ARCH.007", "VAC.ARCH.VAL.002", "VAC.ARCH.003", "VAC.ARCH.009"]
+        },
+        "404": {
+          "description": "Archivador o excepción de turno no encontrados",
+          "example": {
+            "type": "error",
+            "title": "Archivador de vacaciones no encontrado",
+            "message": "No existe un archivador de vacaciones con el identificador proporcionado o fue eliminado.",
+            "errorCode": "VAC.ARCH.001",
+            "data": null
+          }
+        },
+        "500": {
+          "description": "Error al subir a S3",
+          "example": {
+            "type": "error",
+            "title": "Error uploading file",
+            "message": "The image passed all validations but failed to upload to the cloud storage service...",
+            "errorCode": "SYS.CNFG.PRSS.016",
+            "data": null
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId/contents",
+      "summary": "Listar contenidos del archivador",
+      "description": "Lista todas las evidencias (archivos) de un archivador.",
+      "request": {
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true }
+        },
+        "example": "GET /api/employee-vacation-archives/1/contents"
+      },
+      "responses": {
+        "200": {
+          "description": "Lista de contenidos",
+          "example": {
+            "type": "success",
+            "title": "Contenidos del archivador",
+            "message": "Lista de evidencias",
+            "data": [
+              {
+                "employeeVacationArchiveContentId": 1,
+                "employeeVacationArchiveId": 1,
+                "employeeVacationArchiveContentDescription": "",
+                "employeeVacationArchiveContentFile": "path/s3/key",
+                "employeeVacationArchiveContentActive": true,
+                "employeeVacationArchiveContentCreatedAt": "2025-03-13T12:00:00.000Z",
+                "employeeVacationArchiveContentUpdatedAt": "2025-03-13T12:00:00.000Z"
+              }
+            ]
+          }
+        },
+        "400": {
+          "description": "ID inválido",
+          "example": {
+            "type": "error",
+            "title": "ID inválido",
+            "message": "Se requiere employeeVacationArchiveId",
+            "errorCode": "VAC.ARCH.VAL.002",
+            "data": null
+          }
+        },
+        "500": {
+          "description": "Error interno",
+          "example": {
+            "type": "error",
+            "title": "Error del servidor",
+            "message": "Ocurrió un error inesperado",
+            "data": { "error": "..." }
+          }
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId/contents/:employeeVacationArchiveContentId",
+      "summary": "Obtener contenido por ID (con URL de descarga)",
+      "description": "Devuelve un contenido y una URL temporal firmada para descargar el archivo desde S3.",
+      "request": {
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true },
+          "employeeVacationArchiveContentId": { "type": "number", "required": true }
+        },
+        "example": "GET /api/employee-vacation-archives/1/contents/5"
+      },
+      "responses": {
+        "200": {
+          "description": "Contenido con downloadUrl temporal",
+          "example": {
+            "type": "success",
+            "title": "Contenido",
+            "message": "Archivo de evidencia",
+            "data": {
+              "employeeVacationArchiveContentId": 5,
+              "employeeVacationArchiveId": 1,
+              "employeeVacationArchiveContentDescription": "",
+              "employeeVacationArchiveContentFile": "path/s3/key",
+              "employeeVacationArchiveContentActive": true,
+              "employeeVacationArchiveContentCreatedAt": "2025-03-13T12:00:00.000Z",
+              "employeeVacationArchiveContentUpdatedAt": "2025-03-13T12:00:00.000Z",
+              "downloadUrl": "https://..."
+            }
+          }
+        },
+        "400": {
+          "description": "ID inválido",
+          "example": {
+            "type": "error",
+            "title": "ID inválido",
+            "message": "Se requiere employeeVacationArchiveContentId",
+            "errorCode": "VAC.ARCH.VAL.003",
+            "data": null
+          }
+        },
+        "404": {
+          "description": "Contenido no encontrado",
+          "example": {
+            "type": "error",
+            "title": "Contenido del archivador no encontrado",
+            "message": "El archivo de evidencia indicado no existe o fue eliminado.",
+            "errorCode": "VAC.ARCH.008",
+            "data": null
+          }
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId/contents/:employeeVacationArchiveContentId",
+      "summary": "Actualizar evidencia (contenido)",
+      "description": "Actualiza un contenido existente. Reemplazar archivo (opcional), descripción y/o excepciones de turno vinculadas. Usar POST, no PATCH.",
+      "request": {
+        "contentType": "multipart/form-data",
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true },
+          "employeeVacationArchiveContentId": { "type": "number", "required": true }
+        },
+        "body": {
+          "file": { "type": "file", "required": false, "description": "Nuevo archivo (reemplaza el actual), máx. 5MB" },
+          "description": { "type": "string", "required": false, "description": "Nueva descripción" },
+          "shiftExceptionIds": { "type": "array", "required": false, "items": "number", "description": "IDs de excepciones de turno (reemplaza los actuales)" }
+        },
+        "example": "POST /api/employee-vacation-archives/2/contents/1 con form-data: file=..., description=..., shiftExceptionIds=[10,11]"
+      },
+      "responses": {
+        "200": {
+          "description": "Contenido actualizado",
+          "example": {
+            "type": "success",
+            "title": "Evidencia actualizada",
+            "message": "El contenido fue actualizado correctamente",
+            "data": {
+              "employeeVacationArchiveContentId": 1,
+              "employeeVacationArchiveId": 2,
+              "employeeVacationArchiveContentDescription": "",
+              "employeeVacationArchiveContentFile": "path/s3/key",
+              "employeeVacationArchiveContentActive": true,
+              "shiftExceptions": []
+            }
+          }
+        },
+        "400": {
+          "description": "ID inválido o validación (archivo/excepciones)",
+          "example": {
+            "type": "error",
+            "title": "ID inválido",
+            "message": "Se requieren employeeVacationArchiveId y employeeVacationArchiveContentId",
+            "errorCode": "VAC.ARCH.VAL.003",
+            "data": null
+          },
+          "possibleCodes": ["VAC.ARCH.VAL.003", "VAC.ARCH.006", "VAC.ARCH.007", "VAC.ARCH.003", "VAC.ARCH.009"]
+        },
+        "404": {
+          "description": "Contenido no encontrado",
+          "example": {
+            "type": "error",
+            "title": "Contenido del archivador no encontrado",
+            "message": "El archivo de evidencia indicado no existe o fue eliminado.",
+            "errorCode": "VAC.ARCH.008",
+            "data": null
+          }
+        },
+        "500": {
+          "description": "Error al subir a S3",
+          "example": {
+            "type": "error",
+            "title": "Error uploading file",
+            "message": "...",
+            "errorCode": "SYS.CNFG.PRSS.016",
+            "data": null
+          }
+        }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/employee-vacation-archives/:employeeVacationArchiveId/contents/:employeeVacationArchiveContentId",
+      "summary": "Eliminar evidencia",
+      "description": "Elimina el contenido (soft delete) y el archivo en S3.",
+      "request": {
+        "pathParams": {
+          "employeeVacationArchiveId": { "type": "number", "required": true },
+          "employeeVacationArchiveContentId": { "type": "number", "required": true }
+        },
+        "example": "DELETE /api/employee-vacation-archives/1/contents/5"
+      },
+      "responses": {
+        "200": {
+          "description": "Contenido eliminado",
+          "example": {
+            "type": "success",
+            "title": "Evidencia eliminada",
+            "message": "El archivo de evidencia fue eliminado correctamente",
+            "data": {
+              "employeeVacationArchiveContentId": 5,
+              "employeeVacationArchiveId": 1,
+              "employeeVacationArchiveContentFile": "path/s3/key"
+            }
+          }
+        },
+        "400": {
+          "description": "ID inválido",
+          "example": {
+            "type": "error",
+            "title": "ID inválido",
+            "message": "Se requiere employeeVacationArchiveContentId",
+            "errorCode": "VAC.ARCH.VAL.003",
+            "data": null
+          }
+        },
+        "404": {
+          "description": "Contenido no encontrado",
+          "example": {
+            "type": "error",
+            "title": "Contenido del archivador no encontrado",
+            "message": "El archivo de evidencia indicado no existe o fue eliminado.",
+            "errorCode": "VAC.ARCH.008",
+            "data": null
+          }
+        },
+        "500": {
+          "description": "Error al eliminar en S3 (no crítico: el registro ya se eliminó)",
+          "example": {
+            "type": "warning",
+            "title": "Error deleting previous file",
+            "message": "During an update operation, the new image was successfully uploaded but...",
+            "errorCode": "SYS.CNFG.PRSS.017",
+            "data": null
+          }
+        }
+      }
+    }
+  ],
+  "errorCodesReference": {
+    "VAC.ARCH.001": "Archivador de vacaciones no encontrado",
+    "VAC.ARCH.002": "Empleado no encontrado",
+    "VAC.ARCH.003": "Excepción de turno no encontrada",
+    "VAC.ARCH.004": "Configuración de vacaciones no encontrada",
+    "VAC.ARCH.005": "Archivo no proporcionado",
+    "VAC.ARCH.006": "Archivo excede 5MB",
+    "VAC.ARCH.007": "Tipo de archivo no permitido (solo imagen/PDF)",
+    "VAC.ARCH.008": "Contenido del archivador no encontrado",
+    "VAC.ARCH.009": "Excepción de turno no es de tipo vacaciones",
+    "VAC.ARCH.010": "Excepción de turno ya vinculada a otro archivador",
+    "VAC.ARCH.VAL.001": "Datos incompletos (employeeId, vacationSettingId)",
+    "VAC.ARCH.VAL.002": "employeeVacationArchiveId inválido o faltante",
+    "VAC.ARCH.VAL.003": "employeeVacationArchiveContentId inválido o faltante",
+    "SYS.CNFG.PRSS.016": "Error al subir archivo a S3",
+    "SYS.CNFG.PRSS.017": "Error al eliminar archivo en S3"
+  }
+}

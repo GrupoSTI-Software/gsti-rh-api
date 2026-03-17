@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, column, belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
 import Employee from './employee.js'
 import ExceptionType from './exception_type.js'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import VacationSetting from './vacation_setting.js'
 import VacationAuthorizationSignature from './vacation_authorization_signature.js'
-import type { HasMany } from '@adonisjs/lucid/types/relations'
+import EmployeeVacationArchiveContent from './employee_vacation_archive_content.js'
 /**
  * @swagger
  * components:
@@ -161,4 +161,13 @@ export default class ShiftException extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'vacationSettingId',
   })
   declare vacationSetting: BelongsTo<typeof VacationSetting>
+
+  @manyToMany(() => EmployeeVacationArchiveContent, {
+    pivotTable: 'employee_vacation_archive_content_shift_exceptions',
+    pivotForeignKey: 'shift_exception_id',
+    pivotRelatedForeignKey: 'employee_vacation_archive_content_id',
+    relatedKey: 'employeeVacationArchiveContentId',
+    localKey: 'shiftExceptionId',
+  })
+  declare employeeVacationArchiveContents: ManyToMany<typeof EmployeeVacationArchiveContent>
 }
