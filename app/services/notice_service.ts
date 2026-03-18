@@ -186,12 +186,18 @@ export default class NoticeService {
     currentNotice.noticeType = notice.noticeType
     await currentNotice.save()
 
-    // Actualizar destinatarios siempre que se proporcione un array
-    if (recipientEmployeeIds.length > 0) {
+    // Actualizar destinatarios siempre que se proporcione al menos un id
+    const normalizedRecipientIds = (Array.isArray(recipientEmployeeIds)
+      ? recipientEmployeeIds
+      : [recipientEmployeeIds])
+      .map((id) => Number(id))
+      .filter((id) => !Number.isNaN(id) && id > 0)
+
+    if (normalizedRecipientIds.length > 0) {
       // Obtener empleados seleccionados (con email de empresa o, si no, email personal)
       const employees = await Employee.query()
         .whereNull('employee_deleted_at')
-        .whereIn('employee_id', recipientEmployeeIds)
+        .whereIn('employee_id', normalizedRecipientIds)
         .where((query) => {
           query
             .whereRaw('(employee_business_email IS NOT NULL AND TRIM(employee_business_email) != ?)', [''])
@@ -226,35 +232,39 @@ export default class NoticeService {
 
       // Actualizar la lista de emails en el notice
       currentNotice.noticeRecipientEmails = JSON.stringify(recipientEmails)
-      
+
       await currentNotice.save()
 
-      // Obtener destinatarios existentes
+      // Destinatarios actuales del aviso
       const existingRecipients = await NoticeRecipient.query()
         .whereNull('notice_recipient_deleted_at')
         .where('notice_id', currentNotice.noticeId)
 
-      // const existingEmployeeIds = existingRecipients
-      //  .map((r) => r.employeeId)
-      //  .filter((id): id is number => id !== null)
+      // Quitar del aviso a empleados que ya no están en la lista (incluye varias filas por mismo empleado)
+      const previousEmployeeIds = [
+        ...new Set(
+          existingRecipients
+            .map((r) => r.employeeId)
+            .filter((id): id is number => id !== null && id !== undefined)
+        ),
+      ]
+      const removedEmployeeIds = previousEmployeeIds.filter((id) => !normalizedRecipientIds.includes(id))
 
-      // Identificar destinatarios a agregar y eliminar
-      //const removedEmployeeIds = existingEmployeeIds.filter((id) => !recipientEmployeeIds.includes(id))
+      if (removedEmployeeIds.length > 0) {
+        await NoticeRecipient.query()
+          .whereNull('notice_recipient_deleted_at')
+          .where('notice_id', currentNotice.noticeId)
+          .whereIn('employee_id', removedEmployeeIds)
+          .delete()
+      }
 
+      const activeRecipients = await NoticeRecipient.query()
+        .whereNull('notice_recipient_deleted_at')
+        .where('notice_id', currentNotice.noticeId)
 
-      // Eliminar destinatarios que ya no están en la lista
-      // if (removedEmployeeIds.length > 0) {
-      //   await NoticeRecipient.query()
-      //     .whereNull('notice_recipient_deleted_at')
-      //     .where('notice_id', currentNotice.noticeId)
-      //     .whereIn('employee_id', removedEmployeeIds)
-      //     .delete()
-      // }
-
-      // Agregar nuevos destinatarios
+      // Agregar destinatarios nuevos que falten
       for (const recipient of recipientData) {
-        // Verificar si ya existe
-        const exists = existingRecipients.some(
+        const exists = activeRecipients.some(
           (r) => r.employeeId === recipient.employeeId && r.employeeEmail === recipient.employeeEmail
         )
         if (!exists) {
