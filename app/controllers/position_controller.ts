@@ -208,6 +208,16 @@ export default class PositionController {
    *                 description: Position alias
    *                 required: false
    *                 default: ''
+   *               positionDescription:
+   *                 type: string
+   *                 description: Position description
+   *                 required: false
+   *                 default: ''
+   *               positionGeneralObjective:
+   *                 type: string
+   *                 description: Position general objective
+   *                 required: false
+   *                 default: ''
    *               positionIsDefault:
    *                 type: boolean
    *                 description: Position if is default
@@ -227,6 +237,11 @@ export default class PositionController {
    *                 type: number
    *                 description: Company id
    *                 required: true
+   *                 default: ''
+   *               positionProfileExpirationDate:
+   *                 type: string
+   *                 description: Position profile expiration date
+   *                 required: false
    *                 default: ''
    *     responses:
    *       '201':
@@ -314,17 +329,22 @@ export default class PositionController {
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
       const positionAlias = request.input('positionAlias')
+      const positionDescription = request.input('positionDescription')
+      const positionGeneralObjective = request.input('positionGeneralObjective')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
-
+      const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
       const position = {
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
+        positionDescription: positionDescription,
+        positionGeneralObjective: positionGeneralObjective,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
+        positionProfileExpirationDate: new Date(positionProfileExpirationDate),
       } as Position
 
       const positionService = new PositionService(i18n)
@@ -404,6 +424,16 @@ export default class PositionController {
    *                 description: Position alias
    *                 required: false
    *                 default: ''
+   *               positionDescription:
+   *                 type: string
+   *                 description: Position description
+   *                 required: false
+   *                 default: ''
+   *               positionGeneralObjective:
+   *                 type: string
+   *                 description: Position general objective
+   *                 required: false
+   *                 default: ''
    *               positionIsDefault:
    *                 type: boolean
    *                 description: Position if is default
@@ -423,6 +453,11 @@ export default class PositionController {
    *                 type: number
    *                 description: Company id
    *                 required: true
+   *                 default: ''
+   *               positionProfileExpirationDate:
+   *                 type: string
+   *                 description: Position profile expiration date
+   *                 required: false
    *                 default: ''
    *     responses:
    *       '201':
@@ -511,19 +546,26 @@ export default class PositionController {
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
       const positionAlias = request.input('positionAlias')
+      const positionDescription = request.input('positionDescription')
+      const positionGeneralObjective = request.input('positionGeneralObjective')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
       const companyId = request.input('companyId')
+      const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
+
       const position = {
         positionId: positionId,
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
+        positionDescription: positionDescription,
+        positionGeneralObjective: positionGeneralObjective,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
         companyId: companyId,
+        positionProfileExpirationDate: new Date(positionProfileExpirationDate),
       } as Position
       if (!positionId) {
         response.status(400)

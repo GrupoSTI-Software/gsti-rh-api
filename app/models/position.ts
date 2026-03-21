@@ -27,6 +27,12 @@ import Employee from './employee.js'
  *          positionAlias:
  *            type: string
  *            description: Position alias
+ *          positionDescription:
+ *            type: string
+ *            description: Position description
+ *          positionGeneralObjective:
+ *            type: string
+ *            description: Position general objective
  *          positionIsDefault:
  *            type: boolean
  *            description: If the position is the default
@@ -48,6 +54,9 @@ import Employee from './employee.js'
  *          positionLastSynchronizationAt:
  *            type: string
  *            description: Last synchronization date
+ *          positionProfileExpirationDate:
+ *            type: string
+ *            description: Profile expiration date
  *          positionCreatedAt:
  *            type: string
  *          positionUpdatedAt:
@@ -73,6 +82,12 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
   declare positionAlias: string
 
   @column()
+  declare positionDescription: string
+
+  @column()
+  declare positionGeneralObjective: string
+
+  @column()
   declare positionIsDefault: boolean
 
   @column()
@@ -92,6 +107,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare positionLastSynchronizationAt: Date
+
+  @column()
+  declare positionProfileExpirationDate: Date
 
   @column.dateTime({ autoCreate: true })
   declare positionCreatedAt: DateTime
