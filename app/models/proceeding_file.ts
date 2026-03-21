@@ -8,6 +8,7 @@ import EmployeeProceedingFile from './employee_proceeding_file.js'
 import FlightAttendantProceedingFile from './flight_attendant_proceeding_file.js'
 import PilotProceedingFile from './pilot_proceeding_file.js'
 import CustomerProceedingFile from './customer_proceeding_file.js'
+import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
 import AircraftProceedingFile from './aircraft_proceeding_file.js'
 /**
  * @swagger
@@ -148,4 +149,13 @@ export default class ProceedingFile extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare customerProceedingFile: HasOne<typeof CustomerProceedingFile>
+
+  @hasOne(() => SystemSettingProceedingFile, {
+    foreignKey: 'proceedingFileId',
+    localKey: 'proceedingFileId',
+    onQuery: (query) => {
+      query.whereNull('deletedAt').preload('systemSetting')
+    },
+  })
+  declare systemSettingProceedingFile: HasOne<typeof SystemSettingProceedingFile>
 }

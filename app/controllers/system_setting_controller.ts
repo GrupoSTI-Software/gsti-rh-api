@@ -1,5 +1,6 @@
 import { HttpContext } from '@adonisjs/core/http'
 import SystemSetting from '#models/system_setting'
+import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import SystemSettingService from '#services/system_setting_service'
 import { createSystemSettingValidator } from '#validators/system_setting'
 import UploadService from '#services/upload_service'
@@ -8,6 +9,12 @@ import Env from '#start/env'
 import sharp from 'sharp'
 import fs from 'node:fs'
 import { SYSTEM_SETTING_ERROR_CODES } from '../constants/system_setting_error_codes.js'
+import SystemSettingProceedingFileService from '#services/system_setting_proceeding_file_service'
+import {
+  createSystemSettingProceedingFileValidator,
+  updateSystemSettingProceedingFileValidator,
+} from '#validators/system_setting_proceeding_file'
+
 export default class SystemSettingController {
   /**
    * Validates that an image is PNG, 512x512px, and has no transparency
@@ -1309,6 +1316,409 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
+  /**
+   * Crea la relación system setting ↔ proceeding file (igual que POST /api/employees-proceeding-files).
+   * POST /api/system-settings-proceeding-files — application/json:
+   * { systemSettingId, proceedingFileId } o { systemSettingId, proceedingFileIds: number[] }
+   * Subir el archivo antes: POST /api/proceeding-files (tipo system-setting; systemSettingId opcional).
+   */
+  async storeProceedingFile({ request, response }: HttpContext) {
+    try {
+      const service = new SystemSettingProceedingFileService()
+      const data = await request.validateUsing(createSystemSettingProceedingFileValidator)
+      const normalizedProceedingFileIds = Array.from(
+        new Set(
+          [data.proceedingFileId, ...(data.proceedingFileIds || [])].filter(
+            (proceedingFileId): proceedingFileId is number =>
+              typeof proceedingFileId === 'number' && proceedingFileId > 0
+          )
+        )
+      )
+
+      if (normalizedProceedingFileIds.length === 0) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Validation error',
+          message: 'Se requiere proceedingFileId o proceedingFileIds con al menos un id válido',
+          data: { ...data },
+        }
+      }
+
+      const created: unknown[] = []
+      const duplicates: number[] = []
+      const failed: { proceedingFileId: number; status: number; title: string; message: string }[] = []
+
+      for (const proceedingFileId of normalizedProceedingFileIds) {
+        const exist = await service.verifyInfoExist({
+          systemSettingId: data.systemSettingId,
+          proceedingFileId,
+        })
+        if (exist.status !== 200) {
+          failed.push({
+            proceedingFileId,
+            status: exist.status,
+            title: exist.title,
+            message: exist.message,
+          })
+          continue
+        }
+
+        const verify = await service.verifyInfo({
+          systemSettingId: data.systemSettingId,
+          proceedingFileId,
+        })
+        if (verify.status !== 200) {
+          if (verify.title === 'Relation already exists') {
+            duplicates.push(proceedingFileId)
+            continue
+          }
+          failed.push({
+            proceedingFileId,
+            status: verify.status,
+            title: verify.title,
+            message: verify.message,
+          })
+          continue
+        }
+
+        const relation = await service.create({
+          systemSettingId: data.systemSettingId,
+          proceedingFileId,
+        })
+        created.push(relation)
+      }
+
+      if (created.length === 0 && duplicates.length > 0 && failed.length === 0) {
+        response.status(200)
+        return {
+          type: 'success',
+          title: 'System settings proceeding files',
+          message: 'Las relaciones ya existían previamente',
+          data: {
+            systemSettingId: data.systemSettingId,
+            created,
+            duplicates,
+            failed,
+          },
+        }
+      }
+
+      if (created.length === 0) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'No relations were created',
+          message: 'No se pudo crear ninguna relación con los IDs enviados',
+          data: {
+            systemSettingId: data.systemSettingId,
+            proceedingFileIds: normalizedProceedingFileIds,
+            duplicates,
+            failed,
+          },
+        }
+      }
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'System settings proceeding files',
+        message: 'Las relaciones system-setting-proceedingfile se crearon correctamente',
+        data: {
+          created,
+          duplicates,
+          failed,
+        },
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * Lista proceeding files vinculados a un system setting.
+   * GET /api/system-settings-proceeding-files?systemSettingId=…&type=… (type opcional).
+   */
+  async proceedingFiles({ request, response }: HttpContext) {
+    try {
+      const systemSettingIdParam = request.param('systemSettingId') ?? request.input('systemSettingId')
+      const systemSettingId = Number(systemSettingIdParam)
+      if (
+        systemSettingIdParam === undefined ||
+        systemSettingIdParam === null ||
+        String(systemSettingIdParam).trim() === '' ||
+        Number.isNaN(systemSettingId) ||
+        systemSettingId <= 0
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'The system setting Id was not found',
+          message: 'Se requiere systemSettingId en query, por ejemplo ?systemSettingId=3',
+          data: { systemSettingId: systemSettingIdParam },
+        }
+      }
+
+      const typeRaw = request.input('type')
+      let proceedingFileTypeId: number | null = null
+      if (typeRaw !== undefined && typeRaw !== null && String(typeRaw).trim() !== '') {
+        proceedingFileTypeId = Number(typeRaw)
+        if (Number.isNaN(proceedingFileTypeId) || proceedingFileTypeId <= 0) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Invalid query parameter',
+            message: 'type must be a positive number (proceedingFileTypeId)',
+            data: { type: typeRaw },
+          }
+        }
+      }
+
+      const systemSetting = await SystemSetting.query()
+        .whereNull('deletedAt')
+        .where('systemSettingId', systemSettingId)
+        .first()
+
+      if (!systemSetting) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The system setting was not found',
+          message: 'The system setting was not found with the entered ID',
+          data: { systemSettingId },
+        }
+      }
+
+      const query = SystemSettingProceedingFile.query()
+        .whereNull('system_setting_proceeding_file_deleted_at')
+        .where('system_setting_id', systemSettingId)
+        .if(proceedingFileTypeId !== null, (q) => {
+          q.whereHas('proceedingFile', (sub) => {
+            sub
+              .whereNull('proceeding_file_deleted_at')
+              .where('proceeding_file_type_id', proceedingFileTypeId!)
+          })
+        })
+        .preload('proceedingFile', (q) => {
+          q.whereNull('proceeding_file_deleted_at').preload('proceedingFileType')
+        })
+        .orderBy('system_setting_proceeding_file_id', 'desc')
+
+      const systemSettingProceedingFiles = await query
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System setting proceeding files',
+        message: 'Proceeding files were found successfully',
+        data: { systemSettingProceedingFiles },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * Obtiene una relación system setting ↔ proceeding file por id del pivote.
+   * GET /api/system-settings-proceeding-files/:systemSettingProceedingFileId
+   */
+  async showProceedingFile({ request, response }: HttpContext) {
+    try {
+      const idParam = request.param('systemSettingProceedingFileId')
+      const systemSettingProceedingFileId = Number(idParam)
+      if (!idParam || Number.isNaN(systemSettingProceedingFileId) || systemSettingProceedingFileId <= 0) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid id',
+          message: 'Se requiere systemSettingProceedingFileId numérico en la ruta',
+          data: { systemSettingProceedingFileId: idParam },
+        }
+      }
+
+      const service = new SystemSettingProceedingFileService()
+      const link = await service.show(systemSettingProceedingFileId)
+
+      if (!link) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Relation not found',
+          message: 'No se encontró la relación con el id indicado',
+          data: { systemSettingProceedingFileId },
+        }
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System setting proceeding files',
+        message: 'La relación se encontró correctamente',
+        data: { systemSettingProceedingFile: link },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * Actualiza systemSettingId y proceedingFileId del pivote.
+   * PUT /api/system-settings-proceeding-files/:systemSettingProceedingFileId
+   * Body JSON: { "systemSettingId": number, "proceedingFileId": number }
+   */
+  async updateProceedingFile({ request, response }: HttpContext) {
+    try {
+      const idParam = request.param('systemSettingProceedingFileId')
+      const systemSettingProceedingFileId = Number(idParam)
+      if (!idParam || Number.isNaN(systemSettingProceedingFileId) || systemSettingProceedingFileId <= 0) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid id',
+          message: 'Se requiere systemSettingProceedingFileId numérico en la ruta',
+          data: { systemSettingProceedingFileId: idParam },
+        }
+      }
+
+      const current = await SystemSettingProceedingFile.query()
+        .whereNull('system_setting_proceeding_file_deleted_at')
+        .where('systemSettingProceedingFileId', systemSettingProceedingFileId)
+        .first()
+
+      if (!current) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Relation not found',
+          message: 'No se encontró la relación con el id indicado',
+          data: { systemSettingProceedingFileId },
+        }
+      }
+
+      const data = await request.validateUsing(updateSystemSettingProceedingFileValidator)
+      const payload = {
+        systemSettingId: data.systemSettingId,
+        proceedingFileId: data.proceedingFileId,
+      }
+
+      const service = new SystemSettingProceedingFileService()
+      const exist = await service.verifyInfoExist(payload)
+      if (exist.status !== 200) {
+        response.status(exist.status)
+        return {
+          type: exist.type,
+          title: exist.title,
+          message: exist.message,
+          data: exist.data,
+        }
+      }
+
+      const verify = await service.verifyInfo(payload, systemSettingProceedingFileId)
+      if (verify.status !== 200) {
+        response.status(verify.status)
+        return {
+          type: verify.type,
+          title: verify.title,
+          message: verify.message,
+          data: verify.data,
+        }
+      }
+
+      const updated = await service.update(current, payload)
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System setting proceeding files',
+        message: 'La relación se actualizó correctamente',
+        data: { systemSettingProceedingFile: updated },
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * Elimina la relación system setting ↔ proceeding file (soft delete del pivote).
+   * DELETE /api/system-settings-proceeding-files/:systemSettingProceedingFileId
+   */
+  async deleteProceedingFile({ request, response }: HttpContext) {
+    try {
+      const idParam = request.param('systemSettingProceedingFileId')
+      const systemSettingProceedingFileId = Number(idParam)
+      if (!idParam || Number.isNaN(systemSettingProceedingFileId) || systemSettingProceedingFileId <= 0) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid id',
+          message: 'Se requiere systemSettingProceedingFileId numérico en la ruta',
+          data: { systemSettingProceedingFileId: idParam },
+        }
+      }
+
+      const link = await SystemSettingProceedingFile.query()
+        .whereNull('system_setting_proceeding_file_deleted_at')
+        .where('systemSettingProceedingFileId', systemSettingProceedingFileId)
+        .first()
+
+      if (!link) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Relation not found',
+          message: 'No se encontró la relación con el id indicado',
+          data: { systemSettingProceedingFileId },
+        }
+      }
+
+      await link.delete()
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System setting proceeding files',
+        message: 'La relación system setting — proceeding file se eliminó correctamente',
+        data: { systemSettingProceedingFile: link },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
   async show({ request, response }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')

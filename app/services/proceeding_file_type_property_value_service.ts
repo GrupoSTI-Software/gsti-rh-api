@@ -8,7 +8,8 @@ export default class ProceedingFileTypePropertyValueService {
     const newProceedingFileTypePropertyValue = new ProceedingFileTypePropertyValue()
     newProceedingFileTypePropertyValue.proceedingFileTypePropertyId =
       proceedingFileTypePropertyValue.proceedingFileTypePropertyId
-    newProceedingFileTypePropertyValue.employeeId = proceedingFileTypePropertyValue.employeeId
+    newProceedingFileTypePropertyValue.employeeId =
+      proceedingFileTypePropertyValue.employeeId ?? null
     newProceedingFileTypePropertyValue.proceedingFileId =
       proceedingFileTypePropertyValue.proceedingFileId
     newProceedingFileTypePropertyValue.proceedingFileTypePropertyValueValue =
@@ -39,7 +40,7 @@ export default class ProceedingFileTypePropertyValueService {
   async show(proceedingFileTypePropertyValueId: number) {
     const proceedingFileTypePropertyValue = await ProceedingFileTypePropertyValue.query()
       .whereNull('proceeding_file_type_property_value_deleted_at')
-      .where('eproceeding_file_type_property_value_id', proceedingFileTypePropertyValueId)
+      .where('proceeding_file_type_property_value_id', proceedingFileTypePropertyValueId)
       .first()
     return proceedingFileTypePropertyValue ? proceedingFileTypePropertyValue : null
   }
@@ -66,18 +67,20 @@ export default class ProceedingFileTypePropertyValueService {
       }
     }
 
-    const existEmployee = await Employee.query()
-      .whereNull('employee_deleted_at')
-      .where('employee_id', proceedingFileTypePropertyValue.employeeId)
-      .first()
+    if (proceedingFileTypePropertyValue.employeeId) {
+      const existEmployee = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .where('employee_id', proceedingFileTypePropertyValue.employeeId)
+        .first()
 
-    if (!existEmployee && proceedingFileTypePropertyValue.employeeId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The employee was not found',
-        message: 'The employee was not found with the entered ID',
-        data: { ...proceedingFileTypePropertyValue },
+      if (!existEmployee) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered ID',
+          data: { ...proceedingFileTypePropertyValue },
+        }
       }
     }
     const existProceedingFile = await ProceedingFile.query()

@@ -12,6 +12,10 @@ router
       '/get-categories-by-employee',
       '#controllers/proceeding_file_type_property_controller.getCategories'
     )
+    router.get(
+      '/get-categories-by-system-setting',
+      '#controllers/proceeding_file_type_property_controller.getCategoriesBySystemSetting'
+    )
   })
   .prefix('/api/proceeding-file-type-properties')
   .use(middleware.auth())
