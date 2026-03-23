@@ -2,7 +2,11 @@ import { HttpContext } from '@adonisjs/core/http'
 import { ProceedingFileTypeFilterSearchInterface } from '../interfaces/proceeding_file_type_filter_search_interface.js'
 import ProceedingFileTypeService from '#services/proceeding_file_type_service'
 import ProceedingFileType from '#models/proceeding_file_type'
-import { createProceedingFileTypeValidator, createEmployeeProceedingFileTypeValidator } from '#validators/proceeding_file_type'
+import {
+  createProceedingFileTypeValidator,
+  createEmployeeProceedingFileTypeValidator,
+  createSystemSettingProceedingFileTypeValidator,
+} from '#validators/proceeding_file_type'
 
 export default class ProceedingFileTypeController {
   /**
@@ -614,6 +618,83 @@ export default class ProceedingFileTypeController {
         type: 'success',
         title: 'Proceeding file type created',
         message: 'The employee proceeding file type was created successfully with its default property',
+        data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/proceeding-file-types/create-system-setting-type:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Proceeding File Types
+   *     summary: Crear tipo de archivo de procedimiento para configuración del sistema (área system-setting)
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               proceedingFileTypeName:
+   *                 type: string
+   *                 description: Nombre del tipo (el slug se genera automáticamente)
+   *               proceedingFileTypeBusinessUnits:
+   *                 type: string
+   *                 description: Opcional; si no se envía se usan las unidades de SYSTEM_BUSINESS
+   *               parentId:
+   *                 type: number
+   *                 description: ID del tipo padre (debe ser también system-setting)
+   *               proceedingFileTypeActive:
+   *                 type: boolean
+   *                 default: true
+   *     responses:
+   *       '201':
+   *         description: Creado correctamente
+   *       '400':
+   *         description: Validación o slug duplicado
+   *       '404':
+   *         description: Tipo padre no encontrado
+   */
+  async createSystemSettingType({ request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(createSystemSettingProceedingFileTypeValidator)
+      const proceedingFileTypeService = new ProceedingFileTypeService()
+      const result = await proceedingFileTypeService.createSystemSettingType({
+        proceedingFileTypeName: data.proceedingFileTypeName,
+        parentId: data.parentId,
+        proceedingFileTypeActive: data.proceedingFileTypeActive,
+      })
+
+      if (result.status !== 201) {
+        response.status(result.status)
+        return {
+          type: result.type,
+          title: result.title,
+          message: result.message,
+          data: result.data,
+        }
+      }
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Proceeding file type created',
+        message: result.message,
         data: result.data,
       }
     } catch (error) {
