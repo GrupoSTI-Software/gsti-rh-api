@@ -737,6 +737,7 @@ export default class EmployeeService {
       .preload('spouse')
       .preload('emergencyContact')
       .preload('children')
+      .preload('address')
       .withTrashed()
       .first()
     return employee ? employee : null
