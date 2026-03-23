@@ -1,6 +1,9 @@
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import SystemSetting from '#models/system_setting'
 import ProceedingFile from '#models/proceeding_file'
+import ProceedingFileType from '#models/proceeding_file_type'
+import { DateTime } from 'luxon'
+import type { ProceedingFileExpiredFilterInterface } from '../interfaces/proceeding_file_expired_filter_interface.js'
 
 export default class SystemSettingProceedingFileService {
   async create(data: { systemSettingId: number; proceedingFileId: number }) {
@@ -123,6 +126,59 @@ export default class SystemSettingProceedingFileService {
       title: 'OK',
       message: 'OK',
       data: {},
+    }
+  }
+
+  async getExpiredAndExpiringBySystemSetting(
+    systemSettingId: number,
+    filters: ProceedingFileExpiredFilterInterface
+  ) {
+    const proceedingFileTypes = await ProceedingFileType.query()
+      .whereNull('proceeding_file_type_deleted_at')
+      .where('proceeding_file_type_area_to_use', 'system-setting')
+      .orderBy('proceeding_file_type_id')
+      .select('proceeding_file_type_id')
+
+    const proceedingFileTypesIds = proceedingFileTypes.map((item) => item.proceedingFileTypeId)
+
+    if (proceedingFileTypesIds.length === 0) {
+      return {
+        proceedingFilesExpired: [],
+        proceedingFilesExpiring: [],
+      }
+    }
+
+    const proceedingFilesExpired = await ProceedingFile.query()
+      .whereNull('proceeding_file_deleted_at')
+      .whereIn('proceeding_file_type_id', proceedingFileTypesIds)
+      .whereBetween('proceeding_file_expiration_at', [filters.dateStart, filters.dateEnd])
+      .whereHas('systemSettingProceedingFile', (q) => {
+        q.whereNull('system_setting_proceeding_file_deleted_at').where('system_setting_id', systemSettingId)
+      })
+      .preload('proceedingFileType')
+      .preload('systemSettingProceedingFile', (q) => {
+        q.whereNull('system_setting_proceeding_file_deleted_at').preload('systemSetting')
+      })
+      .orderBy('proceeding_file_expiration_at')
+
+    const newDateStart = DateTime.fromISO(filters.dateEnd).plus({ days: 1 }).toFormat('yyyy-MM-dd')
+    const newDateEnd = DateTime.fromISO(filters.dateEnd).plus({ days: 30 }).toFormat('yyyy-MM-dd')
+    const proceedingFilesExpiring = await ProceedingFile.query()
+      .whereNull('proceeding_file_deleted_at')
+      .whereIn('proceeding_file_type_id', proceedingFileTypesIds)
+      .whereBetween('proceeding_file_expiration_at', [newDateStart, newDateEnd])
+      .whereHas('systemSettingProceedingFile', (q) => {
+        q.whereNull('system_setting_proceeding_file_deleted_at').where('system_setting_id', systemSettingId)
+      })
+      .preload('proceedingFileType')
+      .preload('systemSettingProceedingFile', (q) => {
+        q.whereNull('system_setting_proceeding_file_deleted_at').preload('systemSetting')
+      })
+      .orderBy('proceeding_file_expiration_at')
+
+    return {
+      proceedingFilesExpired: proceedingFilesExpired ? proceedingFilesExpired : [],
+      proceedingFilesExpiring: proceedingFilesExpiring ? proceedingFilesExpiring : [],
     }
   }
 }
