@@ -280,4 +280,93 @@ export default class ProceedingFileTypeService {
       }
     }
   }
+
+  /**
+   * Crea un tipo de archivo de procedimiento para configuración del sistema (área system-setting).
+   */
+  async createSystemSettingType(data: {
+    proceedingFileTypeName: string
+    parentId?: number
+    proceedingFileTypeActive?: boolean
+  }) {
+    try {
+      if (data.parentId) {
+        const parentExists = await ProceedingFileType.query()
+          .whereNull('proceeding_file_type_deleted_at')
+          .where('proceeding_file_type_id', data.parentId)
+          .where('proceeding_file_type_area_to_use', 'system-setting')
+          .first()
+
+        if (!parentExists) {
+          return {
+            status: 404,
+            type: 'warning',
+            title: 'Parent proceeding file type not found',
+            message: 'The parent proceeding file type was not found or is not a system-setting type',
+            data: { parentId: data.parentId },
+          }
+        }
+      }
+
+      const generatedSlug = this.generateSlug(data.proceedingFileTypeName)
+
+      const existingSlug = await ProceedingFileType.query()
+        .whereNull('proceeding_file_type_deleted_at')
+        .where('proceeding_file_type_slug', generatedSlug)
+        .where('proceeding_file_type_area_to_use', 'system-setting')
+        .first()
+
+      if (existingSlug) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'Slug already exists',
+          message: 'A proceeding file type with this slug already exists for system-setting area',
+          data: { slug: generatedSlug },
+        }
+      }
+
+      const systemBusiness = env.get('SYSTEM_BUSINESS')
+      const systemBusinessArray = systemBusiness?.toString().split(',') as Array<string>
+      const businessUnitsString = systemBusinessArray.join(',')
+
+      const newProceedingFileType = new ProceedingFileType()
+      newProceedingFileType.proceedingFileTypeName = data.proceedingFileTypeName
+      newProceedingFileType.proceedingFileTypeSlug = generatedSlug
+      newProceedingFileType.proceedingFileTypeAreaToUse = 'system-setting'
+      newProceedingFileType.proceedingFileTypeActive = data.proceedingFileTypeActive ? 1 : 0
+      newProceedingFileType.proceedingFileTypeBusinessUnits = businessUnitsString
+      newProceedingFileType.parentId = data.parentId || null
+      newProceedingFileType.proceedingFileTypeIsExclusive = false
+
+      await newProceedingFileType.save()
+
+      const defaultProperty = new ProceedingFileTypeProperty()
+      defaultProperty.proceedingFileTypePropertyName = 'Información General'
+      defaultProperty.proceedingFileTypePropertyType = 'Text'
+      defaultProperty.proceedingFileTypePropertyCategoryName = ''
+      defaultProperty.proceedingFileTypeId = newProceedingFileType.proceedingFileTypeId
+
+      await defaultProperty.save()
+
+      return {
+        status: 201,
+        type: 'success',
+        title: 'Proceeding file type created successfully',
+        message: 'The system-setting proceeding file type was created successfully with its default property',
+        data: {
+          proceedingFileType: newProceedingFileType,
+          proceedingFileTypeProperty: defaultProperty,
+        },
+      }
+    } catch (error) {
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error occurred while creating the proceeding file type',
+        data: { error: error.message },
+      }
+    }
+  }
 }

@@ -12,11 +12,16 @@ import { SetProceedingFileToEmailInterface } from '../interfaces/set_proceeding_
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
+import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogProceedingFile } from '../interfaces/MongoDB/log_proceeding_file.js'
 
 export default class ProceedingFileService {
-  async create(proceedingFile: ProceedingFile, employeeId?: number | null) {
+  async create(
+    proceedingFile: ProceedingFile,
+    employeeId?: number | null,
+    systemSettingId?: number | null
+  ) {
     const newProceedingFile = new ProceedingFile()
     newProceedingFile.proceedingFileName = proceedingFile.proceedingFileName
     newProceedingFile.proceedingFilePath = proceedingFile.proceedingFilePath
@@ -35,7 +40,17 @@ export default class ProceedingFileService {
       await employeeProceedingFileType.save()
     }
 
+    if (systemSettingId) {
+      const link = new SystemSettingProceedingFile()
+      link.systemSettingId = systemSettingId
+      link.proceedingFileId = newProceedingFile.proceedingFileId
+      await link.save()
+    }
+
     await newProceedingFile.load('proceedingFileType')
+    await newProceedingFile.load('systemSettingProceedingFile', (q) => {
+      q.preload('systemSetting')
+    })
     return newProceedingFile
   }
 
@@ -61,6 +76,9 @@ export default class ProceedingFileService {
       .whereNull('proceeding_file_deleted_at')
       .where('proceeding_file_id', proceedingFileId)
       .preload('proceedingFileType')
+      .preload('systemSettingProceedingFile', (q) => {
+        q.preload('systemSetting')
+      })
       .first()
     return proceedingFile ? proceedingFile : null
   }

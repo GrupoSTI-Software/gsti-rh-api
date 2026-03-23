@@ -70,7 +70,7 @@ export default class ProceedingFileTypePropertyValue extends compose(BaseModel, 
   declare proceedingFileTypePropertyId: number
 
   @column()
-  declare employeeId: number
+  declare employeeId: number | null
 
   @column()
   declare proceedingFileId: number

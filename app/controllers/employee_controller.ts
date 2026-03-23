@@ -3335,6 +3335,19 @@ export default class EmployeeController {
    *         schema:
    *           type: integer
    *         description: Filtro opcional; solo empleados de esta unidad de negocio de nómina (cuando fillWithExisting es true).
+   *       - in: query
+   *         name: orderBy
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [number, name]
+   *         description: Orden de filas en el Excel (solo con fillWithExisting). `number` = identificador de nómina; `name` = nombre completo. Si no se envía, por ID de empleado.
+   *       - in: query
+   *         name: orderDirection
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: Dirección del orden (asc, desc, descendente, etc.). Mismo criterio que el listado GET /api/employees.
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -3386,12 +3399,19 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
+      const orderByRaw = request.input('orderBy')
+      const orderBy =
+        orderByRaw === 'number' || orderByRaw === 'name' ? orderByRaw : undefined
+      const orderDirection = request.input('orderDirection')
+
       const buffer = await employeeService.generateEmployeeImportTemplate({
         fillWithExisting,
         departmentId: departmentId !== undefined && !Number.isNaN(departmentId) ? departmentId : undefined,
         positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
         businessUnitId: businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
         payrollBusinessUnitId: payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
+        orderBy,
+        orderDirection: orderDirection !== undefined && orderDirection !== '' ? String(orderDirection) : undefined,
       })
 
       response.header(

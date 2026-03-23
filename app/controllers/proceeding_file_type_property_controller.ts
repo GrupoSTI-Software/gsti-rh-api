@@ -3,6 +3,8 @@ import { ProceedingFileTypePropertyFilterSearchInterface } from '../interfaces/p
 import ProceedingFileTypePropertyService from '#services/proceeding_file_type_property_service'
 import { ProceedingFileTypePropertyCategoryFilterInterface } from '../interfaces/proceeding_file_type_property_category_filter_interface.js'
 import { createProceedingFileTypePropertyValidator, createMultipleProceedingFileTypePropertiesValidator } from '#validators/proceeding_file_type_property'
+import ProceedingFile from '#models/proceeding_file'
+import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 
 export default class ProceedingFileTypePropertyController {
   /**
@@ -272,6 +274,134 @@ export default class ProceedingFileTypePropertyController {
         await proceedingFileTypePropertyService.getCategories(
           proceedingFileTypePropertyCategoryFilter
         )
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Proceeding file type properties',
+        message: 'The proceeding file type property categories were found successfully',
+        data: {
+          proceedingFileTypePropertiesCategories: proceedingFileTypePropertiesCategories,
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * Categorías y valores para proceeding files vinculados a un system setting.
+   * Query: systemSettingId, proceedingFileId, proceedingFileTypeId (todos obligatorios).
+   */
+  async getCategoriesBySystemSetting({ request, response }: HttpContext) {
+    try {
+      const systemSettingIdRaw = request.input('systemSettingId')
+      const proceedingFileIdRaw = request.input('proceedingFileId')
+      const proceedingFileTypeIdRaw = request.input('proceedingFileTypeId')
+
+      const isMissingQuery = (value: unknown) =>
+        value === undefined ||
+        value === null ||
+        (typeof value === 'string' && value.trim() === '') ||
+        value === 'undefined'
+
+      if (isMissingQuery(proceedingFileIdRaw)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Falta proceedingFileId',
+          message:
+            'La query debe incluir proceedingFileId con un número, por ejemplo: proceedingFileId=45. No dejes el parámetro vacío (…&proceedingFileId&… es inválido). Obtén el id con GET /api/system-settings-proceeding-files?systemSettingId={id}&type={proceedingFileTypeId} (proceedingFileId en data.systemSettingProceedingFiles[].proceedingFile). Si aún no subiste el archivo, usa GET /api/proceeding-file-type-properties/by-proceeding-file-type/{proceedingFileTypeId} para listar solo las propiedades del tipo.',
+          data: {
+            systemSettingId: systemSettingIdRaw,
+            proceedingFileId: proceedingFileIdRaw,
+            proceedingFileTypeId: proceedingFileTypeIdRaw,
+          },
+        }
+      }
+
+      const systemSettingId = Number(systemSettingIdRaw)
+      const proceedingFileId = Number(proceedingFileIdRaw)
+      const proceedingFileTypeId = Number(proceedingFileTypeIdRaw)
+
+      if (
+        Number.isNaN(systemSettingId) ||
+        systemSettingId <= 0 ||
+        Number.isNaN(proceedingFileId) ||
+        proceedingFileId <= 0 ||
+        Number.isNaN(proceedingFileTypeId) ||
+        proceedingFileTypeId <= 0
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing or invalid query parameters',
+          message:
+            'Se requieren systemSettingId, proceedingFileId y proceedingFileTypeId numéricos válidos',
+          data: {
+            systemSettingId: systemSettingIdRaw,
+            proceedingFileId: proceedingFileIdRaw,
+            proceedingFileTypeId: proceedingFileTypeIdRaw,
+          },
+        }
+      }
+
+      const link = await SystemSettingProceedingFile.query()
+        .whereNull('system_setting_proceeding_file_deleted_at')
+        .where('system_setting_id', systemSettingId)
+        .where('proceeding_file_id', proceedingFileId)
+        .first()
+
+      if (!link) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Relation not found',
+          message: 'El proceeding file no está vinculado a ese system setting',
+          data: { systemSettingId, proceedingFileId },
+        }
+      }
+
+      const proceedingFile = await ProceedingFile.query()
+        .whereNull('proceeding_file_deleted_at')
+        .where('proceeding_file_id', proceedingFileId)
+        .first()
+
+      if (!proceedingFile) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Proceeding file not found',
+          message: 'No se encontró el proceeding file',
+          data: { proceedingFileId },
+        }
+      }
+
+      if (proceedingFile.proceedingFileTypeId !== proceedingFileTypeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Type mismatch',
+          message: 'proceedingFileTypeId no coincide con el tipo del archivo',
+          data: {
+            proceedingFileTypeId,
+            actualProceedingFileTypeId: proceedingFile.proceedingFileTypeId,
+          },
+        }
+      }
+
+      const proceedingFileTypePropertyService = new ProceedingFileTypePropertyService()
+      const proceedingFileTypePropertiesCategories =
+        await proceedingFileTypePropertyService.getCategoriesBySystemSetting({
+          proceedingFileId,
+          proceedingFileTypeId,
+        })
+
       response.status(200)
       return {
         type: 'success',

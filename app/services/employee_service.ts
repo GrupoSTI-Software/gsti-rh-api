@@ -737,6 +737,7 @@ export default class EmployeeService {
       .preload('spouse')
       .preload('emergencyContact')
       .preload('children')
+      .preload('address')
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -4329,6 +4330,9 @@ export default class EmployeeService {
     positionId?: number
     businessUnitId?: number
     payrollBusinessUnitId?: number
+    /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
+    orderBy?: string
+    orderDirection?: string
   }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
@@ -4582,7 +4586,6 @@ export default class EmployeeService {
         .preload('position')
         .preload('employeeType')
         .preload('emergencyContacts')
-        .orderBy('employee_id')
 
       if (options.departmentId !== undefined) {
         employeesQuery = employeesQuery.where('departmentId', options.departmentId)
@@ -4602,6 +4605,20 @@ export default class EmployeeService {
         employeesQuery = employeesQuery.where((q) => {
           q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn('payrollBusinessUnitId', allowedBusinessUnitIds)
         })
+      }
+
+      if (options?.orderBy === 'number') {
+        const direction = this.getOrderDirection(options.orderDirection)
+        employeesQuery = employeesQuery.orderByRaw(
+          `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
+        )
+      } else if (options?.orderBy === 'name') {
+        const direction = this.getOrderDirection(options.orderDirection)
+        employeesQuery = employeesQuery.orderByRaw(
+          `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
+        )
+      } else {
+        employeesQuery = employeesQuery.orderBy('employee_id')
       }
 
       const employees = await employeesQuery
