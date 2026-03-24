@@ -21,7 +21,7 @@ import Position from './position.js'
  *          positionSpecificFunctionName:
  *            type: string
  *            description: Position specific function name
- *          positionSpecificFunctionType:
+ *          positionSpecificFunctionFrequency:
  *            type: string
  *            description: Position specific function type
  *          positionSpecificFunctionCreatedAt:
@@ -45,7 +45,7 @@ export default class PositionSpecificFunction extends compose(BaseModel, SoftDel
   declare positionSpecificFunctionName: string
 
   @column()
-  declare positionSpecificFunctionType: string
+  declare positionSpecificFunctionFrequency: string
 
   @column.dateTime({ autoCreate: true })
   declare positionSpecificFunctionCreatedAt: DateTime

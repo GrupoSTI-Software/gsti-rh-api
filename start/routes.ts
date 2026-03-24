@@ -121,6 +121,7 @@ import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
 import './routes/employee_bonus_routes.js'
 import './routes/position_approval_history_routes.js'
+import './routes/position_specific_function_routes.js'
 
 router
   .get('/', async ({ view }) => {
