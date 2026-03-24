@@ -3,6 +3,8 @@ import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import ProceedingFileService from '#services/proceeding_file_service'
 import ProceedingFile from '#models/proceeding_file'
+import ProceedingFileType from '#models/proceeding_file_type'
+import SystemSetting from '#models/system_setting'
 import Env from '#start/env'
 import {
   createProceedingFileValidator,
@@ -12,6 +14,295 @@ import { cuid } from '@adonisjs/core/helpers'
 import path from 'node:path'
 import { DateTime } from 'luxon'
 import { ProceedingFileExpiredFilterInterface } from '../interfaces/proceeding_file_expired_filter_interface.js'
+
+export type ProceedingFileMultipartStoreOptions = {
+  /** systemSettingId fijado por la ruta (POST /api/system-settings-proceeding-files); si no, se toma del multipart/query */
+  systemSettingIdFromPath?: number
+}
+
+function resolveMultipartFile(
+  request: HttpContext['request'],
+  validationOptions: Record<string, string | string[] | number | boolean | undefined>
+) {
+  return request.file('file', validationOptions as any) ?? request.file('archivo', validationOptions as any)
+}
+
+function buildMissingUploadFileResponse(request: HttpContext['request']) {
+  const contentType = request.header('content-type') ?? ''
+  const isJson = contentType.includes('application/json')
+  return {
+    status: 400 as const,
+    type: 'warning' as const,
+    title: 'Archivo no recibido',
+    message: isJson
+      ? 'Esta ruta solo acepta multipart/form-data con el binario del archivo. No envíes el cuerpo como application/json (aunque incluyas proceedingFile u otros objetos). Usa FormData y append("file", archivo).'
+      : 'No se recibió un archivo válido en el campo "file" (o "archivo"). Revisa: Content-Type multipart/form-data, nombre del campo, y no fijes Content-Type a mano al usar FormData (debe incluir el boundary).',
+    data: {
+      contentType: contentType || null,
+      expectedFieldNames: ['file', 'archivo'],
+    },
+  }
+}
+
+/**
+ * Subida multipart de proceeding files (empleados, system-setting, etc.).
+ */
+export async function processProceedingFileMultipartStore(
+  { request, response }: HttpContext,
+  options?: ProceedingFileMultipartStoreOptions
+) {
+  const proceedingFileService = new ProceedingFileService()
+  let inputs = request.all()
+  inputs = proceedingFileService.sanitizeInput(inputs)
+  await request.validateUsing(createProceedingFileValidator)
+
+  const validationOptions = {
+    types: ['image', 'document', 'text', 'application', 'archive'],
+    size: '',
+  }
+  const file = resolveMultipartFile(request, validationOptions)
+  if (!file) {
+    response.status(400)
+    return buildMissingUploadFileResponse(request)
+  }
+  const disallowedExtensions = [
+    'mp4',
+    'avi',
+    'mkv',
+    'mov',
+    'wmv',
+    'flv',
+    'mp3',
+    'wav',
+    'flac',
+    'aac',
+    'ogg',
+  ]
+  if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
+    response.status(400)
+    return {
+      status: 400,
+      type: 'warning',
+      title: 'Please upload a file valid',
+      message: 'Missing data to process',
+      data: file,
+    }
+  }
+
+  // multipart, query o ambos: proceedingFileTypeId y/o type (mismo significado: id del tipo)
+  const proceedingFileTypeIdRaw =
+    inputs['proceedingFileTypeId'] ?? request.input('proceedingFileTypeId') ?? request.input('type')
+  if (
+    proceedingFileTypeIdRaw === undefined ||
+    proceedingFileTypeIdRaw === null ||
+    String(proceedingFileTypeIdRaw).trim() === '' ||
+    proceedingFileTypeIdRaw === 'null'
+  ) {
+    response.status(400)
+    return {
+      status: 400,
+      type: 'warning',
+      title: 'Validation error',
+      message:
+        'Se requiere proceedingFileTypeId o type (id del tipo de archivo) en el multipart o en la query',
+      data: {},
+    }
+  }
+
+  const proceedingFileTypeId = Number(proceedingFileTypeIdRaw)
+  if (Number.isNaN(proceedingFileTypeId) || proceedingFileTypeId <= 0) {
+    response.status(400)
+    return {
+      status: 400,
+      type: 'warning',
+      title: 'Validation error',
+      message: 'proceedingFileTypeId o type debe ser un número positivo',
+      data: { proceedingFileTypeId: proceedingFileTypeIdRaw },
+    }
+  }
+
+  const proceedingFileType = await ProceedingFileType.query()
+    .whereNull('deletedAt')
+    .where('proceedingFileTypeId', proceedingFileTypeId)
+    .first()
+  if (!proceedingFileType) {
+    response.status(404)
+    return {
+      status: 404,
+      type: 'warning',
+      title: 'Proceeding file type not found',
+      message: 'The proceeding file type was not found',
+      data: { proceedingFileTypeId },
+    }
+  }
+
+  if (options?.systemSettingIdFromPath !== undefined) {
+    const sid = Number(options.systemSettingIdFromPath)
+    if (Number.isNaN(sid) || sid <= 0) {
+      response.status(400)
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'Validation error',
+        message: 'systemSettingId de ruta inválido',
+        data: { systemSettingId: options.systemSettingIdFromPath },
+      }
+    }
+    if (proceedingFileType.proceedingFileTypeAreaToUse !== 'system-setting') {
+      response.status(400)
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'Validation error',
+        message:
+          'Este endpoint solo admite tipos de archivo con área system-setting; el tipo indicado no lo es',
+        data: { proceedingFileTypeId, proceedingFileTypeAreaToUse: proceedingFileType.proceedingFileTypeAreaToUse },
+      }
+    }
+  }
+
+  let proceedingFileExpirationAt = request.input('proceedingFileExpirationAt')
+  proceedingFileExpirationAt = proceedingFileExpirationAt
+    ? DateTime.fromJSDate(new Date(proceedingFileExpirationAt)).setZone('UTC').toJSDate()
+    : null
+  const proceedingFileName = inputs['proceedingFileName']
+  const proceedingFileActive = inputs['proceedingFileActive']
+  const proceedingFileObservations = inputs['proceedingFileObservations']
+  const isExclusive = request.input('isExclusive')
+  const employeeId = request.input('employeeId')
+  const systemSettingIdRaw = request.input('systemSettingId')
+  let systemSettingId: number | null = null
+  if (options?.systemSettingIdFromPath !== undefined) {
+    systemSettingId = Number(options.systemSettingIdFromPath)
+  } else if (
+    systemSettingIdRaw !== undefined &&
+    systemSettingIdRaw !== null &&
+    String(systemSettingIdRaw).trim() !== '' &&
+    systemSettingIdRaw !== 'null'
+  ) {
+    systemSettingId = Number(systemSettingIdRaw)
+    if (Number.isNaN(systemSettingId) || systemSettingId <= 0) {
+      response.status(400)
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Validation error',
+        message: 'systemSettingId must be a positive number',
+        data: { systemSettingId: systemSettingIdRaw },
+      }
+    }
+  }
+  const proceedingFileUuid = cuid()
+  const proceedingFile = {
+    proceedingFileName: proceedingFileName,
+    proceedingFilePath: '',
+    proceedingFileTypeId: proceedingFileTypeId,
+    proceedingFileExpirationAt: proceedingFileExpirationAt,
+    proceedingFileActive:
+      proceedingFileActive && (proceedingFileActive === 'true' || proceedingFileActive === '1')
+        ? 1
+        : 0,
+    proceedingFileUuid: proceedingFileUuid,
+    proceedingFileObservations: proceedingFileObservations,
+  } as ProceedingFile
+  const fileName = `${new Date().getTime()}_${file.clientName}`
+  const uploadService = new UploadService()
+  const isValidInfo = await proceedingFileService.verifyInfo(proceedingFile)
+  if (isValidInfo.status !== 200) {
+    response.status(isValidInfo.status)
+    return {
+      status: isValidInfo.status,
+      type: isValidInfo.type,
+      title: isValidInfo.title,
+      message: isValidInfo.message,
+      data: isValidInfo.data,
+    }
+  }
+  if (isExclusive && (isExclusive === 'true' || isExclusive === true || isExclusive === '1')) {
+    if (!employeeId) {
+      response.status(400)
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Validation error',
+        message: 'employeeId is required when isExclusive is true',
+        data: { isExclusive, employeeId },
+      }
+    }
+  }
+  const area = proceedingFileType.proceedingFileTypeAreaToUse
+  if (area === 'system-setting') {
+    // systemSettingId opcional: igual que empleados (subir archivo y luego POST /api/system-settings-proceeding-files)
+    if (systemSettingId !== null) {
+      const systemSetting = await SystemSetting.query()
+        .whereNull('deletedAt')
+        .where('systemSettingId', systemSettingId)
+        .first()
+      if (!systemSetting) {
+        response.status(404)
+        return {
+          status: 404,
+          type: 'warning',
+          title: 'System setting not found',
+          message: 'No system setting was found with the given ID',
+          data: { systemSettingId },
+        }
+      }
+    }
+    const exclusive =
+      isExclusive === true || isExclusive === 'true' || isExclusive === 1 || isExclusive === '1'
+    if (exclusive || employeeId) {
+      response.status(400)
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Validation error',
+        message: 'employeeId and isExclusive are not used with system-setting proceeding file types',
+        data: {},
+      }
+    }
+  } else if (systemSettingId !== null) {
+    response.status(400)
+    return {
+      status: 400,
+      type: 'error',
+      title: 'Validation error',
+      message: 'systemSettingId is only valid when the proceeding file type area is system-setting',
+      data: { proceedingFileTypeAreaToUse: area },
+    }
+  }
+  try {
+    const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName)
+    proceedingFile.proceedingFilePath = fileUrl
+    if (!proceedingFile.proceedingFileName) {
+      proceedingFile.proceedingFileName = fileName
+    }
+    const isExclusiveBool = isExclusive && (isExclusive === 'true' || isExclusive === true || isExclusive === '1')
+    const newProceedingFile = await proceedingFileService.create(
+      proceedingFile,
+      isExclusiveBool ? Number(employeeId) : null,
+      area === 'system-setting' ? systemSettingId : null
+    )
+    response.status(201)
+    return {
+      type: 'success',
+      title: 'Proceeding file',
+      message: 'The proceeding file was created successfully',
+      data: { proceedingFile: newProceedingFile },
+    }
+  } catch (error) {
+    const messageError =
+      error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+    response.status(500)
+    return {
+      type: 'error',
+      title: 'Server error',
+      message: 'An unexpected error has occurred on the server',
+      error: messageError,
+    }
+  }
+}
+
 export default class ProceedingFileController {
   /**
    * @swagger
@@ -147,9 +438,13 @@ export default class ProceedingFileController {
    *                 default: ''
    *               proceedingFileTypeId:
    *                 type: number
-   *                 description: Proceeding file type id
-   *                 required: true
+   *                 description: Id del tipo de archivo (obligatorio salvo que envíes type)
+   *                 required: false
    *                 default: ''
+   *               type:
+   *                 type: number
+   *                 description: Id del tipo (alias de proceedingFileTypeId; mismo uso que ?type= en listados)
+   *                 required: false
    *               proceedingFileExpirationAt:
    *                 type: string
    *                 format: date
@@ -174,6 +469,10 @@ export default class ProceedingFileController {
    *               employeeId:
    *                 type: number
    *                 description: Employee ID (required when isExclusive is true)
+   *                 required: false
+   *               systemSettingId:
+   *                 type: number
+   *                 description: ID de system setting (obligatorio si el tipo tiene área system-setting; también en multipart en POST /api/system-settings-proceeding-files)
    *                 required: false
    *     responses:
    *       '201':
@@ -257,130 +556,8 @@ export default class ProceedingFileController {
    *                       type: string
    */
   @inject()
-  async store({ request, response }: HttpContext) {
-    const proceedingFileService = new ProceedingFileService()
-    let inputs = request.all()
-    inputs = proceedingFileService.sanitizeInput(inputs)
-    await request.validateUsing(createProceedingFileValidator)
-    const validationOptions = {
-      types: ['image', 'document', 'text', 'application', 'archive'],
-      size: '',
-    }
-    const file = request.file('file', validationOptions)
-    // validate file required
-    if (!file) {
-      response.status(400)
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'Please upload a file valid',
-        message: 'Missing data to process',
-        data: file,
-      }
-    }
-    const disallowedExtensions = [
-      'mp4',
-      'avi',
-      'mkv',
-      'mov',
-      'wmv',
-      'flv', // Video
-      'mp3',
-      'wav',
-      'flac',
-      'aac',
-      'ogg', // Audio
-    ]
-    // Verificar si la extensión del archivo está en la lista de no permitidas
-    if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
-      response.status(400)
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'Please upload a file valid',
-        message: 'Missing data to process',
-        data: file,
-      }
-    }
-    const proceedingFileName = inputs['proceedingFileName']
-    const proceedingFileTypeId = inputs['proceedingFileTypeId']
-    let proceedingFileExpirationAt = request.input('proceedingFileExpirationAt')
-    proceedingFileExpirationAt = proceedingFileExpirationAt
-      ? DateTime.fromJSDate(new Date(proceedingFileExpirationAt)).setZone('UTC').toJSDate()
-      : null
-    const proceedingFileActive = inputs['proceedingFileActive']
-    const proceedingFileObservations = inputs['proceedingFileObservations']
-    const isExclusive = request.input('isExclusive')
-    const employeeId = request.input('employeeId')
-    const proceedingFileUuid = cuid()
-    const proceedingFile = {
-      proceedingFileName: proceedingFileName,
-      proceedingFilePath: '',
-      proceedingFileTypeId: proceedingFileTypeId,
-      proceedingFileExpirationAt: proceedingFileExpirationAt,
-      proceedingFileActive:
-        proceedingFileActive && (proceedingFileActive === 'true' || proceedingFileActive === '1')
-          ? 1
-          : 0,
-      proceedingFileUuid: proceedingFileUuid,
-      proceedingFileObservations: proceedingFileObservations,
-    } as ProceedingFile
-    // get file name and extension
-    const fileName = `${new Date().getTime()}_${file.clientName}`
-    const uploadService = new UploadService()
-    const isValidInfo = await proceedingFileService.verifyInfo(proceedingFile)
-    if (isValidInfo.status !== 200) {
-      response.status(isValidInfo.status)
-      return {
-        status: isValidInfo.status,
-        type: isValidInfo.type,
-        title: isValidInfo.title,
-        message: isValidInfo.message,
-        data: isValidInfo.data,
-      }
-    }
-    // Validar que si isExclusive es true, employeeId debe estar presente
-    if (isExclusive && (isExclusive === 'true' || isExclusive === true || isExclusive === '1')) {
-      if (!employeeId) {
-        response.status(400)
-        return {
-          status: 400,
-          type: 'error',
-          title: 'Validation error',
-          message: 'employeeId is required when isExclusive is true',
-          data: { isExclusive, employeeId },
-        }
-      }
-    }
-    try {
-      const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName)
-      proceedingFile.proceedingFilePath = fileUrl
-      if (!proceedingFile.proceedingFileName) {
-        proceedingFile.proceedingFileName = fileName
-      }
-      const isExclusiveBool = isExclusive && (isExclusive === 'true' || isExclusive === true || isExclusive === '1')
-      const newProceedingFile = await proceedingFileService.create(
-        proceedingFile,
-        isExclusiveBool ? Number(employeeId) : null
-      )
-      response.status(201)
-      return {
-        type: 'success',
-        title: 'Proceeding file',
-        message: 'The proceeding file was created successfully',
-        data: { proceedingFile: newProceedingFile },
-      }
-    } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: messageError,
-      }
-    }
+  async store(ctx: HttpContext) {
+    return processProceedingFileMultipartStore(ctx)
   }
 
   /**

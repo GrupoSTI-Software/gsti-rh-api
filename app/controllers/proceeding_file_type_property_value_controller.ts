@@ -50,8 +50,8 @@ export default class ProceedingFileTypePropertyValueController {
    *                 default: ''
    *               employeeId:
    *                 type: number
-   *                 description: Employee id
-   *                 required: true
+   *                 description: Employee id (opcional; p. ej. valores ligados solo a proceeding file / system setting)
+   *                 required: false
    *                 default: ''
    *               proceedingFileId:
    *                 type: number
@@ -147,9 +147,8 @@ export default class ProceedingFileTypePropertyValueController {
       const proceedingFileTypePropertyValueActive = request.input(
         'proceedingFileTypePropertyValueActive'
       )
-      const proceedingFileTypePropertyId = request.input('proceedingFileTypePropertyId')
-      const employeeId = request.input('employeeId')
-      const proceedingFileId = request.input('proceedingFileId')
+      const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()
+      const data = await request.validateUsing(createProceedingFileTypePropertyValueValidator)
       const proceedingFileTypePropertyValue = {
         proceedingFileTypePropertyValueValue: proceedingFileTypePropertyValueValue,
         proceedingFileTypePropertyValueActive:
@@ -158,12 +157,10 @@ export default class ProceedingFileTypePropertyValueController {
             proceedingFileTypePropertyValueActive === '1')
             ? 1
             : 0,
-        proceedingFileTypePropertyId: proceedingFileTypePropertyId,
-        employeeId: employeeId,
-        proceedingFileId: proceedingFileId,
+        proceedingFileTypePropertyId: data.proceedingFileTypePropertyId,
+        employeeId: data.employeeId ?? null,
+        proceedingFileId: data.proceedingFileId,
       } as ProceedingFileTypePropertyValue
-      const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()
-      const data = await request.validateUsing(createProceedingFileTypePropertyValueValidator)
       const exist = await proceedingFileTypePropertyValueService.verifyInfoExist(
         proceedingFileTypePropertyValue
       )
