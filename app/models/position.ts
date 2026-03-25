@@ -33,6 +33,9 @@ import Employee from './employee.js'
  *          positionGeneralObjective:
  *            type: string
  *            description: Position general objective
+ *          positionSpecificRequirement:
+ *            type: string
+ *            description: Position specific requirement
  *          positionIsDefault:
  *            type: boolean
  *            description: If the position is the default
@@ -86,6 +89,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare positionGeneralObjective: string
+
+  @column()
+  declare positionSpecificRequirement: string
 
   @column()
   declare positionIsDefault: boolean

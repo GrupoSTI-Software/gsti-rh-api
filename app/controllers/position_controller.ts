@@ -218,6 +218,11 @@ export default class PositionController {
    *                 description: Position general objective
    *                 required: false
    *                 default: ''
+   *               positionSpecificRequirement:
+   *                 type: string
+   *                 description: Position specific requirement
+   *                 required: false
+   *                 default: ''
    *               positionIsDefault:
    *                 type: boolean
    *                 description: Position if is default
@@ -331,6 +336,7 @@ export default class PositionController {
       const positionAlias = request.input('positionAlias')
       const positionDescription = request.input('positionDescription')
       const positionGeneralObjective = request.input('positionGeneralObjective')
+      const positionSpecificRequirement = request.input('positionSpecificRequirement')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
@@ -341,10 +347,11 @@ export default class PositionController {
         positionAlias: positionAlias,
         positionDescription: positionDescription,
         positionGeneralObjective: positionGeneralObjective,
+        positionSpecificRequirement: positionSpecificRequirement,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
-        positionProfileExpirationDate: new Date(positionProfileExpirationDate),
+        positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
       } as Position
 
       const positionService = new PositionService(i18n)
@@ -432,6 +439,11 @@ export default class PositionController {
    *               positionGeneralObjective:
    *                 type: string
    *                 description: Position general objective
+   *                 required: false
+   *                 default: ''
+   *               positionSpecificRequirement:
+   *                 type: string
+   *                 description: Position specific requirement
    *                 required: false
    *                 default: ''
    *               positionIsDefault:
@@ -548,6 +560,7 @@ export default class PositionController {
       const positionAlias = request.input('positionAlias')
       const positionDescription = request.input('positionDescription')
       const positionGeneralObjective = request.input('positionGeneralObjective')
+      const positionSpecificRequirement = request.input('positionSpecificRequirement')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
@@ -561,11 +574,12 @@ export default class PositionController {
         positionAlias: positionAlias,
         positionDescription: positionDescription,
         positionGeneralObjective: positionGeneralObjective,
+        positionSpecificRequirement: positionSpecificRequirement,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
         companyId: companyId,
-        positionProfileExpirationDate: new Date(positionProfileExpirationDate),
+        positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
       } as Position
       if (!positionId) {
         response.status(400)

@@ -68,6 +68,7 @@ export default class PositionService {
     newPosition.positionAlias = position.positionAlias
     newPosition.positionDescription = position.positionDescription
     newPosition.positionGeneralObjective = position.positionGeneralObjective
+    newPosition.positionSpecificRequirement = position.positionSpecificRequirement
     newPosition.positionIsDefault = position.positionIsDefault
     newPosition.positionActive = position.positionActive
     newPosition.parentPositionId = position.parentPositionId
@@ -87,6 +88,7 @@ export default class PositionService {
     currentPosition.positionAlias = position.positionAlias
     currentPosition.positionDescription = position.positionDescription
     currentPosition.positionGeneralObjective = position.positionGeneralObjective
+    currentPosition.positionSpecificRequirement = position.positionSpecificRequirement
     currentPosition.positionIsDefault = position.positionIsDefault
     currentPosition.positionActive = position.positionActive
     currentPosition.parentPositionId = position.parentPositionId
