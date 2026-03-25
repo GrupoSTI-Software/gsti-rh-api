@@ -36,6 +36,15 @@ import Employee from './employee.js'
  *          positionSpecificRequirement:
  *            type: string
  *            description: Position specific requirement
+ *          positionEvaluationFrequency:
+ *            type: string
+ *            description: Position evaluation frequency
+ *          positionEvaluationDurationDays:
+ *            type: number
+ *            description: Position evaluation duration days
+ *          positionEvaluationStartDay:
+ *            type: integer
+ *            description: Position evaluation start day
  *          positionIsDefault:
  *            type: boolean
  *            description: If the position is the default
@@ -92,6 +101,15 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare positionSpecificRequirement: string
+
+  @column()
+  declare positionEvaluationFrequency: string
+
+  @column()
+  declare positionEvaluationDurationDays: number
+
+  @column()
+  declare positionEvaluationStartDay: number
 
   @column()
   declare positionIsDefault: boolean

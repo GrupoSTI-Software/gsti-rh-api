@@ -223,6 +223,21 @@ export default class PositionController {
    *                 description: Position specific requirement
    *                 required: false
    *                 default: ''
+   *               positionEvaluationFrequency:
+   *                 type: string
+   *                 description: Position evaluation frequency
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationDurationDays:
+   *                 type: number
+   *                 description: Position evaluation duration days
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationStartDay:
+   *                 type: integer
+   *                 description: Position evaluation start day
+   *                 required: false
+   *                 default: ''
    *               positionIsDefault:
    *                 type: boolean
    *                 description: Position if is default
@@ -337,6 +352,9 @@ export default class PositionController {
       const positionDescription = request.input('positionDescription')
       const positionGeneralObjective = request.input('positionGeneralObjective')
       const positionSpecificRequirement = request.input('positionSpecificRequirement')
+      const positionEvaluationFrequency = request.input('positionEvaluationFrequency')
+      const positionEvaluationDurationDays = request.input('positionEvaluationDurationDays')
+      const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
@@ -348,6 +366,9 @@ export default class PositionController {
         positionDescription: positionDescription,
         positionGeneralObjective: positionGeneralObjective,
         positionSpecificRequirement: positionSpecificRequirement,
+        positionEvaluationFrequency: positionEvaluationFrequency,
+        positionEvaluationDurationDays: positionEvaluationDurationDays,
+        positionEvaluationStartDay: positionEvaluationStartDay,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
@@ -444,6 +465,21 @@ export default class PositionController {
    *               positionSpecificRequirement:
    *                 type: string
    *                 description: Position specific requirement
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationFrequency:
+   *                 type: string
+   *                 description: Position evaluation frequency
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationDurationDays:
+   *                 type: number
+   *                 description: Position evaluation duration days
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationStartDay:
+   *                 type: integer
+   *                 description: Position evaluation start day
    *                 required: false
    *                 default: ''
    *               positionIsDefault:
@@ -561,6 +597,9 @@ export default class PositionController {
       const positionDescription = request.input('positionDescription')
       const positionGeneralObjective = request.input('positionGeneralObjective')
       const positionSpecificRequirement = request.input('positionSpecificRequirement')
+      const positionEvaluationFrequency = request.input('positionEvaluationFrequency')
+      const positionEvaluationDurationDays = request.input('positionEvaluationDurationDays')
+      const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
@@ -575,6 +614,9 @@ export default class PositionController {
         positionDescription: positionDescription,
         positionGeneralObjective: positionGeneralObjective,
         positionSpecificRequirement: positionSpecificRequirement,
+        positionEvaluationFrequency: positionEvaluationFrequency,
+        positionEvaluationDurationDays: positionEvaluationDurationDays,
+        positionEvaluationStartDay: positionEvaluationStartDay,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,

@@ -69,6 +69,9 @@ export default class PositionService {
     newPosition.positionDescription = position.positionDescription
     newPosition.positionGeneralObjective = position.positionGeneralObjective
     newPosition.positionSpecificRequirement = position.positionSpecificRequirement
+    newPosition.positionEvaluationFrequency = position.positionEvaluationFrequency
+    newPosition.positionEvaluationDurationDays = position.positionEvaluationDurationDays
+    newPosition.positionEvaluationStartDay = position.positionEvaluationStartDay
     newPosition.positionIsDefault = position.positionIsDefault
     newPosition.positionActive = position.positionActive
     newPosition.parentPositionId = position.parentPositionId
@@ -89,6 +92,9 @@ export default class PositionService {
     currentPosition.positionDescription = position.positionDescription
     currentPosition.positionGeneralObjective = position.positionGeneralObjective
     currentPosition.positionSpecificRequirement = position.positionSpecificRequirement
+    currentPosition.positionEvaluationFrequency = position.positionEvaluationFrequency
+    currentPosition.positionEvaluationDurationDays = position.positionEvaluationDurationDays
+    currentPosition.positionEvaluationStartDay = position.positionEvaluationStartDay
     currentPosition.positionIsDefault = position.positionIsDefault
     currentPosition.positionActive = position.positionActive
     currentPosition.parentPositionId = position.parentPositionId
