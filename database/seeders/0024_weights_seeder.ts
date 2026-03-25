@@ -24,6 +24,11 @@ export default class extends BaseSeeder {
         weightName: 'Experto',
         weightValue: 3,
       },
+      {
+        weightId: 999,
+        weightName: 'Sin especificar',
+        weightValue: 999,
+      },
     ]
 
     for (const weight of weights) {

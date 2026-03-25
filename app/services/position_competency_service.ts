@@ -14,6 +14,7 @@ export default class PositionCompetencyService {
   async update(currentPositionCompetency: PositionCompetency, positionCompetency: PositionCompetency) {
     currentPositionCompetency.positionCompetencyName = positionCompetency.positionCompetencyName
     currentPositionCompetency.positionCompetencyType = positionCompetency.positionCompetencyType
+    currentPositionCompetency.weightId = positionCompetency.weightId
     await currentPositionCompetency.save()
     return currentPositionCompetency
   }
@@ -37,6 +38,7 @@ export default class PositionCompetencyService {
       .whereNull('position_competency_deleted_at')
       .where('position_id', positionId)
       .where('position_competency_type', type)
+      .preload('weight')
       .orderBy('position_competency_name')
     return positionCompetencies
   }

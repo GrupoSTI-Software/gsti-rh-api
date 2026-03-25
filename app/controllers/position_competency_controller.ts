@@ -140,6 +140,7 @@ export default class PositionSpecificFunctionController {
       } as PositionCompetency
 
       const newPositionCompetency = await positionCompetencyService.create(positionCompetency)
+      await newPositionCompetency.load('weight')
       response.status(201)
       return {
         type: 'success',
@@ -318,6 +319,7 @@ export default class PositionSpecificFunctionController {
       }
       const positionCompetencyService = new PositionCompetencyService()
       const updatePositionCompetency = await positionCompetencyService.update(currentPositionCompetency, positionCompetency)
+      await updatePositionCompetency.load('weight')
       if (updatePositionCompetency) {
         response.status(200)
         return {
