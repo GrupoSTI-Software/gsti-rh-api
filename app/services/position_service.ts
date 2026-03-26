@@ -66,10 +66,17 @@ export default class PositionService {
     newPosition.positionCode = position.positionCode
     newPosition.positionName = position.positionName
     newPosition.positionAlias = position.positionAlias
+    newPosition.positionDescription = position.positionDescription
+    newPosition.positionGeneralObjective = position.positionGeneralObjective
+    newPosition.positionSpecificRequirement = position.positionSpecificRequirement
+    newPosition.positionEvaluationFrequency = position.positionEvaluationFrequency
+    newPosition.positionEvaluationDurationDays = position.positionEvaluationDurationDays
+    newPosition.positionEvaluationStartDay = position.positionEvaluationStartDay
     newPosition.positionIsDefault = position.positionIsDefault
     newPosition.positionActive = position.positionActive
     newPosition.parentPositionId = position.parentPositionId
     newPosition.businessUnitId = businessUnit?.businessUnitId || 0
+    newPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
 
     await newPosition.save()
     await newPosition.load('parentPosition')
@@ -82,10 +89,17 @@ export default class PositionService {
     currentPosition.positionCode = position.positionCode
     currentPosition.positionName = position.positionName
     currentPosition.positionAlias = position.positionAlias
+    currentPosition.positionDescription = position.positionDescription
+    currentPosition.positionGeneralObjective = position.positionGeneralObjective
+    currentPosition.positionSpecificRequirement = position.positionSpecificRequirement
+    currentPosition.positionEvaluationFrequency = position.positionEvaluationFrequency
+    currentPosition.positionEvaluationDurationDays = position.positionEvaluationDurationDays
+    currentPosition.positionEvaluationStartDay = position.positionEvaluationStartDay
     currentPosition.positionIsDefault = position.positionIsDefault
     currentPosition.positionActive = position.positionActive
     currentPosition.parentPositionId = position.parentPositionId
     currentPosition.companyId = position.companyId
+    currentPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
     await currentPosition.save()
     await currentPosition.load('parentPosition')
     await currentPosition.load('subPositions')
