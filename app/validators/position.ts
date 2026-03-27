@@ -1,6 +1,8 @@
 import Position from '#models/position'
 import vine from '@vinejs/vine'
 
+const optionalPositiveInteger = vine.number().min(1).optional().nullable()
+
 export const createPositionValidator = vine.compile(
   vine.object({
     positionCode: vine
@@ -20,6 +22,10 @@ export const createPositionValidator = vine.compile(
     positionIsDefault: vine.boolean().optional(),
     positionActive: vine.boolean().optional(),
     parentPositionId: vine.number().min(0).optional(),
+    positionMinStaff: optionalPositiveInteger,
+    positionIdealStaff: optionalPositiveInteger,
+    positionMaxStaff: optionalPositiveInteger,
+    positionMinActiveStaffPerShift: optionalPositiveInteger,
   })
 )
 
@@ -31,5 +37,9 @@ export const updatePositionValidator = vine.compile(
     positionIsDefault: vine.boolean().optional(),
     positionActive: vine.boolean().optional(),
     parentPositionId: vine.number().min(0).optional(),
+    positionMinStaff: optionalPositiveInteger,
+    positionIdealStaff: optionalPositiveInteger,
+    positionMaxStaff: optionalPositiveInteger,
+    positionMinActiveStaffPerShift: optionalPositiveInteger,
   })
 )

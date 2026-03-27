@@ -69,6 +69,18 @@ import Employee from './employee.js'
  *          positionProfileExpirationDate:
  *            type: string
  *            description: Profile expiration date
+ *          positionMinStaff:
+ *            type: integer
+ *            description: Personal mínimo en el puesto (opcional, mayor que cero)
+ *          positionIdealStaff:
+ *            type: integer
+ *            description: Personal ideal en el puesto (opcional, mayor que cero)
+ *          positionMaxStaff:
+ *            type: integer
+ *            description: Personal máximo en el puesto (opcional, mayor que cero)
+ *          positionMinActiveStaffPerShift:
+ *            type: integer
+ *            description: Personal mínimo activo por turno en el puesto (opcional, mayor que cero)
  *          positionCreatedAt:
  *            type: string
  *          positionUpdatedAt:
@@ -134,6 +146,18 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare positionProfileExpirationDate: Date
+
+  @column()
+  declare positionMinStaff: number | null
+
+  @column()
+  declare positionIdealStaff: number | null
+
+  @column()
+  declare positionMaxStaff: number | null
+
+  @column()
+  declare positionMinActiveStaffPerShift: number | null
 
   @column.dateTime({ autoCreate: true })
   declare positionCreatedAt: DateTime

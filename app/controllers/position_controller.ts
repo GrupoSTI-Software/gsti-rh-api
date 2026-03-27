@@ -263,6 +263,22 @@ export default class PositionController {
    *                 description: Position profile expiration date
    *                 required: false
    *                 default: ''
+   *               positionMinStaff:
+   *                 type: integer
+   *                 description: Personal mínimo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionIdealStaff:
+   *                 type: integer
+   *                 description: Personal ideal en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMaxStaff:
+   *                 type: integer
+   *                 description: Personal máximo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMinActiveStaffPerShift:
+   *                 type: integer
+   *                 description: Personal mínimo activo por turno en el puesto (opcional, mayor que cero)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -359,6 +375,10 @@ export default class PositionController {
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
       const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
+      const positionMinStaff = request.input('positionMinStaff')
+      const positionIdealStaff = request.input('positionIdealStaff')
+      const positionMaxStaff = request.input('positionMaxStaff')
+      const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
       const position = {
         positionCode: positionCode,
         positionName: positionName,
@@ -373,6 +393,10 @@ export default class PositionController {
         positionActive: positionActive,
         parentPositionId: parentPositionId,
         positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
+        positionMinStaff,
+        positionIdealStaff,
+        positionMaxStaff,
+        positionMinActiveStaffPerShift,
       } as Position
 
       const positionService = new PositionService(i18n)
@@ -507,6 +531,22 @@ export default class PositionController {
    *                 description: Position profile expiration date
    *                 required: false
    *                 default: ''
+   *               positionMinStaff:
+   *                 type: integer
+   *                 description: Personal mínimo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionIdealStaff:
+   *                 type: integer
+   *                 description: Personal ideal en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMaxStaff:
+   *                 type: integer
+   *                 description: Personal máximo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMinActiveStaffPerShift:
+   *                 type: integer
+   *                 description: Personal mínimo activo por turno en el puesto (opcional, mayor que cero)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -605,6 +645,10 @@ export default class PositionController {
       const parentPositionId = request.input('parentPositionId')
       const companyId = request.input('companyId')
       const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
+      const positionMinStaff = request.input('positionMinStaff')
+      const positionIdealStaff = request.input('positionIdealStaff')
+      const positionMaxStaff = request.input('positionMaxStaff')
+      const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
 
       const position = {
         positionId: positionId,
@@ -622,6 +666,10 @@ export default class PositionController {
         parentPositionId: parentPositionId,
         companyId: companyId,
         positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
+        positionMinStaff,
+        positionIdealStaff,
+        positionMaxStaff,
+        positionMinActiveStaffPerShift,
       } as Position
       if (!positionId) {
         response.status(400)

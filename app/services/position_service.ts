@@ -77,6 +77,10 @@ export default class PositionService {
     newPosition.parentPositionId = position.parentPositionId
     newPosition.businessUnitId = businessUnit?.businessUnitId || 0
     newPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
+    newPosition.positionMinStaff = position.positionMinStaff ?? null
+    newPosition.positionIdealStaff = position.positionIdealStaff ?? null
+    newPosition.positionMaxStaff = position.positionMaxStaff ?? null
+    newPosition.positionMinActiveStaffPerShift = position.positionMinActiveStaffPerShift ?? null
 
     await newPosition.save()
     await newPosition.load('parentPosition')
@@ -100,6 +104,18 @@ export default class PositionService {
     currentPosition.parentPositionId = position.parentPositionId
     currentPosition.companyId = position.companyId
     currentPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
+    if (position.positionMinStaff !== undefined) {
+      currentPosition.positionMinStaff = position.positionMinStaff
+    }
+    if (position.positionIdealStaff !== undefined) {
+      currentPosition.positionIdealStaff = position.positionIdealStaff
+    }
+    if (position.positionMaxStaff !== undefined) {
+      currentPosition.positionMaxStaff = position.positionMaxStaff
+    }
+    if (position.positionMinActiveStaffPerShift !== undefined) {
+      currentPosition.positionMinActiveStaffPerShift = position.positionMinActiveStaffPerShift
+    }
     await currentPosition.save()
     await currentPosition.load('parentPosition')
     await currentPosition.load('subPositions')
