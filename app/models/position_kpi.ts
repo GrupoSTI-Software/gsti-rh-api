@@ -32,14 +32,14 @@ import Position from './position.js'
  *            description: Position kpi ideal
  *          positionKpiScale:
  *            type: enum
- *            description: Position kpi scale enum: ['mayor es mejor', 'menor es mejor', 'si', 'no']
+ *            description: Position kpi scale enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
  *          positionKpiType:
  *            type: enum
- *            enum: ['numérico', 'porcentaje', 'dinero', 'booleano']
+ *            enum: ['numerico', 'porcentaje', 'dinero', 'booleano']
  *            description: Position kpi type
  *          positionKpiFrequency:
  *            type: enum
- *            enum: ['diario', 'semanal', 'cada 2 semanas', 'mensual', 'trimestral', 'semestral', 'anual']
+ *            enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
  *            description: Position kpi frequency
  *          positionKpiDurationDays:
  *            type: number

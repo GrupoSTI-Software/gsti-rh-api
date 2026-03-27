@@ -10,17 +10,17 @@ export default class extends BaseSchema {
       table.integer('position_id').unsigned().references('positions.position_id')
 
       table.text('position_kpi_name').notNullable()
-      table.integer('position_kpi_min').nullable()
-      table.integer('position_kpi_max').nullable()
+      table.decimal('position_kpi_min', 10, 2).nullable()
+      table.decimal('position_kpi_max', 10, 2).nullable()
 
       table.string('position_kpi_ideal').notNullable()
 
-      table.enum('position_kpi_scale', ['mayor es mejor', 'menor es mejor', 'si', 'no']).notNullable()
-      table.enum('position_kpi_type', ['numérico', 'porcentaje', 'dinero', 'booleano']).notNullable()
+      table.enum('position_kpi_scale', ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']).notNullable()
+      table.enum('position_kpi_type', ['numerico', 'porcentaje', 'dinero', 'booleano']).notNullable()
      
-      table.enum('position_kpi_frequency', ['sin especificar','diario', 'semanal', 'cada 2 semanas', 'mensual', 'trimestral', 'semestral', 'anual']).notNullable()
-      table.integer('position_kpi_duration_days').notNullable()
-      table.integer('position_kpi_start_day').notNullable()
+      table.enum('position_kpi_frequency', ['sin-especificar','diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']).notNullable()
+      table.integer('position_kpi_duration_days').nullable()
+      table.integer('position_kpi_start_day').nullable()
 
       table.timestamp('position_kpi_created_at').notNullable()
       table.timestamp('position_kpi_updated_at').nullable()

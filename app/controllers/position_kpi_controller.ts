@@ -48,19 +48,19 @@ export default class PositionSpecificFunctionController {
    *                 default: ''
    *               positionKpiScale:
    *                 type: enum
-   *                 enum: ['mayor es mejor', 'menor es mejor', 'si', 'no']
+   *                 enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
    *                 description: Position KPI scale
    *                 required: true
    *                 default: ''
    *               positionKpiType:
    *                 type: enum
-   *                 enum: ['numérico', 'porcentaje', 'dinero', 'booleano']
+   *                 enum: ['numerico', 'porcentaje', 'dinero', 'booleano']
    *                 description: Position KPI type
    *                 required: true
    *                 default: ''
    *               positionKpiFrequency:
    *                 type: enum
-   *                 enum: ['diario', 'semanal', 'cada 2 semanas', 'mensual', 'trimestral', 'semestral', 'anual']
+   *                 enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
    *                 description: Position KPI frequency
    *                 required: true
    *                 default: ''
@@ -251,19 +251,19 @@ export default class PositionSpecificFunctionController {
    *                 default: ''
    *               positionKpiScale:
    *                 type: enum
-   *                 enum: ['mayor es mejor', 'menor es mejor', 'si', 'no']
+   *                 enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
    *                 description: Position KPI scale
    *                 required: true
    *                 default: ''
    *               positionKpiType:
    *                 type: enum
-   *                 enum: ['numérico', 'porcentaje', 'dinero', 'booleano']
+   *                 enum: ['numerico', 'porcentaje', 'dinero', 'booleano']
    *                 description: Position KPI type
    *                 required: true
    *                 default: ''
    *               positionKpiFrequency:
    *                 type: enum
-   *                 enum: ['diario', 'semanal', 'cada 2 semanas', 'mensual', 'trimestral', 'semestral', 'anual']
+   *                 enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
    *                 description: Position KPI frequency
    *                 required: true
    *                 default: ''
