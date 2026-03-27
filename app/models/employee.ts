@@ -100,6 +100,12 @@ import EmployeeBonus from './employee_bonus.js'
  *          employeeTerminatedDate:
  *            type: string
  *            description: Employee terminated date
+ *          employeeTerminationModality:
+ *            type: string
+ *            description: Modalidad de baja (catálogo)
+ *          employeeTerminationType:
+ *            type: string
+ *            description: Tipo de baja (catálogo, debe ser coherente con la modalidad)
  *          employeeIgnoreConsecutiveAbsences:
  *            type: number
  *            description: Employee ignore consecutive absences
@@ -198,6 +204,12 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare employeeTerminatedDate: Date | string | null
+
+  @column()
+  declare employeeTerminationModality: string | null
+
+  @column()
+  declare employeeTerminationType: string | null
 
   @column()
   declare employeeIgnoreConsecutiveAbsences: number

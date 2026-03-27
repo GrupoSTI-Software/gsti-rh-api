@@ -15,6 +15,7 @@ router
     router.get('/get-vacations', '#controllers/employee_controller.getVacations')
     router.get('/get-all-vacations-by-period', '#controllers/employee_controller.getAllVacationsByPeriod')
     router.get('/get-work-schedules', '#controllers/employee_controller.getWorkSchedules')
+    router.get('/termination-catalog', '#controllers/employee_controller.getTerminationCatalog')
     router.get('/without-user', '#controllers/employee_controller.indexWithOutUser')
     router.get('/', '#controllers/employee_controller.index')
     router.post('/', '#controllers/employee_controller.store')

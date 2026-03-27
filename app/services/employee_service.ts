@@ -463,6 +463,13 @@ export default class EmployeeService {
       newEmployee.employeePayrollCode = employee.employeePayrollCode
       newEmployee.employeeHireDate = employee.employeeHireDate
       newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+      if (newEmployee.employeeTerminatedDate) {
+        newEmployee.employeeTerminationModality = employee.employeeTerminationModality ?? null
+        newEmployee.employeeTerminationType = employee.employeeTerminationType ?? null
+      } else {
+        newEmployee.employeeTerminationModality = null
+        newEmployee.employeeTerminationType = null
+      }
       newEmployee.companyId = employee.companyId
       newEmployee.departmentId = employee.departmentId
       newEmployee.positionId = employee.positionId
@@ -533,6 +540,13 @@ export default class EmployeeService {
     currentEmployee.employeePayrollCode = employee.employeePayrollCode
     currentEmployee.employeeHireDate = employee.employeeHireDate
     currentEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+    if (currentEmployee.employeeTerminatedDate) {
+      currentEmployee.employeeTerminationModality = employee.employeeTerminationModality ?? null
+      currentEmployee.employeeTerminationType = employee.employeeTerminationType ?? null
+    } else {
+      currentEmployee.employeeTerminationModality = null
+      currentEmployee.employeeTerminationType = null
+    }
     currentEmployee.companyId = employee.companyId
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
@@ -653,7 +667,19 @@ export default class EmployeeService {
     }
   }
 
-  async delete(currentEmployee: Employee) {
+  async delete(
+    currentEmployee: Employee,
+    baja?: {
+      employeeTerminatedDate: string | Date
+      employeeTerminationModality: string
+      employeeTerminationType: string
+    }
+  ) {
+    if (baja) {
+      currentEmployee.employeeTerminatedDate = baja.employeeTerminatedDate
+      currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
+      currentEmployee.employeeTerminationType = baja.employeeTerminationType
+    }
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
@@ -3569,6 +3595,8 @@ export default class EmployeeService {
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
+    employee.employeeTerminationModality = null
+    employee.employeeTerminationType = null
     employee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences !== undefined ? employeeData.employeeIgnoreConsecutiveAbsences : 0
     employee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones !== undefined ? employeeData.employeeAuthorizeAnyZones : 0
     employee.employeeSyncId = 0
