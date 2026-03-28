@@ -125,6 +125,9 @@ import './routes/position_approval_history_routes.js'
 import './routes/position_specific_function_routes.js'
 import './routes/position_competency_routes.js'
 import './routes/weight_routes.js'
+import './routes/psychometric_test_routes.js'
+import './routes/psychometric_test_dimension_routes.js'
+import './routes/position_psychometric_profile_routes.js'
 
 router
   .get('/', async ({ view }) => {
