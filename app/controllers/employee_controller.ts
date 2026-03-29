@@ -494,6 +494,12 @@ export default class EmployeeController {
    *         description: Payroll Business Unit Id
    *         schema:
    *           type: integer
+   *       - name: getMails
+   *         in: query
+   *         required: false
+   *         description: Si es true, employeeBusinessEmail en la respuesta usa jerarquía (usuario > empresa > personal)
+   *         schema:
+   *           type: boolean
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -622,6 +628,7 @@ export default class EmployeeController {
       const shiftEndTime = request.input('shiftEndTime')
       const businessUnitId = request.input('businessUnitId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
+      const getMails = request.input('getMails')
 
       const filters = {
         search: search,
@@ -644,6 +651,7 @@ export default class EmployeeController {
         shiftEndTime: shiftEndTime,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        getMails: getMails,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)

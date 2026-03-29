@@ -203,7 +203,7 @@ export default class EmployeeVacationArchiveController {
    *     tags:
    *       - Employee Vacation Archives
    *     summary: Eliminar archivador de vacaciones
-   *     description: Elimina el archivador (soft delete) y toda la información relacionada: contenidos (evidencias) con sus archivos en S3 y relaciones pivote con excepciones de turno.
+   *     description: "Elimina el archivador (soft delete) y toda la información relacionada: contenidos (evidencias) con sus archivos en S3 y relaciones pivote con excepciones de turno."
    *     parameters:
    *       - in: path
    *         name: employeeVacationArchiveId

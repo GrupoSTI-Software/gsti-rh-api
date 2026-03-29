@@ -110,6 +110,23 @@ export default class NoticeService {
     return Number(count[0]?.$extras.total || 0)
   }
 
+  /**
+   * Misma jerarquía que la consulta de empleados con `getMails`:
+   * correo de usuario > correo de empresa > correo personal.
+   */
+  private resolveRecipientEmailLikeGetMails(employee: Employee): string {
+    const userEmail = employee.person?.user?.userEmail?.trim()
+    if (userEmail) {
+      return userEmail
+    }
+    const businessEmail = employee.employeeBusinessEmail?.trim()
+    if (businessEmail) {
+      return businessEmail
+    }
+    const personalEmail = employee.person?.personEmail?.trim()
+    return personalEmail || ''
+  }
+
   async create(notice: Notice, recipientEmployeeIds: number[] = []) {
     const newNotice = new Notice()
     newNotice.noticeSubject = notice.noticeSubject
@@ -118,12 +135,13 @@ export default class NoticeService {
     newNotice.noticeSentAt = null
     newNotice.noticeType = notice.noticeType
 
-    // Obtener empleados seleccionados
+    // Obtener empleados seleccionados (correo efectivo con la misma jerarquía que getMails)
     const employees = await Employee.query()
       .whereNull('employee_deleted_at')
       .whereIn('employee_id', recipientEmployeeIds)
-      .whereNotNull('employee_business_email')
-      .where('employee_business_email', '!=', '')
+      .preload('person', (personQuery) => {
+        personQuery.preload('user')
+      })
 
     const recipientEmails: string[] = []
     const recipientData: Array<{
@@ -133,15 +151,16 @@ export default class NoticeService {
     }> = []
 
     for (const employee of employees) {
-      if (employee.employeeBusinessEmail) {
-        const email = employee.employeeBusinessEmail.trim()
-        recipientEmails.push(email)
-        recipientData.push({
-          employeeId: employee.employeeId,
-          employeeEmail: email,
-          employeeName: `${employee.employeeFirstName || ''} ${employee.employeeLastName || ''} ${employee.employeeSecondLastName || ''}`.trim() || null,
-        })
+      const email = this.resolveRecipientEmailLikeGetMails(employee).trim()
+      if (!email) {
+        continue
       }
+      recipientEmails.push(email)
+      recipientData.push({
+        employeeId: employee.employeeId,
+        employeeEmail: email,
+        employeeName: `${employee.employeeFirstName || ''} ${employee.employeeLastName || ''} ${employee.employeeSecondLastName || ''}`.trim() || null,
+      })
     }
 
     newNotice.noticeRecipientEmails = JSON.stringify(recipientEmails)
@@ -178,13 +197,13 @@ export default class NoticeService {
 
     // Actualizar destinatarios siempre que se proporcione un array
     if (recipientEmployeeIds.length > 0) {
-      // Obtener empleados seleccionados
+      // Obtener empleados seleccionados (correo efectivo con la misma jerarquía que getMails)
       const employees = await Employee.query()
         .whereNull('employee_deleted_at')
         .whereIn('employee_id', recipientEmployeeIds)
-        .whereNotNull('employee_business_email')
-        .where('employee_business_email', '!=', '')
-
+        .preload('person', (personQuery) => {
+          personQuery.preload('user')
+        })
 
       const recipientEmails: string[] = []
       const recipientData: Array<{
@@ -194,15 +213,16 @@ export default class NoticeService {
       }> = []
 
       for (const employee of employees) {
-        if (employee.employeeBusinessEmail) {
-          const email = employee.employeeBusinessEmail.trim()
-          recipientEmails.push(email)
-          recipientData.push({
-            employeeId: employee.employeeId,
-            employeeEmail: email,
-            employeeName: `${employee.employeeFirstName || ''} ${employee.employeeLastName || ''} ${employee.employeeSecondLastName || ''}`.trim() || null,
-          })
+        const email = this.resolveRecipientEmailLikeGetMails(employee).trim()
+        if (!email) {
+          continue
         }
+        recipientEmails.push(email)
+        recipientData.push({
+          employeeId: employee.employeeId,
+          employeeEmail: email,
+          employeeName: `${employee.employeeFirstName || ''} ${employee.employeeLastName || ''} ${employee.employeeSecondLastName || ''}`.trim() || null,
+        })
       }
 
       // Actualizar la lista de emails en el notice

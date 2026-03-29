@@ -14,7 +14,7 @@ export default class EmployeeVacationArchiveContentController {
    *     tags:
    *       - Employee Vacation Archive Contents
    *     summary: Subir evidencia (foto o PDF) al archivador
-   *     description: Sube un archivo al S3 y lo registra como contenido del archivador. Máximo 5MB. Tipos permitidos: jpg, jpeg, png, gif, webp, pdf.
+   *     description: "Sube un archivo al S3 y lo registra como contenido del archivador. Máximo 5MB. Tipos permitidos: jpg, jpeg, png, gif, webp, pdf."
    *     parameters:
    *       - in: path
    *         name: employeeVacationArchiveId
@@ -122,7 +122,7 @@ export default class EmployeeVacationArchiveContentController {
    *     tags:
    *       - Employee Vacation Archive Contents
    *     summary: Actualizar evidencia (contenido)
-   *     description: Actualiza un contenido existente. Se puede reemplazar el archivo, la descripción y/o las excepciones de turno vinculadas. Multipart: file (opcional), description (opcional), shiftExceptionIds (opcional).
+   *     description: "Actualiza un contenido existente. Se puede reemplazar el archivo, la descripción y/o las excepciones de turno vinculadas. Multipart: file (opcional), description (opcional), shiftExceptionIds (opcional)."
    *     parameters:
    *       - in: path
    *         name: employeeVacationArchiveId

@@ -4,6 +4,7 @@ import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
+import PositionPsychometricProfile from './position_psychometric_profile.js'
 
 /**
  * @swagger
@@ -69,6 +70,18 @@ import Employee from './employee.js'
  *          positionProfileExpirationDate:
  *            type: string
  *            description: Profile expiration date
+ *          positionMinStaff:
+ *            type: integer
+ *            description: Personal mínimo en el puesto (opcional, mayor que cero)
+ *          positionIdealStaff:
+ *            type: integer
+ *            description: Personal ideal en el puesto (opcional, mayor que cero)
+ *          positionMaxStaff:
+ *            type: integer
+ *            description: Personal máximo en el puesto (opcional, mayor que cero)
+ *          positionMinActiveStaffPerShift:
+ *            type: integer
+ *            description: Personal mínimo activo por turno en el puesto (opcional, mayor que cero)
  *          positionCreatedAt:
  *            type: string
  *          positionUpdatedAt:
@@ -135,6 +148,18 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
   @column()
   declare positionProfileExpirationDate: Date
 
+  @column()
+  declare positionMinStaff: number | null
+
+  @column()
+  declare positionIdealStaff: number | null
+
+  @column()
+  declare positionMaxStaff: number | null
+
+  @column()
+  declare positionMinActiveStaffPerShift: number | null
+
   @column.dateTime({ autoCreate: true })
   declare positionCreatedAt: DateTime
 
@@ -173,4 +198,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'parentPositionId',
   })
   declare positions: HasMany<typeof Position>
+
+  @hasMany(() => PositionPsychometricProfile, {
+    foreignKey: 'positionId',
+  })
+  declare psychometricProfiles: HasMany<typeof PositionPsychometricProfile>
 }
