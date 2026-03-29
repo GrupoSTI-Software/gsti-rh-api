@@ -4,6 +4,7 @@ import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
+import PositionPsychometricProfile from './position_psychometric_profile.js'
 
 /**
  * @swagger
@@ -27,6 +28,24 @@ import Employee from './employee.js'
  *          positionAlias:
  *            type: string
  *            description: Position alias
+ *          positionDescription:
+ *            type: string
+ *            description: Position description
+ *          positionGeneralObjective:
+ *            type: string
+ *            description: Position general objective
+ *          positionSpecificRequirement:
+ *            type: string
+ *            description: Position specific requirement
+ *          positionEvaluationFrequency:
+ *            type: string
+ *            description: Position evaluation frequency
+ *          positionEvaluationDurationDays:
+ *            type: number
+ *            description: Position evaluation duration days
+ *          positionEvaluationStartDay:
+ *            type: integer
+ *            description: Position evaluation start day
  *          positionIsDefault:
  *            type: boolean
  *            description: If the position is the default
@@ -48,6 +67,9 @@ import Employee from './employee.js'
  *          positionLastSynchronizationAt:
  *            type: string
  *            description: Last synchronization date
+ *          positionProfileExpirationDate:
+ *            type: string
+ *            description: Profile expiration date
  *          positionCreatedAt:
  *            type: string
  *          positionUpdatedAt:
@@ -73,6 +95,24 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
   declare positionAlias: string
 
   @column()
+  declare positionDescription: string
+
+  @column()
+  declare positionGeneralObjective: string
+
+  @column()
+  declare positionSpecificRequirement: string
+
+  @column()
+  declare positionEvaluationFrequency: string
+
+  @column()
+  declare positionEvaluationDurationDays: number
+
+  @column()
+  declare positionEvaluationStartDay: number
+
+  @column()
   declare positionIsDefault: boolean
 
   @column()
@@ -92,6 +132,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare positionLastSynchronizationAt: Date
+
+  @column()
+  declare positionProfileExpirationDate: Date
 
   @column.dateTime({ autoCreate: true })
   declare positionCreatedAt: DateTime
@@ -131,4 +174,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'parentPositionId',
   })
   declare positions: HasMany<typeof Position>
+
+  @hasMany(() => PositionPsychometricProfile, {
+    foreignKey: 'positionId',
+  })
+  declare psychometricProfiles: HasMany<typeof PositionPsychometricProfile>
 }
