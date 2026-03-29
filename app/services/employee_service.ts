@@ -99,6 +99,36 @@ export default class EmployeeService {
   }
 
   /**
+   * Indica si la consulta pide el correo de contacto unificado en `employeeBusinessEmail`.
+   */
+  private isGetMailsEnabled(filters: EmployeeFilterSearchInterface): boolean {
+    const v = filters.getMails
+    if (v === true || v === 1) return true
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase()
+      return s === 'true' || s === '1' || s === 'yes'
+    }
+    return false
+  }
+
+  /**
+   * Prioridad: correo de usuario (si existe usuario con email) > correo de empresa > correo personal.
+   * Solo para la respuesta cuando `getMails` está activo; no persiste en base de datos.
+   */
+  private resolveEmployeeBusinessEmailForGetMails(employee: Employee): string {
+    const userEmail = employee.person?.user?.userEmail?.trim()
+    if (userEmail) {
+      return userEmail
+    }
+    const businessEmail = employee.employeeBusinessEmail?.trim()
+    if (businessEmail) {
+      return businessEmail
+    }
+    const personalEmail = employee.person?.personEmail?.trim()
+    return personalEmail || ''
+  }
+
+  /**
    * Genera una fecha aleatoria entre 5 años y 1 año en el pasado.
    */
   private getRandomPastDate(): DateTime {
@@ -432,6 +462,12 @@ export default class EmployeeService {
         query.orderBy('employee_id')
       })
       .paginate(filters.page, filters.limit)
+
+    if (this.isGetMailsEnabled(filters)) {
+      for (const employee of employees.all()) {
+        employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
+      }
+    }
 
     return employees
   }

@@ -25,6 +25,8 @@ interface EmployeeFilterSearchInterface {
   shiftEndTime?: string
   businessUnitId?: number
   payrollBusinessUnitId?: number
+  /** Si es verdadero, en la respuesta `employeeBusinessEmail` lleva el correo prioritario (usuario > empresa > personal). */
+  getMails?: boolean | string | number
 }
 
 export type { EmployeeFilterSearchInterface }

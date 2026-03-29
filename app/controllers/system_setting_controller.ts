@@ -10,6 +10,7 @@ import sharp from 'sharp'
 import fs from 'node:fs'
 import { SYSTEM_SETTING_ERROR_CODES } from '../constants/system_setting_error_codes.js'
 import SystemSettingProceedingFileService from '#services/system_setting_proceeding_file_service'
+import { DateTime } from 'luxon'
 import {
   createSystemSettingProceedingFileValidator,
   updateSystemSettingProceedingFileValidator,
@@ -1520,6 +1521,79 @@ export default class SystemSettingController {
         title: 'System setting proceeding files',
         message: 'Proceeding files were found successfully',
         data: { systemSettingProceedingFiles },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * Obtiene archivos vencidos y por vencer de un system setting por rango de fechas.
+   * GET /api/system-settings-proceeding-files/get-expired-and-expiring/:systemSettingId?dateStart=YYYY-MM-DD&dateEnd=YYYY-MM-DD
+   */
+  async getExpiresAndExpiringProceedingFiles({ request, response }: HttpContext) {
+    try {
+      const systemSettingIdParam = request.param('systemSettingId')
+      const systemSettingId = Number(systemSettingIdParam)
+      if (!systemSettingIdParam || Number.isNaN(systemSettingId) || systemSettingId <= 0) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid system setting id',
+          message: 'Se requiere systemSettingId numérico en la ruta',
+          data: { systemSettingId: systemSettingIdParam },
+        }
+      }
+
+      const dateStart = request.input('dateStart')
+      const dateEnd = request.input('dateEnd')
+      const validDateStart = typeof dateStart === 'string' && DateTime.fromISO(dateStart).isValid
+      const validDateEnd = typeof dateEnd === 'string' && DateTime.fromISO(dateEnd).isValid
+      if (!validDateStart || !validDateEnd) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid date filters',
+          message: 'dateStart y dateEnd son obligatorios y deben tener formato YYYY-MM-DD',
+          data: { dateStart, dateEnd },
+        }
+      }
+
+      const systemSetting = await SystemSetting.query()
+        .whereNull('deletedAt')
+        .where('systemSettingId', systemSettingId)
+        .first()
+      if (!systemSetting) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The system setting was not found',
+          message: 'The system setting was not found with the entered ID',
+          data: { systemSettingId },
+        }
+      }
+
+      const service = new SystemSettingProceedingFileService()
+      const result = await service.getExpiredAndExpiringBySystemSetting(systemSettingId, {
+        dateStart,
+        dateEnd,
+      })
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'System setting proceeding files',
+        message: 'Proceeding files expired and expiring were found successfully',
+        data: {
+          systemSettingId,
+          systemSettingProceedingFiles: result,
+        },
       }
     } catch (error) {
       response.status(500)

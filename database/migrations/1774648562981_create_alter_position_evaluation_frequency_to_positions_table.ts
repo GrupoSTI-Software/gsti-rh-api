@@ -9,13 +9,13 @@ export default class extends BaseSchema {
         .enum('position_evaluation_frequency', 
           ['diario', 'semanal', 'cada-2-semanas', 'mensual', 'bimestral', 'trimestral', 'cuatrimestral', 'semestral', 'anual'])
         .after('position_specific_requirement')
-        .nullable()
+        .nullable().alter()
     })
   }
 
   async down() {
     this.schema.alterTable(this.tableName, (table) => {
-      table.dropColumn('position_evaluation_frequency')
+      table.enum('position_evaluation_frequency', ['diario', 'semanal', 'cada 2 semanas', 'mensual', 'bimestral', 'trimestral', 'cuatrimestral', 'semestral', 'anual']).nullable().alter()
     })
   }
 }
