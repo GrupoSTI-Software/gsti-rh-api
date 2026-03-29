@@ -31,8 +31,9 @@ import Position from './position.js'
  *            type: string
  *            description: Position kpi ideal
  *          positionKpiScale:
- *            type: enum
- *            description: Position kpi scale enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
+ *            type: string
+ *            enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
+ *            description: Escala del KPI del puesto
  *          positionKpiType:
  *            type: enum
  *            enum: ['numerico', 'porcentaje', 'dinero', 'booleano']
