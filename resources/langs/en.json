@@ -180,5 +180,11 @@
   "notice_sent_successfully": "Notice sent successfully",
   "sent": "sent",
   "failed": "failed",
-  "new_notice": "New notice"
+  "new_notice": "New notice",
+  "psychometric_test": "Psychometric test",
+  "psychometric_tests": "Psychometric tests",
+  "psychometric_test_dimension": "Psychometric test dimension",
+  "psychometric_test_dimensions": "Psychometric test dimensions",
+  "position_psychometric_profile": "Position psychometric profile",
+  "position_psychometric_profiles": "Position psychometric profiles"
 }

@@ -122,6 +122,14 @@ import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
 import './routes/employee_bonus_routes.js'
+import './routes/position_approval_history_routes.js'
+import './routes/position_specific_function_routes.js'
+import './routes/position_competency_routes.js'
+import './routes/weight_routes.js'
+import './routes/psychometric_test_routes.js'
+import './routes/psychometric_test_dimension_routes.js'
+import './routes/position_psychometric_profile_routes.js'
+import './routes/position_kpi_routes.js'
 
 router
   .get('/', async ({ view }) => {
@@ -135,10 +143,10 @@ router
     const app = await import('@adonisjs/core/services/app')
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
-    
+
     const swaggerFilePath = path.default.join(app.default.appRoot.pathname, 'docs', 'swagger.json')
     const swaggerContent = await fs.default.readFile(swaggerFilePath, 'utf-8')
-    
+
     response.header('Content-Type', 'application/json')
     return response.send(swaggerContent)
   })
