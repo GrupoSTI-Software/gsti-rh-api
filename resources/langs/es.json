@@ -183,5 +183,11 @@
   "notice_sent_successfully": "Aviso enviado exitosamente",
   "sent": "enviado",
   "failed": "fallido",
-  "new_notice": "Nuevo aviso"
+  "new_notice": "Nuevo aviso",
+  "psychometric_test": "Prueba psicométrica",
+  "psychometric_tests": "Pruebas psicométricas",
+  "psychometric_test_dimension": "Dimensión de prueba psicométrica",
+  "psychometric_test_dimensions": "Dimensiones de prueba psicométrica",
+  "position_psychometric_profile": "Perfil psicométrico del puesto",
+  "position_psychometric_profiles": "Perfiles psicométricos de puestos"
 }
