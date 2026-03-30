@@ -130,6 +130,8 @@ import './routes/psychometric_test_routes.js'
 import './routes/psychometric_test_dimension_routes.js'
 import './routes/position_psychometric_profile_routes.js'
 import './routes/position_kpi_routes.js'
+import './routes/employee_evaluation.js'
+import './routes/employee_competency_evaluation.js'
 
 router
   .get('/', async ({ view }) => {
