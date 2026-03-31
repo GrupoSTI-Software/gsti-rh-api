@@ -28,6 +28,13 @@ import AssistsService from '#services/assist_service'
 import { EmployeeWorkDaysDisabilityFilterInterface } from '../interfaces/employee_work_days_disability_filter_interface.js'
 import RoleService from '#services/role_service'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
+import {
+  EMPLOYEE_TERMINATION_MODALITIES,
+  EMPLOYEE_TERMINATION_TYPES,
+  getEmployeeTerminationTypeDefinition,
+  isTerminationTypeCompatibleWithModality,
+  isValidEmployeeTerminationModality,
+} from '../constants/employee_termination.js'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -54,6 +61,44 @@ export default class EmployeeController {
     }
     const single = Number(raw)
     return !Number.isNaN(single) && single > 0 ? single : null
+  }
+
+  /** Normaliza texto opcional para modalidad/tipo de baja (vacío → null). */
+  private normalizeTerminationInput(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null
+    }
+    const s = String(value).trim()
+    return s === '' ? null : s
+  }
+
+  /** Valida modalidad y tipo de baja contra el catálogo (coherencia incluida). */
+  private validateTerminationCatalogOrError(
+    modality: string,
+    terminationType: string
+  ): { title: string; message: string; data: Record<string, unknown> } | null {
+    if (!isValidEmployeeTerminationModality(modality)) {
+      return {
+        title: 'Modalidad de baja no válida',
+        message: 'La modalidad de baja no está dentro del catálogo permitido.',
+        data: { modality },
+      }
+    }
+    if (!getEmployeeTerminationTypeDefinition(terminationType)) {
+      return {
+        title: 'Tipo de baja no válido',
+        message: 'El tipo de baja no está dentro del catálogo permitido.',
+        data: { employeeTerminationType: terminationType },
+      }
+    }
+    if (!isTerminationTypeCompatibleWithModality(terminationType, modality)) {
+      return {
+        title: 'Combinación no válida',
+        message: 'El tipo de baja indicado no aplica para la modalidad seleccionada.',
+        data: { employeeTerminationModality: modality, employeeTerminationType: terminationType },
+      }
+    }
+    return null
   }
 
   /**
@@ -449,6 +494,12 @@ export default class EmployeeController {
    *         description: Payroll Business Unit Id
    *         schema:
    *           type: integer
+   *       - name: getMails
+   *         in: query
+   *         required: false
+   *         description: Si es true, employeeBusinessEmail en la respuesta usa jerarquía (usuario > empresa > personal)
+   *         schema:
+   *           type: boolean
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -577,6 +628,7 @@ export default class EmployeeController {
       const shiftEndTime = request.input('shiftEndTime')
       const businessUnitId = request.input('businessUnitId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
+      const getMails = request.input('getMails')
 
       const filters = {
         search: search,
@@ -599,6 +651,7 @@ export default class EmployeeController {
         shiftEndTime: shiftEndTime,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        getMails: getMails,
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)
@@ -1091,6 +1144,14 @@ export default class EmployeeController {
    *                 description: Employee terminated date (YYYY-MM-DD)
    *                 required: false
    *                 default: ''
+   *               employeeTerminationModality:
+   *                 type: string
+   *                 description: Modalidad de baja (obligatoria si hay fecha de baja). Ver GET /api/employees/termination-catalog
+   *                 required: false
+   *               employeeTerminationType:
+   *                 type: string
+   *                 description: Tipo de baja (obligatoria si hay fecha de baja). Debe ser coherente con la modalidad
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1252,6 +1313,46 @@ export default class EmployeeController {
         }
       }
 
+      const inputTerminationModality = this.normalizeTerminationInput(
+        request.input('employeeTerminationModality')
+      )
+      const inputTerminationType = this.normalizeTerminationInput(
+        request.input('employeeTerminationType')
+      )
+
+      if (employeeTerminatedDate) {
+        const modality =
+          inputTerminationModality ??
+          this.normalizeTerminationInput(currentEmployee.employeeTerminationModality)
+        const terminationType =
+          inputTerminationType ?? this.normalizeTerminationInput(currentEmployee.employeeTerminationType)
+        if (!modality || !terminationType) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Datos incompletos para la baja',
+            message:
+              'Cuando existe fecha de baja, debe indicarse la modalidad de baja y el tipo de baja.',
+            data: { ...employee },
+          }
+        }
+        const catalogError = this.validateTerminationCatalogOrError(modality, terminationType)
+        if (catalogError) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: catalogError.title,
+            message: catalogError.message,
+            data: catalogError.data,
+          }
+        }
+        employee.employeeTerminationModality = modality
+        employee.employeeTerminationType = terminationType
+      } else {
+        employee.employeeTerminationModality = null
+        employee.employeeTerminationType = null
+      }
+
       const employeeService = new EmployeeService(i18n)
       const data = await request.validateUsing(updateEmployeeValidator)
       const exist = await employeeService.verifyInfoExist(employee)
@@ -1331,6 +1432,27 @@ export default class EmployeeController {
    *           type: number
    *         description: Employee id
    *         required: true
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - employeeTerminatedDate
+   *               - employeeTerminationModality
+   *               - employeeTerminationType
+   *             properties:
+   *               employeeTerminatedDate:
+   *                 type: string
+   *                 format: date
+   *                 description: Fecha de baja (YYYY-MM-DD)
+   *               employeeTerminationModality:
+   *                 type: string
+   *                 description: Modalidad de baja (catálogo GET /api/employees/termination-catalog)
+   *               employeeTerminationType:
+   *                 type: string
+   *                 description: Tipo de baja coherente con la modalidad
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1424,6 +1546,40 @@ export default class EmployeeController {
           data: { employeeId },
         }
       }
+      let employeeTerminatedDate = request.input('employeeTerminatedDate')
+      employeeTerminatedDate = employeeTerminatedDate
+        ? (String(employeeTerminatedDate).split('T')[0] + ' 00:000:00').replace('"', '')
+        : null
+      const modality = this.normalizeTerminationInput(request.input('employeeTerminationModality'))
+      const terminationType = this.normalizeTerminationInput(request.input('employeeTerminationType'))
+
+      if (!employeeTerminatedDate || !modality || !terminationType) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos para la baja',
+          message:
+            'Para dar de baja al empleado debe enviarse la fecha de baja, la modalidad de baja y el tipo de baja.',
+          data: {
+            employeeId,
+            employeeTerminatedDate,
+            employeeTerminationModality: modality,
+            employeeTerminationType: terminationType,
+          },
+        }
+      }
+
+      const catalogError = this.validateTerminationCatalogOrError(modality, terminationType)
+      if (catalogError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: catalogError.title,
+          message: catalogError.message,
+          data: catalogError.data,
+        }
+      }
+
       const currentEmployee = await Employee.query()
         .whereNull('employee_deleted_at')
         .where('employee_id', employeeId)
@@ -1438,7 +1594,11 @@ export default class EmployeeController {
         }
       }
       const employeeService = new EmployeeService(i18n)
-      const deleteEmployee = await employeeService.delete(currentEmployee)
+      const deleteEmployee = await employeeService.delete(currentEmployee, {
+        employeeTerminatedDate,
+        employeeTerminationModality: modality,
+        employeeTerminationType: terminationType,
+      })
       if (deleteEmployee) {
         response.status(201)
         return {
@@ -2235,6 +2395,34 @@ export default class EmployeeController {
         message: 'An unexpected error has occurred on the server',
         error: error.message,
       }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/termination-catalog:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Catálogo de modalidades y tipos de baja laboral
+   *     produces:
+   *       - application/json
+   *     responses:
+   *       '200':
+   *         description: Catálogo obtenido correctamente
+   */
+  async getTerminationCatalog({ response }: HttpContext) {
+    response.status(200)
+    return {
+      type: 'success',
+      title: 'Catálogo de baja',
+      message: 'Modalidades y tipos de baja obtenidos correctamente',
+      data: {
+        modalities: [...EMPLOYEE_TERMINATION_MODALITIES],
+        types: EMPLOYEE_TERMINATION_TYPES,
+      },
     }
   }
 

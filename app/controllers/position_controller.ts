@@ -208,6 +208,36 @@ export default class PositionController {
    *                 description: Position alias
    *                 required: false
    *                 default: ''
+   *               positionDescription:
+   *                 type: string
+   *                 description: Position description
+   *                 required: false
+   *                 default: ''
+   *               positionGeneralObjective:
+   *                 type: string
+   *                 description: Position general objective
+   *                 required: false
+   *                 default: ''
+   *               positionSpecificRequirement:
+   *                 type: string
+   *                 description: Position specific requirement
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationFrequency:
+   *                 type: string
+   *                 description: Position evaluation frequency
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationDurationDays:
+   *                 type: number
+   *                 description: Position evaluation duration days
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationStartDay:
+   *                 type: integer
+   *                 description: Position evaluation start day
+   *                 required: false
+   *                 default: ''
    *               positionIsDefault:
    *                 type: boolean
    *                 description: Position if is default
@@ -228,6 +258,27 @@ export default class PositionController {
    *                 description: Company id
    *                 required: true
    *                 default: ''
+   *               positionProfileExpirationDate:
+   *                 type: string
+   *                 description: Position profile expiration date
+   *                 required: false
+   *                 default: ''
+   *               positionMinStaff:
+   *                 type: integer
+   *                 description: Personal mínimo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionIdealStaff:
+   *                 type: integer
+   *                 description: Personal ideal en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMaxStaff:
+   *                 type: integer
+   *                 description: Personal máximo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMinActiveStaffPerShift:
+   *                 type: integer
+   *                 description: Personal mínimo activo por turno en el puesto (opcional, mayor que cero)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -314,17 +365,38 @@ export default class PositionController {
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
       const positionAlias = request.input('positionAlias')
+      const positionDescription = request.input('positionDescription')
+      const positionGeneralObjective = request.input('positionGeneralObjective')
+      const positionSpecificRequirement = request.input('positionSpecificRequirement')
+      const positionEvaluationFrequency = request.input('positionEvaluationFrequency')
+      const positionEvaluationDurationDays = request.input('positionEvaluationDurationDays')
+      const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
-
+      const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
+      const positionMinStaff = request.input('positionMinStaff')
+      const positionIdealStaff = request.input('positionIdealStaff')
+      const positionMaxStaff = request.input('positionMaxStaff')
+      const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
       const position = {
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
+        positionDescription: positionDescription,
+        positionGeneralObjective: positionGeneralObjective,
+        positionSpecificRequirement: positionSpecificRequirement,
+        positionEvaluationFrequency: positionEvaluationFrequency,
+        positionEvaluationDurationDays: positionEvaluationDurationDays,
+        positionEvaluationStartDay: positionEvaluationStartDay,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
+        positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
+        positionMinStaff,
+        positionIdealStaff,
+        positionMaxStaff,
+        positionMinActiveStaffPerShift,
       } as Position
 
       const positionService = new PositionService(i18n)
@@ -404,6 +476,36 @@ export default class PositionController {
    *                 description: Position alias
    *                 required: false
    *                 default: ''
+   *               positionDescription:
+   *                 type: string
+   *                 description: Position description
+   *                 required: false
+   *                 default: ''
+   *               positionGeneralObjective:
+   *                 type: string
+   *                 description: Position general objective
+   *                 required: false
+   *                 default: ''
+   *               positionSpecificRequirement:
+   *                 type: string
+   *                 description: Position specific requirement
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationFrequency:
+   *                 type: string
+   *                 description: Position evaluation frequency
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationDurationDays:
+   *                 type: number
+   *                 description: Position evaluation duration days
+   *                 required: false
+   *                 default: ''
+   *               positionEvaluationStartDay:
+   *                 type: integer
+   *                 description: Position evaluation start day
+   *                 required: false
+   *                 default: ''
    *               positionIsDefault:
    *                 type: boolean
    *                 description: Position if is default
@@ -424,6 +526,27 @@ export default class PositionController {
    *                 description: Company id
    *                 required: true
    *                 default: ''
+   *               positionProfileExpirationDate:
+   *                 type: string
+   *                 description: Position profile expiration date
+   *                 required: false
+   *                 default: ''
+   *               positionMinStaff:
+   *                 type: integer
+   *                 description: Personal mínimo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionIdealStaff:
+   *                 type: integer
+   *                 description: Personal ideal en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMaxStaff:
+   *                 type: integer
+   *                 description: Personal máximo en el puesto (opcional, mayor que cero)
+   *                 required: false
+   *               positionMinActiveStaffPerShift:
+   *                 type: integer
+   *                 description: Personal mínimo activo por turno en el puesto (opcional, mayor que cero)
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -511,19 +634,42 @@ export default class PositionController {
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
       const positionAlias = request.input('positionAlias')
+      const positionDescription = request.input('positionDescription')
+      const positionGeneralObjective = request.input('positionGeneralObjective')
+      const positionSpecificRequirement = request.input('positionSpecificRequirement')
+      const positionEvaluationFrequency = request.input('positionEvaluationFrequency')
+      const positionEvaluationDurationDays = request.input('positionEvaluationDurationDays')
+      const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
       const parentPositionId = request.input('parentPositionId')
       const companyId = request.input('companyId')
+      const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
+      const positionMinStaff = request.input('positionMinStaff')
+      const positionIdealStaff = request.input('positionIdealStaff')
+      const positionMaxStaff = request.input('positionMaxStaff')
+      const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
+
       const position = {
         positionId: positionId,
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
+        positionDescription: positionDescription,
+        positionGeneralObjective: positionGeneralObjective,
+        positionSpecificRequirement: positionSpecificRequirement,
+        positionEvaluationFrequency: positionEvaluationFrequency,
+        positionEvaluationDurationDays: positionEvaluationDurationDays,
+        positionEvaluationStartDay: positionEvaluationStartDay,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
         parentPositionId: parentPositionId,
         companyId: companyId,
+        positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
+        positionMinStaff,
+        positionIdealStaff,
+        positionMaxStaff,
+        positionMinActiveStaffPerShift,
       } as Position
       if (!positionId) {
         response.status(400)

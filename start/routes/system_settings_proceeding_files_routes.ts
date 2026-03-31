@@ -5,6 +5,10 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
+    router.get(
+      '/get-expired-and-expiring/:systemSettingId',
+      '#controllers/system_setting_controller.getExpiresAndExpiringProceedingFiles'
+    )
     router.post('/', '#controllers/system_setting_controller.storeProceedingFile')
     router.get('/', '#controllers/system_setting_controller.proceedingFiles')
     router.put(

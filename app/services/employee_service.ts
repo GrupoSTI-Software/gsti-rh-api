@@ -99,6 +99,36 @@ export default class EmployeeService {
   }
 
   /**
+   * Indica si la consulta pide el correo de contacto unificado en `employeeBusinessEmail`.
+   */
+  private isGetMailsEnabled(filters: EmployeeFilterSearchInterface): boolean {
+    const v = filters.getMails
+    if (v === true || v === 1) return true
+    if (typeof v === 'string') {
+      const s = v.trim().toLowerCase()
+      return s === 'true' || s === '1' || s === 'yes'
+    }
+    return false
+  }
+
+  /**
+   * Prioridad: correo de usuario (si existe usuario con email) > correo de empresa > correo personal.
+   * Solo para la respuesta cuando `getMails` está activo; no persiste en base de datos.
+   */
+  private resolveEmployeeBusinessEmailForGetMails(employee: Employee): string {
+    const userEmail = employee.person?.user?.userEmail?.trim()
+    if (userEmail) {
+      return userEmail
+    }
+    const businessEmail = employee.employeeBusinessEmail?.trim()
+    if (businessEmail) {
+      return businessEmail
+    }
+    const personalEmail = employee.person?.personEmail?.trim()
+    return personalEmail || ''
+  }
+
+  /**
    * Genera una fecha aleatoria entre 5 años y 1 año en el pasado.
    */
   private getRandomPastDate(): DateTime {
@@ -433,6 +463,12 @@ export default class EmployeeService {
       })
       .paginate(filters.page, filters.limit)
 
+    if (this.isGetMailsEnabled(filters)) {
+      for (const employee of employees.all()) {
+        employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
+      }
+    }
+
     return employees
   }
 
@@ -463,6 +499,13 @@ export default class EmployeeService {
       newEmployee.employeePayrollCode = employee.employeePayrollCode
       newEmployee.employeeHireDate = employee.employeeHireDate
       newEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+      if (newEmployee.employeeTerminatedDate) {
+        newEmployee.employeeTerminationModality = employee.employeeTerminationModality ?? null
+        newEmployee.employeeTerminationType = employee.employeeTerminationType ?? null
+      } else {
+        newEmployee.employeeTerminationModality = null
+        newEmployee.employeeTerminationType = null
+      }
       newEmployee.companyId = employee.companyId
       newEmployee.departmentId = employee.departmentId
       newEmployee.positionId = employee.positionId
@@ -533,6 +576,13 @@ export default class EmployeeService {
     currentEmployee.employeePayrollCode = employee.employeePayrollCode
     currentEmployee.employeeHireDate = employee.employeeHireDate
     currentEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+    if (currentEmployee.employeeTerminatedDate) {
+      currentEmployee.employeeTerminationModality = employee.employeeTerminationModality ?? null
+      currentEmployee.employeeTerminationType = employee.employeeTerminationType ?? null
+    } else {
+      currentEmployee.employeeTerminationModality = null
+      currentEmployee.employeeTerminationType = null
+    }
     currentEmployee.companyId = employee.companyId
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
@@ -653,7 +703,19 @@ export default class EmployeeService {
     }
   }
 
-  async delete(currentEmployee: Employee) {
+  async delete(
+    currentEmployee: Employee,
+    baja?: {
+      employeeTerminatedDate: string | Date
+      employeeTerminationModality: string
+      employeeTerminationType: string
+    }
+  ) {
+    if (baja) {
+      currentEmployee.employeeTerminatedDate = baja.employeeTerminatedDate
+      currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
+      currentEmployee.employeeTerminationType = baja.employeeTerminationType
+    }
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
@@ -3569,6 +3631,8 @@ export default class EmployeeService {
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
     employee.employeeTerminatedDate = null
+    employee.employeeTerminationModality = null
+    employee.employeeTerminationType = null
     employee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences !== undefined ? employeeData.employeeIgnoreConsecutiveAbsences : 0
     employee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones !== undefined ? employeeData.employeeAuthorizeAnyZones : 0
     employee.employeeSyncId = 0
