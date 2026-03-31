@@ -5,8 +5,6 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 
-export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) {
-
 /**
  * @swagger
  * components:
@@ -39,6 +37,8 @@ export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) 
  *            type: string
  *            description: Employee evaluation deleted at
  */
+
+export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) {
   @column({ isPrimary: true })
   declare employeeEvaluationId: number
 
