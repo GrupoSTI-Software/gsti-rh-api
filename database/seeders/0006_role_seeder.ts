@@ -40,10 +40,13 @@ export default class extends BaseSeeder {
     ]
 
     for await (const role of roles) {
-      const { roleId, ...roleData } = role
-      const existing = await Role.findBy('roleId', roleId)
+      const { roleId, roleSlug, ...roleData } = role
+      const existing = await Role.query()
+        .where('role_id', roleId)
+        .orWhere('role_slug', roleSlug)
+        .first()
       if (!existing) {
-        await Role.create({ roleId, ...roleData })
+        await Role.create({ roleId, roleSlug, ...roleData })
       }
     }
   }
