@@ -189,5 +189,7 @@
   "psychometric_test_dimension": "Dimensión de prueba psicométrica",
   "psychometric_test_dimensions": "Dimensiones de prueba psicométrica",
   "position_psychometric_profile": "Perfil psicométrico del puesto",
-  "position_psychometric_profiles": "Perfiles psicométricos de puestos"
+  "position_psychometric_profiles": "Perfiles psicométricos de puestos",
+  "employee_evaluation_already_exists": "Evaluación del empleado ya existe",
+  "employee_evaluation_already_exists_with_entered_date": "Ya existe una evaluación del empleado con la fecha ingresada"
 }

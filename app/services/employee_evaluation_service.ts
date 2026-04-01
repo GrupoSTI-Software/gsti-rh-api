@@ -66,12 +66,37 @@ export default class EmployeeEvaluationService {
     }
   }
 
+  async verifyInfoDateExist(employeeEvaluation: EmployeeEvaluation) {
+    const existEmployeeEvaluation = await EmployeeEvaluation.query()
+      .whereNull('employee_evaluation_deleted_at')
+      .where('employee_id', employeeEvaluation.employeeId)
+      .where('employee_evaluation_date', employeeEvaluation.employeeEvaluationDate)
+      .first()
+    if (existEmployeeEvaluation) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: this.t('employee_evaluation_already_exists'),
+        message: this.t('employee_evaluation_already_exists_with_entered_date'),
+        data: { ...employeeEvaluation },
+      }
+    }
+
+    return {
+      status: 200,
+      type: 'success',
+      title: this.t('info_verify_successfully'),
+      message: this.t('info_verify_successfully'),
+      data: { ...employeeEvaluation },
+    }
+  }
+
   async getByEmployee(employeeId: number) {
     const employeeEvaluations = await EmployeeEvaluation.query()
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_id', employeeId)
       .preload('employeeCompetencyEvaluations')
-      .orderBy('employee_evaluation_created_at', 'desc')
+      .orderBy('employee_evaluation_date', 'desc')
     return employeeEvaluations ? employeeEvaluations : []
   }
 }

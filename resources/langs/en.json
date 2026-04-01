@@ -186,5 +186,7 @@
   "psychometric_test_dimension": "Psychometric test dimension",
   "psychometric_test_dimensions": "Psychometric test dimensions",
   "position_psychometric_profile": "Position psychometric profile",
-  "position_psychometric_profiles": "Position psychometric profiles"
+  "position_psychometric_profiles": "Position psychometric profiles",
+  "employee_evaluation_already_exists": "Employee evaluation already exists",
+  "employee_evaluation_already_exists_with_entered_date": "There is already an employee evaluation with the entered date"
 }

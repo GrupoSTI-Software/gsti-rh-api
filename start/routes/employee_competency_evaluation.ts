@@ -5,9 +5,9 @@ router
   .group(() => {
     router.get('/', '#controllers/employee_competency_evaluation_controller.index')
     router.post('/', '#controllers/employee_competency_evaluation_controller.store')
-    router.put('/:id', '#controllers/employee_competency_evaluation_controller.update')
-    router.delete('/:id', '#controllers/employee_competency_evaluation_controller.destroy')
-    router.get('/:id', '#controllers/employee_competency_evaluation_controller.show')
+    router.put('/:employeeCompetencyEvaluationId', '#controllers/employee_competency_evaluation_controller.update')
+    router.delete('/:employeeCompetencyEvaluationId', '#controllers/employee_competency_evaluation_controller.destroy')
+    router.get('/:employeeCompetencyEvaluationId', '#controllers/employee_competency_evaluation_controller.show')
   })
   .prefix('/api/employee-competency-evaluations')
   .use(middleware.auth())

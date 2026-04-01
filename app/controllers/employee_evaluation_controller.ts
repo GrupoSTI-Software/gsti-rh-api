@@ -139,6 +139,16 @@ export default class EmployeeEvaluationController {
       employeeEvaluationScore: employeeEvaluationScore,
     } as EmployeeEvaluation
 
+    const existInfoDate = await employeeEvaluationService.verifyInfoDateExist(employeeEvaluation)
+    if (existInfoDate.status !== 200) {
+      response.status(existInfoDate.status)
+      return {
+        type: existInfoDate.type,
+        title: existInfoDate.title,
+        message: existInfoDate.message,
+        data: { ...employeeEvaluation },
+      }
+    }
     const newEmployeeEvaluation = await employeeEvaluationService.create(employeeEvaluation)
     response.status(201)
     return {
