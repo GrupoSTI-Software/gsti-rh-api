@@ -35,6 +35,7 @@ export default class EmployeeEvaluationService {
     const employeeEvaluation = await EmployeeEvaluation.query()
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_evaluation_id', employeeEvaluationId)
+      .preload('employeeCompetencyEvaluations')
       .first()
     return employeeEvaluation ? employeeEvaluation : null
   }
@@ -63,5 +64,14 @@ export default class EmployeeEvaluationService {
       message: this.t('info_verify_successfully'),
       data: { ...employeeEvaluation },
     }
+  }
+
+  async getByEmployee(employeeId: number) {
+    const employeeEvaluations = await EmployeeEvaluation.query()
+      .whereNull('employee_evaluation_deleted_at')
+      .where('employee_id', employeeId)
+      .preload('employeeCompetencyEvaluations')
+      .orderBy('employee_evaluation_created_at', 'desc')
+    return employeeEvaluations ? employeeEvaluations : []
   }
 }

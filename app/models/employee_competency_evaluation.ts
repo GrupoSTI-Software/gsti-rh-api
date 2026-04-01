@@ -3,6 +3,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import EmployeeEvaluation from './employee_evaluation.js'
+import { DateTime } from 'luxon'
 /**
  * @swagger
  * components:
@@ -43,6 +44,15 @@ export default class EmployeeCompetencyEvaluation extends compose(BaseModel, Sof
 
   @column()
   declare weightId: number
+
+  @column.dateTime({ autoCreate: true })
+  declare employeeCompetencyEvaluationCreatedAt: DateTime
+
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare employeeCompetencyEvaluationUpdatedAt: DateTime
+
+  @column.dateTime({ columnName: 'employee_competency_evaluation_deleted_at' })
+  declare deletedAt: DateTime | null  
 
   @belongsTo(() => EmployeeEvaluation, {
     foreignKey: 'employeeEvaluationId',

@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column ,belongsTo} from '@adonisjs/lucid/orm'
+import { BaseModel, column ,belongsTo, hasMany} from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
+import EmployeeCompetencyEvaluation from './employee_competency_evaluation.js'
 
 /**
  * @swagger
@@ -69,4 +70,9 @@ export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) 
   declare employee: BelongsTo<typeof Employee>
 
   static softDeletes = true
+
+  @hasMany(() => EmployeeCompetencyEvaluation, {
+    foreignKey: 'employeeEvaluationId',
+  })
+  declare employeeCompetencyEvaluations: HasMany<typeof EmployeeCompetencyEvaluation>
 }

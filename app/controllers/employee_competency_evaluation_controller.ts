@@ -153,7 +153,6 @@ export default class EmployeeCompetencyEvaluationController {
   }
 }
 
-
    /**
    * @swagger
    * /api/employee-competency-evaluations/{employeeCompetencyEvaluationId}:

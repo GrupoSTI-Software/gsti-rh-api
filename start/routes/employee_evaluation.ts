@@ -5,9 +5,10 @@ router
   .group(() => {
     router.get('/', '#controllers/employee_evaluation_controller.index')
     router.post('/', '#controllers/employee_evaluation_controller.store')
-    router.put('/:id', '#controllers/employee_evaluation_controller.update')
-    router.delete('/:id', '#controllers/employee_evaluation_controller.destroy')
-    router.get('/:id', '#controllers/employee_evaluation_controller.show')
+    router.put('/:employeeEvaluationId', '#controllers/employee_evaluation_controller.update')
+    router.delete('/:employeeEvaluationId', '#controllers/employee_evaluation_controller.destroy')
+    router.get('/:employeeEvaluationId', '#controllers/employee_evaluation_controller.show')
+    router.get('/by-employee/:employeeId', '#controllers/employee_evaluation_controller.getByEmployee')
   })
   .prefix('/api/employee-evaluations')
   .use(middleware.auth())
