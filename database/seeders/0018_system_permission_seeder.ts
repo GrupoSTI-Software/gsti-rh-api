@@ -555,6 +555,12 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Upload fingers',
         systemPermissionSlug: 'upload-fingers',
         systemModuleId: 1
+      },
+      {
+        systemPermissionId: 139,
+        systemPermissionName: 'Manage attendance fault HR emails',
+        systemPermissionSlug: 'manage-attendance-fault-hr-emails',
+        systemModuleId: 14
       }
     ]
 
