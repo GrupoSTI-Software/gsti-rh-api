@@ -33,6 +33,7 @@ export default class EmployeeCompetencyEvaluationService {
     const employeeCompetencyEvaluation = await EmployeeCompetencyEvaluation.query()
       .whereNull('employee_competency_evaluation_deleted_at')
       .where('employee_competency_evaluation_id', employeeCompetencyEvaluationId)
+      .preload('weight')
       .first()
     return employeeCompetencyEvaluation ? employeeCompetencyEvaluation : null
   }

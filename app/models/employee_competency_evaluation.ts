@@ -4,6 +4,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import EmployeeEvaluation from './employee_evaluation.js'
 import { DateTime } from 'luxon'
+import Weight from './weight.js'
 /**
  * @swagger
  * components:
@@ -58,6 +59,11 @@ export default class EmployeeCompetencyEvaluation extends compose(BaseModel, Sof
     foreignKey: 'employeeEvaluationId',
   })
   declare employeeEvaluation: BelongsTo<typeof EmployeeEvaluation>
+
+  @belongsTo(() => Weight, {
+    foreignKey: 'weightId',
+  })
+  declare weight: BelongsTo<typeof Weight>
 
   static softDeletes = true
 }

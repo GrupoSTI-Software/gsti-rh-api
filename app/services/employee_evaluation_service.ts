@@ -95,7 +95,9 @@ export default class EmployeeEvaluationService {
     const employeeEvaluations = await EmployeeEvaluation.query()
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_id', employeeId)
-      .preload('employeeCompetencyEvaluations')
+      .preload('employeeCompetencyEvaluations', (query) => {
+        query.preload('weight')
+      })
       .orderBy('employee_evaluation_date', 'desc')
     return employeeEvaluations ? employeeEvaluations : []
   }
