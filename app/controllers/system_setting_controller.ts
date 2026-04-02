@@ -2425,6 +2425,91 @@ export default class SystemSettingController {
 
   /**
    * @swagger
+   * /api/system-settings/{systemSettingId}/attendance-fault-hr-emails:
+   *   put:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: Activar o desactivar correos a RH por falta de registro de asistencia
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - systemSettingAttendanceFaultHrEmails
+   *             properties:
+   *               systemSettingAttendanceFaultHrEmails:
+   *                 type: boolean
+   *                 description: Si es true, se envían notificaciones (comando notify:attendance-fault-hr)
+   *     responses:
+   *       '200':
+   *         description: Actualizado correctamente
+   */
+  async updateAttendanceFaultHrEmailsStatus({ request, response }: HttpContext) {
+    try {
+      const systemSettingId = request.param('systemSettingId')
+      const systemSettingAttendanceFaultHrEmails = request.input('systemSettingAttendanceFaultHrEmails')
+
+      if (!systemSettingId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The system setting id was not found',
+          data: { systemSettingId },
+        }
+      }
+
+      if (
+        systemSettingAttendanceFaultHrEmails === undefined ||
+        systemSettingAttendanceFaultHrEmails === null
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The systemSettingAttendanceFaultHrEmails field is required',
+          data: { systemSettingAttendanceFaultHrEmails },
+        }
+      }
+
+      const systemSettingService = new SystemSettingService()
+      const result = await systemSettingService.updateAttendanceFaultHrEmailsStatus(
+        systemSettingId,
+        systemSettingAttendanceFaultHrEmails
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/system-settings/:systemSettingId/employee-application-icon:
    *   post:
    *     security:
