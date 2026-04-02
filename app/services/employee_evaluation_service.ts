@@ -101,4 +101,10 @@ export default class EmployeeEvaluationService {
       .orderBy('employee_evaluation_date', 'desc')
     return employeeEvaluations ? employeeEvaluations : []
   }
+
+  async updatePotential(currentEmployeeEvaluation: EmployeeEvaluation, employeeEvaluation: EmployeeEvaluation) {
+    currentEmployeeEvaluation.employeeEvaluationPotential = employeeEvaluation.employeeEvaluationPotential
+    await currentEmployeeEvaluation.save()
+    return currentEmployeeEvaluation
+  }
 }

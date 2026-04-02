@@ -28,6 +28,9 @@ import EmployeeCompetencyEvaluation from './employee_competency_evaluation.js'
  *          employeeEvaluationScore:
  *            type: number
  *            description: Employee evaluation score
+ *          employeeEvaluationPotential:
+ *            type: number
+ *            description: Employee evaluation potential
  *          employeeEvaluationCreatedAt:
  *            type: string
  *            description: Employee evaluation created at
@@ -54,6 +57,9 @@ export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) 
 
   @column()
   declare employeeEvaluationScore: number | null
+
+  @column()
+  declare employeeEvaluationPotential: number | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeEvaluationCreatedAt: DateTime

@@ -489,6 +489,7 @@ export default class EmployeeEvaluationController {
       }
     }
   }
+
   /**
    * @swagger
    * /api/employee-evaluations/{employeeEvaluationId}:
@@ -761,6 +762,172 @@ export default class EmployeeEvaluationController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-evaluations/update-potential/{employeeEvaluationId}:
+   *   put:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employee Evaluations
+   *     summary: update employee evaluation potential
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: employeeEvaluationId
+   *         schema:
+   *           type: number
+   *         description: Employee evaluation id
+   *         required: true
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               employeeEvaluationPotential:
+   *                 type: number
+   *                 description: Employee evaluation potential
+   *                 required: true
+   *                 default: 0
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async updatePotential({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      await request.validateUsing(updateEmployeeEvaluationValidator)
+      const employeeEvaluationId = request.param('employeeEvaluationId')
+      const employeeEvaluationPotential = request.input('employeeEvaluationPotential')
+      const employeeEvaluation = {
+        employeeEvaluationId: employeeEvaluationId,
+        employeeEvaluationPotential: employeeEvaluationPotential,
+      } as EmployeeEvaluation
+      if (!employeeEvaluationId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'The employee evaluation Id was not found',
+          message: 'Missing data to process',
+          data: { ...employeeEvaluation },
+        }
+      }
+      const currentEmployeeEvaluation = await EmployeeEvaluation.query()
+        .whereNull('employee_evaluation_deleted_at')
+        .where('employee_evaluation_id', employeeEvaluationId)
+        .first()
+      if (!currentEmployeeEvaluation) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The employee evaluation was not found',
+          message: 'The employee evaluation was not found with the entered ID',
+          data: { ...employeeEvaluation },
+        }
+      }
+      const employeeEvaluationService = new EmployeeEvaluationService(i18n)
+      const updateEmployeeEvaluation = await employeeEvaluationService.updatePotential(currentEmployeeEvaluation, employeeEvaluation)
+      if (updateEmployeeEvaluation) {
+        response.status(200)
+        return {
+          type: 'success',
+          title: t('resource'),
+          message: t('resource_was_updated_successfully'),
+          data: { employeeEvaluation: updateEmployeeEvaluation },
+        }
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
       }
     }
   }

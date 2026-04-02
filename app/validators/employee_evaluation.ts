@@ -6,6 +6,7 @@ export const createEmployeeEvaluationValidator = vine.compile(
     employeeEvaluationDate: vine.string().trim().minLength(1),
     employeeEvaluationType: vine.string().trim().minLength(1),
     employeeEvaluationScore: vine.number().min(0).optional(),
+    employeeEvaluationPotential: vine.number().min(0).optional(),
   })
 )
 
@@ -14,5 +15,6 @@ export const updateEmployeeEvaluationValidator = vine.compile(
     employeeEvaluationDate: vine.string().trim().minLength(1),
     employeeEvaluationType: vine.string().trim().minLength(1),
     employeeEvaluationScore: vine.number().min(0).optional(),
+    employeeEvaluationPotential: vine.number().min(0).optional(),
   })
 )
