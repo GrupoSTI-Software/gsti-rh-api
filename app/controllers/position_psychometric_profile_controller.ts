@@ -29,6 +29,12 @@ export default class PositionPsychometricProfileController {
    *         description: Filter by psychometric test dimension id
    *         schema:
    *           type: integer
+   *       - name: psychometricTestId
+   *         in: query
+   *         required: false
+   *         description: Filter by psychometric test id (via dimension relationship)
+   *         schema:
+   *           type: integer
    *       - name: page
    *         in: query
    *         required: true
@@ -58,6 +64,9 @@ export default class PositionPsychometricProfileController {
       const psychometricTestDimensionId = request.input('psychometricTestDimensionId')
         ? Number(request.input('psychometricTestDimensionId'))
         : undefined
+      const psychometricTestId = request.input('psychometricTestId')
+        ? Number(request.input('psychometricTestId'))
+        : undefined
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
@@ -66,6 +75,7 @@ export default class PositionPsychometricProfileController {
       const positionPsychometricProfiles = await service.index({
         positionId,
         psychometricTestDimensionId,
+        psychometricTestId,
         page,
         limit,
       })

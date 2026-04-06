@@ -12,6 +12,11 @@ export default class PositionPsychometricProfileService {
       .if(filters.psychometricTestDimensionId, (query) => {
         query.where('psychometric_test_dimension_id', filters.psychometricTestDimensionId!)
       })
+      .if(filters.psychometricTestId, (query) => {
+        query.whereHas('psychometricTestDimension', (dimensionQuery) => {
+          dimensionQuery.where('psychometric_test_id', filters.psychometricTestId!)
+        })
+      })
       .preload('psychometricTestDimension')
       .preload('position')
       .orderBy('position_psychometric_profile_created_at', 'desc')

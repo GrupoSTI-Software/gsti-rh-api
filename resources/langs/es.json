@@ -191,5 +191,11 @@
   "position_psychometric_profile": "Perfil psicométrico del puesto",
   "position_psychometric_profiles": "Perfiles psicométricos de puestos",
   "employee_evaluation_already_exists": "Evaluación del empleado ya existe",
-  "employee_evaluation_already_exists_with_entered_date": "Ya existe una evaluación del empleado con la fecha ingresada"
+  "employee_evaluation_already_exists_with_entered_date": "Ya existe una evaluación del empleado con la fecha ingresada",
+  "employee_psychometric_evaluation": "Evaluación psicométrica del empleado",
+  "employee_psychometric_evaluations": "Evaluaciones psicométricas del empleado",
+  "employee_psychometric_evaluation_result": "Resultado de evaluación psicométrica",
+  "employee_psychometric_evaluation_results": "Resultados de evaluación psicométrica",
+  "employee_psychometric_evaluation_date_cannot_be_in_future": "La fecha de la evaluación psicométrica no puede ser una fecha futura",
+  "employee_psychometric_evaluation_already_exists_for_date": "Ya existe una evaluación psicométrica del mismo tipo para la fecha ingresada"
 }
