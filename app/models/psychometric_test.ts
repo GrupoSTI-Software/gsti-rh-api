@@ -4,6 +4,7 @@ import type { HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import PsychometricTestDimension from './psychometric_test_dimension.js'
+import EmployeePsychometricEvaluation from './employee_psychometric_evaluation.js'
 
 /**
  * @swagger
@@ -51,4 +52,9 @@ export default class PsychometricTest extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'psychometricTestId',
   })
   declare dimensions: HasMany<typeof PsychometricTestDimension>
+
+  @hasMany(() => EmployeePsychometricEvaluation, {
+    foreignKey: 'psychometricTestId',
+  })
+  declare employeeEvaluations: HasMany<typeof EmployeePsychometricEvaluation>
 }
