@@ -36,6 +36,7 @@ export default class EmployeeEvaluationService {
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_evaluation_id', employeeEvaluationId)
       .preload('employeeCompetencyEvaluations')
+      .preload('employeeKpiEvaluations')
       .first()
     return employeeEvaluation ? employeeEvaluation : null
   }
