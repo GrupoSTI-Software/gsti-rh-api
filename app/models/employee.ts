@@ -17,6 +17,7 @@ import EmployeeShiftChange from './employee_shift_changes.js'
 import UserResponsibleEmployee from './user_responsible_employee.js'
 import EmployeeShift from './employee_shift.js'
 import EmployeeBonus from './employee_bonus.js'
+import EmployeePsychometricEvaluation from './employee_psychometric_evaluation.js'
 
 /**
  * @swagger
@@ -352,4 +353,9 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare employeeBonuses: HasMany<typeof EmployeeBonus>
+
+  @hasMany(() => EmployeePsychometricEvaluation, {
+    foreignKey: 'employeeId',
+  })
+  declare psychometricEvaluations: HasMany<typeof EmployeePsychometricEvaluation>
 }
