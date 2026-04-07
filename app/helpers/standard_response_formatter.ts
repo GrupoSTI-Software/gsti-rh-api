@@ -85,6 +85,8 @@ export class StandardResponseFormatter {
       'Employee Supply': 'employeeSupply',
       'Branches': 'branchOffices',
       'Branch': 'branchOffice',
+      'Employee Branch Office': 'employeeBranchOffice',
+      'Employee Branch Offices': 'employeeBranchOffices',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

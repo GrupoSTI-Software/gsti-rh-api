@@ -450,6 +450,11 @@ export default class EmployeeService {
       .preload('person')
       .preload('businessUnit')
       .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .if(filters.orderBy === 'number', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
         query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
@@ -800,6 +805,11 @@ export default class EmployeeService {
       .preload('emergencyContact')
       .preload('children')
       .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -828,6 +838,11 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -1103,6 +1118,11 @@ export default class EmployeeService {
       .preload('department')
       .preload('position')
       .preload('person')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .orderBy('employee_id')
       .paginate(filters.page, filters.limit)
     return employees
