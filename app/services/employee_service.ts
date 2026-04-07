@@ -445,6 +445,11 @@ export default class EmployeeService {
           query.whereIn('departmentId', departmentsList)
         }
       )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
       .preload('department')
       .preload('position')
       .preload('person')
@@ -1115,6 +1120,11 @@ export default class EmployeeService {
         this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereNotIn('person_id', persons)
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
       .preload('department')
       .preload('position')
       .preload('person')
@@ -4407,6 +4417,7 @@ export default class EmployeeService {
    * @param options.positionId - Filtro opcional: solo empleados con esta posición (requiere departmentId válido que tenga esa posición)
    * @param options.businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
    * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
+   * @param options.branchNameIds - IDs de sucursal (branch_office_id); solo empleados con asignación activa a alguna de ellas
    */
   async generateEmployeeImportTemplate(options?: {
     fillWithExisting?: boolean
@@ -4414,6 +4425,7 @@ export default class EmployeeService {
     positionId?: number
     businessUnitId?: number
     payrollBusinessUnitId?: number
+    branchNameIds?: number[]
     /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
     orderBy?: string
     orderDirection?: string
@@ -4683,6 +4695,11 @@ export default class EmployeeService {
       if (options.payrollBusinessUnitId !== undefined) {
         employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
       }
+      if (options.branchNameIds && options.branchNameIds.length > 0) {
+        employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', options.branchNameIds!)
+        })
+      }
 
       const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
       if (allowedBusinessUnitIds.length > 0) {
@@ -4788,6 +4805,7 @@ export default class EmployeeService {
  * @param isReport - Si es true, genera un reporte con turnos asignados basados en applySince
  * @param businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
  * @param payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
+ * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (vacío = sin filtro). Aplica a plantilla y modo reporte.
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
 async generateShiftAssignmentTemplate(
@@ -4796,7 +4814,8 @@ async generateShiftAssignmentTemplate(
   employeeIds?: number[],
   isReport?: boolean,
   businessUnitId?: number,
-  payrollBusinessUnitId?: number
+  payrollBusinessUnitId?: number,
+  branchNameIds?: number[]
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4939,6 +4958,12 @@ async generateShiftAssignmentTemplate(
   // Filtrar por IDs de empleados si se proporcionan
   if (employeeIds && employeeIds.length > 0) {
     employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+  }
+
+  if (branchNameIds && branchNameIds.length > 0) {
+    employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+      sub.whereIn('branchOfficeId', branchNameIds)
+    })
   }
 
   const employees = await employeesQuery
