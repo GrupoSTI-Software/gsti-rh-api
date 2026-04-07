@@ -53,14 +53,19 @@ export class StandardResponseFormatter {
   static error(
     response: HttpContext['response'],
     message: string,
-    statusCode: number = 400
+    statusCode: number = 400,
+    errorCode?: string
   ) {
-    return response.status(statusCode).json({
+    const body: Record<string, unknown> = {
       type: 'error',
       title: 'Error',
       message,
-      data: null
-    })
+      data: null,
+    }
+    if (errorCode) {
+      body.errorCode = errorCode
+    }
+    return response.status(statusCode).json(body)
   }
 
   /**
@@ -77,7 +82,9 @@ export class StandardResponseFormatter {
       'Supply Characteristic': 'supplieCaracteristic',
       'Supply Characteristic Value': 'supplieCaracteristicValue',
       'Supply': 'supplie',
-      'Employee Supply': 'employeeSupply'
+      'Employee Supply': 'employeeSupply',
+      'Branches': 'branchOffices',
+      'Branch': 'branchOffice',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')
