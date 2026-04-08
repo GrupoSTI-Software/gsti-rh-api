@@ -6117,13 +6117,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
    * @param departmentIds - IDs de departamentos a filtrar (opcional)
    * @param employeeIds - IDs de empleados a filtrar (opcional)
+   * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (opcional)
    * @returns Buffer del archivo Excel generado
    */
   async generateAttendanceReport(
     startDate: string,
     endDate: string,
     departmentIds?: number[],
-    employeeIds?: number[]
+    employeeIds?: number[],
+    branchNameIds?: number[]
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
@@ -6187,6 +6189,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Filtrar por IDs de empleados si se proporcionan
     if (employeeIds && employeeIds.length > 0) {
       employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+    }
+
+    if (branchNameIds && branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', branchNameIds)
+      })
     }
 
     const employees = await employeesQuery

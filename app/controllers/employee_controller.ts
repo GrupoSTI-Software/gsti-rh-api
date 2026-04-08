@@ -7014,6 +7014,13 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           example: "1,2,3"
+   *       - name: branchNameIds
+   *         in: query
+   *         required: false
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna. Vacío u omitido = sin filtro.
+   *         schema:
+   *           type: string
+   *           example: "2,3,4"
    *     responses:
    *       '200':
    *         description: Archivo Excel generado exitosamente
@@ -7163,12 +7170,15 @@ export default class EmployeeController {
         }
       }
 
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
+
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateAttendanceReport(
         startDate,
         endDate,
         departmentIds,
-        employeeIds
+        employeeIds,
+        branchNameIds
       )
 
       // Configurar headers para la descarga del archivo
