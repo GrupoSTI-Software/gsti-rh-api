@@ -12,6 +12,11 @@
       <div style="font-size:13px;opacity:0.9;margin-top:4px;">Registro de asistencia no recibido</div>
     </div>
     <div style="padding:20px;">
+      @if(isTestEmail)
+        <p style="margin:0 0 16px;padding:12px 14px;background:#fff8e6;border:1px solid #f0d78c;border-radius:6px;font-size:13px;line-height:1.5;color:#5c4a00;">
+          <strong>Correo de prueba</strong> (comando con <code style="font-size:12px;">--test</code>): simula todas las faltas elegibles del día; no se registró envío en el sistema ni se afectó el log de notificaciones.
+        </p>
+      @end
       <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">
         En esta notificación se incluyen <strong>todos</strong> los colaboradores pendientes de aviso ({{ faultCount }}) que superaron el plazo para registrar su entrada el día
         <strong>{{ calendarDayLabel }}</strong>, según la tolerancia configurada (Fault) en el sistema.
@@ -42,6 +47,9 @@
                 <span style="color:#555;">Código: {{ emp.code }}</span><br>
                 <span style="color:#555;">{{ emp.department }} · {{ emp.position }}</span><br>
                 <span style="color:#777;font-size:12px;">{{ emp.businessUnit }}</span>
+                @if(hasBranchOfficesInSystem)
+                  <br><span style="color:#777;font-size:12px;">Sucursal: {{ emp.branchDisplay }}</span>
+                @end
               </td>
               <td style="padding:10px 8px;border-bottom:1px solid #eee;vertical-align:top;">
                 {{ emp.shiftName }}<br>

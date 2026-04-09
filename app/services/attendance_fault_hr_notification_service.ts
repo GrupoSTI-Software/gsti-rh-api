@@ -1,8 +1,12 @@
 import Employee from '#models/employee'
 import SystemSetting from '#models/system_setting'
 import Tolerance from '#models/tolerance'
-import { ATTENDANCE_FAULT_HR_ROLE_SLUGS } from '#constants/attendance_fault_hr_notification'
+import {
+  ATTENDANCE_FAULT_HR_ROLE_SLUGS,
+  ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG,
+} from '#constants/attendance_fault_hr_notification'
 import AssistsService from '#services/assist_service'
+import BranchOfficeService from '#services/branch_office_service'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import Database from '@adonisjs/lucid/services/db'
@@ -15,6 +19,11 @@ export interface AttendanceFaultHrNotifyRow {
   day: string
   shiftTimeStart: string
   shiftName: string | null
+}
+
+export interface AttendanceFaultHrRunOptions {
+  /** Simula faltas para todos los elegibles del día y envía solo al rol de prueba (sin insertar log). */
+  test?: boolean
 }
 
 /**
@@ -103,6 +112,56 @@ export default class AttendanceFaultHrNotificationService {
         ))`,
         [faultOffsetMinutes]
       )
+      .orderBy('e.employee_last_name', 'asc')
+      .orderBy('e.employee_first_name', 'asc')
+      .orderBy('eac.employee_assist_calendar_id', 'asc')
+      .select(
+        'eac.employee_assist_calendar_id as employeeAssistCalendarId',
+        'eac.employee_id as employeeId',
+        'eac.day as day',
+        Database.raw('TIME_FORMAT(s.shift_time_start, \'%H:%i:%s\') as shiftTimeStart'),
+        's.shift_name as shiftName'
+      )
+
+    return rows as AttendanceFaultHrNotifyRow[]
+  }
+
+  /**
+   * Igual criterio de elegibilidad que `fetchPendingFaultRows`, pero sin exigir plazo Fault vencido
+   * ni excluir filas ya registradas en log (para simular “todos con falta” en modo prueba).
+   */
+  async fetchTestPendingFaultRows(
+    calendarDay: string,
+    businessUnitSlugs: string[]
+  ): Promise<AttendanceFaultHrNotifyRow[]> {
+    if (businessUnitSlugs.length === 0) {
+      return []
+    }
+
+    const slugPlaceholders = businessUnitSlugs.map(() => '?').join(', ')
+    const slugBindings = businessUnitSlugs.map((s) => s.toLowerCase())
+
+    const rows = await Database.from('employee_assist_calendars as eac')
+      .innerJoin('employees as e', 'e.employee_id', 'eac.employee_id')
+      .innerJoin('business_units as bu', 'bu.business_unit_id', 'e.business_unit_id')
+      .innerJoin('shifts as s', 's.shift_id', 'eac.shift_id')
+      .whereNull('eac.employee_assist_calendar_deleted_at')
+      .whereNull('e.employee_deleted_at')
+      .where((q) => {
+        q.whereNull('e.employee_terminated_date').orWhereRaw('DATE(e.employee_terminated_date) > ?', [
+          calendarDay,
+        ])
+      })
+      .whereNull('bu.business_unit_deleted_at')
+      .whereNull('s.shift_deleted_at')
+      .where('eac.day', calendarDay)
+      .whereNull('eac.check_in_assist_id')
+      .whereNotNull('eac.shift_id')
+      .where('eac.is_rest_day', 0)
+      .where('eac.is_holiday', 0)
+      .where('eac.is_vacation_date', 0)
+      .where('eac.is_work_disability_date', 0)
+      .whereRaw(`LOWER(TRIM(bu.business_unit_slug)) IN (${slugPlaceholders})`, slugBindings)
       .orderBy('e.employee_last_name', 'asc')
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('eac.employee_assist_calendar_id', 'asc')
@@ -247,6 +306,45 @@ export default class AttendanceFaultHrNotificationService {
     return out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
   }
 
+  /**
+   * Correos de usuarios activos con un rol concreto (slug), empleado asociado y `user_email`.
+   */
+  async fetchRecipientUserEmailsByRoleSlug(roleSlug: string): Promise<string[]> {
+    const slugLower = roleSlug.trim().toLowerCase()
+    if (!slugLower) {
+      return []
+    }
+
+    const rows = await Database.from('users as u')
+      .innerJoin('roles as r', 'r.role_id', 'u.role_id')
+      .innerJoin('employees as e', 'e.person_id', 'u.person_id')
+      .whereNull('u.user_deleted_at')
+      .where('u.user_active', 1)
+      .whereNotNull('u.user_email')
+      .whereRaw('TRIM(u.user_email) <> \'\'')
+      .whereNull('r.role_deleted_at')
+      .where('r.role_active', 1)
+      .whereNull('e.employee_deleted_at')
+      .whereRaw('LOWER(TRIM(r.role_slug)) = ?', [slugLower])
+      .select(Database.raw('DISTINCT TRIM(u.user_email) as email'))
+
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const row of rows as { email: string }[]) {
+      const raw = row.email ? String(row.email).trim() : ''
+      if (!raw) {
+        continue
+      }
+      const key = raw.toLowerCase()
+      if (seen.has(key)) {
+        continue
+      }
+      seen.add(key)
+      out.push(raw)
+    }
+    return out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+  }
+
   formatSidebarColor(color: string): string {
     const c = color?.trim() || '333333'
     return c.startsWith('#') ? c : `#${c}`
@@ -268,6 +366,57 @@ export default class AttendanceFaultHrNotificationService {
   }
 
   /**
+   * Misma noción de “sucursales en el sistema” que la API (unidades en SYSTEM_BUSINESS, no eliminadas).
+   */
+  async hasAtLeastOneBranchOfficeInAllowedBusinessUnits(
+    allowedBusinessUnitIds: number[]
+  ): Promise<boolean> {
+    if (allowedBusinessUnitIds.length === 0) {
+      return false
+    }
+    const row = await Database.from('branch_offices')
+      .whereNull('branch_office_deleted_at')
+      .whereIn('business_unit_id', allowedBusinessUnitIds)
+      .limit(1)
+      .select(Database.raw('1 as ok'))
+      .first()
+    return row !== null
+  }
+
+  /**
+   * Nombre de sucursal activa por empleado (mismo criterio que `whereHas('activeEmployeeBranchOffice')` + sucursal vigente en listados).
+   */
+  async loadActiveBranchOfficeNamesByEmployeeIds(
+    employeeIds: number[],
+    allowedBusinessUnitIds: number[]
+  ): Promise<Map<number, string>> {
+    const map = new Map<number, string>()
+    if (employeeIds.length === 0 || allowedBusinessUnitIds.length === 0) {
+      return map
+    }
+    const unique = [...new Set(employeeIds)]
+    const rows = await Database.from('employee_branch_offices as ebo')
+      .innerJoin('branch_offices as bo', 'bo.branch_office_id', 'ebo.branch_office_id')
+      .whereNull('bo.branch_office_deleted_at')
+      .whereIn('ebo.employee_id', unique)
+      .where('ebo.employee_branch_office_active', 1)
+      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+      .orderBy('ebo.employee_branch_office_id', 'desc')
+      .select(
+        'ebo.employee_id as employeeId',
+        'bo.branch_office_name as branchOfficeName'
+      )
+
+    for (const r of rows as { employeeId: number; branchOfficeName: string }[]) {
+      const id = Number(r.employeeId)
+      if (!map.has(id)) {
+        map.set(id, String(r.branchOfficeName ?? '').trim())
+      }
+    }
+    return map
+  }
+
+  /**
    * Carga empleados para el correo en una sola consulta con relaciones necesarias.
    */
   async loadEmployeesForEmail(employeeIds: number[]) {
@@ -276,14 +425,18 @@ export default class AttendanceFaultHrNotificationService {
     }
     const unique = [...new Set(employeeIds)]
     return Employee.query()
-      .whereIn('employee_id', unique)
+      .whereIn('employeeId', unique)
       .whereNull('employee_deleted_at')
       .preload('department')
       .preload('position')
       .preload('businessUnit')
   }
 
-  async run(logger?: { info: (m: string) => void; error: (m: string) => void; warning: (m: string) => void }) {
+  async run(
+    logger?: { info: (m: string) => void; error: (m: string) => void; warning: (m: string) => void },
+    options?: AttendanceFaultHrRunOptions
+  ) {
+    const isTest = options?.test === true
     const log = {
       info: (m: string) => logger?.info(m),
       error: (m: string) => logger?.error(m),
@@ -308,9 +461,15 @@ export default class AttendanceFaultHrNotificationService {
       return { sent: false, reason: 'no_system_setting' as const }
     }
 
-    if (!systemSetting.systemSettingAttendanceFaultHrEmails) {
+    if (!isTest && !systemSetting.systemSettingAttendanceFaultHrEmails) {
       log.info('Notificaciones de falta por asistencia a RH deshabilitadas en ajustes del sistema')
       return { sent: false, reason: 'disabled' as const }
+    }
+
+    if (isTest && !systemSetting.systemSettingAttendanceFaultHrEmails) {
+      log.info(
+        'Modo prueba: se omite la desactivación de notificaciones en ajustes del sistema para poder enviar el correo de prueba'
+      )
     }
 
     const faultMinutes = await this.getFaultToleranceMinutes(systemSetting.systemSettingId)
@@ -328,25 +487,39 @@ export default class AttendanceFaultHrNotificationService {
       return { sent: false, reason: 'no_business_units' as const }
     }
 
-    const recipients = await this.fetchHrRecipientUserEmails()
+    const recipients = isTest
+      ? await this.fetchRecipientUserEmailsByRoleSlug(ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG)
+      : await this.fetchHrRecipientUserEmails()
 
     if (recipients.length === 0) {
       log.warning(
-        'No hay destinatarios: usuarios activos con roles configurados, empleado asociado y user_email'
+        isTest
+          ? `No hay destinatarios de prueba: usuarios activos con rol "${ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG}", empleado asociado y user_email`
+          : 'No hay destinatarios: usuarios activos con roles configurados, empleado asociado y user_email'
       )
       return { sent: false, reason: 'no_recipients' as const }
     }
 
     await this.ensureEmployeeAssistCalendarsForDay(calendarDay, businessUnitSlugs, log)
 
-    const pendingRaw = await this.fetchPendingFaultRows(calendarDay, businessUnitSlugs, faultOffsetMinutes)
+    const pendingRaw = isTest
+      ? await this.fetchTestPendingFaultRows(calendarDay, businessUnitSlugs)
+      : await this.fetchPendingFaultRows(calendarDay, businessUnitSlugs, faultOffsetMinutes)
     const pending = this.dedupePendingByEmployeeId(pendingRaw)
     if (pending.length === 0) {
-      log.info('Sin faltas nuevas por registro de asistencia para notificar')
+      log.info(
+        isTest
+          ? 'Modo prueba: no hay colaboradores elegibles sin entrada hoy (misma lógica que la notificación real, sin filtro de plazo ni de log)'
+          : 'Sin faltas nuevas por registro de asistencia para notificar'
+      )
       return { sent: false, reason: 'no_pending' as const }
     }
 
-    if (pendingRaw.length !== pending.length) {
+    if (isTest) {
+      log.info(
+        `Modo prueba: ${pending.length} colaborador(es) en la simulación (sin plazo Fault ni exclusión por log previo)`
+      )
+    } else if (pendingRaw.length !== pending.length) {
       log.info(
         `Filas de calendario consolidadas por empleado: ${pendingRaw.length} → ${pending.length} en el correo`
       )
@@ -354,6 +527,15 @@ export default class AttendanceFaultHrNotificationService {
 
     const employees = await this.loadEmployeesForEmail(pending.map((p) => p.employeeId))
     const employeeById = new Map(employees.map((e) => [e.employeeId, e]))
+    const allowedBranchBusinessUnitIds = await BranchOfficeService.getAllowedBusinessUnitIds()
+    const hasBranchOfficesInSystem =
+      await this.hasAtLeastOneBranchOfficeInAllowedBusinessUnits(allowedBranchBusinessUnitIds)
+    const branchNameByEmployeeId = hasBranchOfficesInSystem
+      ? await this.loadActiveBranchOfficeNamesByEmployeeIds(
+          pending.map((p) => p.employeeId),
+          allowedBranchBusinessUnitIds
+        )
+      : new Map<number, string>()
 
     const emailRows = pending
       .map((row) => {
@@ -361,7 +543,19 @@ export default class AttendanceFaultHrNotificationService {
         if (!emp) {
           return null
         }
-        return {
+        const branchName = branchNameByEmployeeId.get(emp.employeeId)?.trim() ?? ''
+        const rowPayload: {
+          employeeAssistCalendarId: number
+          name: string
+          code: string
+          department: string
+          position: string
+          businessUnit: string
+          branchDisplay?: string
+          shiftName: string
+          shiftStart: string
+          photoUrl: string
+        } = {
           employeeAssistCalendarId: row.employeeAssistCalendarId,
           name: `${emp.employeeFirstName ?? ''} ${emp.employeeLastName ?? ''}`.trim(),
           code: String(emp.employeeCode ?? ''),
@@ -372,6 +566,10 @@ export default class AttendanceFaultHrNotificationService {
           shiftStart: row.shiftTimeStart,
           photoUrl: this.resolvePhotoUrl(emp.employeePhoto),
         }
+        if (hasBranchOfficesInSystem) {
+          rowPayload.branchDisplay = branchName ? branchName : 'No asignada'
+        }
+        return rowPayload
       })
       .filter((r): r is NonNullable<typeof r> => r !== null)
 
@@ -387,9 +585,13 @@ export default class AttendanceFaultHrNotificationService {
       calendarDayLabel: nowCst.setLocale('es').toFormat("cccc d 'de' LLLL yyyy"),
       employees: emailRows,
       faultCount: emailRows.length,
+      hasBranchOfficesInSystem,
+      isTestEmail: isTest,
     }
 
-    const subject = `Alerta: registro de asistencia no recibido — ${systemSetting.systemSettingTradeName}`
+    const subject = isTest
+      ? `[PRUEBA] Alerta: registro de asistencia no recibido — ${systemSetting.systemSettingTradeName}`
+      : `Alerta: registro de asistencia no recibido — ${systemSetting.systemSettingTradeName}`
 
     try {
       await mail.send((message) => {
@@ -410,16 +612,22 @@ export default class AttendanceFaultHrNotificationService {
         }
       })
 
-      await Database.table('attendance_fault_hr_notification_logs').insert(
-        fixedLogs.map((l) => ({
-          employee_assist_calendar_id: l.employeeAssistCalendarId,
-          employee_id: l.employeeId,
-          system_setting_id: l.systemSettingId,
-          attendance_fault_hr_notification_log_created_at: new Date(),
-        }))
-      )
+      if (!isTest) {
+        await Database.table('attendance_fault_hr_notification_logs').insert(
+          fixedLogs.map((l) => ({
+            employee_assist_calendar_id: l.employeeAssistCalendarId,
+            employee_id: l.employeeId,
+            system_setting_id: l.systemSettingId,
+            attendance_fault_hr_notification_log_created_at: new Date(),
+          }))
+        )
+      }
 
-      log.info(`Correo enviado a ${recipients.length} destinatario(s); ${fixedLogs.length} registro(s) en log`)
+      log.info(
+        isTest
+          ? `Correo de prueba enviado a ${recipients.length} destinatario(s); sin registro en log (${fixedLogs.length} fila(s) simulada(s))`
+          : `Correo enviado a ${recipients.length} destinatario(s); ${fixedLogs.length} registro(s) en log`
+      )
       return { sent: true, count: fixedLogs.length as number }
     } catch (e: any) {
       log.error(`Error al enviar correo de faltas a RH: ${e?.message ?? e}`)
