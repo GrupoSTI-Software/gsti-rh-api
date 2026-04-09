@@ -6936,6 +6936,8 @@ export default class EmployeeController {
    *     summary: Generar reporte de asistencia en Excel
    *     description: |
    *       Genera un reporte de asistencia en Excel agrupado por departamento.
+   *       Parámetros en query string. También acepta start_date/end_date como alias.
+   *       Si el cliente envía datos en el cuerpo (p. ej. axios con `data` en GET), usar POST /attendance-report con JSON.
    *       Muestra empleados con sus turnos y colores según el estado de asistencia.
    *       - Verde: ontime
    *       - Azul: tolerance
@@ -6975,6 +6977,20 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           example: "1,2,3"
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados de esta unidad de negocio de trabajo (debe estar en las unidades del sistema)
+   *         schema:
+   *           type: integer
+   *           example: 1
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados con esta unidad de negocio de nómina
+   *         schema:
+   *           type: integer
+   *           example: 12
    *     responses:
    *       '200':
    *         description: Archivo Excel generado exitosamente
@@ -7011,15 +7027,92 @@ export default class EmployeeController {
    *                   type: string
    *                 error:
    *                   type: string
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Generar reporte de asistencia en Excel (cuerpo JSON)
+   *     description: |
+   *       Igual que GET pero los filtros van en el cuerpo (application/json).
+   *       Útil cuando el cliente envía parámetros en el body o usa alias snake_case.
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - startDate
+   *               - endDate
+   *             properties:
+   *               startDate:
+   *                 type: string
+   *                 format: date
+   *                 example: "2026-04-08"
+   *               endDate:
+   *                 type: string
+   *                 format: date
+   *                 example: "2026-04-08"
+   *               start_date:
+   *                 type: string
+   *                 description: Alternativa a startDate
+   *               end_date:
+   *                 type: string
+   *                 description: Alternativa a endDate
+   *               departmentIds:
+   *                 oneOf:
+   *                   - type: string
+   *                     example: "1,2,3"
+   *                   - type: array
+   *                     items:
+   *                       type: integer
+   *               employeeIds:
+   *                 oneOf:
+   *                   - type: string
+   *                   - type: array
+   *                     items:
+   *                       type: integer
+   *               businessUnitId:
+   *                 type: integer
+   *               payrollBusinessUnitId:
+   *                 type: integer
+   *               business_unit_id:
+   *                 type: integer
+   *               payroll_business_unit_id:
+   *                 type: integer
+   *     responses:
+   *       '200':
+   *         description: Archivo Excel generado exitosamente
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       '400':
+   *         description: Error de validación
+   *       '500':
+   *         description: Error del servidor
    */
   async getAttendanceReport({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
 
-      const startDate = request.input('startDate')
-      const endDate = request.input('endDate')
-      const departmentIdsParam = request.input('departmentIds')
-      const employeeIdsParam = request.input('employeeIds')
+      const firstNonEmptyInput = (...keys: string[]): string | undefined => {
+        for (const key of keys) {
+          const v = request.input(key)
+          if (v === undefined || v === null) continue
+          const s = typeof v === 'string' ? v.trim() : String(v).trim()
+          if (s !== '') return s
+        }
+        return undefined
+      }
+
+      const startDate = firstNonEmptyInput('startDate', 'start_date')
+      const endDate = firstNonEmptyInput('endDate', 'end_date')
+      const departmentIdsParam =
+        request.input('departmentIds') ?? request.input('department_ids')
+      const employeeIdsParam = request.input('employeeIds') ?? request.input('employee_ids')
 
       // Validar que las fechas sean proporcionadas
       if (!startDate || !endDate) {
@@ -7124,12 +7217,37 @@ export default class EmployeeController {
         }
       }
 
+      const businessUnitIdParam =
+        request.input('businessUnitId') ?? request.input('business_unit_id')
+      const payrollBusinessUnitIdParam =
+        request.input('payrollBusinessUnitId') ?? request.input('payroll_business_unit_id')
+      const businessUnitIdParsed =
+        businessUnitIdParam !== undefined && businessUnitIdParam !== ''
+          ? Number(businessUnitIdParam)
+          : undefined
+      const payrollBusinessUnitIdParsed =
+        payrollBusinessUnitIdParam !== undefined && payrollBusinessUnitIdParam !== ''
+          ? Number(payrollBusinessUnitIdParam)
+          : undefined
+      const businessUnitId =
+        businessUnitIdParsed !== undefined && !Number.isNaN(businessUnitIdParsed) && businessUnitIdParsed > 0
+          ? businessUnitIdParsed
+          : undefined
+      const payrollBusinessUnitId =
+        payrollBusinessUnitIdParsed !== undefined &&
+        !Number.isNaN(payrollBusinessUnitIdParsed) &&
+        payrollBusinessUnitIdParsed > 0
+          ? payrollBusinessUnitIdParsed
+          : undefined
+
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateAttendanceReport(
         startDate,
         endDate,
         departmentIds,
-        employeeIds
+        employeeIds,
+        businessUnitId,
+        payrollBusinessUnitId
       )
 
       // Configurar headers para la descarga del archivo

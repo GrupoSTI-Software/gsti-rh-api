@@ -6072,13 +6072,17 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
    * @param departmentIds - IDs de departamentos a filtrar (opcional)
    * @param employeeIds - IDs de empleados a filtrar (opcional)
+   * @param businessUnitId - Unidad de negocio de trabajo (opcional; dentro de las permitidas por ENV)
+   * @param payrollBusinessUnitId - Unidad de negocio de nómina (opcional)
    * @returns Buffer del archivo Excel generado
    */
   async generateAttendanceReport(
     startDate: string,
     endDate: string,
     departmentIds?: number[],
-    employeeIds?: number[]
+    employeeIds?: number[],
+    businessUnitId?: number,
+    payrollBusinessUnitId?: number
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
@@ -6122,7 +6126,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
 
-    // Obtener empleados activos agrupados por departamento
+    // Obtener empleados activos agrupados por departamento (misma lógica que index / plantilla de turnos)
     let employeesQuery = Employee.query()
       .whereNull('deletedAt')
       .whereIn('businessUnitId', businessUnitsList)
@@ -6133,6 +6137,17 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       .preload('department', (query) => {
         query.whereNull('department_deleted_at')
       })
+
+    if (businessUnitId !== undefined && businessUnitId > 0 && !Number.isNaN(businessUnitId)) {
+      employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
+    }
+    if (
+      payrollBusinessUnitId !== undefined &&
+      payrollBusinessUnitId > 0 &&
+      !Number.isNaN(payrollBusinessUnitId)
+    ) {
+      employeesQuery = employeesQuery.where('payrollBusinessUnitId', payrollBusinessUnitId)
+    }
 
     // Filtrar por departamentos si se proporcionan
     if (departmentIds && departmentIds.length > 0) {
