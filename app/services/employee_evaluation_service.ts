@@ -102,6 +102,7 @@ export default class EmployeeEvaluationService {
       })
       .orderBy('employee_evaluation_type', 'asc')
       .orderBy('employee_evaluation_date', 'desc')
+      .limit(3)
     return employeeEvaluations ? employeeEvaluations : []
   }
 
