@@ -14,6 +14,9 @@ import { PositionShiftFilterInterface } from '../interfaces/position_shift_filte
 import EmployeeService from './employee_service.js'
 import EmployeeShiftService from './employee_shift_service.js'
 import DepartmentService from './department_service.js'
+import PDFDocument from 'pdfkit'
+import SystemSetting from '#models/system_setting'
+import axios from 'axios'
 
 export default class PositionService {
 
@@ -863,5 +866,515 @@ export default class PositionService {
     }
   }
 
-  
+
+  async getPdf(positionId: number): Promise<Buffer | null> {
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+
+    const position = await Position.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .whereNull('position_deleted_at')
+      .where('position_id', positionId)
+      .preload('specificFunctions', (q) => q.whereNull('position_specific_function_deleted_at'))
+      .preload('kpis', (q) => q.whereNull('position_kpi_deleted_at'))
+      .preload('competencies', (q) => {
+        q.whereNull('position_competency_deleted_at').preload('weight')
+      })
+      .preload('psychometricProfiles', (q) => {
+        q.preload('psychometricTestDimension', (dq) => {
+          dq.preload('psychometricTest')
+        })
+      })
+      .first()
+
+    if (!position) return null
+
+    // Obtener logo desde SystemSetting
+    const systemSetting = await SystemSetting.query().whereNull('system_setting_deleted_at').first()
+    let logoBuffer: Buffer | null = null
+    if (systemSetting?.systemSettingLogo) {
+      try {
+        const res = await axios.get(systemSetting.systemSettingLogo, {
+          responseType: 'arraybuffer',
+          timeout: 8000,
+        })
+        logoBuffer = Buffer.from(res.data)
+      } catch {
+        logoBuffer = null
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'LETTER', margin: 40 })
+      const chunks: Uint8Array[] = []
+      doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
+      doc.on('end', () => {
+        const total = chunks.reduce((acc, c) => acc + c.length, 0)
+        const merged = new Uint8Array(total)
+        let offset = 0
+        for (const c of chunks) {
+          merged.set(c, offset)
+          offset += c.length
+        }
+        resolve(Buffer.from(merged.buffer))
+      })
+      doc.on('error', reject)
+
+      const navy = '#1B3A6B'
+      const white = '#FFFFFF'
+      const lightGray = '#F5F5F5'
+      const black = '#000000'
+      const pageW = doc.page.width - 80
+      const today = new Date().toLocaleDateString('es-MX')
+
+      // ── Constantes de layout ──────────────────────────────────────────────
+      const logoColW = 120
+      const rightColX = 40 + logoColW
+      const rightColW = pageW - logoColW
+      const titleRowH = 22
+      const metaRowH = 16
+      const hHeight = titleRowH + metaRowH * 3
+      const leftSubW = Math.round(rightColW * 0.62)
+      const rightSubX = rightColX + leftSubW
+      const rightSubW = rightColW - leftSubW
+      const pagColW = 68
+      const motivoColW = rightColW - pagColW
+      const pagColX = rightColX + motivoColW
+      const half = pageW / 2
+
+      const implDate = position.positionCreatedAt
+        ? position.positionCreatedAt.setLocale('es-MX').toFormat('d \'de\' MMMM \'del\' yyyy')
+        : today
+
+      let currentPage = 1
+      const pageBottomLimit = doc.page.height - 60
+
+      // Fuerza salto de página si no hay suficiente espacio
+      const ensureSpace = (needed: number) => {
+        if (doc.y + needed > pageBottomLimit) {
+          doc.addPage()
+        }
+      }
+
+      // ── Función: encabezado de página ─────────────────────────────────────
+      const drawPageHeader = (pageNum: number) => {
+        const hTop = 40
+        const row2Y = hTop + titleRowH
+        const row3Y = row2Y + metaRowH
+        const row4Y = row3Y + metaRowH
+        const hBot = hTop + hHeight
+
+        doc.rect(40, hTop, pageW, hHeight).stroke()
+        doc.moveTo(rightColX, hTop).lineTo(rightColX, hBot).stroke()
+        doc.moveTo(rightColX, row2Y).lineTo(40 + pageW, row2Y).stroke()
+        doc.moveTo(rightColX, row3Y).lineTo(40 + pageW, row3Y).stroke()
+        doc.moveTo(rightColX, row4Y).lineTo(40 + pageW, row4Y).stroke()
+        doc.moveTo(rightSubX, row2Y).lineTo(rightSubX, row4Y).stroke()
+        doc.moveTo(pagColX, row4Y).lineTo(pagColX, hBot).stroke()
+
+        if (logoBuffer) {
+          try {
+            doc.image(logoBuffer, 44, hTop + 4, {
+              fit: [logoColW - 8, hHeight - 8],
+              align: 'center',
+              valign: 'center',
+            })
+          } catch { /* sin logo */ }
+        }
+
+        doc
+          .fontSize(10).font('Helvetica-Bold').fillColor(black)
+          .text('DESCRIPCIÓN Y PERFIL DE PUESTO', rightColX + 4, hTop + 6, { width: rightColW - 8, align: 'center' })
+
+        doc
+          .fontSize(7).font('Helvetica').fillColor(black)
+          .text(`Fecha de implementación: ${implDate}`, rightColX + 4, row2Y + 4, { width: leftSubW - 8, lineBreak: false })
+          .text('Revisión: 01', rightSubX + 4, row2Y + 4, { width: rightSubW - 8, lineBreak: false })
+          .text(`Clave de control: ${position.positionCode ?? ''}`, rightColX + 4, row3Y + 4, { width: leftSubW - 8, lineBreak: false })
+          .text('Reemplaza a revisión: 00', rightSubX + 4, row3Y + 4, { width: rightSubW - 8, lineBreak: false })
+          .text('Motivo del cambio:', rightColX + 4, row4Y + 4, { width: motivoColW - 8, lineBreak: false })
+          .text(`Pág. ${pageNum}`, pagColX + 4, row4Y + 4, { width: pagColW - 8, align: 'center', lineBreak: false })
+
+        doc.y = hBot + 10
+      }
+
+      // ── Función: secciones de contenido ───────────────────────────────────
+      const drawSectionHeader = (label: string) => {
+        ensureSpace(40)
+        const sY = doc.y
+        doc.rect(40, sY, pageW, 18).fill(navy)
+        doc
+          .fontSize(9)
+          .fillColor(white)
+          .font('Helvetica-Bold')
+          .text(label, 40, sY + 5, { width: pageW, align: 'center', lineBreak: false })
+        doc.y = sY + 18 + 5
+        doc.fillColor(black).font('Helvetica')
+      }
+
+      const drawSubSectionHeader = (label: string) => {
+        ensureSpace(30)
+        const sY = doc.y
+        doc.rect(40, sY, pageW, 16).fill('#2E5FA3')
+        doc
+          .fontSize(8)
+          .fillColor(white)
+          .font('Helvetica-Bold')
+          .text(label, 45, sY + 4, { width: pageW - 10, align: 'center', lineBreak: false })
+        doc.y = sY + 16 + 4
+        doc.fillColor(black).font('Helvetica')
+      }
+
+      // ── Registrar encabezado en páginas nuevas ────────────────────────────
+      doc.on('pageAdded', () => {
+        currentPage++
+        drawPageHeader(currentPage)
+      })
+
+      // ── Página 1: encabezado completo ─────────────────────────────────────
+      drawPageHeader(1)
+
+      // ── F. Emisión / F. Revisión ──────────────────────────────────────────
+      const emisionY = doc.y
+      doc.fontSize(8).font('Helvetica').fillColor(black)
+        .text('F. Emisión:', 40, emisionY)
+        .text(today, 40 + half - 90, emisionY, { width: 80, align: 'right' })
+      doc.moveTo(40 + 68, emisionY + 10).lineTo(40 + half - 10, emisionY + 10).strokeColor(black).stroke()
+      doc
+        .text('F. Revisión:', 40 + half + 10, emisionY)
+        .text(today, 40 + half + 80, emisionY, { width: half - 90 })
+      doc.moveTo(40 + half + 74, emisionY + 10).lineTo(40 + pageW, emisionY + 10).stroke()
+      doc.y = emisionY + 20
+
+      // ── Dirección / Área-Cuenta ───────────────────────────────────────────
+      const dirY = doc.y
+      doc.fontSize(8).font('Helvetica').fillColor(black)
+        .text('Dirección:', 40, dirY)
+        .text('Recursos Humanos', 40 + 70, dirY, { width: half - 80 })
+      doc.moveTo(40 + 64, dirY + 10).lineTo(40 + half - 10, dirY + 10).stroke()
+      doc
+        .text('Área /Cuenta:', 40 + half + 10, dirY)
+        .text('Recursos Humanos', 40 + half + 82, dirY, { width: half - 92 })
+      doc.moveTo(40 + half + 78, dirY + 10).lineTo(40 + pageW, dirY + 10).stroke()
+      doc.y = dirY + 20
+
+      // ── PUESTO CLAVE ──────────────────────────────────────────────────────
+      doc
+        .fontSize(8).font('Helvetica-Oblique').fillColor(black)
+        .text('PUESTO CLAVE', 40, doc.y, { width: pageW, align: 'right' })
+      doc.moveDown(0.5)
+
+      // ── Nombre del puesto ─────────────────────────────────────────────────
+      const nameText = (position.positionName ?? '').toUpperCase()
+      const nameH = doc.heightOfString(nameText, { width: pageW - 16 }) + 14
+      const nameY = doc.y
+      doc.rect(40, nameY, pageW, nameH).stroke()
+      doc
+        .fontSize(13)
+        .font('Helvetica-Bold')
+        .fillColor(black)
+        .text(nameText, 40, nameY + 7, { width: pageW, align: 'center' })
+      doc.y = nameY + nameH + 6
+      doc.font('Helvetica')
+
+      // ── Objetivo general ──────────────────────────────────────────────────
+      drawSectionHeader('OBJETIVO GENERAL DEL PUESTO')
+      const objText = position.positionGeneralObjective ?? 'Sin objetivo registrado.'
+      const objH = doc.heightOfString(objText, { width: pageW - 16 }) + 12
+      const objY = doc.y
+      doc.rect(40, objY, pageW, objH).stroke()
+      doc.fontSize(9).font('Helvetica').fillColor(black)
+        .text(objText, 45, objY + 6, { width: pageW - 16, align: 'justify' })
+      doc.y = objY + objH + 4
+
+      // ── Objetivos específicos / Funciones ─────────────────────────────────
+      drawSectionHeader('OBJETIVOS ESPECÍFICOS DEL PUESTO')
+      if (position.specificFunctions?.length) {
+        for (const fn of position.specificFunctions) {
+          const fnText = fn.positionSpecificFunctionName
+          const fnH = doc.heightOfString(fnText, { width: pageW - 16 }) + 10
+          ensureSpace(fnH)
+          const fnY = doc.y
+          doc.rect(40, fnY, pageW, fnH).stroke()
+          doc.fontSize(9).font('Helvetica').fillColor(black)
+            .text(fnText, 45, fnY + 5, { width: pageW - 16 })
+          doc.y = fnY + fnH
+        }
+        doc.moveDown(0.4)
+      } else {
+        const fnY = doc.y
+        doc.rect(40, fnY, pageW, 20).stroke()
+        doc.fontSize(9).text('Sin funciones registradas.', 45, fnY + 5, { width: pageW - 16 })
+        doc.y = fnY + 20
+        doc.moveDown(0.4)
+      }
+
+      // ── KPIs ──────────────────────────────────────────────────────────────
+      drawSectionHeader("KPI's")
+      if (position.kpis?.length) {
+        const kpiCol1 = pageW * 0.55
+        const kpiCol2 = pageW * 0.25
+        const kpiCol3 = pageW * 0.2
+
+        // Encabezado de tabla KPIs
+        const kpiHeadY = doc.y
+        doc.rect(40, kpiHeadY, kpiCol1, 14).fill(lightGray).stroke()
+        doc.rect(40 + kpiCol1, kpiHeadY, kpiCol2, 14).fill(lightGray).stroke()
+        doc.rect(40 + kpiCol1 + kpiCol2, kpiHeadY, kpiCol3, 14).fill(lightGray).stroke()
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(8)
+          .fillColor(black)
+          .text('Indicador', 45, kpiHeadY + 3, { width: kpiCol1 - 10, lineBreak: false })
+          .text('Meta / Ideal', 45 + kpiCol1, kpiHeadY + 3, { width: kpiCol2 - 5, lineBreak: false })
+          .text('Frecuencia', 45 + kpiCol1 + kpiCol2, kpiHeadY + 3, { width: kpiCol3 - 5, lineBreak: false })
+        doc.y = kpiHeadY + 14
+
+        for (const kpi of position.kpis) {
+          ensureSpace(14)
+          const rowY = doc.y
+          doc.rect(40, rowY, kpiCol1, 14).stroke()
+          doc.rect(40 + kpiCol1, rowY, kpiCol2, 14).stroke()
+          doc.rect(40 + kpiCol1 + kpiCol2, rowY, kpiCol3, 14).stroke()
+          doc
+            .font('Helvetica')
+            .fontSize(8)
+            .fillColor(black)
+            .text(kpi.positionKpiName, 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
+            .text(String(kpi.positionKpiIdeal ?? ''), 45 + kpiCol1, rowY + 3, { width: kpiCol2 - 5, lineBreak: false })
+            .text(kpi.positionKpiFrequency ?? '', 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
+          doc.y = rowY + 14
+        }
+        doc.moveDown(0.6)
+      } else {
+        const kpiY = doc.y
+        doc.rect(40, kpiY, pageW, 20).stroke()
+        doc.fontSize(9).fillColor(black).text('Sin KPIs registrados.', 45, kpiY + 5, { width: pageW - 16 })
+        doc.y = kpiY + 20
+        doc.moveDown(0.4)
+      }
+
+      // ── PERFIL DEL PUESTO ─────────────────────────────────────────────────
+      drawSectionHeader('PERFIL DEL PUESTO')
+
+      const perfilRowH = 30
+      const perfilY = doc.y
+      const perfilCols = [pageW * 0.25, pageW * 0.25, pageW * 0.25, pageW * 0.25]
+      const perfilLabels = ['Escolaridad :', 'Edad :', 'Idiomas :', 'Computación :']
+
+      // Encabezados / etiquetas
+      let px = 40
+      for (let i = 0; i < 4; i++) {
+        doc.rect(px, perfilY, perfilCols[i], perfilRowH).stroke()
+        doc.fontSize(7).font('Helvetica-Bold').fillColor(black)
+          .text(perfilLabels[i], px + 4, perfilY + 4, { width: perfilCols[i] - 8, lineBreak: false })
+        px += perfilCols[i]
+      }
+
+      // Valores (tomados de positionSpecificRequirement como texto libre o vacíos)
+      const reqText = position.positionSpecificRequirement ?? ''
+      px = 40
+      const perfilValues = [reqText, '', '', '']
+      for (let i = 0; i < 4; i++) {
+        doc.fontSize(8).font('Helvetica').fillColor(black)
+          .text(perfilValues[i], px + 4, perfilY + 15, { width: perfilCols[i] - 8, lineBreak: false })
+        px += perfilCols[i]
+      }
+
+      doc.y = perfilY + perfilRowH + 8
+
+      // ── PERFIL PSICOMÉTRICO ───────────────────────────────────────────────
+      drawSectionHeader('PERFIL PSICOMÉTRICO')
+
+      const profiles = position.psychometricProfiles ?? []
+
+      if (!profiles.length) {
+        const emptyY = doc.y
+        doc.rect(40, emptyY, pageW, 20).stroke()
+        doc.fontSize(9).font('Helvetica').fillColor(black)
+          .text('Sin perfil psicométrico registrado.', 45, emptyY + 5, { width: pageW - 16, lineBreak: false })
+        doc.y = emptyY + 20 + 6
+      } else {
+        // Agrupar por prueba (test)
+        const testMap = new Map<string, { label: string; min: number; max: number }[]>()
+        for (const profile of profiles) {
+          const dim = profile.psychometricTestDimension
+          const testName = (dim as any)?.psychometricTest?.psychometricTestName
+            ?? (dim as any)?.$extras?.psychometric_test_name
+            ?? 'Sin prueba'
+          const dimLabel = (dim as any)?.psychometricTestDimensionName ?? ''
+          if (!testMap.has(testName)) testMap.set(testName, [])
+          testMap.get(testName)!.push({
+            label: dimLabel,
+            min: profile.positionPsychometricProfileMinimumValue,
+            max: profile.positionPsychometricProfileMaximumValue,
+          })
+        }
+
+        const tests = Array.from(testMap.entries())
+        const testColW = pageW / tests.length
+
+        // Encabezados de prueba
+        const testHeadY = doc.y
+        tests.forEach(([testName], idx) => {
+          const tx = 40 + idx * testColW
+          doc.rect(tx, testHeadY, testColW, 14).fill(lightGray).stroke()
+          doc.fontSize(8).font('Helvetica-Bold').fillColor(black)
+            .text(testName.toUpperCase(), tx + 4, testHeadY + 3, { width: testColW - 8, align: 'center', lineBreak: false })
+        })
+        doc.y = testHeadY + 14
+
+        // Filas de dimensiones
+        const maxRows = Math.max(...tests.map(([, dims]) => dims.length))
+        for (let r = 0; r < maxRows; r++) {
+          ensureSpace(14)
+          const rowY = doc.y
+          tests.forEach(([, dims], idx) => {
+            const tx = 40 + idx * testColW
+            const dim = dims[r]
+            const dimLabelW = testColW * 0.55
+            const dimValW = testColW * 0.45
+
+            doc.rect(tx, rowY, dimLabelW, 14).stroke()
+            doc.rect(tx + dimLabelW, rowY, dimValW, 14).stroke()
+
+            if (dim) {
+              doc.fontSize(8).font('Helvetica').fillColor(black)
+                .text(dim.label, tx + 4, rowY + 3, { width: dimLabelW - 8, lineBreak: false })
+                .text(`${dim.min} - ${dim.max}`, tx + dimLabelW + 4, rowY + 3, { width: dimValW - 8, lineBreak: false })
+            }
+          })
+          doc.y = rowY + 14
+        }
+        doc.moveDown(0.6)
+      }
+
+      // ── CONOCIMIENTOS Y HABILIDADES ───────────────────────────────────────
+      drawSectionHeader('CONOCIMIENTOS Y HABILIDADES')
+
+      // Sub-sección: Experiencia
+      const expText = position.positionSpecificRequirement ?? 'Sin información registrada.'
+      const expH = doc.heightOfString(expText, { width: pageW - 16 }) + 10
+      drawSubSectionHeader('Experiencia')
+      ensureSpace(expH)
+      const expY = doc.y
+      doc.rect(40, expY, pageW, expH).stroke()
+      doc.fontSize(9).font('Helvetica').fillColor(black)
+        .text(expText, 45, expY + 5, { width: pageW - 16, align: 'justify' })
+      doc.y = expY + expH + 4
+
+      // Sub-sección: Conocimientos teóricos y prácticos
+      const knowText = position.positionDescription ?? 'Sin información registrada.'
+      const knowH = doc.heightOfString(knowText, { width: pageW - 16 }) + 10
+      drawSubSectionHeader('Conocimientos teóricos y prácticos')
+      ensureSpace(knowH)
+      const knowY = doc.y
+      doc.rect(40, knowY, pageW, knowH).stroke()
+      doc.fontSize(9).font('Helvetica').fillColor(black)
+        .text(knowText, 45, knowY + 5, { width: pageW - 16, align: 'justify' })
+      doc.y = knowY + knowH + 8
+
+      // ── Competencias ──────────────────────────────────────────────────────
+      if (position.competencies?.length) {
+        drawSectionHeader('COMPETENCIAS')
+
+        const funcionales = position.competencies.filter(
+          (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
+        )
+        const tecnicas = position.competencies.filter(
+          (c) => c.positionCompetencyType === 'technical'
+        )
+
+        const halfW = pageW / 2
+        const cellW = pageW / 4
+
+        // Sub-encabezados: Funcionales | Técnicas
+        ensureSpace(28)
+        const compSubY = doc.y
+        doc.rect(40, compSubY, halfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
+        doc.rect(40 + halfW, compSubY, halfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
+          .text('Funcionales', 40, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
+          .text('Técnicas', 40 + halfW, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
+        doc.y = compSubY + 14
+
+        // Filas: 2 funcionales y 2 técnicas por fila
+        const numRows = Math.max(Math.ceil(funcionales.length / 2), Math.ceil(tecnicas.length / 2), 1)
+
+        for (let r = 0; r < numRows; r++) {
+          const items = [
+            funcionales[r * 2]?.positionCompetencyName,
+            funcionales[r * 2 + 1]?.positionCompetencyName,
+            tecnicas[r * 2]?.positionCompetencyName,
+            tecnicas[r * 2 + 1]?.positionCompetencyName,
+          ]
+
+          const rowH = Math.max(
+            ...items.map((name) =>
+              name ? doc.heightOfString(name, { width: cellW - 10 }) + 14 : 28
+            )
+          )
+
+          ensureSpace(rowH)
+          const rowY = doc.y
+
+          items.forEach((name, idx) => {
+            const cx = 40 + idx * cellW
+            if (name) {
+              doc.rect(cx, rowY, cellW, rowH).stroke()
+              doc.fontSize(8).font('Helvetica').fillColor(black)
+                .text(name, cx + 5, rowY + Math.round((rowH - 12) / 2), {
+                  width: cellW - 10,
+                  align: 'center',
+                  lineBreak: true,
+                })
+            } else {
+              doc.rect(cx, rowY, cellW, rowH).fillAndStroke(lightGray, black)
+            }
+          })
+
+          doc.y = rowY + rowH
+        }
+        doc.moveDown(0.6)
+      }
+
+      // ── EQUIPO ASIGNADO AL EMPLEADO ───────────────────────────────────────
+      drawSectionHeader('EQUIPO ASIGNADO AL EMPLEADO')
+
+      ensureSpace(42)
+      const equipSubY = doc.y
+      const equipHalfW = pageW / 2
+
+      // Sub-encabezados
+      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
+      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
+        .text('De Seguridad Personal', 40, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
+        .text('De Trabajo', 40 + equipHalfW, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
+      doc.y = equipSubY + 14
+
+      // Fila vacía
+      const equipRowY = doc.y
+      doc.rect(40, equipRowY, equipHalfW, 24).stroke()
+      doc.rect(40 + equipHalfW, equipRowY, equipHalfW, 24).stroke()
+      doc.y = equipRowY + 24 + 8
+
+      // ── Pie de página ─────────────────────────────────────────────────────
+      doc
+        .fontSize(7)
+        .fillColor('#888888')
+        .text(`Generado el ${today}`, 40, doc.page.height - 40, {
+          width: pageW,
+          align: 'right',
+        })
+
+      doc.end()
+    })
+  }
 }
