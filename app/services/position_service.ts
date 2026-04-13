@@ -17,6 +17,8 @@ import DepartmentService from './department_service.js'
 import PDFDocument from 'pdfkit'
 import SystemSetting from '#models/system_setting'
 import axios from 'axios'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 export default class PositionService {
 
@@ -908,8 +910,25 @@ export default class PositionService {
       }
     }
 
+    const DIRNAME = dirname(fileURLToPath(import.meta.url))
+    const fontsDir = join(DIRNAME, '..', '..', 'resources', 'fonts')
+
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ size: 'LETTER', margin: 40 })
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margin: 40,
+        info: {
+          Title: 'Descripcion y Perfil de Puesto',
+          Creator: 'SAE API',
+          Producer: 'PDFKit',
+        },
+      })
+
+      doc.registerFont('Regular', join(fontsDir, 'Roboto-Regular.ttf'))
+      doc.registerFont('Bold', join(fontsDir, 'Roboto-Bold.ttf'))
+      doc.registerFont('Italic', join(fontsDir, 'Roboto-Italic.ttf'))
+      doc.registerFont('BoldItalic', join(fontsDir, 'Roboto-BoldItalic.ttf'))
+      doc.font('Regular')
       const chunks: Uint8Array[] = []
       doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
       doc.on('end', () => {
@@ -924,11 +943,165 @@ export default class PositionService {
       })
       doc.on('error', reject)
 
-      const navy = '#1B3A6B'
+      const navy = '#2E5FA3'
       const white = '#FFFFFF'
       const lightGray = '#F5F5F5'
       const black = '#000000'
       const pageW = doc.page.width - 80
+
+      const t = (key: string) => this.i18n.t(key)
+
+      const decodeEntities = (s: string) =>
+        s
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+
+      // Elimina emojis y caracteres fuera del plano BMP que Roboto no soporta
+      const stripEmojis = (s: string): string =>
+        s.replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{1F300}-\u{1FBFF}]/gu, '')
+
+      const INDENT_PX = 18
+
+      type HtmlSpan = { text: string; bold: boolean; italic: boolean; underline: boolean }
+      type HtmlBlock = { spans: HtmlSpan[]; indent: number; bulletText: string | null }
+
+      const parseHtml = (html: string): HtmlBlock[] => {
+        const blocks: HtmlBlock[] = []
+        let bold = false
+        let italic = false
+        let underline = false
+        let listDepth = 0
+        // Stack de tipos de lista para distinguir <ul> de <ol>
+        const listTypes: ('ul' | 'ol')[] = []
+        // Contadores de <ol> por nivel de indentación
+        const olCounters = new Map<number, number>()
+        let cur: HtmlBlock = { spans: [], indent: 0, bulletText: null }
+
+        const flush = () => {
+          const spans = cur.spans.filter((s) => s.text.trim())
+          if (spans.length || cur.bulletText) blocks.push({ ...cur, spans })
+          cur = { spans: [], indent: Math.max(0, listDepth - 1), bulletText: null }
+        }
+
+        const addText = (raw: string) => {
+          const text = stripEmojis(decodeEntities(raw)).replace(/[ \t]+/g, ' ')
+          if (text.trim()) cur.spans.push({ text, bold, italic, underline })
+        }
+
+        const re = /<(\/?)(\w+)([^>]*)>|([^<]+)/g
+        let m: RegExpExecArray | null
+        while ((m = re.exec(html)) !== null) {
+          const [, closing, tag, attrs, textNode] = m
+          const tl = (tag || '').toLowerCase()
+          const close = closing === '/'
+
+          if (textNode !== undefined) {
+            textNode.split('\n').forEach((line, i) => {
+              if (i > 0 && cur.spans.length) flush()
+              addText(line)
+            })
+          } else {
+            switch (tl) {
+              case 'b': case 'strong': bold = !close; break
+              case 'i': case 'em':    italic = !close; break
+              case 'u': case 'a':     underline = !close; break
+              case 'br':              flush(); break
+              case 'p': case 'div':
+              case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
+                if (close) {
+                  flush()
+                } else {
+                  if (cur.spans.length) flush()
+                  const qlIndent = (attrs || '').match(/ql-indent-(\d+)/)
+                  if (qlIndent) cur.indent = Number.parseInt(qlIndent[1])
+                }
+                break
+              case 'ul': case 'ol':
+                if (!close) {
+                  listDepth++
+                  listTypes.push(tl as 'ul' | 'ol')
+                  if (tl === 'ol') olCounters.clear()
+                } else {
+                  flush()
+                  listDepth = Math.max(0, listDepth - 1)
+                  listTypes.pop()
+                }
+                break
+              case 'li':
+                if (!close) {
+                  flush()
+                  const qlMatch = (attrs || '').match(/ql-indent-(\d+)/)
+                  // Sin clase: 1 nivel de sangría base. Con ql-indent-N: N+1 para mantener jerarquía
+                  const indentLevel = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listDepth
+                  cur.indent = indentLevel
+                  const currentListType = listTypes.length > 0 ? listTypes[listTypes.length - 1] : 'ul'
+                  if (currentListType === 'ol') {
+                    const n = (olCounters.get(indentLevel) || 0) + 1
+                    olCounters.set(indentLevel, n)
+                    cur.bulletText = `${n}.`
+                  } else {
+                    cur.bulletText = '•'
+                  }
+                } else { flush() }
+                break
+            }
+          }
+        }
+        flush()
+        return blocks
+      }
+
+      const htmlHeight = (html: string, width: number, fs: number = 9): number => {
+        const blocks = parseHtml(html)
+        if (!blocks.length) return 20
+        doc.fontSize(fs).font('Regular')
+        let h = 0
+        for (const block of blocks) {
+          const iw = width - block.indent * INDENT_PX
+          const prefix = block.bulletText ? block.bulletText + ' ' : ''
+          const plain = prefix + block.spans.map((s) => s.text).join('')
+          h += doc.heightOfString(plain.trim() || ' ', { width: iw })
+        }
+        return h
+      }
+
+      const renderHtml = (html: string, x: number, y: number, width: number, fs: number = 9): void => {
+        const blocks = parseHtml(html)
+        doc.y = y
+
+        for (const block of blocks) {
+          const ix = x + block.indent * INDENT_PX
+          const iw = width - block.indent * INDENT_PX
+          if (!block.spans.length) continue
+
+          block.spans.forEach((span, i) => {
+            const isLast = i === block.spans.length - 1
+            const font =
+              span.bold && span.italic ? 'BoldItalic'
+              : span.bold ? 'Bold'
+              : span.italic ? 'Italic'
+              : 'Regular'
+            const opts: PDFKit.Mixins.TextOptions = {
+              width: iw,
+              continued: !isLast,
+              lineBreak: true,
+              underline: span.underline,
+            }
+            if (i === 0) {
+              const prefix = block.bulletText ? block.bulletText + ' ' : ''
+              doc.font(font).fontSize(fs).fillColor(black)
+                .text(prefix + span.text, ix, doc.y, opts)
+            } else {
+              doc.font(font).fontSize(fs).fillColor(black)
+                .text(span.text, opts)
+            }
+          })
+        }
+      }
+
       const today = new Date().toLocaleDateString('es-MX')
 
       // ── Constantes de layout ──────────────────────────────────────────────
@@ -987,46 +1160,46 @@ export default class PositionService {
         }
 
         doc
-          .fontSize(10).font('Helvetica-Bold').fillColor(black)
-          .text('DESCRIPCIÓN Y PERFIL DE PUESTO', rightColX + 4, hTop + 6, { width: rightColW - 8, align: 'center' })
+          .fontSize(10).font('Bold').fillColor(black)
+          .text(t('pdf_title'), rightColX + 4, hTop + 6, { width: rightColW - 8, align: 'center' })
 
         doc
-          .fontSize(7).font('Helvetica').fillColor(black)
-          .text(`Fecha de implementación: ${implDate}`, rightColX + 4, row2Y + 4, { width: leftSubW - 8, lineBreak: false })
-          .text('Revisión: 01', rightSubX + 4, row2Y + 4, { width: rightSubW - 8, lineBreak: false })
-          .text(`Clave de control: ${position.positionCode ?? ''}`, rightColX + 4, row3Y + 4, { width: leftSubW - 8, lineBreak: false })
-          .text('Reemplaza a revisión: 00', rightSubX + 4, row3Y + 4, { width: rightSubW - 8, lineBreak: false })
-          .text('Motivo del cambio:', rightColX + 4, row4Y + 4, { width: motivoColW - 8, lineBreak: false })
-          .text(`Pág. ${pageNum}`, pagColX + 4, row4Y + 4, { width: pagColW - 8, align: 'center', lineBreak: false })
+          .fontSize(7).font('Regular').fillColor(black)
+          .text(`${t('pdf_implementation_date')}: ${implDate}`, rightColX + 4, row2Y + 4, { width: leftSubW - 8, lineBreak: false })
+          .text(`${t('pdf_revision')}: 01`, rightSubX + 4, row2Y + 4, { width: rightSubW - 8, lineBreak: false })
+          .text(`${t('pdf_control_key')}: ${position.positionCode ?? ''}`, rightColX + 4, row3Y + 4, { width: leftSubW - 8, lineBreak: false })
+          .text(`${t('pdf_replaces_revision')}: 00`, rightSubX + 4, row3Y + 4, { width: rightSubW - 8, lineBreak: false })
+          .text(`${t('pdf_reason_for_change')}:`, rightColX + 4, row4Y + 4, { width: motivoColW - 8, lineBreak: false })
+          .text(`${t('pdf_page')} ${pageNum}`, pagColX + 4, row4Y + 4, { width: pagColW - 8, align: 'center', lineBreak: false })
 
-        doc.y = hBot + 10
+        doc.y = hBot
       }
 
       // ── Función: secciones de contenido ───────────────────────────────────
-      const drawSectionHeader = (label: string) => {
+      const drawSectionHeader = (label: string, bgColor: string = navy) => {
         ensureSpace(40)
         const sY = doc.y
-        doc.rect(40, sY, pageW, 18).fill(navy)
+        doc.rect(40, sY, pageW, 18).fillAndStroke(bgColor, black)
         doc
           .fontSize(9)
           .fillColor(white)
-          .font('Helvetica-Bold')
-          .text(label, 40, sY + 5, { width: pageW, align: 'center', lineBreak: false })
-        doc.y = sY + 18 + 5
-        doc.fillColor(black).font('Helvetica')
+          .font('Bold')
+          .text(label, 40, sY + 4, { width: pageW, align: 'center', lineBreak: false })
+        doc.y = sY + 18
+        doc.fillColor(black).font('Regular')
       }
 
       const drawSubSectionHeader = (label: string) => {
         ensureSpace(30)
         const sY = doc.y
-        doc.rect(40, sY, pageW, 16).fill('#2E5FA3')
+        doc.rect(40, sY, pageW, 16).fillAndStroke('#2E5FA3', black)
         doc
-          .fontSize(8)
+          .fontSize(9)
           .fillColor(white)
-          .font('Helvetica-Bold')
+          .font('Bold')
           .text(label, 45, sY + 4, { width: pageW - 10, align: 'center', lineBreak: false })
-        doc.y = sY + 16 + 4
-        doc.fillColor(black).font('Helvetica')
+        doc.y = sY + 16
+        doc.fillColor(black).font('Regular')
       }
 
       // ── Registrar encabezado en páginas nuevas ────────────────────────────
@@ -1038,35 +1211,58 @@ export default class PositionService {
       // ── Página 1: encabezado completo ─────────────────────────────────────
       drawPageHeader(1)
 
-      // ── F. Emisión / F. Revisión ──────────────────────────────────────────
+      // ── F. Emisión / F. Revisión + Dirección / Área-Cuenta ───────────────
+      const rowH2 = 20
       const emisionY = doc.y
-      doc.fontSize(8).font('Helvetica').fillColor(black)
-        .text('F. Emisión:', 40, emisionY)
-        .text(today, 40 + half - 90, emisionY, { width: 80, align: 'right' })
-      doc.moveTo(40 + 68, emisionY + 10).lineTo(40 + half - 10, emisionY + 10).strokeColor(black).stroke()
-      doc
-        .text('F. Revisión:', 40 + half + 10, emisionY)
-        .text(today, 40 + half + 80, emisionY, { width: half - 90 })
-      doc.moveTo(40 + half + 74, emisionY + 10).lineTo(40 + pageW, emisionY + 10).stroke()
-      doc.y = emisionY + 20
 
-      // ── Dirección / Área-Cuenta ───────────────────────────────────────────
-      const dirY = doc.y
-      doc.fontSize(8).font('Helvetica').fillColor(black)
-        .text('Dirección:', 40, dirY)
-        .text('Recursos Humanos', 40 + 70, dirY, { width: half - 80 })
-      doc.moveTo(40 + 64, dirY + 10).lineTo(40 + half - 10, dirY + 10).stroke()
-      doc
-        .text('Área /Cuenta:', 40 + half + 10, dirY)
-        .text('Recursos Humanos', 40 + half + 82, dirY, { width: half - 92 })
-      doc.moveTo(40 + half + 78, dirY + 10).lineTo(40 + pageW, dirY + 10).stroke()
-      doc.y = dirY + 20
+      // Un solo rect que engloba ambas filas
+      doc.rect(40, emisionY, pageW, rowH2 * 2).stroke()
+
+      // Fila 1 - Izquierda: F. Emisión
+      const emLabel = `${t('pdf_emission_date')}:`
+      const emL1 = 44 + doc.widthOfString(emLabel) + 6
+      const emL2 = 40 + half - 10
+      doc.fontSize(8).font('Regular').fillColor(black)
+        .text(emLabel, 44, emisionY + 5, { lineBreak: false })
+        .text(today, emL1, emisionY + 5, { width: emL2 - emL1, align: 'center', lineBreak: false })
+      doc.moveTo(emL1, emisionY + 15).lineTo(emL2, emisionY + 15).strokeColor(black).stroke()
+
+      // Fila 1 - Derecha: F. Revisión
+      const revLabel = `${t('pdf_review_date')}:`
+      const revL1 = 44 + half + doc.widthOfString(revLabel) + 6
+      const revL2 = 40 + pageW - 10
+      doc.fontSize(8).font('Regular').fillColor(black)
+        .text(revLabel, 44 + half, emisionY + 5, { lineBreak: false })
+        .text(today, revL1, emisionY + 5, { width: revL2 - revL1, align: 'center', lineBreak: false })
+      doc.moveTo(revL1, emisionY + 15).lineTo(revL2, emisionY + 15).strokeColor(black).stroke()
+
+      // Fila 2 - Izquierda: Dirección
+      const dirY = emisionY + rowH2
+      const dirLabel = `${t('pdf_direction')}:`
+      const dirL1 = 44 + doc.widthOfString(dirLabel) + 6
+      const dirL2 = 40 + half - 10
+      doc.fontSize(8).font('Regular').fillColor(black)
+        .text(dirLabel, 44, dirY + 5, { lineBreak: false })
+        .text('Recursos Humanos', dirL1, dirY + 5, { width: dirL2 - dirL1, align: 'center', lineBreak: false })
+      doc.moveTo(dirL1, dirY + 15).lineTo(dirL2, dirY + 15).strokeColor(black).stroke()
+
+      // Fila 2 - Derecha: Área /Cuenta
+      const areaLabel = `${t('pdf_area_account')}:`
+      const areaL1 = 44 + half + doc.widthOfString(areaLabel) + 6
+      const areaL2 = 40 + pageW - 10
+      doc.fontSize(8).font('Regular').fillColor(black)
+        .text(areaLabel, 44 + half, dirY + 5, { lineBreak: false })
+        .text('Recursos Humanos', areaL1, dirY + 5, { width: areaL2 - areaL1, align: 'center', lineBreak: false })
+      doc.moveTo(areaL1, dirY + 15).lineTo(areaL2, dirY + 15).strokeColor(black).stroke()
+
+      doc.y = emisionY + rowH2 * 2
 
       // ── PUESTO CLAVE ──────────────────────────────────────────────────────
-      doc
-        .fontSize(8).font('Helvetica-Oblique').fillColor(black)
-        .text('PUESTO CLAVE', 40, doc.y, { width: pageW, align: 'right' })
-      doc.moveDown(0.5)
+      const puestoClaveY = doc.y
+      doc.rect(40, puestoClaveY, pageW, rowH2).stroke()
+      doc.fontSize(8).font('Italic').fillColor(black)
+        .text(t('pdf_key_position'), 40, puestoClaveY + 5, { width: pageW - 8, align: 'right', lineBreak: false })
+      doc.y = puestoClaveY + rowH2
 
       // ── Nombre del puesto ─────────────────────────────────────────────────
       const nameText = (position.positionName ?? '').toUpperCase()
@@ -1075,46 +1271,42 @@ export default class PositionService {
       doc.rect(40, nameY, pageW, nameH).stroke()
       doc
         .fontSize(13)
-        .font('Helvetica-Bold')
+        .font('Bold')
         .fillColor(black)
         .text(nameText, 40, nameY + 7, { width: pageW, align: 'center' })
-      doc.y = nameY + nameH + 6
-      doc.font('Helvetica')
+      doc.y = nameY + nameH
+      doc.font('Regular')
 
       // ── Objetivo general ──────────────────────────────────────────────────
-      drawSectionHeader('OBJETIVO GENERAL DEL PUESTO')
-      const objText = position.positionGeneralObjective ?? 'Sin objetivo registrado.'
-      const objH = doc.heightOfString(objText, { width: pageW - 16 }) + 12
+      drawSectionHeader(t('pdf_general_objective'))
+      const rawObj = position.positionGeneralObjective ?? t('pdf_no_objective')
+      const objH = htmlHeight(rawObj, pageW - 16) + 12
       const objY = doc.y
       doc.rect(40, objY, pageW, objH).stroke()
-      doc.fontSize(9).font('Helvetica').fillColor(black)
-        .text(objText, 45, objY + 6, { width: pageW - 16, align: 'justify' })
-      doc.y = objY + objH + 4
+      renderHtml(rawObj, 45, objY + 6, pageW - 16)
+      doc.y = objY + objH
 
       // ── Objetivos específicos / Funciones ─────────────────────────────────
-      drawSectionHeader('OBJETIVOS ESPECÍFICOS DEL PUESTO')
+      drawSectionHeader(t('pdf_specific_objectives'))
       if (position.specificFunctions?.length) {
         for (const fn of position.specificFunctions) {
-          const fnText = fn.positionSpecificFunctionName
-          const fnH = doc.heightOfString(fnText, { width: pageW - 16 }) + 10
+          const rawFn = fn.positionSpecificFunctionName
+          const fnH = htmlHeight(rawFn, pageW - 16) + 10
           ensureSpace(fnH)
           const fnY = doc.y
           doc.rect(40, fnY, pageW, fnH).stroke()
-          doc.fontSize(9).font('Helvetica').fillColor(black)
-            .text(fnText, 45, fnY + 5, { width: pageW - 16 })
+          renderHtml(rawFn, 45, fnY + 5, pageW - 16)
           doc.y = fnY + fnH
         }
-        doc.moveDown(0.4)
       } else {
         const fnY = doc.y
         doc.rect(40, fnY, pageW, 20).stroke()
-        doc.fontSize(9).text('Sin funciones registradas.', 45, fnY + 5, { width: pageW - 16 })
+        doc.fontSize(9).text(t('pdf_no_functions'), 45, fnY + 5, { width: pageW - 16 })
         doc.y = fnY + 20
-        doc.moveDown(0.4)
       }
 
       // ── KPIs ──────────────────────────────────────────────────────────────
-      drawSectionHeader("KPI's")
+      drawSectionHeader(t('pdf_kpis'))
       if (position.kpis?.length) {
         const kpiCol1 = pageW * 0.55
         const kpiCol2 = pageW * 0.25
@@ -1122,16 +1314,16 @@ export default class PositionService {
 
         // Encabezado de tabla KPIs
         const kpiHeadY = doc.y
-        doc.rect(40, kpiHeadY, kpiCol1, 14).fill(lightGray).stroke()
-        doc.rect(40 + kpiCol1, kpiHeadY, kpiCol2, 14).fill(lightGray).stroke()
-        doc.rect(40 + kpiCol1 + kpiCol2, kpiHeadY, kpiCol3, 14).fill(lightGray).stroke()
+        doc.rect(40, kpiHeadY, kpiCol1, 14).fillAndStroke(lightGray, black)
+        doc.rect(40 + kpiCol1, kpiHeadY, kpiCol2, 14).fillAndStroke(lightGray, black)
+        doc.rect(40 + kpiCol1 + kpiCol2, kpiHeadY, kpiCol3, 14).fillAndStroke(lightGray, black)
         doc
-          .font('Helvetica-Bold')
-          .fontSize(8)
+          .font('Bold')
+          .fontSize(9)
           .fillColor(black)
-          .text('Indicador', 45, kpiHeadY + 3, { width: kpiCol1 - 10, lineBreak: false })
-          .text('Meta / Ideal', 45 + kpiCol1, kpiHeadY + 3, { width: kpiCol2 - 5, lineBreak: false })
-          .text('Frecuencia', 45 + kpiCol1 + kpiCol2, kpiHeadY + 3, { width: kpiCol3 - 5, lineBreak: false })
+          .text(t('pdf_indicator'), 45, kpiHeadY + 3, { width: kpiCol1 - 10, lineBreak: false })
+          .text(t('pdf_meta_ideal'), 45 + kpiCol1, kpiHeadY + 3, { width: kpiCol2 - 5, lineBreak: false })
+          .text(t('pdf_frequency'), 45 + kpiCol1 + kpiCol2, kpiHeadY + 3, { width: kpiCol3 - 5, lineBreak: false })
         doc.y = kpiHeadY + 14
 
         for (const kpi of position.kpis) {
@@ -1141,7 +1333,7 @@ export default class PositionService {
           doc.rect(40 + kpiCol1, rowY, kpiCol2, 14).stroke()
           doc.rect(40 + kpiCol1 + kpiCol2, rowY, kpiCol3, 14).stroke()
           doc
-            .font('Helvetica')
+            .font('Regular')
             .fontSize(8)
             .fillColor(black)
             .text(kpi.positionKpiName, 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
@@ -1149,55 +1341,53 @@ export default class PositionService {
             .text(kpi.positionKpiFrequency ?? '', 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
           doc.y = rowY + 14
         }
-        doc.moveDown(0.6)
       } else {
         const kpiY = doc.y
         doc.rect(40, kpiY, pageW, 20).stroke()
-        doc.fontSize(9).fillColor(black).text('Sin KPIs registrados.', 45, kpiY + 5, { width: pageW - 16 })
+        doc.fontSize(9).fillColor(black).text(t('pdf_no_kpis'), 45, kpiY + 5, { width: pageW - 16 })
         doc.y = kpiY + 20
-        doc.moveDown(0.4)
       }
 
       // ── PERFIL DEL PUESTO ─────────────────────────────────────────────────
-      drawSectionHeader('PERFIL DEL PUESTO')
+      drawSectionHeader(t('pdf_position_profile'))
 
       const perfilRowH = 30
       const perfilY = doc.y
       const perfilCols = [pageW * 0.25, pageW * 0.25, pageW * 0.25, pageW * 0.25]
-      const perfilLabels = ['Escolaridad :', 'Edad :', 'Idiomas :', 'Computación :']
+      const perfilLabels = [t('pdf_schooling'), t('pdf_age'), t('pdf_languages'), t('pdf_computing')]
 
       // Encabezados / etiquetas
       let px = 40
       for (let i = 0; i < 4; i++) {
         doc.rect(px, perfilY, perfilCols[i], perfilRowH).stroke()
-        doc.fontSize(7).font('Helvetica-Bold').fillColor(black)
+        doc.fontSize(7).font('Bold').fillColor(black)
           .text(perfilLabels[i], px + 4, perfilY + 4, { width: perfilCols[i] - 8, lineBreak: false })
         px += perfilCols[i]
       }
 
       // Valores (tomados de positionSpecificRequirement como texto libre o vacíos)
-      const reqText = position.positionSpecificRequirement ?? ''
-      px = 40
-      const perfilValues = [reqText, '', '', '']
-      for (let i = 0; i < 4; i++) {
-        doc.fontSize(8).font('Helvetica').fillColor(black)
-          .text(perfilValues[i], px + 4, perfilY + 15, { width: perfilCols[i] - 8, lineBreak: false })
-        px += perfilCols[i]
-      }
+      // const reqText = position.positionSpecificRequirement ?? ''
+      // px = 40
+      // const perfilValues = [reqText, '', '', '']
+      // for (let i = 0; i < 4; i++) {
+      //   doc.fontSize(8).font('Regular').fillColor(black)
+      //     .text(perfilValues[i], px + 4, perfilY + 15, { width: perfilCols[i] - 8, lineBreak: false })
+      //   px += perfilCols[i]
+      // }
 
-      doc.y = perfilY + perfilRowH + 8
+      doc.y = perfilY + perfilRowH
 
       // ── PERFIL PSICOMÉTRICO ───────────────────────────────────────────────
-      drawSectionHeader('PERFIL PSICOMÉTRICO')
+      drawSectionHeader(t('pdf_psychometric_profile'))
 
       const profiles = position.psychometricProfiles ?? []
 
       if (!profiles.length) {
         const emptyY = doc.y
         doc.rect(40, emptyY, pageW, 20).stroke()
-        doc.fontSize(9).font('Helvetica').fillColor(black)
-          .text('Sin perfil psicométrico registrado.', 45, emptyY + 5, { width: pageW - 16, lineBreak: false })
-        doc.y = emptyY + 20 + 6
+        doc.fontSize(9).font('Regular').fillColor(black)
+          .text(t('pdf_no_psychometric'), 45, emptyY + 5, { width: pageW - 16, lineBreak: false })
+        doc.y = emptyY + 20
       } else {
         // Agrupar por prueba (test)
         const testMap = new Map<string, { label: string; min: number; max: number }[]>()
@@ -1222,8 +1412,8 @@ export default class PositionService {
         const testHeadY = doc.y
         tests.forEach(([testName], idx) => {
           const tx = 40 + idx * testColW
-          doc.rect(tx, testHeadY, testColW, 14).fill(lightGray).stroke()
-          doc.fontSize(8).font('Helvetica-Bold').fillColor(black)
+          doc.rect(tx, testHeadY, testColW, 14).fillAndStroke(lightGray, black)
+          doc.fontSize(9).font('Bold').fillColor(black)
             .text(testName.toUpperCase(), tx + 4, testHeadY + 3, { width: testColW - 8, align: 'center', lineBreak: false })
         })
         doc.y = testHeadY + 14
@@ -1243,44 +1433,42 @@ export default class PositionService {
             doc.rect(tx + dimLabelW, rowY, dimValW, 14).stroke()
 
             if (dim) {
-              doc.fontSize(8).font('Helvetica').fillColor(black)
+              doc.fontSize(8).font('Regular').fillColor(black)
                 .text(dim.label, tx + 4, rowY + 3, { width: dimLabelW - 8, lineBreak: false })
                 .text(`${dim.min} - ${dim.max}`, tx + dimLabelW + 4, rowY + 3, { width: dimValW - 8, lineBreak: false })
             }
           })
           doc.y = rowY + 14
         }
-        doc.moveDown(0.6)
       }
 
       // ── CONOCIMIENTOS Y HABILIDADES ───────────────────────────────────────
-      drawSectionHeader('CONOCIMIENTOS Y HABILIDADES')
+      drawSectionHeader(t('pdf_knowledge_skills'))
 
       // Sub-sección: Experiencia
-      const expText = position.positionSpecificRequirement ?? 'Sin información registrada.'
-      const expH = doc.heightOfString(expText, { width: pageW - 16 }) + 10
-      drawSubSectionHeader('Experiencia')
+      const rawExp = position.positionSpecificRequirement ?? t('pdf_no_info')
+      const expH = htmlHeight(rawExp, pageW - 16) + 10
+      drawSubSectionHeader(t('pdf_experience'))
       ensureSpace(expH)
       const expY = doc.y
       doc.rect(40, expY, pageW, expH).stroke()
-      doc.fontSize(9).font('Helvetica').fillColor(black)
-        .text(expText, 45, expY + 5, { width: pageW - 16, align: 'justify' })
-      doc.y = expY + expH + 4
+      renderHtml(rawExp, 45, expY + 5, pageW - 16)
+      doc.y = expY + expH
 
       // Sub-sección: Conocimientos teóricos y prácticos
-      const knowText = position.positionDescription ?? 'Sin información registrada.'
-      const knowH = doc.heightOfString(knowText, { width: pageW - 16 }) + 10
-      drawSubSectionHeader('Conocimientos teóricos y prácticos')
+      const rawKnow = position.positionDescription ?? t('pdf_no_info')
+      const knowH = htmlHeight(rawKnow, pageW - 16) + 10
+      drawSubSectionHeader(t('pdf_theoretical_knowledge'))
       ensureSpace(knowH)
       const knowY = doc.y
       doc.rect(40, knowY, pageW, knowH).stroke()
-      doc.fontSize(9).font('Helvetica').fillColor(black)
-        .text(knowText, 45, knowY + 5, { width: pageW - 16, align: 'justify' })
-      doc.y = knowY + knowH + 8
+      renderHtml(rawKnow, 45, knowY + 5, pageW - 16)
+      doc.y = knowY + knowH
 
       // ── Competencias ──────────────────────────────────────────────────────
       if (position.competencies?.length) {
-        drawSectionHeader('COMPETENCIAS')
+        ensureSpace(90)
+        drawSectionHeader(t('pdf_competencies'))
 
         const funcionales = position.competencies.filter(
           (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
@@ -1295,12 +1483,12 @@ export default class PositionService {
         // Sub-encabezados: Funcionales | Técnicas
         ensureSpace(28)
         const compSubY = doc.y
-        doc.rect(40, compSubY, halfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
-        doc.rect(40 + halfW, compSubY, halfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
-          .text('Funcionales', 40, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
-          .text('Técnicas', 40 + halfW, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
+        doc.rect(40, compSubY, halfW, 14).fillAndStroke('#2E5FA3', black)
+        doc.rect(40 + halfW, compSubY, halfW, 14).fillAndStroke('#2E5FA3', black)
+        doc.fontSize(9).font('Bold').fillColor(white)
+          .text(t('pdf_functional'), 40, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
+        doc.fontSize(9).font('Bold').fillColor(white)
+          .text(t('pdf_technical'), 40 + halfW, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.y = compSubY + 14
 
         // Filas: 2 funcionales y 2 técnicas por fila
@@ -1327,7 +1515,7 @@ export default class PositionService {
             const cx = 40 + idx * cellW
             if (name) {
               doc.rect(cx, rowY, cellW, rowH).stroke()
-              doc.fontSize(8).font('Helvetica').fillColor(black)
+              doc.fontSize(8).font('Regular').fillColor(black)
                 .text(name, cx + 5, rowY + Math.round((rowH - 12) / 2), {
                   width: cellW - 10,
                   align: 'center',
@@ -1340,38 +1528,84 @@ export default class PositionService {
 
           doc.y = rowY + rowH
         }
-        doc.moveDown(0.6)
       }
 
       // ── EQUIPO ASIGNADO AL EMPLEADO ───────────────────────────────────────
-      drawSectionHeader('EQUIPO ASIGNADO AL EMPLEADO')
+      drawSectionHeader(t('pdf_assigned_equipment'), '#2E5FA3')
 
       ensureSpace(42)
       const equipSubY = doc.y
       const equipHalfW = pageW / 2
 
       // Sub-encabezados
-      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
-      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', '#2E5FA3')
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
-        .text('De Seguridad Personal', 40, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(white)
-        .text('De Trabajo', 40 + equipHalfW, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
+      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', black)
+      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', black)
+      doc.fontSize(9).font('Bold').fillColor(white)
+        .text(t('pdf_personal_security'), 40, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
+      doc.fontSize(9).font('Bold').fillColor(white)
+        .text(t('pdf_work_equipment'), 40 + equipHalfW, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
       doc.y = equipSubY + 14
 
       // Fila vacía
       const equipRowY = doc.y
       doc.rect(40, equipRowY, equipHalfW, 24).stroke()
       doc.rect(40 + equipHalfW, equipRowY, equipHalfW, 24).stroke()
-      doc.y = equipRowY + 24 + 8
+      doc.y = equipRowY + 24
+
+      // ── ELABORÓ / VALIDÓ ──────────────────────────────────────────────────
+      const signRowH = 100
+      const signColW = pageW / 3
+      ensureSpace(signRowH + 20)
+      const signSubY = doc.y
+
+      // Sub-encabezados: ELABORÓ | (vacío) | VALIDÓ
+      doc.rect(40, signSubY, signColW, 16).fillAndStroke('#2E5FA3', black)
+      doc.rect(40 + signColW, signSubY, signColW, 16).fillAndStroke(lightGray, black)
+      doc.rect(40 + signColW * 2, signSubY, signColW, 16).fillAndStroke('#2E5FA3', black)
+      doc.fontSize(9).font('Bold').fillColor(white)
+        .text(t('pdf_elaborated_by'), 40, signSubY + 4, { width: signColW, align: 'center', lineBreak: false })
+      doc.fontSize(9).font('Bold').fillColor(white)
+        .text(t('pdf_validated_by'), 40 + signColW * 2, signSubY + 4, { width: signColW, align: 'center', lineBreak: false })
+
+      // Bordear las 3 celdas del área de firmas
+      const signAreaY = signSubY + 16
+      doc.rect(40, signAreaY, signColW, signRowH).stroke()
+      doc.rect(40 + signColW, signAreaY, signColW, signRowH).fillAndStroke(lightGray, black)
+      doc.rect(40 + signColW * 2, signAreaY, signColW, signRowH).stroke()
+
+      // Contenido interior de cada celda firmante
+      const drawSignCell = (cellX: number) => {
+        const pad = 8
+
+        // "Firmado por:" con corchete izquierdo
+        doc.fontSize(7).font('Regular').fillColor(black)
+          .text(t('pdf_signed_by'), cellX + pad, signAreaY + pad, { lineBreak: false })
+
+        // Corchete izquierdo (línea vertical + dos horizontales)
+        const brkX = cellX + pad
+        const brkY = signAreaY + pad + 9
+        const brkH = 38
+        doc.moveTo(brkX, brkY).lineTo(brkX, brkY + brkH)
+          .moveTo(brkX, brkY).lineTo(brkX + 6, brkY)
+          .moveTo(brkX, brkY + brkH).lineTo(brkX + 6, brkY + brkH)
+          .strokeColor(black).stroke()
+
+
+      }
+
+      drawSignCell(40)
+      drawSignCell(40 + signColW * 2)
+
+      doc.y = signAreaY + signRowH + 8
 
       // ── Pie de página ─────────────────────────────────────────────────────
       doc
         .fontSize(7)
         .fillColor('#888888')
-        .text(`Generado el ${today}`, 40, doc.page.height - 40, {
+        .text(`Generado el ${today}`, 40, doc.y + 6, {
           width: pageW,
           align: 'right',
+          lineBreak: false,
         })
 
       doc.end()
