@@ -56,6 +56,21 @@ router
     )
     router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
     router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
+    router.post(
+      '/:employeeId/vacation-deductions',
+      '#controllers/employee_controller.applyVacationDeduction'
+    )
+    router.get(
+      '/:employeeId/vacation-deductions',
+      '#controllers/employee_controller.getVacationDeductions'
+    )
+    router
+      .delete(
+        '/:employeeId/vacation-deductions/:vacationDeductionId',
+        '#controllers/employee_controller.deleteVacationDeduction'
+      )
+      .where('employeeId', router.matchers.number())
+      .where('vacationDeductionId', router.matchers.number())
 
   })
   .prefix('/api/employees')

@@ -28,6 +28,7 @@ import AssistsService from '#services/assist_service'
 import { EmployeeWorkDaysDisabilityFilterInterface } from '../interfaces/employee_work_days_disability_filter_interface.js'
 import RoleService from '#services/role_service'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
+import { createVacationDeductionValidator } from '../validators/vacation_deduction.js'
 import {
   EMPLOYEE_TERMINATION_MODALITIES,
   EMPLOYEE_TERMINATION_TYPES,
@@ -7319,6 +7320,273 @@ export default class EmployeeController {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al importar las asignaciones',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/vacation-deductions:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Aplicar deducción de días de vacaciones a un periodo sin registrar fechas
+   *     description: Permite inhabilitar (descontar) días de vacaciones disponibles de un periodo específico sin necesidad de registrar fechas concretas. La descripción es opcional.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         description: ID del empleado
+   *         required: true
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vacationSettingId
+   *               - vacationDeductionDays
+   *             properties:
+   *               vacationSettingId:
+   *                 type: number
+   *                 description: ID del periodo de vacaciones (vacation setting)
+   *               vacationDeductionDays:
+   *                 type: number
+   *                 description: Número de días a descontar
+   *               vacationDeductionDescription:
+   *                 type: string
+   *                 description: Descripción opcional de la razón de la deducción
+   *     responses:
+   *       '201':
+   *         description: Deducción aplicada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '400':
+   *         description: Datos inválidos o días insuficientes disponibles
+   *       '404':
+   *         description: Empleado o periodo de vacaciones no encontrado
+   *       default:
+   *         description: Error inesperado del servidor
+   */
+  async applyVacationDeduction({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'El ID del empleado es requerido',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'No se encontró el empleado con el ID ingresado',
+          data: { employeeId },
+        }
+      }
+
+      const data = await request.validateUsing(createVacationDeductionValidator)
+      const result = await employeeService.applyVacationDeduction(
+        employee,
+        data.vacationSettingId,
+        data.vacationDeductionDays,
+        data.vacationDeductionDescription
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/vacation-deductions:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Obtener las deducciones de vacaciones de un empleado por periodo
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         description: ID del empleado
+   *         required: true
+   *       - in: query
+   *         name: vacationSettingId
+   *         schema:
+   *           type: number
+   *         description: ID del periodo de vacaciones para filtrar
+   *         required: false
+   *     responses:
+   *       '200':
+   *         description: Deducciones encontradas correctamente
+   *       '404':
+   *         description: Empleado no encontrado
+   *       default:
+   *         description: Error inesperado del servidor
+   */
+  async getVacationDeductions({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'El ID del empleado es requerido',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'No se encontró el empleado con el ID ingresado',
+          data: { employeeId },
+        }
+      }
+
+      const vacationSettingId = request.input('vacationSettingId')
+      const deductions = await employeeService.getVacationDeductionsByPeriod(
+        employee.employeeId,
+        vacationSettingId
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'Las deducciones de vacaciones fueron encontradas correctamente',
+        data: { deductions },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/vacation-deductions/{vacationDeductionId}:
+   *   delete:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Eliminar una deducción de vacaciones del empleado
+   *     description: Realiza borrado lógico (soft delete) del registro. Los días vuelven a estar disponibles en el periodo.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         required: true
+   *       - in: path
+   *         name: vacationDeductionId
+   *         schema:
+   *           type: number
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Deducción eliminada correctamente
+   *       '404':
+   *         description: Empleado o deducción no encontrada
+   *       default:
+   *         description: Error inesperado del servidor
+   */
+  async deleteVacationDeduction({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+      const vacationDeductionId = Number(request.param('vacationDeductionId'))
+
+      if (!employeeId || Number.isNaN(vacationDeductionId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'El ID del empleado y el ID de la deducción son requeridos',
+          data: { employeeId, vacationDeductionId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'No se encontró el empleado con el ID ingresado',
+          data: { employeeId },
+        }
+      }
+
+      const result = await employeeService.deleteVacationDeduction(
+        employee.employeeId,
+        vacationDeductionId
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
         error: error.message,
       }
     }

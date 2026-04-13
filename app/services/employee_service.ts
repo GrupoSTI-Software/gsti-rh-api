@@ -1521,6 +1521,20 @@ export default class EmployeeService {
    * @param vacationDate - Fecha de la vacación
    * @returns Objeto con vacationSettingId y disponibilidad, o null si no hay disponibles
    */
+  /**
+   * Suma los días inhabilitados por deducciones manuales para un empleado y periodo.
+   * Centraliza el cómputo para que todos los flujos de disponibilidad lo consuman.
+   */
+  private async getDeductionDays(employeeId: number, vacationSettingId: number): Promise<number> {
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+    const deductions = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('employee_id', employeeId)
+      .where('vacation_setting_id', vacationSettingId)
+    return deductions.reduce((acc, d) => acc + d.vacationDeductionDays, 0)
+  }
+
   private async getAvailableVacationSetting(
     employee: Employee,
     vacationDate: DateTime
@@ -1594,8 +1608,13 @@ export default class EmployeeService {
         .where('vacation_setting_id', vacationSetting.vacationSettingId)
         .where('employee_id', employee.employeeId)
 
-      const daysUsed = vacationsUsed.length
-      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+      const daysUsedByExceptions = vacationsUsed.length
+      const daysUsedByDeductions = await this.getDeductionDays(
+        employee.employeeId,
+        vacationSetting.vacationSettingId
+      )
+      const daysAvailable =
+        vacationSetting.vacationSettingVacationDays - daysUsedByExceptions - daysUsedByDeductions
 
       if (daysAvailable > 0) {
         return {
@@ -1677,8 +1696,13 @@ export default class EmployeeService {
         .where('vacation_setting_id', vacationSetting.vacationSettingId)
         .where('employee_id', employee.employeeId)
 
-      const daysUsed = vacationsUsed.length
-      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+      const daysUsedByExceptions = vacationsUsed.length
+      const daysUsedByDeductions = await this.getDeductionDays(
+        employee.employeeId,
+        vacationSetting.vacationSettingId
+      )
+      const daysAvailable =
+        vacationSetting.vacationSettingVacationDays - daysUsedByExceptions - daysUsedByDeductions
 
       if (daysAvailable > 0) {
         return {
@@ -7383,6 +7407,133 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       }
     } catch (error) {
       console.error('Error to assign employee to access points:', error)
+    }
+  }
+
+  async applyVacationDeduction(
+    employee: Employee,
+    vacationSettingId: number,
+    vacationDeductionDays: number,
+    vacationDeductionDescription?: string | null
+  ) {
+    const descriptionNormalized = (vacationDeductionDescription ?? '').trim()
+    const vacationSetting = await VacationSetting.query()
+      .where('vacation_setting_id', vacationSettingId)
+      .whereNull('vacation_setting_deleted_at')
+      .first()
+
+    if (!vacationSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Periodo de vacaciones no encontrado',
+        message: 'No se encontró el periodo de vacaciones con el ID ingresado',
+        data: { vacationSettingId },
+      }
+    }
+
+    const shiftExceptionsUsed = await ShiftException.query()
+      .whereNull('shift_exceptions_deleted_at')
+      .where('vacation_setting_id', vacationSettingId)
+      .where('employee_id', employee.employeeId)
+
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+
+    const previousDeductions = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('vacation_setting_id', vacationSettingId)
+      .where('employee_id', employee.employeeId)
+
+    const daysUsedByExceptions = shiftExceptionsUsed.length
+    const daysUsedByDeductions = previousDeductions.reduce(
+      (acc, d) => acc + d.vacationDeductionDays,
+      0
+    )
+    const totalDaysUsed = daysUsedByExceptions + daysUsedByDeductions
+    const daysAvailable = vacationSetting.vacationSettingVacationDays - totalDaysUsed
+
+    if (vacationDeductionDays > daysAvailable) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'Días insuficientes',
+        message: `El empleado solo tiene ${daysAvailable} día(s) disponible(s) en este periodo`,
+        data: {
+          daysAvailable,
+          daysRequested: vacationDeductionDays,
+          totalDays: vacationSetting.vacationSettingVacationDays,
+          daysUsedByExceptions,
+          daysUsedByDeductions,
+        },
+      }
+    }
+
+    const deduction = await VacationDeduction.create({
+      employeeId: employee.employeeId,
+      vacationSettingId: vacationSettingId,
+      vacationDeductionDays: vacationDeductionDays,
+      vacationDeductionDescription: descriptionNormalized,
+    })
+
+    return {
+      status: 201,
+      type: 'success',
+      title: 'Deducción aplicada correctamente',
+      message: `Se descontaron ${vacationDeductionDays} día(s) de vacaciones del periodo`,
+      data: {
+        deduction: deduction.toJSON(),
+        daysAvailableAfterDeduction: daysAvailable - vacationDeductionDays,
+        totalDays: vacationSetting.vacationSettingVacationDays,
+        daysUsedByExceptions,
+        daysUsedByDeductions: daysUsedByDeductions + vacationDeductionDays,
+      },
+    }
+  }
+
+  async getVacationDeductionsByPeriod(employeeId: number, vacationSettingId?: number) {
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+
+    const deductions = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('employee_id', employeeId)
+      .if(!!vacationSettingId, (query) => {
+        query.where('vacation_setting_id', vacationSettingId!)
+      })
+      .orderBy('vacation_deduction_created_at', 'asc')
+
+    return deductions
+  }
+
+  async deleteVacationDeduction(employeeId: number, vacationDeductionId: number) {
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+
+    const deduction = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('vacation_deduction_id', vacationDeductionId)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!deduction) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Deducción no encontrada',
+        message: 'No se encontró la deducción o no pertenece a este empleado',
+        data: { vacationDeductionId, employeeId },
+      }
+    }
+
+    await deduction.delete()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Deducción eliminada',
+      message: 'La deducción de vacaciones fue eliminada correctamente',
+      data: { vacationDeductionId },
     }
   }
 }
