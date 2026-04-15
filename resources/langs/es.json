@@ -238,5 +238,9 @@
   "pdf_work_equipment": "De Trabajo",
   "pdf_elaborated_by": "ELABORÓ",
   "pdf_validated_by": "VALIDÓ",
-  "pdf_signed_by": "Firmado por:"
+  "pdf_signed_by": "Firmado por:",
+  "pdf_dimension": "Dimensión",
+  "pdf_range": "Rango (Mín - Máx)",
+  "pdf_min": "Mínimo",
+  "pdf_max": "Máximo"
 }

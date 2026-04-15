@@ -235,5 +235,9 @@
   "pdf_work_equipment": "Work Equipment",
   "pdf_elaborated_by": "PREPARED BY",
   "pdf_validated_by": "VALIDATED BY",
-  "pdf_signed_by": "Signed by:"
+  "pdf_signed_by": "Signed by:",
+  "pdf_dimension": "Dimension",
+  "pdf_range": "Range (Min - Max)",
+  "pdf_min": "Minimum",
+  "pdf_max": "Maximum"
 }

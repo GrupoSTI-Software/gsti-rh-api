@@ -15,6 +15,7 @@ import EmployeeService from './employee_service.js'
 import EmployeeShiftService from './employee_shift_service.js'
 import DepartmentService from './department_service.js'
 import PDFDocument from 'pdfkit'
+import ExcelJS from 'exceljs'
 import SystemSetting from '#models/system_setting'
 import axios from 'axios'
 import { fileURLToPath } from 'node:url'
@@ -1389,53 +1390,70 @@ export default class PositionService {
           .text(t('pdf_no_psychometric'), 45, emptyY + 5, { width: pageW - 16, lineBreak: false })
         doc.y = emptyY + 20
       } else {
-        // Agrupar por prueba (test)
-        const testMap = new Map<string, { label: string; min: number; max: number }[]>()
+        const testsMap = new Map<string, { label: string; min: number; max: number }[]>()
         for (const profile of profiles) {
-          const dim = profile.psychometricTestDimension
-          const testName = (dim as any)?.psychometricTest?.psychometricTestName
-            ?? (dim as any)?.$extras?.psychometric_test_name
+          const dimension = profile.psychometricTestDimension
+          const testName = (dimension as any)?.psychometricTest?.psychometricTestName
+            ?? (dimension as any)?.$extras?.psychometric_test_name
             ?? 'Sin prueba'
-          const dimLabel = (dim as any)?.psychometricTestDimensionName ?? ''
-          if (!testMap.has(testName)) testMap.set(testName, [])
-          testMap.get(testName)!.push({
-            label: dimLabel,
+          const dimensionLabel = (dimension as any)?.psychometricTestDimensionName ?? ''
+          if (!testsMap.has(testName)) testsMap.set(testName, [])
+          testsMap.get(testName)!.push({
+            label: dimensionLabel,
             min: profile.positionPsychometricProfileMinimumValue,
             max: profile.positionPsychometricProfileMaximumValue,
           })
         }
 
-        const tests = Array.from(testMap.entries())
-        const testColW = pageW / tests.length
+        const testEntries = Array.from(testsMap.entries())
+        const testColW = pageW / testEntries.length
 
-        // Encabezados de prueba
-        const testHeadY = doc.y
-        tests.forEach(([testName], idx) => {
+        const testHeaderY = doc.y
+        testEntries.forEach(([testName], idx) => {
           const tx = 40 + idx * testColW
-          doc.rect(tx, testHeadY, testColW, 14).fillAndStroke(lightGray, black)
+          doc.rect(tx, testHeaderY, testColW, 14).fillAndStroke(lightGray, black)
           doc.fontSize(9).font('Bold').fillColor(black)
-            .text(testName.toUpperCase(), tx + 4, testHeadY + 3, { width: testColW - 8, align: 'center', lineBreak: false })
+            .text(testName.toUpperCase(), tx + 4, testHeaderY + 3, { width: testColW - 8, align: 'center', lineBreak: false })
         })
-        doc.y = testHeadY + 14
+        doc.y = testHeaderY + 14
 
-        // Filas de dimensiones
-        const maxRows = Math.max(...tests.map(([, dims]) => dims.length))
-        for (let r = 0; r < maxRows; r++) {
+        // Encabezado de columnas: Dimensión | Mínimo | Máximo
+        const colHeaderY = doc.y
+        testEntries.forEach(([, ], idx) => {
+          const tx = 40 + idx * testColW
+          const dimensionLabelW = testColW * 0.55
+          const dimensionMinW = testColW * 0.225
+          const dimensionMaxW = testColW * 0.225
+          doc.rect(tx, colHeaderY, dimensionLabelW, 12).fillAndStroke(lightGray, black)
+          doc.rect(tx + dimensionLabelW, colHeaderY, dimensionMinW, 12).fillAndStroke(lightGray, black)
+          doc.rect(tx + dimensionLabelW + dimensionMinW, colHeaderY, dimensionMaxW, 12).fillAndStroke(lightGray, black)
+          doc.fontSize(7).font('Bold').fillColor(black)
+            .text(t('pdf_dimension'), tx + 2, colHeaderY + 3, { width: dimensionLabelW - 4, align: 'center', lineBreak: false })
+            .text(t('pdf_min'), tx + dimensionLabelW + 2, colHeaderY + 3, { width: dimensionMinW - 4, align: 'center', lineBreak: false })
+            .text(t('pdf_max'), tx + dimensionLabelW + dimensionMinW + 2, colHeaderY + 3, { width: dimensionMaxW - 4, align: 'center', lineBreak: false })
+        })
+        doc.y = colHeaderY + 12
+
+        const maxDimensionRows = Math.max(...testEntries.map(([, dimensions]) => dimensions.length))
+        for (let r = 0; r < maxDimensionRows; r++) {
           ensureSpace(14)
           const rowY = doc.y
-          tests.forEach(([, dims], idx) => {
+          testEntries.forEach(([, dimensions], idx) => {
             const tx = 40 + idx * testColW
-            const dim = dims[r]
-            const dimLabelW = testColW * 0.55
-            const dimValW = testColW * 0.45
+            const dimension = dimensions[r]
+            const dimensionLabelW = testColW * 0.55
+            const dimensionMinW = testColW * 0.225
+            const dimensionMaxW = testColW * 0.225
 
-            doc.rect(tx, rowY, dimLabelW, 14).stroke()
-            doc.rect(tx + dimLabelW, rowY, dimValW, 14).stroke()
+            doc.rect(tx, rowY, dimensionLabelW, 14).stroke()
+            doc.rect(tx + dimensionLabelW, rowY, dimensionMinW, 14).stroke()
+            doc.rect(tx + dimensionLabelW + dimensionMinW, rowY, dimensionMaxW, 14).stroke()
 
-            if (dim) {
+            if (dimension) {
               doc.fontSize(8).font('Regular').fillColor(black)
-                .text(dim.label, tx + 4, rowY + 3, { width: dimLabelW - 8, lineBreak: false })
-                .text(`${dim.min} - ${dim.max}`, tx + dimLabelW + 4, rowY + 3, { width: dimValW - 8, lineBreak: false })
+                .text(dimension.label, tx + 4, rowY + 3, { width: dimensionLabelW - 8, lineBreak: false })
+                .text(String(dimension.min), tx + dimensionLabelW + 2, rowY + 3, { width: dimensionMinW - 4, align: 'center', lineBreak: false })
+                .text(String(dimension.max), tx + dimensionLabelW + dimensionMinW + 2, rowY + 3, { width: dimensionMaxW - 4, align: 'center', lineBreak: false })
             }
           })
           doc.y = rowY + 14
@@ -1470,36 +1488,34 @@ export default class PositionService {
         ensureSpace(90)
         drawSectionHeader(t('pdf_competencies'))
 
-        const funcionales = position.competencies.filter(
+        const functionalCompetencies = position.competencies.filter(
           (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
         )
-        const tecnicas = position.competencies.filter(
+        const technicalCompetencies = position.competencies.filter(
           (c) => c.positionCompetencyType === 'technical'
         )
 
         const halfW = pageW / 2
         const cellW = pageW / 4
 
-        // Sub-encabezados: Funcionales | Técnicas
         ensureSpace(28)
-        const compSubY = doc.y
-        doc.rect(40, compSubY, halfW, 14).fillAndStroke('#2E5FA3', black)
-        doc.rect(40 + halfW, compSubY, halfW, 14).fillAndStroke('#2E5FA3', black)
+        const competencySubHeaderY = doc.y
+        doc.rect(40, competencySubHeaderY, halfW, 14).fillAndStroke('#2E5FA3', black)
+        doc.rect(40 + halfW, competencySubHeaderY, halfW, 14).fillAndStroke('#2E5FA3', black)
         doc.fontSize(9).font('Bold').fillColor(white)
-          .text(t('pdf_functional'), 40, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
+          .text(t('pdf_functional'), 40, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.fontSize(9).font('Bold').fillColor(white)
-          .text(t('pdf_technical'), 40 + halfW, compSubY + 3, { width: halfW, align: 'center', lineBreak: false })
-        doc.y = compSubY + 14
+          .text(t('pdf_technical'), 40 + halfW, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
+        doc.y = competencySubHeaderY + 14
 
-        // Filas: 2 funcionales y 2 técnicas por fila
-        const numRows = Math.max(Math.ceil(funcionales.length / 2), Math.ceil(tecnicas.length / 2), 1)
+        const numRows = Math.max(Math.ceil(functionalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
 
         for (let r = 0; r < numRows; r++) {
           const items = [
-            funcionales[r * 2]?.positionCompetencyName,
-            funcionales[r * 2 + 1]?.positionCompetencyName,
-            tecnicas[r * 2]?.positionCompetencyName,
-            tecnicas[r * 2 + 1]?.positionCompetencyName,
+            functionalCompetencies[r * 2]?.positionCompetencyName,
+            functionalCompetencies[r * 2 + 1]?.positionCompetencyName,
+            technicalCompetencies[r * 2]?.positionCompetencyName,
+            technicalCompetencies[r * 2 + 1]?.positionCompetencyName,
           ]
 
           const rowH = Math.max(
@@ -1610,5 +1626,545 @@ export default class PositionService {
 
       doc.end()
     })
+  }
+
+  async getExcel(positionId: number): Promise<Buffer | null> {
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+
+    const position = await Position.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .whereNull('position_deleted_at')
+      .where('position_id', positionId)
+      .preload('specificFunctions', (q) => q.whereNull('position_specific_function_deleted_at'))
+      .preload('kpis', (q) => q.whereNull('position_kpi_deleted_at'))
+      .preload('competencies', (q) => {
+        q.whereNull('position_competency_deleted_at').preload('weight')
+      })
+      .preload('psychometricProfiles', (q) => {
+        q.preload('psychometricTestDimension', (dq) => {
+          dq.preload('psychometricTest')
+        })
+      })
+      .first()
+
+    if (!position) return null
+
+    const systemSetting = await SystemSetting.query().whereNull('system_setting_deleted_at').first()
+    let logoBuffer: Buffer | null = null
+    let logoExtension: 'png' | 'jpeg' | 'gif' = 'png'
+    if (systemSetting?.systemSettingLogo) {
+      try {
+        const logoRes = await axios.get(systemSetting.systemSettingLogo, {
+          responseType: 'arraybuffer',
+          timeout: 8000,
+        })
+        logoBuffer = Buffer.from(logoRes.data)
+        const logoUrl = systemSetting.systemSettingLogo.toLowerCase()
+        if (logoUrl.includes('.jpg') || logoUrl.includes('.jpeg')) logoExtension = 'jpeg'
+        else if (logoUrl.includes('.gif')) logoExtension = 'gif'
+      } catch {
+        logoBuffer = null
+      }
+    }
+
+    const t = (key: string) => this.i18n.t(key)
+    const today = new Date().toLocaleDateString('es-MX', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    })
+
+    type RichRun = ExcelJS.RichText
+
+    const htmlToRichText = (html: string): RichRun[] => {
+      const decodeEntities = (s: string) =>
+        s
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+
+      const runs: RichRun[] = []
+      let bold = false
+      let italic = false
+      let underline = false
+      let buf = ''
+      const listStack: ('ul' | 'ol')[] = []
+      const olCounters: number[] = []
+
+      const flush = () => {
+        const text = decodeEntities(buf)
+        if (text) {
+          runs.push({
+            text,
+            font: {
+              bold: bold || undefined,
+              italic: italic || undefined,
+              underline: underline || undefined,
+              size: 9,
+            },
+          })
+        }
+        buf = ''
+      }
+
+      const pushPrefix = (prefix: string) => {
+        if (prefix) runs.push({ text: prefix, font: { size: 9 } })
+      }
+
+      const tagRe = /<(\/?)([a-z][a-z0-9]*)([^>]*)>/gi
+      let last = 0
+      let m: RegExpExecArray | null
+
+      // eslint-disable-next-line no-cond-assign
+      while ((m = tagRe.exec(html)) !== null) {
+        buf += html.slice(last, m.index)
+        last = m.index + m[0].length
+
+        const close = m[1] === '/'
+        const tag = m[2].toLowerCase()
+        const attrs = m[3]
+
+        if (tag === 'strong' || tag === 'b') {
+          flush(); bold = !close
+        } else if (tag === 'em' || tag === 'i') {
+          flush(); italic = !close
+        } else if (tag === 'u') {
+          flush(); underline = !close
+        } else if (tag === 'br') {
+          buf += '\n'
+        } else if (tag === 'p') {
+          if (close) buf += '\n'
+        } else if (tag === 'ol') {
+          if (!close) { listStack.push('ol'); olCounters.push(0) }
+          else { listStack.pop(); olCounters.pop() }
+        } else if (tag === 'ul') {
+          if (!close) listStack.push('ul')
+          else listStack.pop()
+        } else if (tag === 'li' && !close) {
+          if (buf) {
+            if (!buf.endsWith('\n')) buf += '\n'
+          } else if (runs.length > 0 && !runs[runs.length - 1].text.endsWith('\n')) {
+            // El contenido anterior ya fue flusheado como runs: añadir \n al último
+            runs[runs.length - 1] = {
+              ...runs[runs.length - 1],
+              text: runs[runs.length - 1].text + '\n',
+            }
+          }
+          flush()
+          const qlMatch = attrs.match(/ql-indent-(\d+)/)
+          // Sin ql-indent: sangría base = nivel de anidación (mínimo 1)
+          // Con ql-indent-N: N+1 para mantener jerarquía
+          const depth = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listStack.length
+          const indent = '    '.repeat(depth)
+          const listType = listStack.at(-1) ?? 'ul'
+          if (listType === 'ol') {
+            const idx = olCounters.length - 1
+            olCounters[idx] = (olCounters[idx] ?? 0) + 1
+            pushPrefix(`${indent}${olCounters[idx]}. `)
+          } else {
+            pushPrefix(`${indent}• `)
+          }
+        }
+      }
+
+      buf += html.slice(last)
+      flush()
+
+      // Limpiar saltos de línea excesivos por run sin perder el formato
+      const cleaned = runs
+        .map((r) => ({ ...r, text: r.text.replace(/\n{3,}/g, '\n\n') }))
+        .filter((r) => r.text.length > 0)
+
+      // Recortar el último salto de línea sobrante del bloque final
+      if (cleaned.length > 0) {
+        cleaned[cleaned.length - 1].text = cleaned[cleaned.length - 1].text.trimEnd()
+      }
+
+      return cleaned
+    }
+
+    const BLUE = 'FF2E5FA3'
+    const GRAY = 'FFF2F2F2'
+    const BLACK = 'FF000000'
+    const WHITE = 'FFFFFFFF'
+
+    const borderAll: Partial<ExcelJS.Borders> = {
+      top: { style: 'thin', color: { argb: BLACK } },
+      left: { style: 'thin', color: { argb: BLACK } },
+      bottom: { style: 'thin', color: { argb: BLACK } },
+      right: { style: 'thin', color: { argb: BLACK } },
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    workbook.creator = 'SAE'
+    workbook.title = t('pdf_title')
+
+    const sheet = workbook.addWorksheet(t('pdf_title'), {
+      pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 },
+    })
+
+    sheet.columns = [
+      { width: 32 },
+      { width: 32 },
+      { width: 20 },
+      { width: 20 },
+    ]
+
+    const mergeRow = (row: ExcelJS.Row, from: string, to: string) => {
+      sheet.mergeCells(`${from}${row.number}:${to}${row.number}`)
+    }
+
+    const styleCell = (
+      cell: ExcelJS.Cell,
+      opts: {
+        bold?: boolean
+        size?: number
+        color?: string
+        bg?: string
+        align?: ExcelJS.Alignment['horizontal']
+        wrap?: boolean
+      }
+    ) => {
+      cell.border = borderAll
+      cell.font = { bold: opts.bold ?? false, size: opts.size ?? 9, color: { argb: opts.color ?? BLACK } }
+      cell.alignment = { horizontal: opts.align ?? 'left', vertical: 'middle', wrapText: opts.wrap ?? false }
+      if (opts.bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
+    }
+
+    const addSectionHeader = (label: string, bg = BLUE) => {
+      const row = sheet.addRow([label])
+      mergeRow(row, 'A', 'D')
+      styleCell(row.getCell('A'), { bold: true, size: 10, color: WHITE, bg, align: 'center' })
+      row.height = 20
+      return row
+    }
+
+    const addSubHeader = (label: string) => {
+      const row = sheet.addRow([label])
+      mergeRow(row, 'A', 'D')
+      styleCell(row.getCell('A'), { bold: true, size: 9, bg: GRAY, align: 'center' })
+      row.height = 16
+      return row
+    }
+
+    const addFullRow = (text: string) => {
+      const row = sheet.addRow([text])
+      mergeRow(row, 'A', 'D')
+      const cell = row.getCell('A')
+      styleCell(cell, { wrap: true })
+      row.height = Math.max(18, text.split('\n').length * 14)
+      return row
+    }
+
+    const addRichRow = (runs: RichRun[]) => {
+      const row = sheet.addRow([''])
+      mergeRow(row, 'A', 'D')
+      const cell = row.getCell('A')
+      cell.value = { richText: runs }
+      cell.border = borderAll
+      cell.alignment = { wrapText: true, vertical: 'top' }
+      const fullText = runs.map((r) => r.text).join('')
+      // Contar líneas reales + wrap aproximado (95 chars por línea visual)
+      const hardLines = fullText.split('\n')
+      const totalLines = hardLines.reduce((acc, line) => acc + Math.max(1, Math.ceil(line.length / 95)), 0)
+      row.height = Math.max(18, totalLines * 13)
+      return row
+    }
+
+    // ── Encabezado: Logo + Título + Metadata ─────────────────────────────────
+    // Fila 1: [logo] | [TÍTULO]
+    const headerRow1 = sheet.addRow(['', t('pdf_title'), '', ''])
+    sheet.mergeCells(`B${headerRow1.number}:D${headerRow1.number}`)
+    headerRow1.getCell('A').border = borderAll
+    headerRow1.getCell('A').alignment = { horizontal: 'center', vertical: 'middle' }
+    styleCell(headerRow1.getCell('B'), { bold: true, size: 12, color: WHITE, bg: BLUE, align: 'center' })
+    headerRow1.height = 26
+
+    // Fila 2: [logo] | [F. Implementación] | [Revisión]
+    const headerRow2 = sheet.addRow(['', `${t('pdf_implementation_date')}: ${today}`, '', `${t('pdf_revision')}: 01`])
+    sheet.mergeCells(`B${headerRow2.number}:C${headerRow2.number}`)
+    headerRow2.getCell('A').border = borderAll
+    styleCell(headerRow2.getCell('B'), { size: 8 })
+    styleCell(headerRow2.getCell('D'), { size: 8 })
+    headerRow2.height = 16
+
+    // Fila 3: [logo] | [Clave de control] | [Reemplaza a revisión]
+    const headerRow3 = sheet.addRow([
+      '',
+      `${t('pdf_control_key')}: ${position.positionCode ?? ''}`,
+      '',
+      `${t('pdf_replaces_revision')}: 00`,
+    ])
+    sheet.mergeCells(`B${headerRow3.number}:C${headerRow3.number}`)
+    headerRow3.getCell('A').border = borderAll
+    styleCell(headerRow3.getCell('B'), { size: 8 })
+    styleCell(headerRow3.getCell('D'), { size: 8 })
+    headerRow3.height = 16
+
+    // Fila 4: [logo] | [Motivo del cambio] | [Pág.]
+    const headerRow4 = sheet.addRow(['', `${t('pdf_reason_for_change')}:`, '', `${t('pdf_page')} 1`])
+    sheet.mergeCells(`B${headerRow4.number}:C${headerRow4.number}`)
+    headerRow4.getCell('A').border = borderAll
+    styleCell(headerRow4.getCell('B'), { size: 8 })
+    styleCell(headerRow4.getCell('D'), { size: 8, align: 'right' })
+    headerRow4.height = 16
+
+    // Merge celda A para el logo (filas 1-4)
+    sheet.mergeCells(`A${headerRow1.number}:A${headerRow4.number}`)
+    const logoCell = sheet.getCell(`A${headerRow1.number}`)
+    logoCell.border = borderAll
+    logoCell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+    // Insertar imagen del logo si está disponible
+    if (logoBuffer) {
+      const imageId = workbook.addImage({ base64: logoBuffer.toString('base64'), extension: logoExtension })
+      sheet.addImage(imageId, {
+        tl: { col: 0, row: headerRow1.number - 1 } as ExcelJS.Anchor,
+        br: { col: 1, row: headerRow4.number } as ExcelJS.Anchor,
+        editAs: 'oneCell',
+      })
+    }
+
+    // ── F. Emisión / F. Revisión ──────────────────────────────────────────────
+    const emisionRow = sheet.addRow([
+      `${t('pdf_emission_date')}:`,
+      today,
+      `${t('pdf_review_date')}:`,
+      today,
+    ])
+    styleCell(emisionRow.getCell('A'), { size: 8 })
+    styleCell(emisionRow.getCell('B'), { size: 8, align: 'center' })
+    styleCell(emisionRow.getCell('C'), { size: 8 })
+    styleCell(emisionRow.getCell('D'), { size: 8, align: 'center' })
+    emisionRow.height = 18
+
+    // ── Dirección / Área-Cuenta ───────────────────────────────────────────────
+    const dirRow = sheet.addRow([
+      `${t('pdf_direction')}:`,
+      'Recursos Humanos',
+      `${t('pdf_area_account')}:`,
+      'Recursos Humanos',
+    ])
+    styleCell(dirRow.getCell('A'), { size: 8 })
+    styleCell(dirRow.getCell('B'), { size: 8, align: 'center' })
+    styleCell(dirRow.getCell('C'), { size: 8 })
+    styleCell(dirRow.getCell('D'), { size: 8, align: 'center' })
+    dirRow.height = 18
+
+    // ── PUESTO CLAVE ──────────────────────────────────────────────────────────
+    const keyRow = sheet.addRow([t('pdf_key_position')])
+    mergeRow(keyRow, 'A', 'D')
+    const keyCell = keyRow.getCell('A')
+    keyCell.border = borderAll
+    keyCell.font = { italic: true, size: 8 }
+    keyCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    keyRow.height = 16
+
+    // ── Nombre del puesto ────────────────────────────────────────────────────
+    const nameText = (position.positionName ?? '').toUpperCase()
+    const nameRow = sheet.addRow([nameText])
+    mergeRow(nameRow, 'A', 'D')
+    styleCell(nameRow.getCell('A'), { bold: true, size: 13, align: 'center' })
+    nameRow.height = 28
+
+    // ── Objetivo general ─────────────────────────────────────────────────────
+    addSectionHeader(t('pdf_general_objective'))
+    addRichRow(htmlToRichText(position.positionGeneralObjective ?? t('pdf_no_objective')))
+
+    // ── Objetivos específicos ────────────────────────────────────────────────
+    addSectionHeader(t('pdf_specific_objectives'))
+    if (position.specificFunctions?.length) {
+      for (const fn of position.specificFunctions) {
+        addRichRow(htmlToRichText(fn.positionSpecificFunctionName ?? ''))
+      }
+    } else {
+      addFullRow(t('pdf_no_functions'))
+    }
+
+    // ── KPI's ────────────────────────────────────────────────────────────────
+    addSectionHeader(t('pdf_kpis'))
+
+    const kpiHead = sheet.addRow([t('pdf_indicator'), '', t('pdf_meta_ideal'), t('pdf_frequency')])
+    mergeRow(kpiHead, 'A', 'B')
+    styleCell(kpiHead.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+    styleCell(kpiHead.getCell('C'), { bold: true, bg: GRAY, align: 'center' })
+    styleCell(kpiHead.getCell('D'), { bold: true, bg: GRAY, align: 'center' })
+    kpiHead.height = 18
+
+    if (position.kpis?.length) {
+      for (const kpi of position.kpis) {
+        const kpiRow = sheet.addRow([
+          kpi.positionKpiName ?? '',
+          '',
+          String(kpi.positionKpiIdeal ?? ''),
+          kpi.positionKpiFrequency ?? '',
+        ])
+        mergeRow(kpiRow, 'A', 'B')
+        styleCell(kpiRow.getCell('A'), { wrap: true })
+        styleCell(kpiRow.getCell('C'), { align: 'center' })
+        styleCell(kpiRow.getCell('D'), { align: 'center' })
+        kpiRow.height = 18
+      }
+    } else {
+      addFullRow(t('pdf_no_kpis'))
+    }
+
+    // ── Perfil del puesto ────────────────────────────────────────────────────
+    addSectionHeader(t('pdf_position_profile'))
+
+    const profileLabelsRow = sheet.addRow([
+      t('pdf_schooling'),
+      t('pdf_age'),
+      t('pdf_languages'),
+      t('pdf_computing'),
+    ])
+    profileLabelsRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.border = borderAll
+      cell.font = { bold: true, size: 8 }
+      cell.alignment = { horizontal: 'left', vertical: 'top' }
+    })
+    profileLabelsRow.height = 16
+
+    const profileValuesRow = sheet.addRow(['', '', '', ''])
+    profileValuesRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.border = borderAll
+      cell.font = { size: 8 }
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+    })
+    profileValuesRow.height = 20
+
+    // ── Perfil psicométrico ──────────────────────────────────────────────────
+    addSectionHeader(t('pdf_psychometric_profile'))
+
+    const profiles = position.psychometricProfiles ?? []
+    if (!profiles.length) {
+      addFullRow(t('pdf_no_psychometric'))
+    } else {
+      const testsMap = new Map<string, { label: string; min: number; max: number }[]>()
+      for (const profile of profiles) {
+        const dimension = profile.psychometricTestDimension
+        const testName =
+          (dimension as any)?.psychometricTest?.psychometricTestName ??
+          (dimension as any)?.$extras?.psychometric_test_name ??
+          'Sin prueba'
+        const dimensionLabel = (dimension as any)?.psychometricTestDimensionName ?? ''
+        if (!testsMap.has(testName)) testsMap.set(testName, [])
+        testsMap.get(testName)!.push({
+          label: dimensionLabel,
+          min: profile.positionPsychometricProfileMinimumValue,
+          max: profile.positionPsychometricProfileMaximumValue,
+        })
+      }
+
+      for (const [testName, dimensions] of testsMap.entries()) {
+        addSubHeader(testName.toUpperCase())
+
+        const dimensionHeaderRow = sheet.addRow([t('pdf_dimension'), '', t('pdf_min'), t('pdf_max')])
+        mergeRow(dimensionHeaderRow, 'A', 'B')
+        styleCell(dimensionHeaderRow.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+        styleCell(dimensionHeaderRow.getCell('C'), { bold: true, bg: GRAY, align: 'center' })
+        styleCell(dimensionHeaderRow.getCell('D'), { bold: true, bg: GRAY, align: 'center' })
+        dimensionHeaderRow.height = 16
+
+        for (const dimension of dimensions) {
+          const dimensionRow = sheet.addRow([dimension.label, '', dimension.min, dimension.max])
+          mergeRow(dimensionRow, 'A', 'B')
+          styleCell(dimensionRow.getCell('A'), {})
+          styleCell(dimensionRow.getCell('C'), { align: 'center' })
+          styleCell(dimensionRow.getCell('D'), { align: 'center' })
+          dimensionRow.height = 16
+        }
+      }
+    }
+
+    // ── Conocimientos y habilidades ──────────────────────────────────────────
+    addSectionHeader(t('pdf_knowledge_skills'))
+
+    addSectionHeader(t('pdf_experience'))
+    addRichRow(htmlToRichText(position.positionSpecificRequirement ?? t('pdf_no_info')))
+
+    addSectionHeader(t('pdf_theoretical_knowledge'))
+    addRichRow(htmlToRichText(position.positionDescription ?? t('pdf_no_info')))
+
+    // ── Competencias ─────────────────────────────────────────────────────────
+    if (position.competencies?.length) {
+      addSectionHeader(t('pdf_competencies'))
+
+      const functionalCompetencies = position.competencies.filter(
+        (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
+      )
+      const technicalCompetencies = position.competencies.filter((c) => c.positionCompetencyType === 'technical')
+
+      const competencyHeaderRow = sheet.addRow([t('pdf_functional'), '', t('pdf_technical'), ''])
+      mergeRow(competencyHeaderRow, 'A', 'B')
+      mergeRow(competencyHeaderRow, 'C', 'D')
+      styleCell(competencyHeaderRow.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+      styleCell(competencyHeaderRow.getCell('C'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+      competencyHeaderRow.height = 18
+
+      const numRows = Math.max(functionalCompetencies.length, technicalCompetencies.length, 1)
+      for (let r = 0; r < numRows; r++) {
+        const fName = functionalCompetencies[r]?.positionCompetencyName ?? ''
+        const tName = technicalCompetencies[r]?.positionCompetencyName ?? ''
+        const compRow = sheet.addRow([fName, '', tName, ''])
+        mergeRow(compRow, 'A', 'B')
+        mergeRow(compRow, 'C', 'D')
+        styleCell(compRow.getCell('A'), {
+          wrap: true,
+          align: 'center',
+          bg: fName ? undefined : GRAY,
+        })
+        styleCell(compRow.getCell('C'), {
+          wrap: true,
+          align: 'center',
+          bg: tName ? undefined : GRAY,
+        })
+        compRow.height = 18
+      }
+    }
+
+    // ── Equipo asignado ───────────────────────────────────────────────────────
+    addSectionHeader(t('pdf_assigned_equipment'))
+
+    const equipHead = sheet.addRow([t('pdf_personal_security'), '', t('pdf_work_equipment'), ''])
+    mergeRow(equipHead, 'A', 'B')
+    mergeRow(equipHead, 'C', 'D')
+    styleCell(equipHead.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    styleCell(equipHead.getCell('C'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    equipHead.height = 18
+
+    const equipRow = sheet.addRow(['', '', '', ''])
+    mergeRow(equipRow, 'A', 'B')
+    mergeRow(equipRow, 'C', 'D')
+    styleCell(equipRow.getCell('A'), {})
+    styleCell(equipRow.getCell('C'), {})
+    equipRow.height = 40
+
+    // ── Elaboró / Validó ──────────────────────────────────────────────────────
+    const signHead = sheet.addRow([t('pdf_elaborated_by'), '', t('pdf_validated_by'), ''])
+    mergeRow(signHead, 'A', 'B')
+    mergeRow(signHead, 'C', 'D')
+    styleCell(signHead.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    styleCell(signHead.getCell('C'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    signHead.height = 18
+
+    const signRow = sheet.addRow([t('pdf_signed_by'), '', t('pdf_signed_by'), ''])
+    mergeRow(signRow, 'A', 'B')
+    mergeRow(signRow, 'C', 'D')
+    styleCell(signRow.getCell('A'), { wrap: true })
+    styleCell(signRow.getCell('C'), { wrap: true })
+    signRow.height = 80
+
+    const buf = await workbook.xlsx.writeBuffer()
+    return Buffer.from(buf)
   }
 }
