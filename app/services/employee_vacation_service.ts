@@ -17,6 +17,10 @@ import sharp from 'sharp'
 import { EmployeeVacationExcelRowSummaryInterface } from '../interfaces/employee_vacation_excel_row_summary_interface.js'
 import { EmployeeVacationExcelRowSummaryYearInterface } from '../interfaces/employee_vacation_excel_row_summary_year_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import ExceptionType from '#models/exception_type'
+import ShiftExceptionService from './shift_exception_service.js'
+import VacationSetting from '#models/vacation_setting'
+import VacationDeduction from '#models/vacation_deduction'
 
 export default class EmployeeVacationService {
 
@@ -958,5 +962,737 @@ export default class EmployeeVacationService {
         }
       }
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PLANTILLA DE IMPORTACIÓN DE VACACIONES
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Genera el archivo Excel de plantilla para importación masiva de vacaciones.
+   * Diseño alineado con generateShiftAssignmentTemplate:
+   *  - Logo + color corporativo en encabezados
+   *  - Columnas fijas (1–9): identificador nómina, nombre, departamento, puesto,
+   *    unidad de negocio, unidad de nómina, sucursal, días a omitir, razón
+   *  - Columnas de días (10+): tantas como el máximo de días posibles según
+   *    el VacationSetting más alto de todos los empleados
+   *  - Por empleado: solo se desbloquean las celdas de días que le corresponden
+   *    según sus días disponibles actuales (total − usados − deducciones previas)
+   *  - Las celdas bloqueadas (sin días disponibles) aparecen en gris con candado
+   */
+  async generateVacationImportTemplate(
+    filters: EmployeeVacationExcelFilterInterface
+  ): Promise<{ status: number; buffer?: Buffer; type?: string; title?: string; message?: string; error?: string }> {
+    try {
+      // ── Obtener color corporativo y logo (igual que generateShiftAssignmentTemplate) ──
+      const systemSettingService = new SystemSettingService()
+      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      let headerColor = 'FFD6FFDC'
+      let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+      if (systemSettingActive) {
+        if (systemSettingActive.systemSettingLogo) {
+          imageLogo = systemSettingActive.systemSettingLogo
+        }
+        if (systemSettingActive.systemSettingSidebarColor) {
+          let c = systemSettingActive.systemSettingSidebarColor.replace('#', '').toUpperCase()
+          headerColor = c.length === 6 ? 'FF' + c : c
+        }
+      }
+
+      // Calcular luminosidad para decidir color de texto sobre el header
+      const hexOnly = headerColor.length === 8 ? headerColor.substring(2) : headerColor
+      const redChannel = Number.parseInt(hexOnly.substring(0, 2), 16)
+      const greenChannel = Number.parseInt(hexOnly.substring(2, 4), 16)
+      const blueChannel = Number.parseInt(hexOnly.substring(4, 6), 16)
+      const luminosity = 0.299 * redChannel + 0.587 * greenChannel + 0.114 * blueChannel
+      const headerTextColor = luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
+
+      // ── Obtener empleados según filtros ──
+      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',').map((s: string) => s.trim()).filter(Boolean)
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+      const businessUnitIds = businessUnits.map((b) => b.businessUnitId)
+
+      const employees = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .whereIn('business_unit_id', businessUnitIds)
+        .if(!!filters.search, (q) => {
+          q.where((sub) => {
+            sub
+              .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
+          })
+        })
+        .if(filters.departmentId > 0, (q) => q.where('department_id', filters.departmentId))
+        .if(filters.positionId > 0, (q) => q.where('position_id', filters.positionId))
+        .if(filters.employeeId > 0, (q) => q.where('employee_id', filters.employeeId))
+        .if(!!filters.userResponsibleId && filters.userResponsibleId > 0, (q) => {
+          q.where((sub) => {
+            sub
+              .whereHas('userResponsibleEmployee', (r) => r.where('userId', filters.userResponsibleId!))
+              .orWhereHas('person', (p) =>
+                p.whereHas('user', (u) => u.where('userId', filters.userResponsibleId!))
+              )
+          })
+        })
+        .preload('department')
+        .preload('position')
+        .preload('businessUnit')
+        .orderBy('employee_code')
+
+      // ── Calcular días disponibles por empleado y MAX global ──
+      interface EmpInfo {
+        payrollId: string
+        fullName: string
+        department: string
+        position: string
+        businessUnit: string
+        payrollUnit: string
+        sucursal: string
+        availableDays: number // días que puede ingresar (disponibles netos)
+        totalDays: number     // días totales del periodo vigente (para encabezado)
+      }
+
+      const empInfoList: EmpInfo[] = []
+      let maxVacationCols = 0
+
+      for (const emp of employees) {
+        const periods = await this.getVacationPeriodsOrdered(emp)
+        const availableDays = periods.reduce((acc, p) => acc + p.available, 0)
+        const totalDays = periods.reduce((acc, p) => acc + p.totalDays, 0)
+
+        if (totalDays > maxVacationCols) maxVacationCols = totalDays
+
+        let payrollUnitName = ''
+        if (emp.payrollBusinessUnitId) {
+          const pu = await BusinessUnit.find(emp.payrollBusinessUnitId)
+          payrollUnitName = pu?.businessUnitName ?? ''
+        }
+
+        empInfoList.push({
+          payrollId: emp.employeePayrollNum || emp.employeePayrollCode || '',
+          fullName: [emp.employeeFirstName, emp.employeeLastName, emp.employeeSecondLastName]
+            .filter(Boolean)
+            .join(' ')
+            .toUpperCase(),
+          department: emp.department?.departmentName ?? '',
+          position: emp.position?.positionName ?? '',
+          businessUnit: emp.businessUnit?.businessUnitName ?? '',
+          payrollUnit: payrollUnitName,
+          sucursal: emp.businessUnit?.businessUnitName ?? '',
+          availableDays,
+          totalDays,
+        })
+      }
+
+      // Asegurar mínimo razonable aunque no haya empleados
+      if (maxVacationCols === 0) maxVacationCols = 30
+
+      // ── Crear workbook ──
+      const workbook = new ExcelJS.Workbook()
+      const ws = workbook.addWorksheet('Plantilla de Vacaciones')
+
+      // ── Agregar logo (igual que shift template) ──
+      try {
+        const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
+        const imageBuffer = imageResponse.data
+        const metadata = await sharp(imageBuffer).metadata()
+        const iw = metadata.width ?? 1
+        const ih = metadata.height ?? 1
+        const scale = Math.min(139 / iw, 49 / ih)
+        const imageId = workbook.addImage({ buffer: imageBuffer, extension: 'png' })
+        ws.addImage(imageId, {
+          tl: { col: 0.28, row: 0.7 },
+          ext: { width: iw * scale, height: ih * scale },
+        })
+      } catch {
+        // Logo opcional; no bloquea la generación
+      }
+
+      // ── Fila 1: logo placeholder (altura 60, igual que shift template) ──
+      ws.getRow(1).height = 60
+
+      // ── Fila 2: título ──
+      const totalColCount = 9 + maxVacationCols
+      const lastColLetter = this.colIndexToLetter(totalColCount)
+      ws.mergeCells(`A2:${lastColLetter}2`)
+      const titleRow = ws.getRow(2)
+      titleRow.height = 28
+      const titleCell = ws.getCell('A2')
+      titleCell.value = 'PLANTILLA DE IMPORTACIÓN DE VACACIONES'
+      titleCell.font = { bold: true, size: 14, color: { argb: headerTextColor } }
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColor } }
+      titleCell.alignment = { vertical: 'middle', horizontal: 'center' }
+
+      // ── Fila 3: encabezados fijos + encabezados de días ──
+      const FIXED_HEADERS = [
+        'Identificador de nómina',
+        'Nombre del empleado',
+        'Departamento',
+        'Puesto',
+        'Unidad de negocio',
+        'Unidad de nómina',
+        'Sucursal',
+        'Días a omitir manualmente',
+        'Razón de días omitidos',
+      ]
+      const dayHeaders = Array.from({ length: maxVacationCols }, (_, i) => `Día ${i + 1}`)
+
+      const headerRow = ws.getRow(3)
+      headerRow.height = 35
+      ;[...FIXED_HEADERS, ...dayHeaders].forEach((val, idx) => {
+        const cell = headerRow.getCell(idx + 1)
+        cell.value = val
+        cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: idx < 9 ? headerColor : 'FF4472C4' },
+        }
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        }
+      })
+
+      // ── Fila 4: sub-encabezado de días (referencia numérica + instrucción) ──
+      const subHeaderRow = ws.getRow(4)
+      subHeaderRow.height = 22
+      ;[...Array(9).fill(''), ...dayHeaders.map(() => 'dd/MM/yyyy')].forEach((val, idx) => {
+        const cell = subHeaderRow.getCell(idx + 1)
+        cell.value = val
+        if (idx >= 9) {
+          cell.font = { italic: true, size: 8, color: { argb: 'FFFFFFFF' } }
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } }
+        } else {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColor } }
+        }
+        cell.alignment = { vertical: 'middle', horizontal: 'center' }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        }
+      })
+
+      // ── Anchos de columnas ──
+      const FIXED_WIDTHS = [20, 35, 25, 25, 22, 22, 22, 22, 35]
+      FIXED_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w })
+      for (let c = 10; c <= totalColCount; c++) { ws.getColumn(c).width = 14 }
+
+      // ── Fills de datos ──
+      const FILL_EVEN: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } }
+      const FILL_ODD: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
+      const FILL_INFO: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }
+      const FILL_EDITABLE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9F2E3' } }
+      // Días a futuro: disponibles pero aún no "desbloqueados" por el periodo (color suave)
+      const FILL_FUTURE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF4FB' } }
+      // Días ya usados u omitidos: al final, color más oscuro, igual editables
+      const FILL_USED: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6D6D6' } }
+
+      const BORDER_THIN = (color = 'FFD0D0D0') => ({
+        top: { style: 'thin' as const, color: { argb: color } },
+        left: { style: 'thin' as const, color: { argb: color } },
+        bottom: { style: 'thin' as const, color: { argb: color } },
+        right: { style: 'thin' as const, color: { argb: color } },
+      })
+
+      // ── Filas de datos (a partir de la fila 5) ──
+      empInfoList.forEach((info, ei) => {
+        const rowIdx = 5 + ei
+        const dataRow = ws.getRow(rowIdx)
+        dataRow.height = 22
+        const rowFill = ei % 2 === 0 ? FILL_EVEN : FILL_ODD
+
+        // Columnas informativas (1–7): solo lectura visualmente.
+        // Solo col 2 (nombre) queda bloqueada para el scroll; las demás son informativas pero no bloqueadas en protección.
+        const fixedValues = [
+          info.payrollId,
+          info.fullName,
+          info.department,
+          info.position,
+          info.businessUnit,
+          info.payrollUnit,
+          info.sucursal,
+        ]
+        fixedValues.forEach((val, colIdx) => {
+          const cell = dataRow.getCell(colIdx + 1)
+          cell.value = val
+          cell.fill = colIdx === 0 ? rowFill : FILL_INFO
+          cell.font = { size: 9, color: { argb: 'FF1F3864' } }
+          cell.alignment = { vertical: 'middle', horizontal: colIdx === 0 ? 'center' : 'left', wrapText: true }
+          cell.border = BORDER_THIN()
+          // Solo bloqueamos la col 2 (nombre); el resto queda libre para no interferir con el scroll
+          cell.protection = { locked: colIdx === 1 }
+        })
+
+        // Col 8: Días a omitir (editable)
+        const cellSkip = dataRow.getCell(8)
+        cellSkip.value = ''
+        cellSkip.fill = FILL_EDITABLE
+        cellSkip.font = { size: 9 }
+        cellSkip.alignment = { vertical: 'middle', horizontal: 'center' }
+        cellSkip.border = BORDER_THIN('FF00A800')
+        cellSkip.protection = { locked: false }
+
+        // Col 9: Razón (editable)
+        const cellReason = dataRow.getCell(9)
+        cellReason.value = ''
+        cellReason.fill = FILL_EDITABLE
+        cellReason.font = { size: 9 }
+        cellReason.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
+        cellReason.border = BORDER_THIN('FF00A800')
+        cellReason.protection = { locked: false }
+
+        // Columnas de días (10 en adelante) — tres zonas visuales, todas editables:
+        //   [1..availableDays]       → blanco/gris alterno normal  (días disponibles netos)
+        //   [availableDays+1..totalDays] → azul muy suave          (días "a futuro", no desbloqueados aún)
+        //   [totalDays+1..maxVacationCols] → gris oscuro           (días ya usados u omitidos o fuera de periodo)
+        for (let d = 1; d <= maxVacationCols; d++) {
+          const cell = dataRow.getCell(9 + d)
+          cell.value = ''
+          cell.alignment = { vertical: 'middle', horizontal: 'center' }
+          cell.protection = { locked: false }
+
+          if (d <= info.availableDays) {
+            // Zona 1: días disponibles netos — fondo normal
+            cell.fill = rowFill
+            cell.font = { size: 9, color: { argb: 'FF000000' } }
+            cell.border = BORDER_THIN()
+          } else if (d <= info.totalDays) {
+            // Zona 2: días a futuro (dentro del periodo pero ya consumidos) — azul suave
+            cell.fill = FILL_FUTURE
+            cell.font = { size: 9, color: { argb: 'FF5B9BD5' } }
+            cell.border = BORDER_THIN('FFADD8E6')
+          } else {
+            // Zona 3: fuera del periodo actual — gris oscuro (editables por si son días futuros)
+            cell.fill = FILL_USED
+            cell.font = { size: 9, color: { argb: 'FF888888' } }
+            cell.border = BORDER_THIN('FFAAAAAA')
+          }
+        }
+      })
+
+      // ── Proteger hoja: solo celdas marcadas como locked=false son editables ──
+      await ws.protect('', {
+        selectLockedCells: true,
+        selectUnlockedCells: true,
+        formatCells: false,
+        formatColumns: false,
+        formatRows: false,
+        insertColumns: false,
+        insertRows: false,
+        deleteColumns: false,
+        deleteRows: false,
+        sort: false,
+        autoFilter: false,
+        pivotTables: false,
+      })
+
+      // ── Congelar encabezados (filas 1–4) y solo col B (nombre) ──
+      ws.views = [{ state: 'frozen', ySplit: 4, xSplit: 2, topLeftCell: 'C5', activeCell: 'J5' }]
+
+      // ── Hoja de instrucciones ──
+      const wsInstr = workbook.addWorksheet('Instrucciones')
+      const instrLines: [string, boolean][] = [
+        ['INSTRUCCIONES DE USO - PLANTILLA DE IMPORTACIÓN DE VACACIONES', true],
+        ['', false],
+        ['1. Identificador de nómina: Requerido. Debe coincidir exactamente con el sistema.', false],
+        ['2. Columnas 2–7 (Nombre, Departamento, Puesto, etc.) son informativas. NO las modifique.', false],
+        ['3. Días a omitir (col 8): número entero ≥ 1. Si no omite días, déjelo vacío.', false],
+        ['4. Razón de días omitidos (col 9): OBLIGATORIA si ingresa días a omitir.', false],
+        ['5. A partir de la columna 10 ingrese las FECHAS de vacaciones en formato dd/MM/yyyy.', false],
+        ['   - No es necesario llenar todas las celdas disponibles.', false],
+        ['6. Al importar, el sistema valida:', false],
+        ['   - Que el empleado exista por identificador de nómina.', false],
+        ['   - Que las fechas tengan el formato correcto dd/MM/yyyy.', false],
+        ['   - Que si hay días a omitir, la razón esté presente.', false],
+        ['7. Si hay errores en alguna fila, NINGÚN dato se guarda. Se reporta fila y detalle.', false],
+        ['8. Los días se registran del periodo más antiguo al más reciente.', false],
+        ['   Los días a omitir también se descuentan del periodo más antiguo.', false],
+        ['9. Los días a futuro (fondo azul muy suave) corresponden a días dentro del periodo', false],
+        ['   del empleado que ya fueron consumidos. Si los utiliza, se asignarán al periodo', false],
+        ['   vigente más próximo disponible.', false],
+        ['', false],
+        ['COLORES DE REFERENCIA', true],
+        ['Fondo azul claro (columnas 2–7): información de solo lectura.', false],
+        ['Fondo verde claro (columnas 8–9): campos editables.', false],
+        ['Fondo blanco/gris alterno (columnas 10+): días disponibles netos para ingresar fecha.', false],
+        ['Fondo azul muy suave: días a futuro (dentro del periodo, ya consumidos). Editables.', false],
+        ['Fondo gris (oscuro): días fuera del periodo actual. Editables para asignaciones futuras.', false],
+      ]
+      instrLines.forEach(([text, isBold]) => {
+        const row = wsInstr.addRow([text])
+        row.getCell(1).font = {
+          bold: isBold,
+          size: isBold ? 12 : 10,
+          color: { argb: isBold ? 'FF1F3864' : 'FF000000' },
+        }
+        row.height = isBold ? 22 : 16
+      })
+      wsInstr.getColumn(1).width = 95
+
+      const buffer = await workbook.xlsx.writeBuffer()
+      return { status: 201, buffer: Buffer.from(buffer) }
+    } catch (error: any) {
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error al generar template',
+        message: 'Ocurrió un error al generar la plantilla de vacaciones',
+        error: error.message,
+      }
+    }
+  }
+
+  /** Convierte índice de columna (1-based) a letra(s) Excel (A, B, ..., Z, AA, ...) */
+  private colIndexToLetter(colIndex: number): string {
+    let result = ''
+    let n = colIndex
+    while (n > 0) {
+      const rem = (n - 1) % 26
+      result = String.fromCharCode(65 + rem) + result
+      n = Math.floor((n - 1) / 26)
+    }
+    return result
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // IMPORTACIÓN MASIVA DE VACACIONES DESDE EXCEL
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Valida e importa vacaciones desde el Excel generado por generateVacationImportTemplate.
+   * Aplica primero las omisiones (deducciones) comenzando por el periodo más antiguo,
+   * luego registra los días de vacaciones en los periodos disponibles.
+   * Si hay cualquier error de validación, no guarda nada y retorna detalle de errores.
+   */
+  async importVacationFromExcel(file: any): Promise<{
+    status: number
+    type: string
+    title: string
+    message: string
+    data?: any
+    error?: string
+  }> {
+    // ── 1. Leer el workbook ──
+    const workbook = new ExcelJS.Workbook()
+    try {
+      await workbook.xlsx.readFile(file.tmpPath)
+    } catch {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Archivo inválido',
+        message: 'No se pudo leer el archivo. Asegúrese de subir un Excel válido (.xlsx).',
+      }
+    }
+
+    const ws = workbook.getWorksheet('Plantilla de Vacaciones')
+    if (!ws) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Hoja no encontrada',
+        message: 'El archivo no contiene la hoja "Plantilla de Vacaciones". Use la plantilla oficial.',
+      }
+    }
+
+    // ── 2. Recolectar filas de datos (a partir de la fila 5) ──
+    // Estructura de la plantilla: fila 1 = logo, fila 2 = título, fila 3 = encabezados, fila 4 = sub-encabezado
+    const dataRows: any[] = []
+    ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber >= 5) dataRows.push({ row, rowNumber })
+    })
+
+    if (dataRows.length === 0) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'Sin datos',
+        message: 'El archivo no contiene filas de datos.',
+      }
+    }
+
+    // ── 3. Obtener el tipo de excepción "vacation" ──
+    const vacationType = await ExceptionType.query()
+      .whereNull('exception_type_deleted_at')
+      .where('exception_type_slug', 'vacation')
+      .first()
+
+    if (!vacationType) {
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Configuración faltante',
+        message: 'No se encontró el tipo de excepción "vacation" en el sistema.',
+      }
+    }
+
+    // ── 4. Fase de validación — acumular todos los errores antes de guardar ──
+    interface RowParsed {
+      rowNumber: number
+      employee: Employee
+      daysToSkip: number
+      skipReason: string
+      vacationDates: DateTime[]
+    }
+
+    const parsed: RowParsed[] = []
+    const validationErrors: string[] = []
+
+    for (const { row, rowNumber } of dataRows) {
+      const getCellValue = (col: number): string => {
+        const cell = row.getCell(col)
+        const raw = cell.type === ExcelJS.ValueType.Formula ? cell.result : cell.value
+        if (raw === null || raw === undefined) return ''
+        // Si ExcelJS entregó un objeto Date nativo, convertir a dd/MM/yyyy directamente
+        if (raw instanceof Date) {
+          const dt = DateTime.fromJSDate(raw)
+          return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
+        }
+        return String(raw).trim()
+      }
+
+      const payrollId = getCellValue(1)
+
+      // Fila completamente vacía → saltar silenciosamente
+      if (!payrollId) continue
+
+      // Buscar empleado por identificador de nómina
+      const employee = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .where((q) => {
+          q.where('employee_payroll_num', payrollId).orWhere('employee_payroll_code', payrollId)
+        })
+        .first()
+
+      if (!employee) {
+        validationErrors.push(
+          `Fila ${rowNumber}: No se encontró empleado con identificador de nómina "${payrollId}".`
+        )
+        continue
+      }
+
+      // Días a omitir
+      const daysToSkipRaw = getCellValue(8)
+      let daysToSkip = 0
+      if (daysToSkipRaw !== '') {
+        const daysToSkipParsed = Number(daysToSkipRaw)
+        if (!Number.isInteger(daysToSkipParsed) || daysToSkipParsed < 0) {
+          validationErrors.push(
+            `Fila ${rowNumber} (${payrollId}): La columna "Días a omitir manualmente" debe ser un número entero >= 0. Valor recibido: "${daysToSkipRaw}".`
+          )
+          continue
+        }
+        daysToSkip = daysToSkipParsed
+      }
+
+      // Razón — obligatoria si hay días a omitir
+      const skipReason = getCellValue(9)
+      if (daysToSkip > 0 && skipReason === '') {
+        validationErrors.push(
+          `Fila ${rowNumber} (${payrollId}): Se ingresaron ${daysToSkip} días a omitir pero falta la "Razón de días omitidos".`
+        )
+        continue
+      }
+
+      // Fechas de vacaciones (columnas 10 en adelante)
+      // Usamos row.actualCellCount / iteramos las celdas reales de la fila para no depender
+      // de ws.columnCount que incluye columnas con solo estilo aplicado (sin valor).
+      const vacationDates: DateTime[] = []
+      row.eachCell({ includeEmpty: false }, (cell: ExcelJS.Cell, colNumber: number) => {
+        if (colNumber < 10) return
+        const rawVal = cell.type === ExcelJS.ValueType.Formula ? cell.result : cell.value
+        let raw = ''
+        if (rawVal instanceof Date) {
+          const dt = DateTime.fromJSDate(rawVal)
+          raw = dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
+        } else if (rawVal !== null && rawVal !== undefined) {
+          raw = String(rawVal).trim()
+        }
+        // Ignorar celdas vacías o marcadores visuales
+        if (raw === '' || raw === '—' || raw === '-') return
+
+        const dt = DateTime.fromFormat(raw, 'dd/MM/yyyy')
+        if (!dt.isValid) {
+          validationErrors.push(
+            `Fila ${rowNumber} (${payrollId}): Fecha inválida en columna ${colNumber}: "${raw}". Use el formato dd/MM/yyyy.`
+          )
+          return
+        }
+        vacationDates.push(dt)
+      })
+
+      if (vacationDates.length === 0 && daysToSkip === 0) {
+        // Fila sin datos operativos → ignorar
+        continue
+      }
+
+      parsed.push({ rowNumber, employee, daysToSkip, skipReason, vacationDates })
+    }
+
+    // Si hay errores de validación, detener todo
+    if (validationErrors.length > 0) {
+      return {
+        status: 422,
+        type: 'warning',
+        title: 'Errores de validación',
+        message: 'No se registró ningún dato. Corrija los errores y vuelva a importar.',
+        data: { errors: validationErrors },
+      }
+    }
+
+    // ── 5. Fase de disponibilidad ──
+    // Se permite usar días "a futuro" (más allá del periodo activo) ya que la plantilla
+    // los expone como editables con color suave. En ese caso el sistema los asigna al
+    // periodo más reciente disponible (o crea la deducción en el periodo más antiguo con
+    // capacidad). No se valida límite total aquí; la lógica de persistencia maneja la
+    // distribución por periodos.
+
+    // ── 6. Fase de persistencia — ahora sí guardamos ──
+    const results = {
+      totalRows: parsed.length,
+      deductionsCreated: 0,
+      vacationsCreated: 0,
+      skipped: 0,
+    }
+
+    const shiftExceptionService = new ShiftExceptionService(this.i18n)
+
+    for (const { employee, daysToSkip, skipReason, vacationDates } of parsed) {
+      // ── 6a. Aplicar omisiones distribuidas del periodo más antiguo al más reciente ──
+      if (daysToSkip > 0) {
+        const periods = await this.getVacationPeriodsOrdered(employee)
+        let remaining = daysToSkip
+
+        for (const period of periods) {
+          if (remaining <= 0) break
+          const available = period.available
+          if (available <= 0) continue
+
+          const toDeduct = Math.min(remaining, available)
+          await VacationDeduction.create({
+            employeeId: employee.employeeId,
+            vacationSettingId: period.vacationSettingId,
+            vacationDeductionDays: toDeduct,
+            vacationDeductionDescription: skipReason,
+          })
+          remaining -= toDeduct
+          results.deductionsCreated++
+        }
+      }
+
+      // ── 6b. Registrar días de vacaciones del periodo más antiguo al más reciente ──
+      for (const dt of vacationDates) {
+        const employeeService2 = new EmployeeService(this.i18n)
+        const period = await employeeService2.getOldestAvailableVacationPeriod(employee, dt)
+
+        if (!period) {
+          results.skipped++
+          continue
+        }
+
+        const shiftException = {
+          shiftExceptionId: 0,
+          employeeId: employee.employeeId,
+          exceptionTypeId: vacationType.exceptionTypeId,
+          shiftExceptionsDate: dt.toJSDate(),
+          shiftExceptionsDescription: 'vacation',
+          shiftExceptionEnjoymentOfSalary: 1,
+          shiftExceptionCheckInTime: null,
+          shiftExceptionCheckOutTime: null,
+          shiftExceptionTimeByTime: null,
+          vacationSettingId: period.vacationSettingId,
+          workDisabilityPeriodId: null,
+        } as ShiftException
+
+        const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+        if (verifyInfo.status === 200) {
+          await shiftExceptionService.create(shiftException)
+          results.vacationsCreated++
+        } else {
+          results.skipped++
+        }
+      }
+    }
+
+    return {
+      status: 201,
+      type: 'success',
+      title: 'Importación completada',
+      message: 'Las vacaciones fueron importadas correctamente.',
+      data: results,
+    }
+  }
+
+  /**
+   * Retorna la lista de periodos (VacationSetting) del empleado ordenados
+   * del más antiguo al más reciente, con los días disponibles de cada uno
+   * descontando ShiftExceptions y VacationDeductions activas.
+   */
+  private async getVacationPeriodsOrdered(
+    employee: Employee
+  ): Promise<Array<{ vacationSettingId: number; totalDays: number; available: number }>> {
+    if (!employee.employeeHireDate) return []
+
+    const start = DateTime.fromISO(employee.employeeHireDate.toString())
+    if (!start.isValid) return []
+
+    const currentYear = DateTime.now().year
+    const startYear = start.year
+    const month = start.month
+    const day = start.day
+
+    const result: Array<{ vacationSettingId: number; totalDays: number; available: number }> = []
+
+    for (let checkYear = startYear; checkYear <= currentYear + 1; checkYear++) {
+      const yearsPassed = checkYear - startYear
+
+      const checkFormattedDate = DateTime.fromObject({ year: checkYear, month, day }).toFormat('yyyy-MM-dd')
+
+      const vacationSetting = await VacationSetting.query()
+        .whereNull('vacation_setting_deleted_at')
+        .where('vacation_setting_years_of_service', yearsPassed)
+        .where('vacation_setting_apply_since', '<=', checkFormattedDate)
+        .orderBy('vacation_setting_years_of_service', 'desc')
+        .first()
+
+      if (!vacationSetting) continue
+
+      // Evitar duplicados (mismo vacationSettingId puede aparecer si empleado tiene mismo rango de años)
+      if (result.find((r) => r.vacationSettingId === vacationSetting.vacationSettingId)) continue
+
+      const exceptionsUsed = await ShiftException.query()
+        .whereNull('shift_exceptions_deleted_at')
+        .where('vacation_setting_id', vacationSetting.vacationSettingId)
+        .where('employee_id', employee.employeeId)
+
+      const deductions = await VacationDeduction.query()
+        .whereNull('vacation_deduction_deleted_at')
+        .where('vacation_setting_id', vacationSetting.vacationSettingId)
+        .where('employee_id', employee.employeeId)
+
+      const daysUsedByExceptions = exceptionsUsed.length
+      const daysUsedByDeductions = deductions.reduce((acc, d) => acc + d.vacationDeductionDays, 0)
+      const available =
+        vacationSetting.vacationSettingVacationDays - daysUsedByExceptions - daysUsedByDeductions
+
+      result.push({
+        vacationSettingId: vacationSetting.vacationSettingId,
+        totalDays: vacationSetting.vacationSettingVacationDays,
+        available: Math.max(available, 0),
+      })
+    }
+
+    return result
   }
 }

@@ -401,4 +401,169 @@ export default class EmployeeVacationController {
       }
     }
   }
+
+  /**
+   * @swagger
+   * /api/employees-vacations/get-vacation-import-template:
+   *   get:
+   *     summary: Descargar plantilla Excel para importación masiva de vacaciones
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Employees]
+   *     parameters:
+   *       - name: search
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: string
+   *       - name: employeeId
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: number
+   *       - name: departmentId
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: number
+   *       - name: positionId
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: number
+   *     responses:
+   *       201:
+   *         description: Archivo Excel generado correctamente
+   *       500:
+   *         description: Error al generar el template
+   */
+  async getVacationImportTemplate({ auth, request, response, i18n }: HttpContext) {
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
+      }
+
+      const filters = {
+        search: request.input('search'),
+        employeeId: request.input('employeeId') || 0,
+        departmentId: request.input('departmentId') || 0,
+        positionId: request.input('positionId') || 0,
+        filterStartDate: '',
+        filterEndDate: '',
+        onlyInactive: false,
+        userResponsibleId,
+      } as EmployeeVacationExcelFilterInterface
+
+      const service = new EmployeeVacationService(i18n)
+      const result = await service.generateVacationImportTemplate(filters)
+
+      if (result.status === 201) {
+        response.header(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response.header(
+          'Content-Disposition',
+          'attachment; filename=plantilla_importacion_vacaciones.xlsx'
+        )
+        response.status(201)
+        response.send(result.buffer)
+      } else {
+        response.status(result.status)
+        return {
+          type: result.type,
+          title: result.title,
+          message: result.message,
+          error: result.error,
+        }
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees-vacations/import-vacation-excel:
+   *   post:
+   *     summary: Importar vacaciones masivamente desde Excel
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Employees]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               file:
+   *                 type: string
+   *                 format: binary
+   *                 description: Archivo Excel (.xlsx) generado con la plantilla oficial
+   *     responses:
+   *       201:
+   *         description: Vacaciones importadas correctamente
+   *       422:
+   *         description: Errores de validación (no se guardó ningún dato)
+   *       500:
+   *         description: Error inesperado del servidor
+   */
+  async importVacationExcel({ request, response, i18n }: HttpContext) {
+    try {
+      const file = request.file('file', {
+        extnames: ['xlsx'],
+        size: '10mb',
+      })
+
+      if (!file) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Archivo requerido',
+          message: 'Debe subir un archivo Excel (.xlsx).',
+        }
+      }
+
+      if (file.hasErrors) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Archivo inválido',
+          message: file.errors.map((e) => e.message).join(', '),
+        }
+      }
+
+      const service = new EmployeeVacationService(i18n)
+      const result = await service.importVacationFromExcel(file)
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
 }
