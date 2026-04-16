@@ -431,6 +431,20 @@ export default class EmployeeVacationController {
    *         required: false
    *         schema:
    *           type: number
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Filtrar solo empleados de esta unidad de negocio de trabajo
+   *         schema:
+   *           type: integer
+   *           example: 1
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Filtrar solo empleados con esta unidad de negocio de nómina
+   *         schema:
+   *           type: integer
+   *           example: 12
    *     responses:
    *       201:
    *         description: Archivo Excel generado correctamente
@@ -449,6 +463,17 @@ export default class EmployeeVacationController {
         }
       }
 
+      const businessUnitIdRaw = request.input('businessUnitId')
+      const payrollBusinessUnitIdRaw = request.input('payrollBusinessUnitId')
+      const businessUnitIdParsed =
+        businessUnitIdRaw !== undefined && businessUnitIdRaw !== ''
+          ? Number(businessUnitIdRaw)
+          : undefined
+      const payrollBusinessUnitIdParsed =
+        payrollBusinessUnitIdRaw !== undefined && payrollBusinessUnitIdRaw !== ''
+          ? Number(payrollBusinessUnitIdRaw)
+          : undefined
+
       const filters = {
         search: request.input('search'),
         employeeId: request.input('employeeId') || 0,
@@ -458,6 +483,16 @@ export default class EmployeeVacationController {
         filterEndDate: '',
         onlyInactive: false,
         userResponsibleId,
+        businessUnitId:
+          businessUnitIdParsed !== undefined && !Number.isNaN(businessUnitIdParsed) && businessUnitIdParsed > 0
+            ? businessUnitIdParsed
+            : undefined,
+        payrollBusinessUnitId:
+          payrollBusinessUnitIdParsed !== undefined &&
+          !Number.isNaN(payrollBusinessUnitIdParsed) &&
+          payrollBusinessUnitIdParsed > 0
+            ? payrollBusinessUnitIdParsed
+            : undefined,
       } as EmployeeVacationExcelFilterInterface
 
       const service = new EmployeeVacationService(i18n)

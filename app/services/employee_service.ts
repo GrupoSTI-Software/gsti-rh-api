@@ -1947,6 +1947,12 @@ export default class EmployeeService {
       .if(this.hasFilterValue(filters.positionId), (query) => {
         this.applyIdFilter(query, 'position_id', filters.positionId)
       })
+      .if(!!filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(!!filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
+      })
       .preload('shift_exceptions', (exceptionQuery) => {
         exceptionQuery.whereNull('shift_exceptions_deleted_at')
         exceptionQuery.where('exception_type_id', shiftExceptionVacation.exceptionTypeId)

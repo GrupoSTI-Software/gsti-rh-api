@@ -4844,6 +4844,20 @@ export default class EmployeeController {
    *         description: Year
    *         schema:
    *           type: integer
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados de esta unidad de negocio de trabajo
+   *         schema:
+   *           type: integer
+   *           example: 1
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados con esta unidad de negocio de nómina
+   *         schema:
+   *           type: integer
+   *           example: 12
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -4940,12 +4954,24 @@ export default class EmployeeController {
       const departmentId = this.parseIdOrIds(request.input('departmentId'))
       const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
+      const businessUnitIdRaw = request.input('businessUnitId')
+      const payrollBusinessUnitIdRaw = request.input('payrollBusinessUnitId')
+      const businessUnitId =
+        businessUnitIdRaw !== undefined && businessUnitIdRaw !== '' && !Number.isNaN(Number(businessUnitIdRaw)) && Number(businessUnitIdRaw) > 0
+          ? Number(businessUnitIdRaw)
+          : undefined
+      const payrollBusinessUnitId =
+        payrollBusinessUnitIdRaw !== undefined && payrollBusinessUnitIdRaw !== '' && !Number.isNaN(Number(payrollBusinessUnitIdRaw)) && Number(payrollBusinessUnitIdRaw) > 0
+          ? Number(payrollBusinessUnitIdRaw)
+          : undefined
       const filters = {
         search: search,
         departmentId: departmentId,
         positionId: positionId,
         year: year,
         userResponsibleId: userResponsibleId,
+        businessUnitId,
+        payrollBusinessUnitId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
       const employees = await employeeService.getVacations(filters)

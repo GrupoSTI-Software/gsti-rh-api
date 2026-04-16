@@ -1039,6 +1039,14 @@ export default class EmployeeVacationService {
               )
           })
         })
+        .if(
+          !!filters.businessUnitId && filters.businessUnitId > 0,
+          (q) => q.where('business_unit_id', filters.businessUnitId!)
+        )
+        .if(
+          !!filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0,
+          (q) => q.where('payroll_business_unit_id', filters.payrollBusinessUnitId!)
+        )
         .preload('department')
         .preload('position')
         .preload('businessUnit')
@@ -1193,10 +1201,12 @@ export default class EmployeeVacationService {
       const FILL_ODD: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
       const FILL_INFO: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }
       const FILL_EDITABLE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9F2E3' } }
-      // Días a futuro: disponibles pero aún no "desbloqueados" por el periodo (color suave)
-      const FILL_FUTURE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF4FB' } }
-      // Días ya usados u omitidos: al final, color más oscuro, igual editables
-      const FILL_USED: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6D6D6' } }
+      // Zona 1 — días disponibles: siempre blanco (sin mezcla con gris)
+      const FILL_AVAILABLE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
+      // Zona 2 — días a futuro / dentro del periodo pero ya consumidos: gris oscuro
+      const FILL_FUTURE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6D6D6' } }
+      // Zona 3 — fuera del periodo actual: azul claro
+      const FILL_USED: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF4FB' } }
 
       const BORDER_THIN = (color = 'FFD0D0D0') => ({
         top: { style: 'thin' as const, color: { argb: color } },
@@ -1263,20 +1273,20 @@ export default class EmployeeVacationService {
           cell.protection = { locked: false }
 
           if (d <= info.availableDays) {
-            // Zona 1: días disponibles netos — fondo normal
-            cell.fill = rowFill
+            // Zona 1: días disponibles netos — siempre blanco
+            cell.fill = FILL_AVAILABLE
             cell.font = { size: 9, color: { argb: 'FF000000' } }
             cell.border = BORDER_THIN()
           } else if (d <= info.totalDays) {
-            // Zona 2: días a futuro (dentro del periodo pero ya consumidos) — azul suave
+            // Zona 2: días a futuro / dentro del periodo pero ya consumidos — gris oscuro
             cell.fill = FILL_FUTURE
-            cell.font = { size: 9, color: { argb: 'FF5B9BD5' } }
-            cell.border = BORDER_THIN('FFADD8E6')
-          } else {
-            // Zona 3: fuera del periodo actual — gris oscuro (editables por si son días futuros)
-            cell.fill = FILL_USED
             cell.font = { size: 9, color: { argb: 'FF888888' } }
             cell.border = BORDER_THIN('FFAAAAAA')
+          } else {
+            // Zona 3: fuera del periodo actual — azul claro
+            cell.fill = FILL_USED
+            cell.font = { size: 9, color: { argb: 'FF5B9BD5' } }
+            cell.border = BORDER_THIN('FFADD8E6')
           }
         }
       })
@@ -1325,9 +1335,9 @@ export default class EmployeeVacationService {
         ['COLORES DE REFERENCIA', true],
         ['Fondo azul claro (columnas 2–7): información de solo lectura.', false],
         ['Fondo verde claro (columnas 8–9): campos editables.', false],
-        ['Fondo blanco/gris alterno (columnas 10+): días disponibles netos para ingresar fecha.', false],
-        ['Fondo azul muy suave: días a futuro (dentro del periodo, ya consumidos). Editables.', false],
-        ['Fondo gris (oscuro): días fuera del periodo actual. Editables para asignaciones futuras.', false],
+        ['Fondo blanco (columnas 10+): días disponibles netos para ingresar fecha.', false],
+        ['Fondo gris oscuro: días a futuro (dentro del periodo, ya consumidos). Editables.', false],
+        ['Fondo azul claro: días fuera del periodo actual. Editables para asignaciones futuras.', false],
       ]
       instrLines.forEach(([text, isBold]) => {
         const row = wsInstr.addRow([text])
