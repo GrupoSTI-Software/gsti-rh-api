@@ -285,6 +285,34 @@ export default class SystemSettingService {
     }
   }
 
+  async updateAttendanceFaultHrEmailsStatus(systemSettingId: number, enabled: boolean) {
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+      .first()
+
+    if (!systemSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'System setting not found',
+        message: 'The system setting was not found with the entered ID',
+        data: { systemSettingId },
+      }
+    }
+
+    systemSetting.systemSettingAttendanceFaultHrEmails = enabled ? 1 : 0
+    await systemSetting.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Estado de notificaciones por falta de asistencia actualizado',
+      message: 'La opción de correos a RH por falta de registro de asistencia se actualizó correctamente',
+      data: { systemSetting },
+    }
+  }
+
   async updateAnniversaryEmailsStatus(systemSettingId: number, anniversaryEmailsEnabled: boolean) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')

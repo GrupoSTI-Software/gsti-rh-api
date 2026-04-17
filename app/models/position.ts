@@ -5,6 +5,9 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
 import PositionPsychometricProfile from './position_psychometric_profile.js'
+import PositionSpecificFunction from './position_specific_function.js'
+import PositionKpi from './position_kpi.js'
+import PositionCompetency from './position_competency.js'
 
 /**
  * @swagger
@@ -203,4 +206,19 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'positionId',
   })
   declare psychometricProfiles: HasMany<typeof PositionPsychometricProfile>
+
+  @hasMany(() => PositionSpecificFunction, {
+    foreignKey: 'positionId',
+  })
+  declare specificFunctions: HasMany<typeof PositionSpecificFunction>
+
+  @hasMany(() => PositionKpi, {
+    foreignKey: 'positionId',
+  })
+  declare kpis: HasMany<typeof PositionKpi>
+
+  @hasMany(() => PositionCompetency, {
+    foreignKey: 'positionId',
+  })
+  declare competencies: HasMany<typeof PositionCompetency>
 }

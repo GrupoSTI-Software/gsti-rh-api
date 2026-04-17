@@ -445,11 +445,21 @@ export default class EmployeeService {
           query.whereIn('departmentId', departmentsList)
         }
       )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
       .preload('department')
       .preload('position')
       .preload('person')
       .preload('businessUnit')
       .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .if(filters.orderBy === 'number', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
         query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
@@ -800,6 +810,11 @@ export default class EmployeeService {
       .preload('emergencyContact')
       .preload('children')
       .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -828,6 +843,11 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -1100,9 +1120,19 @@ export default class EmployeeService {
         this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereNotIn('person_id', persons)
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
       .preload('department')
       .preload('position')
       .preload('person')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .orderBy('employee_id')
       .paginate(filters.page, filters.limit)
     return employees
@@ -4411,6 +4441,7 @@ export default class EmployeeService {
    * @param options.positionId - Filtro opcional: solo empleados con esta posición (requiere departmentId válido que tenga esa posición)
    * @param options.businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
    * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
+   * @param options.branchNameIds - IDs de sucursal (branch_office_id); solo empleados con asignación activa a alguna de ellas
    */
   async generateEmployeeImportTemplate(options?: {
     fillWithExisting?: boolean
@@ -4418,6 +4449,7 @@ export default class EmployeeService {
     positionId?: number
     businessUnitId?: number
     payrollBusinessUnitId?: number
+    branchNameIds?: number[]
     /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
     orderBy?: string
     orderDirection?: string
@@ -4687,6 +4719,11 @@ export default class EmployeeService {
       if (options.payrollBusinessUnitId !== undefined) {
         employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
       }
+      if (options.branchNameIds && options.branchNameIds.length > 0) {
+        employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', options.branchNameIds!)
+        })
+      }
 
       const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
       if (allowedBusinessUnitIds.length > 0) {
@@ -4792,6 +4829,7 @@ export default class EmployeeService {
  * @param isReport - Si es true, genera un reporte con turnos asignados basados en applySince
  * @param businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
  * @param payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
+ * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (vacío = sin filtro). Aplica a plantilla y modo reporte.
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
 async generateShiftAssignmentTemplate(
@@ -4800,7 +4838,8 @@ async generateShiftAssignmentTemplate(
   employeeIds?: number[],
   isReport?: boolean,
   businessUnitId?: number,
-  payrollBusinessUnitId?: number
+  payrollBusinessUnitId?: number,
+  branchNameIds?: number[]
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4943,6 +4982,12 @@ async generateShiftAssignmentTemplate(
   // Filtrar por IDs de empleados si se proporcionan
   if (employeeIds && employeeIds.length > 0) {
     employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+  }
+
+  if (branchNameIds && branchNameIds.length > 0) {
+    employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+      sub.whereIn('branchOfficeId', branchNameIds)
+    })
   }
 
   const employees = await employeesQuery
@@ -6096,13 +6141,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
    * @param departmentIds - IDs de departamentos a filtrar (opcional)
    * @param employeeIds - IDs de empleados a filtrar (opcional)
+   * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (opcional)
    * @returns Buffer del archivo Excel generado
    */
   async generateAttendanceReport(
     startDate: string,
     endDate: string,
     departmentIds?: number[],
-    employeeIds?: number[]
+    employeeIds?: number[],
+    branchNameIds?: number[]
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
@@ -6166,6 +6213,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Filtrar por IDs de empleados si se proporcionan
     if (employeeIds && employeeIds.length > 0) {
       employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+    }
+
+    if (branchNameIds && branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', branchNameIds)
+      })
     }
 
     const employees = await employeesQuery

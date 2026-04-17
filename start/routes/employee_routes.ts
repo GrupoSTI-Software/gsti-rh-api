@@ -31,6 +31,13 @@ router
       '#controllers/employee_controller.getProceedingFiles'
     )
 
+    router.post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
+    router.delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
+    router.get(
+      '/:employeeId/branch-offices/history',
+      '#controllers/employee_branch_office_controller.history'
+    )
+
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
     router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
     router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')

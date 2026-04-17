@@ -64,6 +64,17 @@ export default class EmployeeController {
     return !Number.isNaN(single) && single > 0 ? single : null
   }
 
+  /**
+   * branchNameIds=2,3,4 → [2,3,4]. Vacío o ausente → undefined (no aplica filtro).
+   */
+  private parseBranchNameIds(value: unknown): number[] | undefined {
+    const parsed = this.parseIdOrIds(value)
+    if (parsed === null) {
+      return undefined
+    }
+    return Array.isArray(parsed) ? parsed : [parsed]
+  }
+
   /** Normaliza texto opcional para modalidad/tipo de baja (vacío → null). */
   private normalizeTerminationInput(value: unknown): string | null {
     if (value === null || value === undefined) {
@@ -495,6 +506,13 @@ export default class EmployeeController {
    *         description: Payroll Business Unit Id
    *         schema:
    *           type: integer
+   *       - name: branchNameIds
+   *         in: query
+   *         required: false
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna de ellas. Vacío u omitido = sin filtro.
+   *         schema:
+   *           type: string
+   *           example: "2,3,4"
    *       - name: getMails
    *         in: query
    *         required: false
@@ -630,6 +648,7 @@ export default class EmployeeController {
       const businessUnitId = request.input('businessUnitId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const getMails = request.input('getMails')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
       const filters = {
         search: search,
@@ -652,6 +671,7 @@ export default class EmployeeController {
         shiftEndTime: shiftEndTime,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        branchNameIds: branchNameIds,
         getMails: getMails,
       } as EmployeeFilterSearchInterface
 
@@ -2043,12 +2063,14 @@ export default class EmployeeController {
       const positionId = this.parseIdOrIds(request.input('positionId'))
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
       const filters = {
         search: search,
         departmentId: departmentId,
         positionId: positionId,
         page: page,
         limit: limit,
+        branchNameIds: branchNameIds,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
       const employees = await employeeService.indexWithOutUser(filters)
@@ -3525,6 +3547,12 @@ export default class EmployeeController {
    *           type: integer
    *         description: Filtro opcional; solo empleados de esta unidad de negocio de nómina (cuando fillWithExisting es true).
    *       - in: query
+   *         name: branchNameIds
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: IDs de sucursal separados por comas (ej. 2,3,4). Solo empleados con asignación activa a alguna. Solo aplica cuando fillWithExisting es true.
+   *       - in: query
    *         name: orderBy
    *         required: false
    *         schema:
@@ -3592,6 +3620,7 @@ export default class EmployeeController {
       const orderBy =
         orderByRaw === 'number' || orderByRaw === 'name' ? orderByRaw : undefined
       const orderDirection = request.input('orderDirection')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
       const buffer = await employeeService.generateEmployeeImportTemplate({
         fillWithExisting,
@@ -3599,6 +3628,7 @@ export default class EmployeeController {
         positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
         businessUnitId: businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
         payrollBusinessUnitId: payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
+        branchNameIds,
         orderBy,
         orderDirection: orderDirection !== undefined && orderDirection !== '' ? String(orderDirection) : undefined,
       })
@@ -6752,6 +6782,13 @@ export default class EmployeeController {
    *         schema:
    *           type: integer
    *         description: Filtro opcional; solo incluir empleados de esta unidad de negocio de nómina.
+   *       - in: query
+   *         name: branchNameIds
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna. Vacío u omitido = sin filtro. Aplica en plantilla editable y en isReport.
+   *         example: "2,3,4"
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -6893,6 +6930,7 @@ export default class EmployeeController {
 
       const businessUnitId = businessUnitIdParam !== undefined && businessUnitIdParam !== '' ? Number(businessUnitIdParam) : undefined
       const payrollBusinessUnitId = payrollBusinessUnitIdParam !== undefined && payrollBusinessUnitIdParam !== '' ? Number(payrollBusinessUnitIdParam) : undefined
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateShiftAssignmentTemplate(
@@ -6901,7 +6939,8 @@ export default class EmployeeController {
         employeeIds,
         isReport,
         businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
-        payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined
+        payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
+        branchNameIds
       )
 
       // Configurar headers para la descarga del archivo
@@ -6976,6 +7015,13 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           example: "1,2,3"
+   *       - name: branchNameIds
+   *         in: query
+   *         required: false
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna. Vacío u omitido = sin filtro.
+   *         schema:
+   *           type: string
+   *           example: "2,3,4"
    *     responses:
    *       '200':
    *         description: Archivo Excel generado exitosamente
@@ -7125,12 +7171,15 @@ export default class EmployeeController {
         }
       }
 
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
+
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateAttendanceReport(
         startDate,
         endDate,
         departmentIds,
-        employeeIds
+        employeeIds,
+        branchNameIds
       )
 
       // Configurar headers para la descarga del archivo
