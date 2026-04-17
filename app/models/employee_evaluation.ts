@@ -5,6 +5,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import EmployeeCompetencyEvaluation from './employee_competency_evaluation.js'
+import EmployeeKpiEvaluation from './employee_kpi_evaluation.js'
 
 /**
  * @swagger
@@ -28,6 +29,9 @@ import EmployeeCompetencyEvaluation from './employee_competency_evaluation.js'
  *          employeeEvaluationScore:
  *            type: number
  *            description: Employee evaluation score
+ *          employeeEvaluationPotential:
+ *            type: number
+ *            description: Employee evaluation potential
  *          employeeEvaluationCreatedAt:
  *            type: string
  *            description: Employee evaluation created at
@@ -55,6 +59,9 @@ export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) 
   @column()
   declare employeeEvaluationScore: number | null
 
+  @column()
+  declare employeeEvaluationPotential: number | null
+
   @column.dateTime({ autoCreate: true })
   declare employeeEvaluationCreatedAt: DateTime
 
@@ -75,4 +82,9 @@ export default class EmployeeEvaluation extends compose(BaseModel, SoftDeletes) 
     foreignKey: 'employeeEvaluationId',
   })
   declare employeeCompetencyEvaluations: HasMany<typeof EmployeeCompetencyEvaluation>
+
+  @hasMany(() => EmployeeKpiEvaluation, {
+    foreignKey: 'employeeEvaluationId',
+  })
+  declare employeeKpiEvaluations: HasMany<typeof EmployeeKpiEvaluation>
 }
