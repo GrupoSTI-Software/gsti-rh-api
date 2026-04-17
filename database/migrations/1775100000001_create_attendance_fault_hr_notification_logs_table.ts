@@ -10,10 +10,9 @@ export default class extends BaseSchema {
     }
     this.schema.createTable(this.tableName, (table) => {
       table.increments('attendance_fault_hr_notification_log_id').notNullable()
+      table.integer('employee_assist_calendar_id').unsigned().notNullable()
       table
-        .integer('employee_assist_calendar_id')
-        .unsigned()
-        .notNullable()
+        .foreign('employee_assist_calendar_id', 'fk_att_fault_hr_logs_assist_cal')
         .references('employee_assist_calendar_id')
         .inTable('employee_assist_calendars')
         .onDelete('CASCADE')
