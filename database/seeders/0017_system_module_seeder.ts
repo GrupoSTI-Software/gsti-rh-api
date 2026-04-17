@@ -594,6 +594,35 @@ export default class extends BaseSeeder {
         </svg>
         `,
       },
+      {
+        systemModuleId: 34,
+        systemModuleName: 'Sucursales',
+        systemModuleSlug: 'sucursales',
+        systemModuleDescription: 'Catálogo de sucursales por unidad de negocio',
+        systemModules: 1,
+        systemModulePath: '/branch-offices',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 21h18" />
+          <path d="M5 21v-16l8 -4v18" />
+          <path d="M19 21v-10l-6 -4" />
+          <path d="M9 9v.01" />
+          <path d="M9 12v.01" />
+          <path d="M9 15v.01" />
+          <path d="M9 18v.01" />
+        </svg>`,
+      },
     ]
 
     for (const systemModule of systemModules) {

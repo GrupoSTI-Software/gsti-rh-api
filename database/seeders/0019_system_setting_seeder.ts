@@ -17,6 +17,7 @@ export default class extends BaseSeeder {
         systemSettingRestrictFutureVacation: 0, // 0 para no restringir, 1 para restringir (Poder asignar vacaciones en el futuro "adelantar")
         systemSettingBirthdayEmails: 0, // 0 para no enviar emails, 1 para enviar emails de cumpleaños a los empleados
         systemSettingAnniversaryEmails: 0, // 0 para no enviar emails, 1 para enviar emails de aniversarios a los empleados
+        systemSettingAttendanceFaultHrEmails: 0, // 0 desactiva correos a RH por falta de registro tras tolerancia Fault
       },
     ]
 

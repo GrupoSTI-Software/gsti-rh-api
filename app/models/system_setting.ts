@@ -55,6 +55,9 @@ import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
  *          systemSettingAnniversaryEmails:
  *            type: number
  *            description: System setting anniversary emails status to activate or deactivate the anniversary emails from the command "anniversary_email" by default is false as 0
+ *          systemSettingAttendanceFaultHrEmails:
+ *            type: number
+ *            description: Activa o desactiva el envío de correos a RH por falta de registro de asistencia tras la tolerancia Fault (comando notify:attendance-fault-hr)
  *          systemSettingMaxAbsencesBeforeAttendanceLock:
  *            type: number
  *            description: System setting max absences before attendance lock
@@ -109,6 +112,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemSettingAnniversaryEmails: number | 0 // 0 for false, 1 for true
+
+  @column()
+  declare systemSettingAttendanceFaultHrEmails: number | 0
 
   @column()
   declare systemSettingMaxAbsencesBeforeAttendanceLock: number | null
