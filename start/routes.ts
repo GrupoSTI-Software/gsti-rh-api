@@ -135,6 +135,8 @@ import './routes/employee_competency_evaluation.js'
 import './routes/employee_kpi_evaluation.js'
 import './routes/employee_psychometric_evaluation_routes.js'
 import './routes/position_work_tool_routes.js'
+import './routes/competency_routes.js'
+import './routes/position_competency_level_routes.js'
 
 router
   .get('/', async ({ view }) => {

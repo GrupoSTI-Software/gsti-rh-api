@@ -196,5 +196,10 @@
   "employee_psychometric_evaluation_date_cannot_be_in_future": "The psychometric evaluation date cannot be a future date",
   "employee_psychometric_evaluation_already_exists_for_date": "A psychometric evaluation of the same type already exists for the entered date",
   "position_work_tool": "Position work tool",
-  "position_work_tools": "Position work tools"
+  "position_work_tools": "Position work tools",
+  "competency": "Competency",
+  "competencies": "Competencies",
+  "position_competency_level": "Position competency level",
+  "position_competency_levels": "Position competency levels",
+  "resource_already_exists": "The resource already exists"
 }

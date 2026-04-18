@@ -555,6 +555,30 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Upload fingers',
         systemPermissionSlug: 'upload-fingers',
         systemModuleId: 1
+      },
+      {
+        systemPermissionId: 139,
+        systemPermissionName: 'Show Competencies',
+        systemPermissionSlug: 'read',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 140,
+        systemPermissionName: 'Update Competencies',
+        systemPermissionSlug: 'update',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 141,
+        systemPermissionName: 'Delete Competencies',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 142,
+        systemPermissionName: 'Create Competencies',
+        systemPermissionSlug: 'create',
+        systemModuleId: 37
       }
     ]
 
