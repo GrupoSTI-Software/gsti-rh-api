@@ -445,11 +445,21 @@ export default class EmployeeService {
           query.whereIn('departmentId', departmentsList)
         }
       )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
       .preload('department')
       .preload('position')
       .preload('person')
       .preload('businessUnit')
       .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .if(filters.orderBy === 'number', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
         query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
@@ -800,6 +810,11 @@ export default class EmployeeService {
       .preload('emergencyContact')
       .preload('children')
       .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -828,6 +843,11 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .withTrashed()
       .first()
     return employee ? employee : null
@@ -1100,9 +1120,19 @@ export default class EmployeeService {
         this.applyIdFilter(query, 'position_id', filters.positionId)
       })
       .whereNotIn('person_id', persons)
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
       .preload('department')
       .preload('position')
       .preload('person')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
       .orderBy('employee_id')
       .paginate(filters.page, filters.limit)
     return employees
@@ -1521,6 +1551,20 @@ export default class EmployeeService {
    * @param vacationDate - Fecha de la vacación
    * @returns Objeto con vacationSettingId y disponibilidad, o null si no hay disponibles
    */
+  /**
+   * Suma los días inhabilitados por deducciones manuales para un empleado y periodo.
+   * Centraliza el cómputo para que todos los flujos de disponibilidad lo consuman.
+   */
+  private async getDeductionDays(employeeId: number, vacationSettingId: number): Promise<number> {
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+    const deductions = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('employee_id', employeeId)
+      .where('vacation_setting_id', vacationSettingId)
+    return deductions.reduce((acc, d) => acc + d.vacationDeductionDays, 0)
+  }
+
   private async getAvailableVacationSetting(
     employee: Employee,
     vacationDate: DateTime
@@ -1594,8 +1638,13 @@ export default class EmployeeService {
         .where('vacation_setting_id', vacationSetting.vacationSettingId)
         .where('employee_id', employee.employeeId)
 
-      const daysUsed = vacationsUsed.length
-      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+      const daysUsedByExceptions = vacationsUsed.length
+      const daysUsedByDeductions = await this.getDeductionDays(
+        employee.employeeId,
+        vacationSetting.vacationSettingId
+      )
+      const daysAvailable =
+        vacationSetting.vacationSettingVacationDays - daysUsedByExceptions - daysUsedByDeductions
 
       if (daysAvailable > 0) {
         return {
@@ -1677,8 +1726,13 @@ export default class EmployeeService {
         .where('vacation_setting_id', vacationSetting.vacationSettingId)
         .where('employee_id', employee.employeeId)
 
-      const daysUsed = vacationsUsed.length
-      const daysAvailable = vacationSetting.vacationSettingVacationDays - daysUsed
+      const daysUsedByExceptions = vacationsUsed.length
+      const daysUsedByDeductions = await this.getDeductionDays(
+        employee.employeeId,
+        vacationSetting.vacationSettingId
+      )
+      const daysAvailable =
+        vacationSetting.vacationSettingVacationDays - daysUsedByExceptions - daysUsedByDeductions
 
       if (daysAvailable > 0) {
         return {
@@ -1922,6 +1976,12 @@ export default class EmployeeService {
       })
       .if(this.hasFilterValue(filters.positionId), (query) => {
         this.applyIdFilter(query, 'position_id', filters.positionId)
+      })
+      .if(!!filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(!!filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
       })
       .preload('shift_exceptions', (exceptionQuery) => {
         exceptionQuery.whereNull('shift_exceptions_deleted_at')
@@ -4387,6 +4447,7 @@ export default class EmployeeService {
    * @param options.positionId - Filtro opcional: solo empleados con esta posición (requiere departmentId válido que tenga esa posición)
    * @param options.businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
    * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
+   * @param options.branchNameIds - IDs de sucursal (branch_office_id); solo empleados con asignación activa a alguna de ellas
    */
   async generateEmployeeImportTemplate(options?: {
     fillWithExisting?: boolean
@@ -4394,6 +4455,7 @@ export default class EmployeeService {
     positionId?: number
     businessUnitId?: number
     payrollBusinessUnitId?: number
+    branchNameIds?: number[]
     /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
     orderBy?: string
     orderDirection?: string
@@ -4663,6 +4725,11 @@ export default class EmployeeService {
       if (options.payrollBusinessUnitId !== undefined) {
         employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
       }
+      if (options.branchNameIds && options.branchNameIds.length > 0) {
+        employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', options.branchNameIds!)
+        })
+      }
 
       const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
       if (allowedBusinessUnitIds.length > 0) {
@@ -4768,6 +4835,7 @@ export default class EmployeeService {
  * @param isReport - Si es true, genera un reporte con turnos asignados basados en applySince
  * @param businessUnitId - Filtro opcional: solo empleados de esta unidad de negocio (trabajo)
  * @param payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
+ * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (vacío = sin filtro). Aplica a plantilla y modo reporte.
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
 async generateShiftAssignmentTemplate(
@@ -4776,7 +4844,8 @@ async generateShiftAssignmentTemplate(
   employeeIds?: number[],
   isReport?: boolean,
   businessUnitId?: number,
-  payrollBusinessUnitId?: number
+  payrollBusinessUnitId?: number,
+  branchNameIds?: number[]
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4919,6 +4988,12 @@ async generateShiftAssignmentTemplate(
   // Filtrar por IDs de empleados si se proporcionan
   if (employeeIds && employeeIds.length > 0) {
     employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+  }
+
+  if (branchNameIds && branchNameIds.length > 0) {
+    employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+      sub.whereIn('branchOfficeId', branchNameIds)
+    })
   }
 
   const employees = await employeesQuery
@@ -6072,13 +6147,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    * @param endDate - Fecha de fin del periodo (formato: yyyy-MM-dd)
    * @param departmentIds - IDs de departamentos a filtrar (opcional)
    * @param employeeIds - IDs de empleados a filtrar (opcional)
+   * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (opcional)
    * @returns Buffer del archivo Excel generado
    */
   async generateAttendanceReport(
     startDate: string,
     endDate: string,
     departmentIds?: number[],
-    employeeIds?: number[]
+    employeeIds?: number[],
+    branchNameIds?: number[]
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
@@ -6142,6 +6219,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Filtrar por IDs de empleados si se proporcionan
     if (employeeIds && employeeIds.length > 0) {
       employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+    }
+
+    if (branchNameIds && branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', branchNameIds)
+      })
     }
 
     const employees = await employeesQuery
@@ -7383,6 +7466,133 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       }
     } catch (error) {
       console.error('Error to assign employee to access points:', error)
+    }
+  }
+
+  async applyVacationDeduction(
+    employee: Employee,
+    vacationSettingId: number,
+    vacationDeductionDays: number,
+    vacationDeductionDescription?: string | null
+  ) {
+    const descriptionNormalized = (vacationDeductionDescription ?? '').trim()
+    const vacationSetting = await VacationSetting.query()
+      .where('vacation_setting_id', vacationSettingId)
+      .whereNull('vacation_setting_deleted_at')
+      .first()
+
+    if (!vacationSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Periodo de vacaciones no encontrado',
+        message: 'No se encontró el periodo de vacaciones con el ID ingresado',
+        data: { vacationSettingId },
+      }
+    }
+
+    const shiftExceptionsUsed = await ShiftException.query()
+      .whereNull('shift_exceptions_deleted_at')
+      .where('vacation_setting_id', vacationSettingId)
+      .where('employee_id', employee.employeeId)
+
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+
+    const previousDeductions = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('vacation_setting_id', vacationSettingId)
+      .where('employee_id', employee.employeeId)
+
+    const daysUsedByExceptions = shiftExceptionsUsed.length
+    const daysUsedByDeductions = previousDeductions.reduce(
+      (acc, d) => acc + d.vacationDeductionDays,
+      0
+    )
+    const totalDaysUsed = daysUsedByExceptions + daysUsedByDeductions
+    const daysAvailable = vacationSetting.vacationSettingVacationDays - totalDaysUsed
+
+    if (vacationDeductionDays > daysAvailable) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'Días insuficientes',
+        message: `El empleado solo tiene ${daysAvailable} día(s) disponible(s) en este periodo`,
+        data: {
+          daysAvailable,
+          daysRequested: vacationDeductionDays,
+          totalDays: vacationSetting.vacationSettingVacationDays,
+          daysUsedByExceptions,
+          daysUsedByDeductions,
+        },
+      }
+    }
+
+    const deduction = await VacationDeduction.create({
+      employeeId: employee.employeeId,
+      vacationSettingId: vacationSettingId,
+      vacationDeductionDays: vacationDeductionDays,
+      vacationDeductionDescription: descriptionNormalized,
+    })
+
+    return {
+      status: 201,
+      type: 'success',
+      title: 'Deducción aplicada correctamente',
+      message: `Se descontaron ${vacationDeductionDays} día(s) de vacaciones del periodo`,
+      data: {
+        deduction: deduction.toJSON(),
+        daysAvailableAfterDeduction: daysAvailable - vacationDeductionDays,
+        totalDays: vacationSetting.vacationSettingVacationDays,
+        daysUsedByExceptions,
+        daysUsedByDeductions: daysUsedByDeductions + vacationDeductionDays,
+      },
+    }
+  }
+
+  async getVacationDeductionsByPeriod(employeeId: number, vacationSettingId?: number) {
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+
+    const deductions = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('employee_id', employeeId)
+      .if(!!vacationSettingId, (query) => {
+        query.where('vacation_setting_id', vacationSettingId!)
+      })
+      .orderBy('vacation_deduction_created_at', 'asc')
+
+    return deductions
+  }
+
+  async deleteVacationDeduction(employeeId: number, vacationDeductionId: number) {
+    const vacationDeductionModule = await import('#models/vacation_deduction')
+    const VacationDeduction = vacationDeductionModule.default
+
+    const deduction = await VacationDeduction.query()
+      .whereNull('vacation_deduction_deleted_at')
+      .where('vacation_deduction_id', vacationDeductionId)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!deduction) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Deducción no encontrada',
+        message: 'No se encontró la deducción o no pertenece a este empleado',
+        data: { vacationDeductionId, employeeId },
+      }
+    }
+
+    await deduction.delete()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Deducción eliminada',
+      message: 'La deducción de vacaciones fue eliminada correctamente',
+      data: { vacationDeductionId },
     }
   }
 }

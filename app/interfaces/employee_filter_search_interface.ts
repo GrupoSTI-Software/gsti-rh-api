@@ -25,6 +25,11 @@ interface EmployeeFilterSearchInterface {
   shiftEndTime?: string
   businessUnitId?: number
   payrollBusinessUnitId?: number
+  /**
+   * IDs de sucursal (branch_office_id), separados por comas en query: branchNameIds=2,3,4.
+   * Filtra empleados con asignación activa a alguna de esas sucursales. Vacío u omitido = sin filtro.
+   */
+  branchNameIds?: number[]
   /** Si es verdadero, en la respuesta `employeeBusinessEmail` lleva el correo prioritario (usuario > empresa > personal). */
   getMails?: boolean | string | number
 }
