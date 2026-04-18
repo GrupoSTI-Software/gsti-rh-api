@@ -36,6 +36,7 @@ export default class EmployeeEvaluationService {
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_evaluation_id', employeeEvaluationId)
       .preload('employeeCompetencyEvaluations')
+      .preload('employeeKpiEvaluations')
       .first()
     return employeeEvaluation ? employeeEvaluation : null
   }
@@ -71,6 +72,7 @@ export default class EmployeeEvaluationService {
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_id', employeeEvaluation.employeeId)
       .where('employee_evaluation_date', employeeEvaluation.employeeEvaluationDate)
+      .where('employee_evaluation_type', employeeEvaluation.employeeEvaluationType)
       .first()
     if (existEmployeeEvaluation) {
       return {
@@ -98,7 +100,9 @@ export default class EmployeeEvaluationService {
       .preload('employeeCompetencyEvaluations', (query) => {
         query.preload('weight')
       })
+      .orderBy('employee_evaluation_type', 'asc')
       .orderBy('employee_evaluation_date', 'desc')
+      .limit(3)
     return employeeEvaluations ? employeeEvaluations : []
   }
 

@@ -1,6 +1,4 @@
-# System Settings Error Codes Documentation
-
-## Error Codes Catalog: SYS.CNFG.PRSS.014 - SYS.CNFG.PRSS.018
+# Display of all Error Codes Documentation --The GSTI Development Team
 
 ### SYS.CNFG.PRSS.014 - Image Read Error
 
@@ -357,6 +355,75 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 
 ---
 
+## Módulo Sucursales (Branch offices) — API `/api/branch-offices`
+
+**Referencia JSON:** `docs/branch_offices_api_reference.json` (ejemplos de request/response, query, cuerpos y tabla de `errorCode`).
+
+**Respuestas de error:** además de `message`, el cuerpo incluye **`errorCode`** (prefijo `BRCH.*`) para que el cliente pueda ramificar con un `switch` fijo sin depender del texto del mensaje ni de cadenas largas en memoria.
+
+### BRCH.VAL.001 — Validación de entrada
+
+**Cuándo ocurre:** Parámetros de query o cuerpo JSON no cumplen las reglas de Vine (tipos, rangos, enums).
+
+**Cómo puede ocurrir:**
+- `page`, `limit`, `businessUnitId` con valores no numéricos o fuera de rango
+- `sortOrder` distinto de `asc` o `desc`
+- `branchOfficeName` vacío en POST o longitud inválida
+- Campos numéricos opcionales negativos
+
+**Respuesta API:** HTTP **400**, `errorCode: 'BRCH.VAL.001'`, `message` con el primer error de validación.
+
+**Acción cliente:** Corregir el payload o query; no reintentar el mismo cuerpo.
+
+---
+
+### BRCH.NOT.001 — Sucursal no disponible
+
+**Cuándo ocurre:** No existe fila para el `id`, o la sucursal no pertenece a ninguna unidad de negocio cuyo slug esté en `SYSTEM_BUSINESS` (incluye eliminados lógicos fuera de consulta normal).
+
+**Cómo puede ocurrir:**
+- ID inexistente en `branch_offices`
+- Instancia del API con `SYSTEM_BUSINESS` que no incluye la unidad de la sucursal
+- Intento de GET/PUT/DELETE sobre recurso fuera de alcance
+
+**Respuesta API:** HTTP **404**, `errorCode: 'BRCH.NOT.001'`.
+
+**Acción cliente:** Refrescar listado; no tratar como error de servidor.
+
+---
+
+### BRCH.CFG.001 — Configuración SYSTEM_BUSINESS ausente
+
+**Cuándo ocurre:** Al crear (o al validar unidad) la variable de entorno `SYSTEM_BUSINESS` está vacía o no define slugs tras separar por comas.
+
+**Respuesta API:** HTTP **400**, `errorCode: 'BRCH.CFG.001'`.
+
+**Acción cliente:** Escalar a administración de plataforma; revisar `.env`.
+
+**Nota:** El listado GET con `SYSTEM_BUSINESS` vacío devuelve **200** con lista vacía (meta `total: 0`), sin `errorCode`.
+
+---
+
+### BRCH.BU.001 — Unidad de negocio no permitida
+
+**Cuándo ocurre:** `businessUnitId` no existe, está inactiva, eliminada, o su `business_unit_slug` no está en la lista derivada de `SYSTEM_BUSINESS`.
+
+**Respuesta API:** HTTP **400**, `errorCode: 'BRCH.BU.001'`.
+
+**Acción cliente:** Usar solo IDs devueltos por `/api/business-units` (u origen equivalente filtrado por el sistema).
+
+---
+
+### BRCH.SYS.001 — Error no clasificado
+
+**Cuándo ocurre:** Excepción en el controlador que no es `E_VALIDATION_ERROR`, `E_ROW_NOT_FOUND` ni `BranchOfficeServiceError`.
+
+**Respuesta API:** HTTP según el endpoint (típicamente 400 en index/store/update; 404 en show/destroy si el fallback lo indica), `errorCode: 'BRCH.SYS.001'`.
+
+**Acción cliente:** Registrar `message` y correlación; revisar logs del servidor.
+
+---
+
 ## Error Code Summary Table
 
 | Code | Error Type | HTTP Status | User Action | System Action |
@@ -377,6 +444,11 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 | VAC.ARCH.008 | Contenido del archivador no encontrado | 404 | Verificar ID del contenido | EmployeeVacationArchiveContentService.findById |
 | VAC.ARCH.009 | Excepción de turno no es tipo vacaciones | 400 | Usar solo excepciones con tipo slug vacation | EmployeeVacationArchiveService.validateShiftExceptionsForArchive |
 | VAC.ARCH.010 | Excepción de turno ya vinculada a otro archivador | 400 | No vincular la misma excepción dos veces | EmployeeVacationArchiveService.validateShiftExceptionsForArchive |
+| BRCH.VAL.001 | Validación query/body sucursales (Vine) | 400 | Corregir parámetros o JSON | BranchOfficesController + resolveBranchOfficeApiError |
+| BRCH.NOT.001 | Sucursal no encontrada o fuera de SYSTEM_BUSINESS | 404 | Verificar id y alcance de instancia | BranchOfficeService.getById / update / delete |
+| BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
+| BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
+| BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
 
 ---
 
@@ -406,4 +478,9 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 - Flujo: crear archivador (POST `/api/employee-vacation-archives`) con `employeeId`, `vacationSettingId` y opcionalmente `shiftExceptionIds` (solo excepciones de turno con tipo slug `vacation`) → subir archivos (POST `.../contents`) con límite 5MB y tipos imagen/PDF.
 - Los archivadores se vinculan a **excepciones de turno** (ShiftException) mediante tabla pivote `employee_vacation_archive_shift_exceptions`; cada excepción solo puede estar en un archivador.
 - Códigos propios del módulo: VAC.ARCH.001–VAC.ARCH.010; se reutilizan SYS.CNFG.PRSS.016 y SYS.CNFG.PRSS.017 para fallos de S3.
+
+### Sucursales (branch offices)
+
+- `StandardResponseFormatter.error` acepta `errorCode` opcional; el módulo sucursales lo envía en todos los errores HTTP del controlador.
+- Constantes: `app/constants/branch_office_error_codes.ts`; resolución: `app/helpers/branch_office_api_error.ts`; dominio: `BranchOfficeServiceError` en `app/exceptions/branch_office_service_error.ts`.
 

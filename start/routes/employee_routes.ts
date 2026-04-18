@@ -32,6 +32,13 @@ router
       '#controllers/employee_controller.getProceedingFiles'
     )
 
+    router.post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
+    router.delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
+    router.get(
+      '/:employeeId/branch-offices/history',
+      '#controllers/employee_branch_office_controller.history'
+    )
+
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
     router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
     router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')
@@ -57,6 +64,21 @@ router
     )
     router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
     router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
+    router.post(
+      '/:employeeId/vacation-deductions',
+      '#controllers/employee_controller.applyVacationDeduction'
+    )
+    router.get(
+      '/:employeeId/vacation-deductions',
+      '#controllers/employee_controller.getVacationDeductions'
+    )
+    router
+      .delete(
+        '/:employeeId/vacation-deductions/:vacationDeductionId',
+        '#controllers/employee_controller.deleteVacationDeduction'
+      )
+      .where('employeeId', router.matchers.number())
+      .where('vacationDeductionId', router.matchers.number())
 
   })
   .prefix('/api/employees')
