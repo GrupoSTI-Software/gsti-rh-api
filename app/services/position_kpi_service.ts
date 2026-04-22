@@ -11,8 +11,6 @@ export default class PositionKpiService {
     newPositionKpi.positionKpiScale = positionKpi.positionKpiScale
     newPositionKpi.positionKpiType = positionKpi.positionKpiType
     newPositionKpi.positionKpiFrequency = positionKpi.positionKpiFrequency
-    newPositionKpi.positionKpiDurationDays = positionKpi.positionKpiDurationDays
-    newPositionKpi.positionKpiStartDay = positionKpi.positionKpiStartDay
     await newPositionKpi.save()
     return newPositionKpi
   }
@@ -25,8 +23,6 @@ export default class PositionKpiService {
     currentPositionKpi.positionKpiScale = positionKpi.positionKpiScale
     currentPositionKpi.positionKpiType = positionKpi.positionKpiType
     currentPositionKpi.positionKpiFrequency = positionKpi.positionKpiFrequency
-    currentPositionKpi.positionKpiDurationDays = positionKpi.positionKpiDurationDays
-    currentPositionKpi.positionKpiStartDay = positionKpi.positionKpiStartDay
     await currentPositionKpi.save()
     return currentPositionKpi
   }
