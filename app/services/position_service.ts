@@ -952,6 +952,153 @@ export default class PositionService {
 
       const t = (key: string) => this.i18n.t(key)
 
+      const decodeEntities = (s: string) =>
+        s
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+
+      const stripEmojis = (s: string): string =>
+        s.replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{1F300}-\u{1FBFF}]/gu, '')
+
+      const INDENT_PX = 18
+
+      type HtmlSpan = { text: string; bold: boolean; italic: boolean; underline: boolean }
+      type HtmlBlock = { spans: HtmlSpan[]; indent: number; bulletText: string | null }
+
+      const parseHtml = (html: string): HtmlBlock[] => {
+        const blocks: HtmlBlock[] = []
+        let bold = false
+        let italic = false
+        let underline = false
+        let listDepth = 0
+        const listTypes: ('ul' | 'ol')[] = []
+        const olCounters = new Map<number, number>()
+        let cur: HtmlBlock = { spans: [], indent: 0, bulletText: null }
+
+        const flush = () => {
+          const spans = cur.spans.filter((s) => s.text.trim())
+          if (spans.length || cur.bulletText) blocks.push({ ...cur, spans })
+          cur = { spans: [], indent: Math.max(0, listDepth - 1), bulletText: null }
+        }
+
+        const addText = (raw: string) => {
+          const text = stripEmojis(decodeEntities(raw)).replace(/[ \t]+/g, ' ')
+          if (text.trim()) cur.spans.push({ text, bold, italic, underline })
+        }
+
+        const re = /<(\/?)(\w+)([^>]*)>|([^<]+)/g
+        let m: RegExpExecArray | null
+        while ((m = re.exec(html)) !== null) {
+          const [, closing, tag, attrs, textNode] = m
+          const tl = (tag || '').toLowerCase()
+          const close = closing === '/'
+
+          if (textNode !== undefined) {
+            textNode.split('\n').forEach((line, i) => {
+              if (i > 0 && cur.spans.length) flush()
+              addText(line)
+            })
+          } else {
+            switch (tl) {
+              case 'b': case 'strong': bold = !close; break
+              case 'i': case 'em':    italic = !close; break
+              case 'u': case 'a':     underline = !close; break
+              case 'br':              flush(); break
+              case 'p': case 'div':
+              case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
+                if (close) {
+                  flush()
+                } else {
+                  if (cur.spans.length) flush()
+                  const qlIndent = (attrs || '').match(/ql-indent-(\d+)/)
+                  if (qlIndent) cur.indent = Number.parseInt(qlIndent[1])
+                }
+                break
+              case 'ul': case 'ol':
+                if (!close) {
+                  listDepth++
+                  listTypes.push(tl as 'ul' | 'ol')
+                  if (tl === 'ol') olCounters.clear()
+                } else {
+                  flush()
+                  listDepth = Math.max(0, listDepth - 1)
+                  listTypes.pop()
+                }
+                break
+              case 'li':
+                if (!close) {
+                  flush()
+                  const qlMatch = (attrs || '').match(/ql-indent-(\d+)/)
+                  const indentLevel = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listDepth
+                  cur.indent = indentLevel
+                  const currentListType = listTypes.length > 0 ? listTypes[listTypes.length - 1] : 'ul'
+                  if (currentListType === 'ol') {
+                    const n = (olCounters.get(indentLevel) || 0) + 1
+                    olCounters.set(indentLevel, n)
+                    cur.bulletText = `${n}.`
+                  } else {
+                    cur.bulletText = '•'
+                  }
+                } else { flush() }
+                break
+            }
+          }
+        }
+        flush()
+        return blocks
+      }
+
+      const htmlHeight = (html: string, width: number, fs: number = 9): number => {
+        const blocks = parseHtml(html)
+        if (!blocks.length) return 20
+        doc.fontSize(fs).font('Regular')
+        let h = 0
+        for (const block of blocks) {
+          const iw = width - block.indent * INDENT_PX
+          const prefix = block.bulletText ? block.bulletText + ' ' : ''
+          const plain = prefix + block.spans.map((s) => s.text).join('')
+          h += doc.heightOfString(plain.trim() || ' ', { width: iw })
+        }
+        return h
+      }
+
+      const renderHtml = (html: string, x: number, y: number, width: number, fs: number = 9): void => {
+        const blocks = parseHtml(html)
+        doc.y = y
+
+        for (const block of blocks) {
+          const ix = x + block.indent * INDENT_PX
+          const iw = width - block.indent * INDENT_PX
+          if (!block.spans.length) continue
+
+          block.spans.forEach((span, si) => {
+            const isLast = si === block.spans.length - 1
+            const font =
+              span.bold && span.italic ? 'BoldItalic'
+              : span.bold ? 'Bold'
+              : span.italic ? 'Italic'
+              : 'Regular'
+            const opts: PDFKit.Mixins.TextOptions = {
+              width: iw,
+              continued: !isLast,
+              lineBreak: true,
+              underline: span.underline,
+            }
+            if (si === 0) {
+              const prefix = block.bulletText ? block.bulletText + ' ' : ''
+              doc.font(font).fontSize(fs).fillColor(black)
+                .text(prefix + span.text, ix, doc.y, opts)
+            } else {
+              doc.font(font).fontSize(fs).fillColor(black)
+                .text(span.text, opts)
+            }
+          })
+        }
+      }
+
       const today = new Date().toLocaleDateString('es-MX')
 
       // ── Constantes de layout ──────────────────────────────────────────────
@@ -1115,6 +1262,16 @@ export default class PositionService {
         .text(nameText, 40, nameY + 7, { width: pageW, align: 'center' })
       doc.y = nameY + nameH
       doc.font('Regular')
+
+      // ── Objetivo general ──────────────────────────────────────────────────
+      drawSectionHeader(t('profile_position.general_objective'))
+      const rawObj = position.positionGeneralObjective ?? t('profile_position.no_objective')
+      const objH = htmlHeight(rawObj, pageW - 16) + 12
+      ensureSpace(objH)
+      const objY = doc.y
+      doc.rect(40, objY, pageW, objH).stroke()
+      renderHtml(rawObj, 45, objY + 6, pageW - 16)
+      doc.y = objY + objH
 
       // ── KPIs ──────────────────────────────────────────────────────────────
       drawSectionHeader(t('profile_position.kpis'))
@@ -1527,6 +1684,105 @@ export default class PositionService {
       if (opts.bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
     }
 
+    type RichRun = ExcelJS.RichText
+
+    const htmlToRichText = (html: string): RichRun[] => {
+      const decodeEnt = (s: string) =>
+        s
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+
+      const runs: RichRun[] = []
+      let bold = false
+      let italic = false
+      let underline = false
+      let buf = ''
+      const listStack: ('ul' | 'ol')[] = []
+      const olCounters: number[] = []
+
+      const flush = () => {
+        const text = decodeEnt(buf)
+        if (text) {
+          runs.push({
+            text,
+            font: { bold: bold || undefined, italic: italic || undefined, underline: underline || undefined, size: 9 },
+          })
+        }
+        buf = ''
+      }
+
+      const pushPrefix = (prefix: string) => {
+        if (prefix) runs.push({ text: prefix, font: { size: 9 } })
+      }
+
+      const tagRe = /<(\/?)([a-z][a-z0-9]*)([^>]*)>/gi
+      let last = 0
+      let mx: RegExpExecArray | null
+
+      // eslint-disable-next-line no-cond-assign
+      while ((mx = tagRe.exec(html)) !== null) {
+        buf += html.slice(last, mx.index)
+        last = mx.index + mx[0].length
+
+        const close = mx[1] === '/'
+        const tag = mx[2].toLowerCase()
+        const attrs = mx[3]
+
+        if (tag === 'strong' || tag === 'b') {
+          flush(); bold = !close
+        } else if (tag === 'em' || tag === 'i') {
+          flush(); italic = !close
+        } else if (tag === 'u') {
+          flush(); underline = !close
+        } else if (tag === 'br') {
+          buf += '\n'
+        } else if (tag === 'p') {
+          if (close) buf += '\n'
+        } else if (tag === 'ol') {
+          if (!close) { listStack.push('ol'); olCounters.push(0) }
+          else { listStack.pop(); olCounters.pop() }
+        } else if (tag === 'ul') {
+          if (!close) listStack.push('ul')
+          else listStack.pop()
+        } else if (tag === 'li' && !close) {
+          if (buf) {
+            if (!buf.endsWith('\n')) buf += '\n'
+          } else if (runs.length > 0 && !runs[runs.length - 1].text.endsWith('\n')) {
+            runs[runs.length - 1] = { ...runs[runs.length - 1], text: runs[runs.length - 1].text + '\n' }
+          }
+          flush()
+          const qlMatch = attrs.match(/ql-indent-(\d+)/)
+          const depth = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listStack.length
+          const indent = '    '.repeat(depth)
+          const listType = listStack.at(-1) ?? 'ul'
+          if (listType === 'ol') {
+            const idx = olCounters.length - 1
+            olCounters[idx] = (olCounters[idx] ?? 0) + 1
+            pushPrefix(`${indent}${olCounters[idx]}. `)
+          } else {
+            pushPrefix(`${indent}• `)
+          }
+        }
+      }
+
+      buf += html.slice(last)
+      flush()
+
+      const cleaned = runs
+        .map((r) => ({ ...r, text: r.text.replace(/\n{3,}/g, '\n\n') }))
+        .filter((r) => r.text.length > 0)
+
+      if (cleaned.length > 0) {
+        cleaned[cleaned.length - 1].text = cleaned[cleaned.length - 1].text.trimEnd()
+      }
+
+      return cleaned
+    }
+
     const addSectionHeader = (label: string, bg = BLUE) => {
       const row = sheet.addRow([label])
       mergeRow(row, 'A', LAST)
@@ -1541,6 +1797,23 @@ export default class PositionService {
       const cell = row.getCell('A')
       styleCell(cell, { wrap: true })
       row.height = Math.max(18, text.split('\n').length * 14)
+      return row
+    }
+
+    const addRichRow = (runs: RichRun[]) => {
+      const row = sheet.addRow([''])
+      mergeRow(row, 'A', LAST)
+      const cell = row.getCell('A')
+      cell.value = { richText: runs }
+      cell.border = borderAll
+      cell.alignment = { wrapText: true, vertical: 'top' }
+      const fullText = runs.map((r) => r.text).join('').trimEnd()
+      const hardLines = fullText.split('\n')
+      const totalLines = hardLines.reduce((acc, line) => {
+        if (!line.trim()) return acc
+        return acc + Math.max(1, Math.ceil(line.length / 95))
+      }, 0)
+      row.height = Math.max(18, Math.ceil(totalLines) * 10)
       return row
     }
 
@@ -1627,6 +1900,10 @@ export default class PositionService {
     mergeRow(nameRow, 'A', LAST)
     styleCell(nameRow.getCell('A'), { bold: true, size: 13, align: 'center' })
     nameRow.height = 28
+
+    // ── Objetivo general ─────────────────────────────────────────────────────
+    addSectionHeader(t('profile_position.general_objective'))
+    addRichRow(htmlToRichText(position.positionGeneralObjective ?? t('profile_position.no_objective')))
 
     // ── KPI's ─────────────────────────────────────────────────── ─────────────
     // A:H = Indicador (8 cols), I:J = Meta/Ideal (2 cols), K:L = Frecuencia (2 cols)
