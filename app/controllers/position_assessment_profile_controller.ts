@@ -1,21 +1,21 @@
 import { HttpContext } from '@adonisjs/core/http'
-import PositionPsychometricProfileService from '#services/position_psychometric_profile_service'
-import PositionPsychometricProfile from '#models/position_psychometric_profile'
+import PositionAssessmentProfileService from '#services/position_assessment_profile_service'
+import PositionAssessmentProfile from '#models/position_assessment_profile'
 import {
-  createPositionPsychometricProfileValidator,
-  updatePositionPsychometricProfileValidator,
-} from '#validators/position_psychometric_profile'
+  createPositionAssessmentProfileValidator,
+  updatePositionAssessmentProfileValidator,
+} from '#validators/position_assessment_profile'
 
-export default class PositionPsychometricProfileController {
+export default class PositionAssessmentProfileController {
   /**
    * @swagger
-   * /api/position-psychometric-profiles:
+   * /api/position-assessment-profiles:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Psychometric Profiles
-   *     summary: get position psychometric profiles
+   *       - Position Assessment Profiles
+   *     summary: get position assessment profiles
    *     parameters:
    *       - name: positionId
    *         in: query
@@ -23,16 +23,16 @@ export default class PositionPsychometricProfileController {
    *         description: Filter by position id
    *         schema:
    *           type: integer
-   *       - name: psychometricTestDimensionId
+   *       - name: assessmentTemplateDimensionId
    *         in: query
    *         required: false
-   *         description: Filter by psychometric test dimension id
+   *         description: Filter by assessment template dimension id
    *         schema:
    *           type: integer
-   *       - name: psychometricTestId
+   *       - name: assessmentTemplateId
    *         in: query
    *         required: false
-   *         description: Filter by psychometric test id (via dimension relationship)
+   *         description: Filter by assessment template id (via dimension relationship)
    *         schema:
    *           type: integer
    *       - name: page
@@ -61,31 +61,31 @@ export default class PositionPsychometricProfileController {
       const positionId = request.input('positionId')
         ? Number(request.input('positionId'))
         : undefined
-      const psychometricTestDimensionId = request.input('psychometricTestDimensionId')
-        ? Number(request.input('psychometricTestDimensionId'))
+      const assessmentTemplateDimensionId = request.input('assessmentTemplateDimensionId')
+        ? Number(request.input('assessmentTemplateDimensionId'))
         : undefined
-      const psychometricTestId = request.input('psychometricTestId')
-        ? Number(request.input('psychometricTestId'))
+      const assessmentTemplateId = request.input('assessmentTemplateId')
+        ? Number(request.input('assessmentTemplateId'))
         : undefined
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
-      const service = new PositionPsychometricProfileService()
-      const positionPsychometricProfiles = await service.index({
+      const service = new PositionAssessmentProfileService()
+      const positionAssessmentProfiles = await service.index({
         positionId,
-        psychometricTestDimensionId,
-        psychometricTestId,
+        assessmentTemplateDimensionId,
+        assessmentTemplateId,
         page,
         limit,
       })
       response.status(200)
       return {
         type: 'success',
-        title: t('position_psychometric_profiles'),
+        title: t('position_assessment_profiles'),
         message: t('resources_were_found_successfully'),
         data: {
-          positionPsychometricProfiles,
+          positionAssessmentProfiles,
         },
       }
     } catch (error) {
@@ -101,13 +101,13 @@ export default class PositionPsychometricProfileController {
 
   /**
    * @swagger
-   * /api/position-psychometric-profiles:
+   * /api/position-assessment-profiles:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Psychometric Profiles
-   *     summary: create new position psychometric profile
+   *       - Position Assessment Profiles
+   *     summary: create new position assessment profile
    *     produces:
    *       - application/json
    *     requestBody:
@@ -120,15 +120,15 @@ export default class PositionPsychometricProfileController {
    *                 type: number
    *                 description: Position id
    *                 required: true
-   *               psychometricTestDimensionId:
+   *               assessmentTemplateDimensionId:
    *                 type: number
-   *                 description: Psychometric test dimension id
+   *                 description: Assessment template dimension id
    *                 required: true
-   *               positionPsychometricProfileMinimumValue:
+   *               positionAssessmentProfileMinimumValue:
    *                 type: number
    *                 description: Minimum value
    *                 required: true
-   *               positionPsychometricProfileMaximumValue:
+   *               positionAssessmentProfileMaximumValue:
    *                 type: number
    *                 description: Maximum value
    *                 required: true
@@ -141,25 +141,25 @@ export default class PositionPsychometricProfileController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await request.validateUsing(createPositionPsychometricProfileValidator)
+      await request.validateUsing(createPositionAssessmentProfileValidator)
       const profile = {
         positionId: request.input('positionId'),
-        psychometricTestDimensionId: request.input('psychometricTestDimensionId'),
-        positionPsychometricProfileMinimumValue: request.input(
-          'positionPsychometricProfileMinimumValue'
+        assessmentTemplateDimensionId: request.input('assessmentTemplateDimensionId'),
+        positionAssessmentProfileMinimumValue: request.input(
+          'positionAssessmentProfileMinimumValue'
         ),
-        positionPsychometricProfileMaximumValue: request.input(
-          'positionPsychometricProfileMaximumValue'
+        positionAssessmentProfileMaximumValue: request.input(
+          'positionAssessmentProfileMaximumValue'
         ),
-      } as PositionPsychometricProfile
-      const service = new PositionPsychometricProfileService()
+      } as PositionAssessmentProfile
+      const service = new PositionAssessmentProfileService()
       const newProfile = await service.create(profile)
       response.status(201)
       return {
         type: 'success',
-        title: t('position_psychometric_profile'),
+        title: t('position_assessment_profile'),
         message: t('resource_was_created_successfully'),
-        data: { positionPsychometricProfile: newProfile },
+        data: { positionAssessmentProfile: newProfile },
       }
     } catch (error) {
       const messageError =
@@ -176,19 +176,19 @@ export default class PositionPsychometricProfileController {
 
   /**
    * @swagger
-   * /api/position-psychometric-profiles/{positionPsychometricProfileId}:
+   * /api/position-assessment-profiles/{positionAssessmentProfileId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Psychometric Profiles
-   *     summary: update position psychometric profile
+   *       - Position Assessment Profiles
+   *     summary: update position assessment profile
    *     parameters:
    *       - in: path
-   *         name: positionPsychometricProfileId
+   *         name: positionAssessmentProfileId
    *         schema:
    *           type: number
-   *         description: Position psychometric profile id
+   *         description: Position assessment profile id
    *         required: true
    *     requestBody:
    *       content:
@@ -196,9 +196,9 @@ export default class PositionPsychometricProfileController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionPsychometricProfileMinimumValue:
+   *               positionAssessmentProfileMinimumValue:
    *                 type: number
-   *               positionPsychometricProfileMaximumValue:
+   *               positionAssessmentProfileMaximumValue:
    *                 type: number
    *     responses:
    *       '201':
@@ -209,47 +209,45 @@ export default class PositionPsychometricProfileController {
   async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionPsychometricProfileId = Number(
-        request.param('positionPsychometricProfileId')
-      )
-      if (!positionPsychometricProfileId || Number.isNaN(positionPsychometricProfileId)) {
+      const positionAssessmentProfileId = Number(request.param('positionAssessmentProfileId'))
+      if (!positionAssessmentProfileId || Number.isNaN(positionAssessmentProfileId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_id_was_not_found', { entity: t('position_psychometric_profile') }),
+          title: t('entity_id_was_not_found', { entity: t('position_assessment_profile') }),
           message: t('missing_data_to_process'),
           data: {},
         }
       }
-      const service = new PositionPsychometricProfileService()
-      const currentProfile = await service.show(positionPsychometricProfileId)
+      const service = new PositionAssessmentProfileService()
+      const currentProfile = await service.show(positionAssessmentProfileId)
       if (!currentProfile) {
         response.status(404)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity: t('position_psychometric_profile') }),
+          title: t('entity_was_not_found', { entity: t('position_assessment_profile') }),
           message: t('entity_was_not_found_with_entered_id', {
-            entity: t('position_psychometric_profile'),
+            entity: t('position_assessment_profile'),
           }),
-          data: { positionPsychometricProfileId },
+          data: { positionAssessmentProfileId },
         }
       }
-      await request.validateUsing(updatePositionPsychometricProfileValidator)
+      await request.validateUsing(updatePositionAssessmentProfileValidator)
       const profile = {
-        positionPsychometricProfileMinimumValue: request.input(
-          'positionPsychometricProfileMinimumValue'
+        positionAssessmentProfileMinimumValue: request.input(
+          'positionAssessmentProfileMinimumValue'
         ),
-        positionPsychometricProfileMaximumValue: request.input(
-          'positionPsychometricProfileMaximumValue'
+        positionAssessmentProfileMaximumValue: request.input(
+          'positionAssessmentProfileMaximumValue'
         ),
-      } as PositionPsychometricProfile
+      } as PositionAssessmentProfile
       const updatedProfile = await service.update(currentProfile, profile)
       response.status(201)
       return {
         type: 'success',
-        title: t('position_psychometric_profile'),
+        title: t('position_assessment_profile'),
         message: t('resource_was_updated_successfully'),
-        data: { positionPsychometricProfile: updatedProfile },
+        data: { positionAssessmentProfile: updatedProfile },
       }
     } catch (error) {
       const messageError =
@@ -266,19 +264,19 @@ export default class PositionPsychometricProfileController {
 
   /**
    * @swagger
-   * /api/position-psychometric-profiles/{positionPsychometricProfileId}:
+   * /api/position-assessment-profiles/{positionAssessmentProfileId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Psychometric Profiles
-   *     summary: delete position psychometric profile
+   *       - Position Assessment Profiles
+   *     summary: delete position assessment profile
    *     parameters:
    *       - in: path
-   *         name: positionPsychometricProfileId
+   *         name: positionAssessmentProfileId
    *         schema:
    *           type: number
-   *         description: Position psychometric profile id
+   *         description: Position assessment profile id
    *         required: true
    *     responses:
    *       '201':
@@ -289,38 +287,36 @@ export default class PositionPsychometricProfileController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionPsychometricProfileId = Number(
-        request.param('positionPsychometricProfileId')
-      )
-      if (!positionPsychometricProfileId || Number.isNaN(positionPsychometricProfileId)) {
+      const positionAssessmentProfileId = Number(request.param('positionAssessmentProfileId'))
+      if (!positionAssessmentProfileId || Number.isNaN(positionAssessmentProfileId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_id_was_not_found', { entity: t('position_psychometric_profile') }),
+          title: t('entity_id_was_not_found', { entity: t('position_assessment_profile') }),
           message: t('missing_data_to_process'),
-          data: { positionPsychometricProfileId },
+          data: { positionAssessmentProfileId },
         }
       }
-      const service = new PositionPsychometricProfileService()
-      const currentProfile = await service.show(positionPsychometricProfileId)
+      const service = new PositionAssessmentProfileService()
+      const currentProfile = await service.show(positionAssessmentProfileId)
       if (!currentProfile) {
         response.status(404)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity: t('position_psychometric_profile') }),
+          title: t('entity_was_not_found', { entity: t('position_assessment_profile') }),
           message: t('entity_was_not_found_with_entered_id', {
-            entity: t('position_psychometric_profile'),
+            entity: t('position_assessment_profile'),
           }),
-          data: { positionPsychometricProfileId },
+          data: { positionAssessmentProfileId },
         }
       }
       const deletedProfile = await service.delete(currentProfile)
       response.status(201)
       return {
         type: 'success',
-        title: t('position_psychometric_profile'),
+        title: t('position_assessment_profile'),
         message: t('resource_was_deleted_successfully'),
-        data: { positionPsychometricProfile: deletedProfile },
+        data: { positionAssessmentProfile: deletedProfile },
       }
     } catch (error) {
       response.status(500)
@@ -335,19 +331,19 @@ export default class PositionPsychometricProfileController {
 
   /**
    * @swagger
-   * /api/position-psychometric-profiles/{positionPsychometricProfileId}:
+   * /api/position-assessment-profiles/{positionAssessmentProfileId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Psychometric Profiles
-   *     summary: get position psychometric profile by id
+   *       - Position Assessment Profiles
+   *     summary: get position assessment profile by id
    *     parameters:
    *       - in: path
-   *         name: positionPsychometricProfileId
+   *         name: positionAssessmentProfileId
    *         schema:
    *           type: number
-   *         description: Position psychometric profile id
+   *         description: Position assessment profile id
    *         required: true
    *     responses:
    *       '200':
@@ -358,37 +354,35 @@ export default class PositionPsychometricProfileController {
   async show({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionPsychometricProfileId = Number(
-        request.param('positionPsychometricProfileId')
-      )
-      if (!positionPsychometricProfileId || Number.isNaN(positionPsychometricProfileId)) {
+      const positionAssessmentProfileId = Number(request.param('positionAssessmentProfileId'))
+      if (!positionAssessmentProfileId || Number.isNaN(positionAssessmentProfileId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_id_was_not_found', { entity: t('position_psychometric_profile') }),
+          title: t('entity_id_was_not_found', { entity: t('position_assessment_profile') }),
           message: t('missing_data_to_process'),
-          data: { positionPsychometricProfileId },
+          data: { positionAssessmentProfileId },
         }
       }
-      const service = new PositionPsychometricProfileService()
-      const positionPsychometricProfile = await service.show(positionPsychometricProfileId)
-      if (!positionPsychometricProfile) {
+      const service = new PositionAssessmentProfileService()
+      const positionAssessmentProfile = await service.show(positionAssessmentProfileId)
+      if (!positionAssessmentProfile) {
         response.status(404)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity: t('position_psychometric_profile') }),
+          title: t('entity_was_not_found', { entity: t('position_assessment_profile') }),
           message: t('entity_was_not_found_with_entered_id', {
-            entity: t('position_psychometric_profile'),
+            entity: t('position_assessment_profile'),
           }),
-          data: { positionPsychometricProfileId },
+          data: { positionAssessmentProfileId },
         }
       }
       response.status(200)
       return {
         type: 'success',
-        title: t('position_psychometric_profile'),
+        title: t('position_assessment_profile'),
         message: t('resource_was_found_successfully'),
-        data: { positionPsychometricProfile },
+        data: { positionAssessmentProfile },
       }
     } catch (error) {
       response.status(500)

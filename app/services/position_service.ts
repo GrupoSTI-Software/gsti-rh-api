@@ -887,9 +887,9 @@ export default class PositionService {
       .preload('competencies', (q) => {
         q.whereNull('position_competency_deleted_at').preload('weight')
       })
-      .preload('psychometricProfiles', (q) => {
-        q.preload('psychometricTestDimension', (dq) => {
-          dq.preload('psychometricTest')
+      .preload('assessmentProfiles', (q) => {
+        q.preload('assessmentTemplateDimension', (dq) => {
+          dq.preload('assessmentTemplate')
         })
       })
       .first()
@@ -1379,29 +1379,29 @@ export default class PositionService {
       doc.y = perfilY + perfilRowH
 
       // ── PERFIL PSICOMÉTRICO ───────────────────────────────────────────────
-      drawSectionHeader(t('profile_position.psychometric_profile'))
+      drawSectionHeader(t('profile_position.assessment_profile'))
 
-      const profiles = position.psychometricProfiles ?? []
+      const profiles = position.assessmentProfiles ?? []
 
       if (!profiles.length) {
         const emptyY = doc.y
         doc.rect(40, emptyY, pageW, 20).stroke()
         doc.fontSize(9).font('Regular').fillColor(black)
-          .text(t('profile_position.no_psychometric'), 45, emptyY + 5, { width: pageW - 16, lineBreak: false })
+          .text(t('profile_position.no_assessment'), 45, emptyY + 5, { width: pageW - 16, lineBreak: false })
         doc.y = emptyY + 20
       } else {
         const testsMap = new Map<string, { label: string; min: number; max: number }[]>()
         for (const profile of profiles) {
-          const dimension = profile.psychometricTestDimension
-          const testName = (dimension as any)?.psychometricTest?.psychometricTestName
-            ?? (dimension as any)?.$extras?.psychometric_test_name
+          const dimension = profile.assessmentTemplateDimension
+          const templateName = (dimension as any)?.assessmentTemplate?.assessmentTemplateName
+            ?? (dimension as any)?.$extras?.assessment_template_name
             ?? 'Sin prueba'
-          const dimensionLabel = (dimension as any)?.psychometricTestDimensionName ?? ''
-          if (!testsMap.has(testName)) testsMap.set(testName, [])
-          testsMap.get(testName)!.push({
+          const dimensionLabel = (dimension as any)?.assessmentTemplateDimensionName ?? ''
+          if (!testsMap.has(templateName)) testsMap.set(templateName, [])
+          testsMap.get(templateName)!.push({
             label: dimensionLabel,
-            min: profile.positionPsychometricProfileMinimumValue,
-            max: profile.positionPsychometricProfileMaximumValue,
+            min: profile.positionAssessmentProfileMinimumValue,
+            max: profile.positionAssessmentProfileMaximumValue,
           })
         }
 
@@ -1654,9 +1654,9 @@ export default class PositionService {
       .preload('competencies', (query) => {
         query.whereNull('position_competency_deleted_at').preload('weight')
       })
-      .preload('psychometricProfiles', (query) => {
-        query.preload('psychometricTestDimension', (subQuery) => {
-          subQuery.preload('psychometricTest')
+      .preload('assessmentProfiles', (query) => {
+        query.preload('assessmentTemplateDimension', (subQuery) => {
+          subQuery.preload('assessmentTemplate')
         })
       })
       .first()
@@ -2033,25 +2033,25 @@ export default class PositionService {
     profileValuesRow.height = 20
 
     // ── Perfil psicométrico (hasta 3 tests lado a lado: A:D, E:H, I:L) ───────
-    addSectionHeader(t('profile_position.psychometric_profile'))
+    addSectionHeader(t('profile_position.assessment_profile'))
 
-    const profiles = position.psychometricProfiles ?? []
+    const profiles = position.assessmentProfiles ?? []
     if (!profiles.length) {
-      addFullRow(t('profile_position.no_psychometric'))
+      addFullRow(t('profile_position.no_assessment'))
     } else {
       const testsMap = new Map<string, { label: string; min: number; max: number }[]>()
       for (const profile of profiles) {
-        const dimension = profile.psychometricTestDimension
-        const testName =
-          (dimension as any)?.psychometricTest?.psychometricTestName ??
-          (dimension as any)?.$extras?.psychometric_test_name ??
+        const dimension = profile.assessmentTemplateDimension
+        const templateName =
+          (dimension as any)?.assessmentTemplate?.assessmentTemplateName ??
+          (dimension as any)?.$extras?.assessment_template_name ??
           'Sin prueba'
-        const dimensionLabel = (dimension as any)?.psychometricTestDimensionName ?? ''
-        if (!testsMap.has(testName)) testsMap.set(testName, [])
-        testsMap.get(testName)!.push({
+        const dimensionLabel = (dimension as any)?.assessmentTemplateDimensionName ?? ''
+        if (!testsMap.has(templateName)) testsMap.set(templateName, [])
+        testsMap.get(templateName)!.push({
           label: dimensionLabel,
-          min: profile.positionPsychometricProfileMinimumValue,
-          max: profile.positionPsychometricProfileMaximumValue,
+          min: profile.positionAssessmentProfileMinimumValue,
+          max: profile.positionAssessmentProfileMaximumValue,
         })
       }
 

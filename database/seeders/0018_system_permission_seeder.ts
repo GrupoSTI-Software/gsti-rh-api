@@ -585,6 +585,30 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Gestionar correos RH por faltas de asistencia',
         systemPermissionSlug: 'manage-attendance-fault-hr-emails',
         systemModuleId: 14
+      },
+      {
+        systemPermissionId: 144,
+        systemPermissionName: 'Read',
+        systemPermissionSlug: 'read',
+        systemModuleId: 35
+      },
+      {
+        systemPermissionId: 145,
+        systemPermissionName: 'Create',
+        systemPermissionSlug: 'create',
+        systemModuleId: 35
+      },
+      {
+        systemPermissionId: 146,
+        systemPermissionName: 'Update',
+        systemPermissionSlug: 'update',
+        systemModuleId: 35
+      },
+      {
+        systemPermissionId: 147,
+        systemPermissionName: 'Delete',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 35
       }
     ]
 

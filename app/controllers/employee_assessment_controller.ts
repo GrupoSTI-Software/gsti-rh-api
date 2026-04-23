@@ -1,22 +1,22 @@
 import { HttpContext } from '@adonisjs/core/http'
-import EmployeePsychometricEvaluationService from '#services/employee_psychometric_evaluation_service'
+import EmployeeAssessmentService from '#services/employee_assessment_service'
 import {
-  createEmployeePsychometricEvaluationValidator,
-  updateEmployeePsychometricEvaluationValidator,
-} from '#validators/employee_psychometric_evaluation'
+  createEmployeeAssessmentValidator,
+  updateEmployeeAssessmentValidator,
+} from '#validators/employee_assessment'
 import Employee from '#models/employee'
 import { DateTime } from 'luxon'
 
-export default class EmployeePsychometricEvaluationController {
+export default class EmployeeAssessmentController {
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations:
+   * /api/employee-assessments:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: get employee psychometric evaluations
+   *       - Employee Assessments
+   *     summary: get employee assessments
    *     parameters:
    *       - name: employeeId
    *         in: query
@@ -24,10 +24,10 @@ export default class EmployeePsychometricEvaluationController {
    *         description: Filter by employee id
    *         schema:
    *           type: integer
-   *       - name: psychometricTestId
+   *       - name: assessmentTemplateId
    *         in: query
    *         required: false
-   *         description: Filter by psychometric test id
+   *         description: Filter by assessment template id
    *         schema:
    *           type: integer
    *       - name: status
@@ -62,18 +62,18 @@ export default class EmployeePsychometricEvaluationController {
       const employeeId = request.input('employeeId')
         ? Number(request.input('employeeId'))
         : undefined
-      const psychometricTestId = request.input('psychometricTestId')
-        ? Number(request.input('psychometricTestId'))
+      const assessmentTemplateId = request.input('assessmentTemplateId')
+        ? Number(request.input('assessmentTemplateId'))
         : undefined
       const status = request.input('status') || undefined
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
-      const service = new EmployeePsychometricEvaluationService()
-      const evaluations = await service.index({
+      const service = new EmployeeAssessmentService()
+      const assessments = await service.index({
         employeeId,
-        psychometricTestId,
+        assessmentTemplateId,
         status,
         page,
         limit,
@@ -81,9 +81,9 @@ export default class EmployeePsychometricEvaluationController {
       response.status(200)
       return {
         type: 'success',
-        title: t('employee_psychometric_evaluations'),
+        title: t('employee_assessments'),
         message: t('resources_were_found_successfully'),
-        data: { employeePsychometricEvaluations: evaluations },
+        data: { employeeAssessments: assessments },
       }
     } catch (error) {
       response.status(500)
@@ -98,13 +98,13 @@ export default class EmployeePsychometricEvaluationController {
 
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations:
+   * /api/employee-assessments:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: create new employee psychometric evaluation
+   *       - Employee Assessments
+   *     summary: create new employee assessment
    *     produces:
    *       - application/json
    *     requestBody:
@@ -117,23 +117,23 @@ export default class EmployeePsychometricEvaluationController {
    *                 type: number
    *                 description: Employee id
    *                 required: true
-   *               psychometricTestId:
+   *               assessmentTemplateId:
    *                 type: number
-   *                 description: Psychometric test id
+   *                 description: Assessment template id
    *                 required: true
-   *               employeePsychometricEvaluationDate:
+   *               employeeAssessmentDate:
    *                 type: string
    *                 format: date
-   *                 description: Evaluation date (YYYY-MM-DD)
+   *                 description: Assessment date (YYYY-MM-DD)
    *                 required: true
    *               results:
    *                 type: array
    *                 items:
    *                   type: object
    *                   properties:
-   *                     psychometricTestDimensionId:
+   *                     assessmentTemplateDimensionId:
    *                       type: number
-   *                     employeePsychometricEvaluationResultValue:
+   *                     employeeAssessmentResultValue:
    *                       type: string
    *     responses:
    *       '201':
@@ -144,15 +144,15 @@ export default class EmployeePsychometricEvaluationController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const payload = await request.validateUsing(createEmployeePsychometricEvaluationValidator)
+      const payload = await request.validateUsing(createEmployeeAssessmentValidator)
 
-      const evalDate = DateTime.fromISO(payload.employeePsychometricEvaluationDate)
-      if (!evalDate.isValid || evalDate > DateTime.now().startOf('day')) {
+      const assessmentDate = DateTime.fromISO(payload.employeeAssessmentDate)
+      if (!assessmentDate.isValid || assessmentDate > DateTime.now().startOf('day')) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('employee_psychometric_evaluation'),
-          message: t('employee_psychometric_evaluation_date_cannot_be_in_future'),
+          title: t('employee_assessment'),
+          message: t('employee_assessment_date_cannot_be_in_future'),
           data: {},
         }
       }
@@ -172,29 +172,29 @@ export default class EmployeePsychometricEvaluationController {
         }
       }
 
-      const service = new EmployeePsychometricEvaluationService()
+      const service = new EmployeeAssessmentService()
 
       const isDuplicate = await service.existsDuplicate(
         payload.employeeId,
-        payload.psychometricTestId,
-        payload.employeePsychometricEvaluationDate
+        payload.assessmentTemplateId,
+        payload.employeeAssessmentDate
       )
       if (isDuplicate) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('employee_psychometric_evaluation'),
-          message: t('employee_psychometric_evaluation_already_exists_for_date'),
+          title: t('employee_assessment'),
+          message: t('employee_assessment_already_exists_for_date'),
           data: {},
         }
       }
 
       const positionId = employee.positionId ?? 0
-      const newEvaluation = await service.create(
+      const newAssessment = await service.create(
         {
           employeeId: payload.employeeId,
-          psychometricTestId: payload.psychometricTestId,
-          employeePsychometricEvaluationDate: payload.employeePsychometricEvaluationDate,
+          assessmentTemplateId: payload.assessmentTemplateId,
+          employeeAssessmentDate: payload.employeeAssessmentDate,
         },
         positionId,
         payload.results
@@ -203,9 +203,9 @@ export default class EmployeePsychometricEvaluationController {
       response.status(201)
       return {
         type: 'success',
-        title: t('employee_psychometric_evaluation'),
+        title: t('employee_assessment'),
         message: t('resource_was_created_successfully'),
-        data: { employeePsychometricEvaluation: newEvaluation },
+        data: { employeeAssessment: newAssessment },
       }
     } catch (error) {
       const messageError =
@@ -222,19 +222,19 @@ export default class EmployeePsychometricEvaluationController {
 
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations/{employeePsychometricEvaluationId}:
+   * /api/employee-assessments/{employeeAssessmentId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: update employee psychometric evaluation
+   *       - Employee Assessments
+   *     summary: update employee assessment
    *     parameters:
    *       - in: path
-   *         name: employeePsychometricEvaluationId
+   *         name: employeeAssessmentId
    *         schema:
    *           type: number
-   *         description: Employee psychometric evaluation id
+   *         description: Employee assessment id
    *         required: true
    *     requestBody:
    *       content:
@@ -242,7 +242,7 @@ export default class EmployeePsychometricEvaluationController {
    *           schema:
    *             type: object
    *             properties:
-   *               employeePsychometricEvaluationDate:
+   *               employeeAssessmentDate:
    *                 type: string
    *                 format: date
    *               results:
@@ -250,9 +250,9 @@ export default class EmployeePsychometricEvaluationController {
    *                 items:
    *                   type: object
    *                   properties:
-   *                     psychometricTestDimensionId:
+   *                     assessmentTemplateDimensionId:
    *                       type: number
-   *                     employeePsychometricEvaluationResultValue:
+   *                     employeeAssessmentResultValue:
    *                       type: string
    *     responses:
    *       '201':
@@ -263,63 +263,61 @@ export default class EmployeePsychometricEvaluationController {
   async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const evaluationId = Number(request.param('employeePsychometricEvaluationId'))
-      if (!evaluationId || Number.isNaN(evaluationId)) {
+      const assessmentId = Number(request.param('employeeAssessmentId'))
+      if (!assessmentId || Number.isNaN(assessmentId)) {
         response.status(400)
         return {
           type: 'warning',
           title: t('entity_id_was_not_found', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
           message: t('missing_data_to_process'),
           data: {},
         }
       }
 
-      const service = new EmployeePsychometricEvaluationService()
-      const currentEval = await service.show(evaluationId)
-      if (!currentEval) {
+      const service = new EmployeeAssessmentService()
+      const currentAssessment = await service.show(assessmentId)
+      if (!currentAssessment) {
         response.status(404)
         return {
           type: 'warning',
           title: t('entity_was_not_found', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
           message: t('entity_was_not_found_with_entered_id', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
-          data: { employeePsychometricEvaluationId: evaluationId },
+          data: { employeeAssessmentId: assessmentId },
         }
       }
 
-      const payload = await request.validateUsing(
-        updateEmployeePsychometricEvaluationValidator
-      )
+      const payload = await request.validateUsing(updateEmployeeAssessmentValidator)
 
-      if (payload.employeePsychometricEvaluationDate) {
-        const evalDate = DateTime.fromISO(payload.employeePsychometricEvaluationDate)
-        if (!evalDate.isValid || evalDate > DateTime.now().startOf('day')) {
+      if (payload.employeeAssessmentDate) {
+        const assessmentDate = DateTime.fromISO(payload.employeeAssessmentDate)
+        if (!assessmentDate.isValid || assessmentDate > DateTime.now().startOf('day')) {
           response.status(400)
           return {
             type: 'warning',
-            title: t('employee_psychometric_evaluation'),
-            message: t('employee_psychometric_evaluation_date_cannot_be_in_future'),
+            title: t('employee_assessment'),
+            message: t('employee_assessment_date_cannot_be_in_future'),
             data: {},
           }
         }
 
         const isDuplicate = await service.existsDuplicate(
-          currentEval.employeeId,
-          currentEval.psychometricTestId,
-          payload.employeePsychometricEvaluationDate,
-          evaluationId
+          currentAssessment.employeeId,
+          currentAssessment.assessmentTemplateId,
+          payload.employeeAssessmentDate,
+          assessmentId
         )
         if (isDuplicate) {
           response.status(400)
           return {
             type: 'warning',
-            title: t('employee_psychometric_evaluation'),
-            message: t('employee_psychometric_evaluation_already_exists_for_date'),
+            title: t('employee_assessment'),
+            message: t('employee_assessment_already_exists_for_date'),
             data: {},
           }
         }
@@ -327,15 +325,15 @@ export default class EmployeePsychometricEvaluationController {
 
       const employee = await Employee.query()
         .whereNull('employee_deleted_at')
-        .where('employee_id', currentEval.employeeId)
+        .where('employee_id', currentAssessment.employeeId)
         .first()
 
       const positionId = employee?.positionId ?? 0
 
-      const updatedEval = await service.update(
-        currentEval,
+      const updatedAssessment = await service.update(
+        currentAssessment,
         {
-          employeePsychometricEvaluationDate: payload.employeePsychometricEvaluationDate,
+          employeeAssessmentDate: payload.employeeAssessmentDate,
         },
         positionId,
         payload.results
@@ -344,9 +342,9 @@ export default class EmployeePsychometricEvaluationController {
       response.status(201)
       return {
         type: 'success',
-        title: t('employee_psychometric_evaluation'),
+        title: t('employee_assessment'),
         message: t('resource_was_updated_successfully'),
-        data: { employeePsychometricEvaluation: updatedEval },
+        data: { employeeAssessment: updatedAssessment },
       }
     } catch (error) {
       const messageError =
@@ -363,19 +361,19 @@ export default class EmployeePsychometricEvaluationController {
 
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations/{employeePsychometricEvaluationId}:
+   * /api/employee-assessments/{employeeAssessmentId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: delete employee psychometric evaluation
+   *       - Employee Assessments
+   *     summary: delete employee assessment
    *     parameters:
    *       - in: path
-   *         name: employeePsychometricEvaluationId
+   *         name: employeeAssessmentId
    *         schema:
    *           type: number
-   *         description: Employee psychometric evaluation id
+   *         description: Employee assessment id
    *         required: true
    *     responses:
    *       '201':
@@ -386,40 +384,40 @@ export default class EmployeePsychometricEvaluationController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const evaluationId = Number(request.param('employeePsychometricEvaluationId'))
-      if (!evaluationId || Number.isNaN(evaluationId)) {
+      const assessmentId = Number(request.param('employeeAssessmentId'))
+      if (!assessmentId || Number.isNaN(assessmentId)) {
         response.status(400)
         return {
           type: 'warning',
           title: t('entity_id_was_not_found', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
           message: t('missing_data_to_process'),
-          data: { employeePsychometricEvaluationId: evaluationId },
+          data: { employeeAssessmentId: assessmentId },
         }
       }
-      const service = new EmployeePsychometricEvaluationService()
-      const currentEval = await service.show(evaluationId)
-      if (!currentEval) {
+      const service = new EmployeeAssessmentService()
+      const currentAssessment = await service.show(assessmentId)
+      if (!currentAssessment) {
         response.status(404)
         return {
           type: 'warning',
           title: t('entity_was_not_found', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
           message: t('entity_was_not_found_with_entered_id', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
-          data: { employeePsychometricEvaluationId: evaluationId },
+          data: { employeeAssessmentId: assessmentId },
         }
       }
-      const deletedEval = await service.delete(currentEval)
+      const deletedAssessment = await service.delete(currentAssessment)
       response.status(201)
       return {
         type: 'success',
-        title: t('employee_psychometric_evaluation'),
+        title: t('employee_assessment'),
         message: t('resource_was_deleted_successfully'),
-        data: { employeePsychometricEvaluation: deletedEval },
+        data: { employeeAssessment: deletedAssessment },
       }
     } catch (error) {
       response.status(500)
@@ -434,19 +432,19 @@ export default class EmployeePsychometricEvaluationController {
 
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations/{employeePsychometricEvaluationId}:
+   * /api/employee-assessments/{employeeAssessmentId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: get employee psychometric evaluation by id
+   *       - Employee Assessments
+   *     summary: get employee assessment by id
    *     parameters:
    *       - in: path
-   *         name: employeePsychometricEvaluationId
+   *         name: employeeAssessmentId
    *         schema:
    *           type: number
-   *         description: Employee psychometric evaluation id
+   *         description: Employee assessment id
    *         required: true
    *     responses:
    *       '200':
@@ -457,39 +455,39 @@ export default class EmployeePsychometricEvaluationController {
   async show({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const evaluationId = Number(request.param('employeePsychometricEvaluationId'))
-      if (!evaluationId || Number.isNaN(evaluationId)) {
+      const assessmentId = Number(request.param('employeeAssessmentId'))
+      if (!assessmentId || Number.isNaN(assessmentId)) {
         response.status(400)
         return {
           type: 'warning',
           title: t('entity_id_was_not_found', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
           message: t('missing_data_to_process'),
-          data: { employeePsychometricEvaluationId: evaluationId },
+          data: { employeeAssessmentId: assessmentId },
         }
       }
-      const service = new EmployeePsychometricEvaluationService()
-      const evaluation = await service.show(evaluationId)
-      if (!evaluation) {
+      const service = new EmployeeAssessmentService()
+      const assessment = await service.show(assessmentId)
+      if (!assessment) {
         response.status(404)
         return {
           type: 'warning',
           title: t('entity_was_not_found', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
           message: t('entity_was_not_found_with_entered_id', {
-            entity: t('employee_psychometric_evaluation'),
+            entity: t('employee_assessment'),
           }),
-          data: { employeePsychometricEvaluationId: evaluationId },
+          data: { employeeAssessmentId: assessmentId },
         }
       }
       response.status(200)
       return {
         type: 'success',
-        title: t('employee_psychometric_evaluation'),
+        title: t('employee_assessment'),
         message: t('resource_was_found_successfully'),
-        data: { employeePsychometricEvaluation: evaluation },
+        data: { employeeAssessment: assessment },
       }
     } catch (error) {
       response.status(500)
@@ -504,13 +502,13 @@ export default class EmployeePsychometricEvaluationController {
 
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations/employee/{employeeId}:
+   * /api/employee-assessments/employee/{employeeId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: get all psychometric evaluations by employee
+   *       - Employee Assessments
+   *     summary: get all assessments by employee
    *     parameters:
    *       - in: path
    *         name: employeeId
@@ -537,14 +535,14 @@ export default class EmployeePsychometricEvaluationController {
           data: {},
         }
       }
-      const service = new EmployeePsychometricEvaluationService()
-      const evaluations = await service.getByEmployee(employeeId)
+      const service = new EmployeeAssessmentService()
+      const assessments = await service.getByEmployee(employeeId)
       response.status(200)
       return {
         type: 'success',
-        title: t('employee_psychometric_evaluations'),
+        title: t('employee_assessments'),
         message: t('resources_were_found_successfully'),
-        data: { employeePsychometricEvaluations: evaluations },
+        data: { employeeAssessments: assessments },
       }
     } catch (error) {
       response.status(500)
@@ -559,13 +557,13 @@ export default class EmployeePsychometricEvaluationController {
 
   /**
    * @swagger
-   * /api/employee-psychometric-evaluations/tests-by-position/{positionId}:
+   * /api/employee-assessments/tests-by-position/{positionId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Employee Psychometric Evaluations
-   *     summary: get psychometric tests assigned to a position
+   *       - Employee Assessments
+   *     summary: get assessment templates assigned to a position
    *     parameters:
    *       - in: path
    *         name: positionId
@@ -579,7 +577,7 @@ export default class EmployeePsychometricEvaluationController {
    *       default:
    *         description: Unexpected error
    */
-  async getTestsByPosition({ request, response, i18n }: HttpContext) {
+  async getTemplatesByPosition({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const positionId = Number(request.param('positionId'))
@@ -592,14 +590,14 @@ export default class EmployeePsychometricEvaluationController {
           data: {},
         }
       }
-      const service = new EmployeePsychometricEvaluationService()
-      const tests = await service.getTestsByPosition(positionId)
+      const service = new EmployeeAssessmentService()
+      const templates = await service.getTemplatesByPosition(positionId)
       response.status(200)
       return {
         type: 'success',
-        title: t('psychometric_tests'),
+        title: t('assessment_templates'),
         message: t('resources_were_found_successfully'),
-        data: { psychometricTests: tests },
+        data: { assessmentTemplates: templates },
       }
     } catch (error) {
       response.status(500)

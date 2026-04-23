@@ -1,25 +1,25 @@
 import { HttpContext } from '@adonisjs/core/http'
-import PsychometricTestService from '#services/psychometric_test_service'
+import AssessmentTemplateService from '#services/assessment_template_service'
 import {
-  createPsychometricTestValidator,
-  updatePsychometricTestValidator,
-} from '#validators/psychometric_test'
+  createAssessmentTemplateValidator,
+  updateAssessmentTemplateValidator,
+} from '#validators/assessment_template'
 
-export default class PsychometricTestController {
+export default class AssessmentTemplateController {
   /**
    * @swagger
-   * /api/psychometric-tests:
+   * /api/assessment-templates:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Psychometric Tests
-   *     summary: get psychometric tests
+   *       - Assessment Templates
+   *     summary: get assessment templates
    *     parameters:
    *       - name: search
    *         in: query
    *         required: false
-   *         description: Search term for psychometric test name
+   *         description: Search term for assessment template name
    *         schema:
    *           type: string
    *       - name: page
@@ -50,8 +50,8 @@ export default class PsychometricTestController {
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
-      const service = new PsychometricTestService()
-      const psychometricTests = await service.index({
+      const service = new AssessmentTemplateService()
+      const assessmentTemplates = await service.index({
         search,
         page,
         limit,
@@ -59,10 +59,10 @@ export default class PsychometricTestController {
       response.status(200)
       return {
         type: 'success',
-        title: t('psychometric_tests'),
+        title: t('assessment_templates'),
         message: t('resources_were_found_successfully'),
         data: {
-          psychometricTests,
+          assessmentTemplates,
         },
       }
     } catch (error) {
@@ -78,13 +78,13 @@ export default class PsychometricTestController {
 
   /**
    * @swagger
-   * /api/psychometric-tests:
+   * /api/assessment-templates:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Psychometric Tests
-   *     summary: create new psychometric test
+   *       - Assessment Templates
+   *     summary: create new assessment template
    *     produces:
    *       - application/json
    *     requestBody:
@@ -93,24 +93,24 @@ export default class PsychometricTestController {
    *           schema:
    *             type: object
    *             properties:
-   *               psychometricTestName:
+   *               assessmentTemplateName:
    *                 type: string
-   *                 description: Test name
+   *                 description: Template name
    *                 required: true
    *                 default: ''
-   *               psychometricTestDescription:
+   *               assessmentTemplateDescription:
    *                 type: string
-   *                 description: Test description
+   *                 description: Template description
    *                 default: ''
    *               dimensions:
    *                 type: array
-   *                 description: Test dimensions
+   *                 description: Template dimensions
    *                 items:
    *                   type: object
    *                   properties:
-   *                     psychometricTestDimensionName:
+   *                     assessmentTemplateDimensionName:
    *                       type: string
-   *                     psychometricTestDimensionAcronym:
+   *                     assessmentTemplateDimensionAcronym:
    *                       type: string
    *     responses:
    *       '201':
@@ -121,21 +121,21 @@ export default class PsychometricTestController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const payload = await request.validateUsing(createPsychometricTestValidator)
-      const service = new PsychometricTestService()
-      const newTest = await service.create(
+      const payload = await request.validateUsing(createAssessmentTemplateValidator)
+      const service = new AssessmentTemplateService()
+      const newTemplate = await service.create(
         {
-          psychometricTestName: payload.psychometricTestName,
-          psychometricTestDescription: payload.psychometricTestDescription ?? null,
+          assessmentTemplateName: payload.assessmentTemplateName,
+          assessmentTemplateDescription: payload.assessmentTemplateDescription ?? null,
         },
         payload.dimensions
       )
       response.status(201)
       return {
         type: 'success',
-        title: t('psychometric_test'),
+        title: t('assessment_template'),
         message: t('resource_was_created_successfully'),
-        data: { psychometricTest: newTest },
+        data: { assessmentTemplate: newTemplate },
       }
     } catch (error) {
       const messageError =
@@ -152,19 +152,19 @@ export default class PsychometricTestController {
 
   /**
    * @swagger
-   * /api/psychometric-tests/{psychometricTestId}:
+   * /api/assessment-templates/{assessmentTemplateId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Psychometric Tests
-   *     summary: update psychometric test
+   *       - Assessment Templates
+   *     summary: update assessment template
    *     parameters:
    *       - in: path
-   *         name: psychometricTestId
+   *         name: assessmentTemplateId
    *         schema:
    *           type: number
-   *         description: Psychometric test id
+   *         description: Assessment template id
    *         required: true
    *     requestBody:
    *       content:
@@ -172,20 +172,20 @@ export default class PsychometricTestController {
    *           schema:
    *             type: object
    *             properties:
-   *               psychometricTestName:
+   *               assessmentTemplateName:
    *                 type: string
-   *               psychometricTestDescription:
+   *               assessmentTemplateDescription:
    *                 type: string
    *               dimensions:
    *                 type: array
    *                 items:
    *                   type: object
    *                   properties:
-   *                     psychometricTestDimensionId:
+   *                     assessmentTemplateDimensionId:
    *                       type: number
-   *                     psychometricTestDimensionName:
+   *                     assessmentTemplateDimensionName:
    *                       type: string
-   *                     psychometricTestDimensionAcronym:
+   *                     assessmentTemplateDimensionAcronym:
    *                       type: string
    *     responses:
    *       '201':
@@ -196,42 +196,42 @@ export default class PsychometricTestController {
   async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const psychometricTestId = Number(request.param('psychometricTestId'))
-      if (!psychometricTestId || Number.isNaN(psychometricTestId)) {
+      const assessmentTemplateId = Number(request.param('assessmentTemplateId'))
+      if (!assessmentTemplateId || Number.isNaN(assessmentTemplateId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_id_was_not_found', { entity: t('psychometric_test') }),
+          title: t('entity_id_was_not_found', { entity: t('assessment_template') }),
           message: t('missing_data_to_process'),
           data: {},
         }
       }
-      const service = new PsychometricTestService()
-      const currentTest = await service.show(psychometricTestId)
-      if (!currentTest) {
+      const service = new AssessmentTemplateService()
+      const currentTemplate = await service.show(assessmentTemplateId)
+      if (!currentTemplate) {
         response.status(404)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity: t('psychometric_test') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('psychometric_test') }),
-          data: { psychometricTestId },
+          title: t('entity_was_not_found', { entity: t('assessment_template') }),
+          message: t('entity_was_not_found_with_entered_id', { entity: t('assessment_template') }),
+          data: { assessmentTemplateId },
         }
       }
-      const payload = await request.validateUsing(updatePsychometricTestValidator)
-      const updatedTest = await service.update(
-        currentTest,
+      const payload = await request.validateUsing(updateAssessmentTemplateValidator)
+      const updatedTemplate = await service.update(
+        currentTemplate,
         {
-          psychometricTestName: payload.psychometricTestName,
-          psychometricTestDescription: payload.psychometricTestDescription ?? null,
+          assessmentTemplateName: payload.assessmentTemplateName,
+          assessmentTemplateDescription: payload.assessmentTemplateDescription ?? null,
         },
         payload.dimensions
       )
       response.status(201)
       return {
         type: 'success',
-        title: t('psychometric_test'),
+        title: t('assessment_template'),
         message: t('resource_was_updated_successfully'),
-        data: { psychometricTest: updatedTest },
+        data: { assessmentTemplate: updatedTemplate },
       }
     } catch (error) {
       const messageError =
@@ -248,19 +248,19 @@ export default class PsychometricTestController {
 
   /**
    * @swagger
-   * /api/psychometric-tests/{psychometricTestId}:
+   * /api/assessment-templates/{assessmentTemplateId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Psychometric Tests
-   *     summary: delete psychometric test
+   *       - Assessment Templates
+   *     summary: delete assessment template
    *     parameters:
    *       - in: path
-   *         name: psychometricTestId
+   *         name: assessmentTemplateId
    *         schema:
    *           type: number
-   *         description: Psychometric test id
+   *         description: Assessment template id
    *         required: true
    *     responses:
    *       '201':
@@ -271,34 +271,34 @@ export default class PsychometricTestController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const psychometricTestId = Number(request.param('psychometricTestId'))
-      if (!psychometricTestId || Number.isNaN(psychometricTestId)) {
+      const assessmentTemplateId = Number(request.param('assessmentTemplateId'))
+      if (!assessmentTemplateId || Number.isNaN(assessmentTemplateId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_id_was_not_found', { entity: t('psychometric_test') }),
+          title: t('entity_id_was_not_found', { entity: t('assessment_template') }),
           message: t('missing_data_to_process'),
-          data: { psychometricTestId },
+          data: { assessmentTemplateId },
         }
       }
-      const service = new PsychometricTestService()
-      const currentTest = await service.show(psychometricTestId)
-      if (!currentTest) {
+      const service = new AssessmentTemplateService()
+      const currentTemplate = await service.show(assessmentTemplateId)
+      if (!currentTemplate) {
         response.status(404)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity: t('psychometric_test') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('psychometric_test') }),
-          data: { psychometricTestId },
+          title: t('entity_was_not_found', { entity: t('assessment_template') }),
+          message: t('entity_was_not_found_with_entered_id', { entity: t('assessment_template') }),
+          data: { assessmentTemplateId },
         }
       }
-      const deletedTest = await service.delete(currentTest)
+      const deletedTemplate = await service.delete(currentTemplate)
       response.status(201)
       return {
         type: 'success',
-        title: t('psychometric_test'),
+        title: t('assessment_template'),
         message: t('resource_was_deleted_successfully'),
-        data: { psychometricTest: deletedTest },
+        data: { assessmentTemplate: deletedTemplate },
       }
     } catch (error) {
       response.status(500)
@@ -313,19 +313,19 @@ export default class PsychometricTestController {
 
   /**
    * @swagger
-   * /api/psychometric-tests/{psychometricTestId}:
+   * /api/assessment-templates/{assessmentTemplateId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Psychometric Tests
-   *     summary: get psychometric test by id
+   *       - Assessment Templates
+   *     summary: get assessment template by id
    *     parameters:
    *       - in: path
-   *         name: psychometricTestId
+   *         name: assessmentTemplateId
    *         schema:
    *           type: number
-   *         description: Psychometric test id
+   *         description: Assessment template id
    *         required: true
    *     responses:
    *       '200':
@@ -336,33 +336,33 @@ export default class PsychometricTestController {
   async show({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const psychometricTestId = Number(request.param('psychometricTestId'))
-      if (!psychometricTestId || Number.isNaN(psychometricTestId)) {
+      const assessmentTemplateId = Number(request.param('assessmentTemplateId'))
+      if (!assessmentTemplateId || Number.isNaN(assessmentTemplateId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_id_was_not_found', { entity: t('psychometric_test') }),
+          title: t('entity_id_was_not_found', { entity: t('assessment_template') }),
           message: t('missing_data_to_process'),
-          data: { psychometricTestId },
+          data: { assessmentTemplateId },
         }
       }
-      const service = new PsychometricTestService()
-      const psychometricTest = await service.show(psychometricTestId)
-      if (!psychometricTest) {
+      const service = new AssessmentTemplateService()
+      const assessmentTemplate = await service.show(assessmentTemplateId)
+      if (!assessmentTemplate) {
         response.status(404)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity: t('psychometric_test') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('psychometric_test') }),
-          data: { psychometricTestId },
+          title: t('entity_was_not_found', { entity: t('assessment_template') }),
+          message: t('entity_was_not_found_with_entered_id', { entity: t('assessment_template') }),
+          data: { assessmentTemplateId },
         }
       }
       response.status(200)
       return {
         type: 'success',
-        title: t('psychometric_test'),
+        title: t('assessment_template'),
         message: t('resource_was_found_successfully'),
-        data: { psychometricTest },
+        data: { assessmentTemplate },
       }
     } catch (error) {
       response.status(500)
