@@ -246,5 +246,8 @@
     "range": "Rango (Mín - Máx)",
     "min": "Mínimo",
     "max": "Máximo"
-  }
+  },
+  "the_origin_and_target_positions_cannot_be_the_same": "El origen y el destino no pueden ser el mismo",
+  "origin": "Origen",
+  "target": "Destino"
 }
