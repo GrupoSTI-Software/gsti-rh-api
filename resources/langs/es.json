@@ -249,5 +249,10 @@
   },
   "the_origin_and_target_positions_cannot_be_the_same": "El origen y el destino no pueden ser el mismo",
   "origin": "Origen",
-  "target": "Destino"
+  "target": "Destino",
+  "the_origin_and_target_positions_do_not_exist_in_the_current_template": "El origen y el destino no existen en la plantilla actual",
+  "the_override_reason_is_required": "La razón de override es requerida",
+  "the_justification_must_be_at_least_20_characters": "La justificación debe tener al menos 20 caracteres",
+  "the_limit_of_candidates_has_been_exceeded": "El límite de candidatos ha sido excedido",
+  "the_user_is_not_the_direct_boss_of_the_employee": "El usuario no es el jefe directo del empleado"
 }

@@ -6,19 +6,19 @@ export default class extends BaseSeeder {
     const careerPathOverrideReasons = [
       {
         careerPathOverrideReasonId: 1,
-        careerPathOverrideReasonKey: 'saltar_escalones',
+        careerPathOverrideReasonKey: 'saltar-escalones',
         careerPathOverrideReasonLabel: 'Saltar escalones',
         careerPathOverrideReasonActive: 1,
       },
       {
         careerPathOverrideReasonId: 2,
-        careerPathOverrideReasonKey: 'cruzar_area',
+        careerPathOverrideReasonKey: 'cruzar-area',
         careerPathOverrideReasonLabel: 'Cruzar área',
         careerPathOverrideReasonActive: 1,
       },
       {
         careerPathOverrideReasonId: 3,
-        careerPathOverrideReasonKey: 'cambio_especializacion',
+        careerPathOverrideReasonKey: 'cambio-especializacion',
         careerPathOverrideReasonLabel: 'Cambio de especialización',
         careerPathOverrideReasonActive: 1,
       },

@@ -5,6 +5,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Position from './position.js'
 import BusinessUnit from './business_unit.js'
+import CareerPathOverrideReason from './career_path_override_reason.js'
 /**
  * @swagger
  * components:
@@ -123,7 +124,7 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
   declare careerPathCandidateIsOverride: boolean
 
   @column()
-  declare careerPathOverrideReasonId: number
+  declare careerPathOverrideReasonId: number | null
 
   @column()
   declare careerPathCandidateJustification: string
@@ -135,7 +136,7 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
   declare proposedBy: number
 
   @column()
-  declare reviewedBy: number
+  declare reviewedBy: number | null
 
   @column.dateTime()
   declare careerPathCandidateReviewedAt: DateTime
@@ -172,4 +173,9 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
     foreignKey: 'targetPositionId',
   })
   declare targetPosition: BelongsTo<typeof Position>
+
+  @belongsTo(() => CareerPathOverrideReason, {
+    foreignKey: 'careerPathOverrideReasonId',
+  })
+  declare careerPathOverrideReason: BelongsTo<typeof CareerPathOverrideReason>
 }

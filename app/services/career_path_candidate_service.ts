@@ -5,6 +5,8 @@ import Position from '#models/position'
 import { I18n } from '@adonisjs/i18n'
 import { CareerPathCandidateFilterSearchInterface } from 'app/interfaces/career_path_candidate_filter_search_interface.js'
 import CareerPathCandidateStatusHistoryService from './career_path_candidate_status_history_service.js'
+import CareerPathTemplate from '#models/career_path_template'
+import UserResponsibleEmployee from '#models/user_responsible_employee'
 
 export default class CareerPathCandidateService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -36,11 +38,11 @@ export default class CareerPathCandidateService {
     newCareerPathCandidate.originPositionId = careerPathCandidate.originPositionId
     newCareerPathCandidate.targetPositionId = careerPathCandidate.targetPositionId
     newCareerPathCandidate.careerPathCandidateIsOverride = careerPathCandidate.careerPathCandidateIsOverride
-    newCareerPathCandidate.careerPathOverrideReasonId = careerPathCandidate.careerPathOverrideReasonId
+    newCareerPathCandidate.careerPathOverrideReasonId = careerPathCandidate.careerPathOverrideReasonId || null
     newCareerPathCandidate.careerPathCandidateJustification = careerPathCandidate.careerPathCandidateJustification
     newCareerPathCandidate.careerPathCandidateStatus = careerPathCandidate.careerPathCandidateStatus
     newCareerPathCandidate.proposedBy = careerPathCandidate.proposedBy
-    newCareerPathCandidate.reviewedBy = careerPathCandidate.reviewedBy
+    newCareerPathCandidate.reviewedBy = careerPathCandidate.reviewedBy || null
     newCareerPathCandidate.careerPathCandidateReviewedAt = careerPathCandidate.careerPathCandidateReviewedAt
     newCareerPathCandidate.careerPathCandidateRejectionReason = careerPathCandidate.careerPathCandidateRejectionReason
     newCareerPathCandidate.careerPathCandidateActivatedAt = careerPathCandidate.careerPathCandidateActivatedAt
@@ -89,7 +91,7 @@ export default class CareerPathCandidateService {
       careerPathCandidateStatusHistoryReason: currentCareerPathCandidate.careerPathCandidateJustification,
     } as CareerPathCandidateStatusHistory
     await careerPathCandidateStatusHistoryService.create(careerPathCandidateStatusHistory)
-    
+
     return currentCareerPathCandidate.careerPathCandidateId
   }
 
@@ -193,6 +195,93 @@ export default class CareerPathCandidateService {
         data: { ...careerPathCandidate },
       }
     }
+    /*
+     * A. Ruta válida vs plantilla
+     * Si is_override = false:
+     * (origin_position_id → target_position_id) debe existir en plantilla vigente
+     * Si no: 400 ruta-fuera-de-plantilla
+     */
+    if (!careerPathCandidate.careerPathCandidateIsOverride) {
+      const existCareerPathTemplate = await CareerPathTemplate.query()
+        .whereNull('career_path_template_deleted_at')
+        .where('origin_position_id', careerPathCandidate.originPositionId)
+        .where('target_position_id', careerPathCandidate.targetPositionId)
+        .first()
+      if (!existCareerPathTemplate) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: this.t('the_origin_and_target_positions_do_not_exist_in_the_current_template'),
+          message: this.t('the_origin_and_target_positions_do_not_exist_in_the_current_template'),
+          data: { ...careerPathCandidate },
+        }
+      }
+    }
+    /*
+     * B. Override correctamente justificado
+     * Si is_override = true, debe venir:
+     * - override_reason_id
+     * - justification >= 20 chars
+     */
+    if (careerPathCandidate.careerPathCandidateIsOverride) {
+      if (!careerPathCandidate.careerPathOverrideReasonId) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: this.t('the_override_reason_is_required'),
+          message: this.t('the_override_reason_is_required'),
+          data: { ...careerPathCandidate },
+        }
+      }
+      if (careerPathCandidate.careerPathCandidateJustification.length < 20) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: this.t('the_justification_must_be_at_least_20_characters'),
+          message: this.t('the_justification_must_be_at_least_20_characters'),
+          data: { ...careerPathCandidate },
+        }
+      }
+    }
+    /*
+     * C. Límite de candidatos
+     * Contar candidatos del colaborador con status IN (propuesto, activo)
+     * Si ya hay 3: 409 limite-candidatos-excedido
+     */
+    const countCareerPathCandidates = await CareerPathCandidate.query()
+      .whereNull('career_path_candidate_deleted_at')
+      .where('proposed_by', careerPathCandidate.proposedBy)
+      .whereIn('career_path_candidate_status', ['propuesto', 'activo'])
+    if (countCareerPathCandidates.length >= 3) {
+      return {
+        status: 409,
+        type: 'warning',
+        title: this.t('the_limit_of_candidates_has_been_exceeded'),
+        message: this.t('the_limit_of_candidates_has_been_exceeded'),
+        data: { ...careerPathCandidate },
+      }
+    }
+    /*
+     * 3) Validaciones de seguridad (RBAC)
+     * A. Jefe directo
+     * El usuario autenticado debe ser el jefe directo del colaborador
+     * (tabla user_responsible_employee)
+     * Si no: 403 rbac-gerente-fuera-de-su-equipo
+     */
+    const existUserResponsibleEmployee = await UserResponsibleEmployee.query()
+      .whereNull('user_responsible_employee_deleted_at')
+      .where('employee_id', careerPathCandidate.employeeId)
+      .where('user_id', careerPathCandidate.proposedBy)
+      .first()
+    if (!existUserResponsibleEmployee) {
+      return {
+        status: 403,
+        type: 'warning',
+        title: this.t('the_user_is_not_the_direct_boss_of_the_employee'),
+        message: this.t('the_user_is_not_the_direct_boss_of_the_employee'),
+        data: { ...careerPathCandidate },
+      }
+    }
     return {
       status: 200,
       type: 'success',
@@ -201,4 +290,16 @@ export default class CareerPathCandidateService {
       data: { ...careerPathCandidate },
     }
   }
+
+  async getByEmployeeId(employeeId: number) {
+    const careerPathCandidates = await CareerPathCandidate.query()
+      .whereNull('career_path_candidate_deleted_at')
+      .where('employee_id', employeeId)
+      .preload('businessUnit')
+      .preload('originPosition')
+      .preload('targetPosition')
+      .preload('careerPathOverrideReason')
+      .orderBy('career_path_candidate_id', 'desc')
+    return careerPathCandidates
+  } 
 }

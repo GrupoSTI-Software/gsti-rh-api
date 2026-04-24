@@ -8,6 +8,7 @@ router
     router.get('/:careerPathCandidateId', '#controllers/career_path_candidate_controller.show')
     router.put('/:careerPathCandidateId', '#controllers/career_path_candidate_controller.update')
     router.delete('/:careerPathCandidateId', '#controllers/career_path_candidate_controller.delete')
+    router.get('/employee/:employeeId', '#controllers/career_path_candidate_controller.getByEmployeeId')
   })
   .prefix('/api/career-path-candidates')
   .use(middleware.auth())

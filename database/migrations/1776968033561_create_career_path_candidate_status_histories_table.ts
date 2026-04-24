@@ -7,7 +7,7 @@ export default class extends BaseSchema {
     this.schema.createTable(this.tableName, (table) => {
       table.increments('career_path_candidate_status_history_id')
 
-      table.integer('career_path_candidate_id').unsigned().notNullable().references('career_path_candidates.career_path_candidate_id')
+      table.integer('career_path_candidate_id').unsigned().notNullable().references('career_path_candidates.career_path_candidate_id').withKeyName('cpcsh_candidate_id_fk')
       table.integer('changed_by').unsigned().notNullable().references('users.user_id')
 
       table.enu('career_path_candidate_status_history_from_status', ['propuesto', 'activo', 'rechazado', 'desactivado', 'expirado']).nullable()

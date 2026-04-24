@@ -285,6 +285,44 @@ export default class CareerPathCandidateController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '409':
+   *         description: The limit of candidates has been exceeded
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: The user is not the direct boss of the employee
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
    *       default:
    *         description: Unexpected error
    *         content:
@@ -592,7 +630,7 @@ export default class CareerPathCandidateController {
         careerPathCandidateRejectionReason: careerPathCandidateRejectionReason,
         careerPathCandidateActivatedAt: careerPathCandidateActivatedAt,
       } as CareerPathCandidate
-      
+
       if (!careerPathCandidateId) {
         response.status(400)
         return {
@@ -943,6 +981,149 @@ export default class CareerPathCandidateController {
           title: t('resource'),
           message: t('resource_was_found_successfully'),
           data: { careerPathCandidate: showCareerPathCandidate },
+        }
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/career-path-candidates/employee/{employeeId}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Career Path Candidates
+   *     summary: get relation career path candidate by employee id
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         description: Employee id
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async getByEmployeeId({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const employeeId = request.param('employeeId')
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { employeeId },
+        }
+      }
+      const careerPathCandidateService = new CareerPathCandidateService(i18n)
+      const careerPathCandidates = await careerPathCandidateService.getByEmployeeId(employeeId)
+      if (!careerPathCandidates) {
+        const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { employeeId },
+        }
+      } else {
+        response.status(200)
+        return {
+          type: 'success',
+          title: t('resources'),
+          message: t('resources_were_found_successfully'),
+          data: { careerPathCandidates },
         }
       }
     } catch (error) {
