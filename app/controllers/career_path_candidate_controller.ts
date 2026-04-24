@@ -1,19 +1,18 @@
 import { HttpContext } from '@adonisjs/core/http'
-import CareerPathTemplate from '#models/career_path_template'
-import { createCareerPathTemplateValidator } from '#validators/career_path_template'
-import { updateCareerPathTemplateValidator } from '#validators/career_path_template'
-import CareerPathTemplateService from '#services/career_path_template_service'
-import { CareerPathTemplateFilterSearchInterface } from 'app/interfaces/career_path_template_filter_search_interface.js'
+import CareerPathCandidateService from '#services/career_path_candidate_service'
+import { CareerPathCandidateFilterSearchInterface } from 'app/interfaces/career_path_candidate_filter_search_interface.js'
+import CareerPathCandidate from '#models/career_path_candidate'
+import { createCareerPathCandidateValidator, updateCareerPathCandidateValidator } from '#validators/career_path_candidate'
 
-export default class CareerPathTemplateController {
+export default class CareerPathCandidateController {
   /**
    * @swagger
-   * /api/career-path-templates:
+   * /api/career-path-candidates:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Career Path Templates
+   *       - Career Path Candidates
    *     summary: get all
    *     parameters:
    *       - originPositionId: origin position id
@@ -115,19 +114,19 @@ export default class CareerPathTemplateController {
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
      
-      const careerPathTemplateService = new CareerPathTemplateService(i18n)
+      const careerPathCandidateService = new CareerPathCandidateService(i18n)
       const filters = {
         originPositionId: originPositionId,
         targetPositionId: targetPositionId,
-      } as CareerPathTemplateFilterSearchInterface
-      const careerPathTemplates = await careerPathTemplateService.index(filters)
+      } as CareerPathCandidateFilterSearchInterface
+      const careerPathCandidates = await careerPathCandidateService.index(filters)
       response.status(200)
       return {
         type: 'success',
         title: t('resources'),
         message: t('resources_were_found_successfully'),
         data: {
-          careerPathTemplates,
+          careerPathCandidates,
         },
       }
     } catch (error) {
@@ -143,13 +142,13 @@ export default class CareerPathTemplateController {
 
   /**
    * @swagger
-   * /api/career-path-templates:
+   * /api/career-path-candidates:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Career Path Templates
-   *     summary: create new career path template
+   *       - Career Path Candidates
+   *     summary: create new career path candidate
    *     produces:
    *       - application/json
    *     requestBody:
@@ -158,9 +157,14 @@ export default class CareerPathTemplateController {
    *           schema:
    *             type: object
    *             properties:
-   *               companyId:
+   *               businessUnitId:
    *                 type: number
-   *                 description: Company id
+   *                 description: Business unit id
+   *                 required: true
+   *                 default: ''
+   *               employeeId:
+   *                 type: number
+   *                 description: Employee id
    *                 required: true
    *                 default: ''
    *               originPositionId:
@@ -173,6 +177,56 @@ export default class CareerPathTemplateController {
    *                 description: Target position id
    *                 required: true
    *                 default: ''
+   *               careerPathCandidateIsOverride:
+   *                 type: boolean
+   *                 description: Career path candidate is override
+   *                 required: true
+   *                 default: false
+   *               careerPathOverrideReasonId:
+   *                 type: number
+   *                 description: Career path override reason id
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateJustification:
+   *                 type: string
+   *                 description: Career path candidate justification
+   *                 required: false
+   *                 default: ''
+   *               careerPathCandidateStatus:
+   *                 type: string
+   *                 description: Career path candidate status
+   *                 required: true
+   *                 default: 'propuesto'
+   *               proposedBy:
+   *                 type: number
+   *                 description: Proposed by user id
+   *                 required: true
+   *                 default: ''
+   *               reviewedBy:
+   *                 type: number
+   *                 description: Reviewed by user id
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateReviewedAt:
+   *                 type: string
+   *                 description: Career path candidate reviewed at
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateRejectionReason:
+   *                 type: string
+   *                 description: Career path candidate rejection reason
+   *                 required: false
+   *                 default: ''
+   *               careerPathCandidateActivatedAt:
+   *                 type: string
+   *                 description: Career path candidate activated at
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateExpiresAt:
+   *                 type: string
+   *                 description: Career path candidate expires at
+   *                 required: false
+   *                 default: null
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -257,21 +311,39 @@ export default class CareerPathTemplateController {
   async store({ request, response, i18n, auth }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const companyId = request.input('companyId')
+      const businessUnitId = request.input('businessUnitId')
+      const employeeId = request.input('employeeId')
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
-      const createdBy = auth.user?.userId
-      const updatedBy = auth.user?.userId
-      const careerPathTemplate = {
-        companyId: companyId,
+      const careerPathCandidateIsOverride = request.input('careerPathCandidateIsOverride')
+      const careerPathOverrideReasonId = request.input('careerPathOverrideReasonId')
+      const careerPathCandidateJustification = request.input('careerPathCandidateJustification')
+      const careerPathCandidateStatus = request.input('careerPathCandidateStatus')
+      const proposedBy = auth.user?.userId
+      const reviewedBy = request.input('reviewedBy')
+      const careerPathCandidateReviewedAt = request.input('careerPathCandidateReviewedAt')
+      const careerPathCandidateRejectionReason = request.input('careerPathCandidateRejectionReason')
+      const careerPathCandidateActivatedAt = request.input('careerPathCandidateActivatedAt')
+      const careerPathCandidateExpiresAt = request.input('careerPathCandidateExpiresAt')
+      const careerPathCandidate = {
+        businessUnitId: businessUnitId,
+        employeeId: employeeId,
         originPositionId: originPositionId,
         targetPositionId: targetPositionId,
-        createdBy: createdBy,
-        updatedBy: updatedBy,
-      } as CareerPathTemplate
-      const careerPathTemplateService = new CareerPathTemplateService(i18n)
-      const data = await request.validateUsing(createCareerPathTemplateValidator)
-      const exist = await careerPathTemplateService.verifyInfoExist(careerPathTemplate)
+        careerPathCandidateIsOverride: careerPathCandidateIsOverride,
+        careerPathOverrideReasonId: careerPathOverrideReasonId,
+        careerPathCandidateJustification: careerPathCandidateJustification,
+        careerPathCandidateStatus: careerPathCandidateStatus,
+        proposedBy: proposedBy,
+        reviewedBy: reviewedBy,
+        careerPathCandidateReviewedAt: careerPathCandidateReviewedAt,
+        careerPathCandidateRejectionReason: careerPathCandidateRejectionReason,
+        careerPathCandidateActivatedAt: careerPathCandidateActivatedAt,
+        careerPathCandidateExpiresAt: careerPathCandidateExpiresAt,
+      } as CareerPathCandidate
+      const careerPathCandidateService = new CareerPathCandidateService(i18n)
+      const data = await request.validateUsing(createCareerPathCandidateValidator)
+      const exist = await careerPathCandidateService.verifyInfoExist(careerPathCandidate)
       if (exist.status !== 200) {
         response.status(exist.status)
         return {
@@ -281,7 +353,7 @@ export default class CareerPathTemplateController {
           data: { ...data },
         }
       }
-      const verifyInfo = await careerPathTemplateService.verifyInfo(careerPathTemplate)
+      const verifyInfo = await careerPathCandidateService.verifyInfo(careerPathCandidate)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
@@ -291,14 +363,14 @@ export default class CareerPathTemplateController {
           data: { ...data },
         }
       }
-      const newCareerPathTemplate = await careerPathTemplateService.create(careerPathTemplate)
-      if (newCareerPathTemplate) {
+      const newCareerPathCandidate = await careerPathCandidateService.create(careerPathCandidate)
+      if (newCareerPathCandidate) {
         response.status(201)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_created_successfully'),
-          data: { careerPathTemplate: newCareerPathTemplate },
+          data: { careerPathCandidate: newCareerPathCandidate },
         }
       }
     } catch (error) {
@@ -316,21 +388,21 @@ export default class CareerPathTemplateController {
 
   /**
    * @swagger
-   * /api/career-path-templates/{careerPathTemplateId}:
+   * /api/career-path-candidates/{careerPathCandidateId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Career Path Templates
-   *     summary: update career path template
+   *       - Career Path Candidates
+   *     summary: update career path candidate
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: careerPathTemplateId
+   *         name: careerPathCandidateId
    *         schema:
    *           type: number
-   *         description: Career path template id
+   *         description: Career path candidate id
    *         required: true
    *     requestBody:
    *       content:
@@ -338,9 +410,14 @@ export default class CareerPathTemplateController {
    *           schema:
    *             type: object
    *             properties:
-   *               companyId:
+   *               businessUnitId:
    *                 type: number
-   *                 description: Company id
+   *                 description: Business unit id
+   *                 required: true
+   *                 default: ''
+   *               employeeId:
+   *                 type: number
+   *                 description: Employee id
    *                 required: true
    *                 default: ''
    *               originPositionId:
@@ -353,6 +430,56 @@ export default class CareerPathTemplateController {
    *                 description: Target position id
    *                 required: true
    *                 default: ''
+   *               careerPathCandidateIsOverride:
+   *                 type: boolean
+   *                 description: Career path candidate is override
+   *                 required: true
+   *                 default: false
+   *               careerPathOverrideReasonId:
+   *                 type: number
+   *                 description: Career path override reason id
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateJustification:
+   *                 type: string
+   *                 description: Career path candidate justification
+   *                 required: false
+   *                 default: ''
+   *               careerPathCandidateStatus:
+   *                 type: string
+   *                 description: Career path candidate status
+   *                 required: true
+   *                 default: 'propuesto'
+   *               proposedBy:
+   *                 type: number
+   *                 description: Proposed by user id
+   *                 required: true
+   *                 default: ''
+   *               reviewedBy:
+   *                 type: number
+   *                 description: Reviewed by user id
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateReviewedAt:
+   *                 type: string
+   *                 description: Career path candidate reviewed at
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateRejectionReason:
+   *                 type: string
+   *                 description: Career path candidate rejection reason
+   *                 required: false
+   *                 default: ''
+   *               careerPathCandidateActivatedAt:
+   *                 type: string
+   *                 description: Career path candidate activated at
+   *                 required: false
+   *                 default: null
+   *               careerPathCandidateExpiresAt:
+   *                 type: string
+   *                 description: Career path candidate expires at
+   *                 required: false
+   *                 default: null
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -434,47 +561,64 @@ export default class CareerPathTemplateController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n, auth }: HttpContext) {
+  async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const careerPathTemplateId = request.param('careerPathTemplateId')
-      const companyId = request.input('companyId')
+      const careerPathCandidateId = request.param('careerPathCandidateId')
+      const businessUnitId = request.input('businessUnitId')
+      const employeeId = request.input('employeeId')
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
-      const updatedBy = auth.user?.userId
-      const careerPathTemplate = {
-        careerPathTemplateId: careerPathTemplateId,
-        companyId: companyId,
+      const careerPathCandidateIsOverride = request.input('careerPathCandidateIsOverride')
+      const careerPathOverrideReasonId = request.input('careerPathOverrideReasonId')
+      const careerPathCandidateJustification = request.input('careerPathCandidateJustification')
+      const careerPathCandidateStatus = request.input('careerPathCandidateStatus')
+      const reviewedBy = request.input('reviewedBy')
+      const careerPathCandidateReviewedAt = request.input('careerPathCandidateReviewedAt')
+      const careerPathCandidateRejectionReason = request.input('careerPathCandidateRejectionReason')
+      const careerPathCandidateActivatedAt = request.input('careerPathCandidateActivatedAt')
+      const careerPathCandidate = {
+        careerPathCandidateId: careerPathCandidateId,
+        businessUnitId: businessUnitId,
+        employeeId: employeeId,
         originPositionId: originPositionId,
         targetPositionId: targetPositionId,
-        updatedBy: updatedBy,
-      } as CareerPathTemplate
-      if (!careerPathTemplateId) {
+        careerPathCandidateIsOverride: careerPathCandidateIsOverride,
+        careerPathOverrideReasonId: careerPathOverrideReasonId,
+        careerPathCandidateJustification: careerPathCandidateJustification,
+        careerPathCandidateStatus: careerPathCandidateStatus,
+        reviewedBy: reviewedBy,
+        careerPathCandidateReviewedAt: careerPathCandidateReviewedAt,
+        careerPathCandidateRejectionReason: careerPathCandidateRejectionReason,
+        careerPathCandidateActivatedAt: careerPathCandidateActivatedAt,
+      } as CareerPathCandidate
+      
+      if (!careerPathCandidateId) {
         response.status(400)
         return {
           type: 'warning',
           title: t('resource'),
           message: t('resource_id_was_not_found'),
-          data: { ...careerPathTemplate },
+          data: { ...careerPathCandidate },
         }
       }
-      const currentCareerPathTemplate = await CareerPathTemplate.query()
-        .whereNull('career_path_template_deleted_at')
-        .where('career_path_template_id', careerPathTemplateId)
+      const currentCareerPathCandidate = await CareerPathCandidate.query()
+        .whereNull('career_path_candidate_deleted_at')
+        .where('career_path_candidate_id', careerPathCandidateId)
         .first()
-      if (!currentCareerPathTemplate) {
+      if (!currentCareerPathCandidate) {
         const entity = `${t('relation')} ${t('department')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
           title: t('entity_was_not_found', { entity }),
           message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { ...careerPathTemplate },
+          data: { ...careerPathCandidate },
         }
       }
-      const careerPathTemplateService = new CareerPathTemplateService(i18n)
-      const data = await request.validateUsing(updateCareerPathTemplateValidator)
-      const exist = await careerPathTemplateService.verifyInfoExist(careerPathTemplate)
+      const careerPathCandidateService = new CareerPathCandidateService(i18n)
+      const data = await request.validateUsing(updateCareerPathCandidateValidator)
+      const exist = await careerPathCandidateService.verifyInfoExist(careerPathCandidate)
       if (exist.status !== 200) {
         response.status(exist.status)
         return {
@@ -484,7 +628,7 @@ export default class CareerPathTemplateController {
           data: { ...data },
         }
       }
-      const verifyInfo = await careerPathTemplateService.verifyInfo(careerPathTemplate)
+      const verifyInfo = await careerPathCandidateService.verifyInfo(careerPathCandidate)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
@@ -494,17 +638,17 @@ export default class CareerPathTemplateController {
           data: { ...data },
         }
       }
-      const updateCareerPathTemplate = await careerPathTemplateService.update(
-        currentCareerPathTemplate,
-        careerPathTemplate
+      const updateCareerPathCandidate = await careerPathCandidateService.update(
+        currentCareerPathCandidate,
+        careerPathCandidate
       )
-      if (updateCareerPathTemplate) {
+      if (updateCareerPathCandidate) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_updated_successfully'),
-          data: { careerPathTemplate: updateCareerPathTemplate },
+          data: { careerPathCandidate: updateCareerPathCandidate },
         }
       }
     } catch (error) {
@@ -522,21 +666,21 @@ export default class CareerPathTemplateController {
 
   /**
    * @swagger
-   * /api/career-path-templates/{careerPathTemplateId}:
+   * /api/career-path-candidates/{careerPathCandidateId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Career Path Templates
-   *     summary: delete career path template
+   *       - Career Path Candidates
+   *     summary: delete career path candidate
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: careerPathTemplateId
+   *         name: careerPathCandidateId
    *         schema:
    *           type: number
-   *         description: Career path template id
+   *         description: Career path candidate id
    *         required: true
    *     responses:
    *       '200':
@@ -622,40 +766,40 @@ export default class CareerPathTemplateController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const careerPathTemplateId = request.param('careerPathTemplateId')
-      if (!careerPathTemplateId) {
+      const careerPathCandidateId = request.param('careerPathCandidateId')
+      if (!careerPathCandidateId) {
         response.status(400)
         return {
           type: 'warning',
           title: t('resource'),
           message: t('resource_id_was_not_found'),
-          data: { careerPathTemplateId },
+          data: { careerPathCandidateId },
         }
       }
-      const currentCareerPathTemplate = await CareerPathTemplate.query()
-        .whereNull('career_path_template_deleted_at')
-        .where('career_path_template_id', careerPathTemplateId)
+      const currentCareerPathCandidate = await CareerPathCandidate.query()
+        .whereNull('career_path_candidate_deleted_at')
+        .where('career_path_candidate_id', careerPathCandidateId)
         .first()
-      if (!currentCareerPathTemplate) {
+      if (!currentCareerPathCandidate) {
         const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
           title: t('entity_was_not_found', { entity }),
           message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { careerPathTemplateId },
+          data: { careerPathCandidateId },
         }
       }
-      const careerPathTemplateService = new CareerPathTemplateService(i18n)
-      const deleteCareerPathTemplate =
-        await careerPathTemplateService.delete(currentCareerPathTemplate)
-      if (deleteCareerPathTemplate) {
+      const careerPathCandidateService = new CareerPathCandidateService(i18n)
+      const deleteCareerPathCandidate =
+        await careerPathCandidateService.delete(currentCareerPathCandidate)
+      if (deleteCareerPathCandidate) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_deleted_successfully'),
-          data: { careerPathTemplate: deleteCareerPathTemplate },
+          data: { careerPathCandidate: deleteCareerPathCandidate },
         }
       }
     } catch (error) {
@@ -671,21 +815,21 @@ export default class CareerPathTemplateController {
 
   /**
    * @swagger
-   * /api/career-path-templates/{careerPathTemplateId}:
+   * /api/career-path-candidates/{careerPathCandidateId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Career Path Templates
-   *     summary: get relation career path template by id
+   *       - Career Path Candidates
+   *     summary: get relation career path candidate by id
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: careerPathTemplateId
+   *         name: careerPathCandidateId
    *         schema:
    *           type: number
-   *         description: Career path template id
+   *         description: Career path candidate id
    *         required: true
    *     responses:
    *       '200':
@@ -771,26 +915,26 @@ export default class CareerPathTemplateController {
   async show({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const careerPathTemplateId = request.param('careerPathTemplateId')
-      if (!careerPathTemplateId) {
+      const careerPathCandidateId = request.param('careerPathCandidateId')
+      if (!careerPathCandidateId) {
         response.status(400)
         return {
           type: 'warning',
           title: t('resource'),
           message: t('resource_id_was_not_found'),
-          data: { careerPathTemplateId },
+          data: { careerPathCandidateId },
         }
       }
-      const careerPathTemplateService = new CareerPathTemplateService(i18n)
-      const showCareerPathTemplate = await careerPathTemplateService.show(careerPathTemplateId)
-      if (!showCareerPathTemplate) {
+      const careerPathCandidateService = new CareerPathCandidateService(i18n)
+      const showCareerPathCandidate = await careerPathCandidateService.show(careerPathCandidateId)
+      if (!showCareerPathCandidate) {
         const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
           title: t('entity_was_not_found', { entity }),
           message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { careerPathTemplateId },
+          data: { careerPathCandidateId },
         }
       } else {
         response.status(200)
@@ -798,7 +942,7 @@ export default class CareerPathTemplateController {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_found_successfully'),
-          data: { careerPathTemplate: showCareerPathTemplate },
+          data: { careerPathCandidate: showCareerPathCandidate },
         }
       }
     } catch (error) {

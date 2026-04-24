@@ -138,6 +138,7 @@ import './routes/employee_psychometric_evaluation_routes.js'
 import './routes/position_work_tool_routes.js'
 import './routes/career_path_override_reason_routes.js'
 import './routes/career_path_template_routes.js'
+import './routes/career_path_candidate_routes.js'
 
 router
   .get('/', async ({ view }) => {
