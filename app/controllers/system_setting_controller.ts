@@ -463,9 +463,28 @@ export default class SystemSettingController {
       const systemSettingMaxLateArrivalsBeforeAttendanceLock = request.input('systemSettingMaxLateArrivalsBeforeAttendanceLock')
       const systemSettingPeriodAbsencesBeforeAttendanceLock = request.input('systemSettingPeriodAbsencesBeforeAttendanceLock')
       const systemSettingPeriodLateArrivalsBeforeAttendanceLock = request.input('systemSettingPeriodLateArrivalsBeforeAttendanceLock')
+      const systemSettingMonthlyConversionFactorRaw = request.input('systemSettingMonthlyConversionFactor')
       const parseNullable = (value: any) =>
         value === 'null' || value === undefined ? null : value
-      
+      const parseConversionFactor = (value: any): number => {
+        const parsed = Number.parseFloat(value)
+        return Number.isNaN(parsed) ? 30.4 : parsed
+      }
+      const systemSettingMonthlyConversionFactor = parseConversionFactor(systemSettingMonthlyConversionFactorRaw)
+      if (
+        systemSettingMonthlyConversionFactorRaw !== undefined &&
+        systemSettingMonthlyConversionFactorRaw !== null &&
+        (systemSettingMonthlyConversionFactor <= 0 || systemSettingMonthlyConversionFactor > 31)
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid monthly conversion factor',
+          message: 'The monthly conversion factor must be greater than 0 and less than or equal to 31',
+          data: { systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactorRaw },
+        }
+      }
+
       const systemSetting = {
         systemSettingTradeName: systemSettingTradeName,
         systemSettingSidebarColor: systemSettingSidebarColor,
@@ -482,6 +501,7 @@ export default class SystemSettingController {
         systemSettingMaxLateArrivalsBeforeAttendanceLock: parseNullable(systemSettingMaxLateArrivalsBeforeAttendanceLock),
         systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
         systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
+        systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
       const data = await request.validateUsing(createSystemSettingValidator)
@@ -823,9 +843,28 @@ export default class SystemSettingController {
       const systemSettingMaxLateArrivalsBeforeAttendanceLock = request.input('systemSettingMaxLateArrivalsBeforeAttendanceLock')
       const systemSettingPeriodAbsencesBeforeAttendanceLock = request.input('systemSettingPeriodAbsencesBeforeAttendanceLock')
       const systemSettingPeriodLateArrivalsBeforeAttendanceLock = request.input('systemSettingPeriodLateArrivalsBeforeAttendanceLock')
+      const systemSettingMonthlyConversionFactorRaw = request.input('systemSettingMonthlyConversionFactor')
       const parseNullable = (value: any) =>
         value === 'null' || value === undefined ? null : value
-      
+      const parseConversionFactor = (value: any): number | undefined => {
+        if (value === undefined || value === null) return undefined
+        const parsed = Number.parseFloat(value)
+        return Number.isNaN(parsed) ? undefined : parsed
+      }
+      const systemSettingMonthlyConversionFactor = parseConversionFactor(systemSettingMonthlyConversionFactorRaw)
+      if (
+        systemSettingMonthlyConversionFactor !== undefined &&
+        (systemSettingMonthlyConversionFactor <= 0 || systemSettingMonthlyConversionFactor > 31)
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid monthly conversion factor',
+          message: 'The monthly conversion factor must be greater than 0 and less than or equal to 31',
+          data: { systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactorRaw },
+        }
+      }
+
       const systemSetting = {
         systemSettingId: systemSettingId,
         systemSettingTradeName: systemSettingTradeName,
@@ -843,6 +882,7 @@ export default class SystemSettingController {
         systemSettingMaxLateArrivalsBeforeAttendanceLock: parseNullable(systemSettingMaxLateArrivalsBeforeAttendanceLock),
         systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
         systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
+        systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       if (!systemSettingId) {
         response.status(400)

@@ -243,5 +243,8 @@
     "range": "Range (Min - Max)",
     "min": "Minimum",
     "max": "Maximum"
-  }
+  },
+  "monthly_conversion_factor": "Monthly conversion factor",
+  "monthly_conversion_factor_helper": "Number of days per month used to convert daily salary to monthly in the UI (e.g. 30.4 per IMSS). Display only — does not affect payroll calculations.",
+  "monthly_conversion_factor_invalid": "The monthly conversion factor must be greater than 0 and less than or equal to 31"
 }

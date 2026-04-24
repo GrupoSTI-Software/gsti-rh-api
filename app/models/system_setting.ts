@@ -67,6 +67,9 @@ import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
  *          systemSettingPeriodAbsencesBeforeAttendanceLock:
  *            type: string
  *            description: System setting period absences before attendance lock
+ *          systemSettingMonthlyConversionFactor:
+ *            type: number
+ *            description: Factor días/mes para convertir salario diario a mensual en UI (default 30.4, consistente con IMSS). Solo para display, no afecta cálculos de negocio.
  *          systemSettingUpdatedAt:
  *            type: string
  *          systemSettingDeletedAt:
@@ -127,6 +130,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemSettingPeriodLateArrivalsBeforeAttendanceLock: string
+
+  @column()
+  declare systemSettingMonthlyConversionFactor: number
 
   @column.dateTime({ autoCreate: true })
   declare systemSettingCreatedAt: DateTime

@@ -246,5 +246,8 @@
     "range": "Rango (Mín - Máx)",
     "min": "Mínimo",
     "max": "Máximo"
-  }
+  },
+  "monthly_conversion_factor": "Factor de conversión mensual",
+  "monthly_conversion_factor_helper": "Número de días al mes usado para convertir salario diario a mensual en la interfaz (ej. 30.4 según IMSS). Solo afecta la visualización, no los cálculos de nómina.",
+  "monthly_conversion_factor_invalid": "El factor de conversión mensual debe ser mayor a 0 y menor o igual a 31"
 }
