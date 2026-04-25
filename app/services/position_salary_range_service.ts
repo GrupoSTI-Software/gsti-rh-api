@@ -1,4 +1,6 @@
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import PositionSalaryRange from '#models/position_salary_range'
 import PositionSalaryRangeAudit from '#models/position_salary_range_audit'
 import BusinessUnit from '#models/business_unit'
@@ -28,6 +30,21 @@ export interface GetCurrentSuccess {
 
 export interface CloseSuccess {
   status: 204
+}
+
+export interface UpdateVersionSuccess {
+  status: 200
+  range: PositionSalaryRange
+}
+
+export interface GetHistorySuccess {
+  status: 200
+  data: PositionSalaryRange[]
+}
+
+export interface GetAuditSuccess {
+  status: 200
+  data: PositionSalaryRangeAudit[]
 }
 
 interface CreateRangeInput {
@@ -215,6 +232,159 @@ export default class PositionSalaryRangeService {
     return { status: 204 }
   }
 
+  async updateVersion(
+    positionSalaryRangeId: number,
+    input: { minSalaryDaily: number; maxSalaryDaily: number; validFrom?: DateTime; reason?: string; actorId: number }
+  ): Promise<ServiceError | UpdateVersionSuccess> {
+    if (input.minSalaryDaily > input.maxSalaryDaily) {
+      return {
+        status: 422,
+        key: 'rango-invalido-min-mayor-max',
+        title: 'Rango inválido',
+        message: 'El salario mínimo no puede ser mayor al salario máximo',
+      }
+    }
+
+    const today = DateTime.now().startOf('day')
+    const validFrom = input.validFrom ?? today
+
+    if (validFrom < today) {
+      return {
+        status: 422,
+        key: 'valid-from-pasado',
+        title: 'Fecha no permitida',
+        message: 'No se permiten cambios con fecha de vigencia anterior a hoy',
+      }
+    }
+
+    return await db.transaction(async (trx) => {
+      // SELECT FOR UPDATE: bloquea la fila durante la transacción para evitar ediciones simultáneas
+      const current = await PositionSalaryRange.query({ client: trx })
+        .where('position_salary_range_id', positionSalaryRangeId)
+        .whereNull('position_salary_range_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!current) {
+        return {
+          status: 404,
+          key: 'rango-no-encontrado',
+          title: 'Rango no encontrado',
+          message: 'No se encontró el rango salarial con el ID indicado',
+        }
+      }
+
+      if (current.validTo !== null) {
+        return {
+          status: 409,
+          key: 'rango-ya-cerrado',
+          title: 'Rango ya cerrado',
+          message: 'El rango salarial ya fue cerrado y no puede modificarse',
+        }
+      }
+
+      const sinCambios =
+        current.minSalaryDaily === input.minSalaryDaily &&
+        current.maxSalaryDaily === input.maxSalaryDaily
+
+      if (sinCambios) {
+        return {
+          status: 422,
+          key: 'sin-cambios',
+          title: 'Sin cambios',
+          message: 'Los nuevos valores son idénticos al rango vigente; no se realizó ningún cambio',
+        }
+      }
+
+      const oldMin = current.minSalaryDaily
+      const oldMax = current.maxSalaryDaily
+
+      // Cierre del rango anterior dentro de la misma transacción
+      current.validTo = validFrom
+      await current.useTransaction(trx).save()
+
+      await this.recordAuditTrx(
+        {
+          rangeId: current.positionSalaryRangeId,
+          action: 'close',
+          oldMin,
+          oldMax,
+          newMin: null,
+          newMax: null,
+          actorId: input.actorId,
+          reason: input.reason ?? null,
+        },
+        trx
+      )
+
+      // Creación del nuevo rango dentro de la misma transacción
+      const newRange = await PositionSalaryRange.create(
+        {
+          businessUnitId: current.businessUnitId,
+          positionId: current.positionId,
+          minSalaryDaily: input.minSalaryDaily,
+          maxSalaryDaily: input.maxSalaryDaily,
+          validFrom,
+          validTo: null,
+          createdBy: input.actorId,
+        },
+        { client: trx }
+      )
+
+      await this.recordAuditTrx(
+        {
+          rangeId: newRange.positionSalaryRangeId,
+          action: 'update',
+          oldMin,
+          oldMax,
+          newMin: input.minSalaryDaily,
+          newMax: input.maxSalaryDaily,
+          actorId: input.actorId,
+          reason: input.reason ?? null,
+        },
+        trx
+      )
+
+      return { status: 200 as const, range: newRange }
+    })
+  }
+
+  async getHistory(businessUnitId: number, positionId: number): Promise<ServiceError | GetHistorySuccess> {
+    const refError = await this.verifyReferences(businessUnitId, positionId)
+    if (refError) return refError
+
+    const data = await PositionSalaryRange.query()
+      .where('business_unit_id', businessUnitId)
+      .where('position_id', positionId)
+      .whereNull('position_salary_range_deleted_at')
+      .orderBy('position_salary_range_id', 'desc')
+
+    return { status: 200, data }
+  }
+
+  async getAudit(positionSalaryRangeId: number): Promise<ServiceError | GetAuditSuccess> {
+    const range = await PositionSalaryRange.query()
+      .where('position_salary_range_id', positionSalaryRangeId)
+      .whereNull('position_salary_range_deleted_at')
+      .first()
+
+    if (!range) {
+      return {
+        status: 404,
+        key: 'rango-no-encontrado',
+        title: 'Rango no encontrado',
+        message: 'No se encontró el rango salarial con el ID indicado',
+      }
+    }
+
+    const data = await PositionSalaryRangeAudit.query()
+      .where('range_id', positionSalaryRangeId)
+      .whereNull('position_salary_range_audit_deleted_at')
+      .orderBy('position_salary_range_audit_id', 'desc')
+
+    return { status: 200, data }
+  }
+
   private async recordAudit(params: {
     rangeId: number
     action: 'create' | 'update' | 'close'
@@ -235,5 +405,30 @@ export default class PositionSalaryRangeService {
     audit.actorId = params.actorId
     audit.reason = params.reason
     await audit.save()
+  }
+
+  private async recordAuditTrx(
+    params: {
+      rangeId: number
+      action: 'create' | 'update' | 'close'
+      oldMin: number | null
+      oldMax: number | null
+      newMin: number | null
+      newMax: number | null
+      actorId: number
+      reason: string | null
+    },
+    trx: TransactionClientContract
+  ) {
+    const audit = new PositionSalaryRangeAudit()
+    audit.rangeId = params.rangeId
+    audit.action = params.action
+    audit.oldMinSalaryDaily = params.oldMin
+    audit.oldMaxSalaryDaily = params.oldMax
+    audit.newMinSalaryDaily = params.newMin
+    audit.newMaxSalaryDaily = params.newMax
+    audit.actorId = params.actorId
+    audit.reason = params.reason
+    await audit.useTransaction(trx).save()
   }
 }

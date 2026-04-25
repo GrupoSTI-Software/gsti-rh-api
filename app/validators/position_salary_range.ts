@@ -11,6 +11,15 @@ export const createPositionSalaryRangeValidator = vine.compile(
   })
 )
 
+export const updatePositionSalaryRangeValidator = vine.compile(
+  vine.object({
+    minSalaryDaily: vine.number().positive(),
+    maxSalaryDaily: vine.number().positive(),
+    validFrom: vine.date().optional(),
+    reason: vine.string().trim().maxLength(500).optional(),
+  })
+)
+
 export const closePositionSalaryRangeValidator = vine.compile(
   vine.object({
     reason: vine.string().trim().maxLength(500).optional(),
