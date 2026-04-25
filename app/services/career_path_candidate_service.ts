@@ -24,9 +24,14 @@ export default class CareerPathCandidateService {
       .if(filters.targetPositionId, (query) => {
         query.where('target_position_id', filters.targetPositionId)
       })
+      .preload('employee')
       .preload('businessUnit')
       .preload('originPosition')
       .preload('targetPosition')
+      .preload('careerPathOverrideReason')
+      .preload('proposedByUser')
+      .preload('reviewedByUser')
+      .preload('careerPathCandidateStatusHistories')
       .orderBy('career_path_candidate_id', 'desc')
     return careerPathCandidates
   }
@@ -104,6 +109,14 @@ export default class CareerPathCandidateService {
     const careerPathCandidate = await CareerPathCandidate.query()
       .whereNull('career_path_candidate_deleted_at')
       .where('career_path_candidate_id', careerPathCandidateId)
+      .preload('employee')
+      .preload('businessUnit')
+      .preload('originPosition')
+      .preload('targetPosition')
+      .preload('careerPathOverrideReason')
+      .preload('proposedByUser')
+      .preload('reviewedByUser')
+      .preload('careerPathCandidateStatusHistories')
       .first()
     return careerPathCandidate
   }
