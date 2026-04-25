@@ -50,6 +50,8 @@ export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
  *            type: string
  */
 export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDeletes) {
+  static table = 'position_salary_range_audit'
+
   @column({ isPrimary: true })
   declare positionSalaryRangeAuditId: number
 
