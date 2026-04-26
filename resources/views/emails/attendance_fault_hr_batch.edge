@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alerta de asistencia — {{ tradeName }}</title>
+</head>
+<body style="margin:0;padding:16px;background:#f4f4f4;font-family:Segoe UI,Roboto,sans-serif;color:#222;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e5e5e5;">
+    <div style="background:{{ sidebarColor }};color:#fff;padding:16px 20px;">
+      <div style="font-size:18px;font-weight:600;">{{ tradeName }}</div>
+      <div style="font-size:13px;opacity:0.9;margin-top:4px;">Registro de asistencia no recibido</div>
+    </div>
+    <div style="padding:20px;">
+      @if(isTestEmail)
+        <p style="margin:0 0 16px;padding:12px 14px;background:#fff8e6;border:1px solid #f0d78c;border-radius:6px;font-size:13px;line-height:1.5;color:#5c4a00;">
+          <strong>Correo de prueba</strong> (comando con <code style="font-size:12px;">--test</code>): simula todas las faltas elegibles del día; no se registró envío en el sistema ni se afectó el log de notificaciones.
+        </p>
+      @end
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">
+        En esta notificación se incluyen <strong>todos</strong> los colaboradores pendientes de aviso ({{ faultCount }}) que superaron el plazo para registrar su entrada el día
+        <strong>{{ calendarDayLabel }}</strong>, según la tolerancia configurada (Fault) en el sistema.
+      </p>
+      <p style="margin:0 0 20px;font-size:13px;color:#555;">
+        Cada colaborador solo se incluye una vez por día laboral: si ya constaba en un envío anterior, no vuelve a aparecer (registro en el sistema).
+      </p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f0f0f0;text-align:left;">
+            <th style="padding:8px;border-bottom:1px solid #ddd;width:72px;">Foto</th>
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Empleado</th>
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Turno</th>
+          </tr>
+        </thead>
+        <tbody>
+          @each(emp in employees)
+            <tr>
+              <td style="padding:10px 8px;border-bottom:1px solid #eee;vertical-align:top;">
+                @if(emp.photoUrl)
+                  <img src="{{ emp.photoUrl }}" alt="" width="56" height="56" style="border-radius:6px;object-fit:cover;display:block;">
+                @else
+                  <div style="width:56px;height:56px;border-radius:6px;background:#e0e0e0;"></div>
+                @end
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #eee;vertical-align:top;">
+                <strong>{{ emp.name }}</strong><br>
+                <span style="color:#555;">Código: {{ emp.code }}</span><br>
+                <span style="color:#555;">{{ emp.department }} · {{ emp.position }}</span><br>
+                <span style="color:#777;font-size:12px;">{{ emp.businessUnit }}</span>
+                @if(hasBranchOfficesInSystem)
+                  <br><span style="color:#777;font-size:12px;">Sucursal: {{ emp.branchDisplay }}</span>
+                @end
+              </td>
+              <td style="padding:10px 8px;border-bottom:1px solid #eee;vertical-align:top;">
+                {{ emp.shiftName }}<br>
+                <span style="color:#555;">Entrada: {{ emp.shiftStart }}</span>
+              </td>
+            </tr>
+          @endeach
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:12px 20px;background:#fafafa;font-size:12px;color:#666;border-top:1px solid #eee;">
+      Mensaje generado automáticamente. No responder a este correo.
+    </div>
+  </div>
+</body>
+</html>

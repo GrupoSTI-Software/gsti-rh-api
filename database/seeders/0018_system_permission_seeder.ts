@@ -555,6 +555,60 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Upload fingers',
         systemPermissionSlug: 'upload-fingers',
         systemModuleId: 1
+      },
+      {
+        systemPermissionId: 139,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 34
+      },
+      {
+        systemPermissionId: 140,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 34
+      },
+      {
+        systemPermissionId: 141,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 34
+      },
+      {
+        systemPermissionId: 142,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 34
+      },
+      {
+        systemPermissionId: 143,
+        systemPermissionName: 'Gestionar correos RH por faltas de asistencia',
+        systemPermissionSlug: 'manage-attendance-fault-hr-emails',
+        systemModuleId: 14
+      },
+      {
+        systemPermissionId: 144,
+        systemPermissionName: 'Read',
+        systemPermissionSlug: 'read',
+        systemModuleId: 35
+      },
+      {
+        systemPermissionId: 145,
+        systemPermissionName: 'Create',
+        systemPermissionSlug: 'create',
+        systemModuleId: 35
+      },
+      {
+        systemPermissionId: 146,
+        systemPermissionName: 'Update',
+        systemPermissionSlug: 'update',
+        systemModuleId: 35
+      },
+      {
+        systemPermissionId: 147,
+        systemPermissionName: 'Delete',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 35
       }
     ]
 

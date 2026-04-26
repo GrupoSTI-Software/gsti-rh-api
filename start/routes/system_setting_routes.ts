@@ -8,6 +8,7 @@ router
     router.post('/assign-system-modules/:systemSettingId', '#controllers/system_setting_controller.assignSystemModules').use(middleware.auth())
     router.put('/:systemSettingId/birthday-emails', '#controllers/system_setting_controller.updateBirthdayEmailsStatus').use(middleware.auth())
     router.put('/:systemSettingId/anniversary-emails', '#controllers/system_setting_controller.updateAnniversaryEmailsStatus').use(middleware.auth())
+    router.put('/:systemSettingId/attendance-fault-hr-emails', '#controllers/system_setting_controller.updateAttendanceFaultHrEmailsStatus').use(middleware.auth())
     router.post('/:systemSettingId/employee-application-icon', '#controllers/system_setting_controller.uploadEmployeeApplicationIcon').use(middleware.auth())
     router.get('/', '#controllers/system_setting_controller.index').use(middleware.auth())
     router.post('/', '#controllers/system_setting_controller.store').use(middleware.auth())

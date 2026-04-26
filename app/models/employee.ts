@@ -17,6 +17,8 @@ import EmployeeShiftChange from './employee_shift_changes.js'
 import UserResponsibleEmployee from './user_responsible_employee.js'
 import EmployeeShift from './employee_shift.js'
 import EmployeeBonus from './employee_bonus.js'
+import EmployeeAssessment from './employee_assessment.js'
+import EmployeeBranchOffice from './employee_branch_office.js'
 
 /**
  * @swagger
@@ -352,4 +354,27 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare employeeBonuses: HasMany<typeof EmployeeBonus>
+
+  @hasMany(() => EmployeeAssessment, {
+    foreignKey: 'employeeId',
+  })
+  declare assessments: HasMany<typeof EmployeeAssessment>
+
+  /** Asignación vigente a sucursal (como máximo una fila con employeeBranchOfficeActive = 1) */
+  @hasOne(() => EmployeeBranchOffice, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.where('employeeBranchOfficeActive', 1)
+    },
+  })
+  declare activeEmployeeBranchOffice: HasOne<typeof EmployeeBranchOffice>
+
+  /** Historial completo de asignaciones a sucursales (incluye desactivadas) */
+  @hasMany(() => EmployeeBranchOffice, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.orderBy('employeeBranchOfficeId', 'desc')
+    },
+  })
+  declare employeeBranchOffices: HasMany<typeof EmployeeBranchOffice>
 }

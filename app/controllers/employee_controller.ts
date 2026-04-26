@@ -28,6 +28,7 @@ import AssistsService from '#services/assist_service'
 import { EmployeeWorkDaysDisabilityFilterInterface } from '../interfaces/employee_work_days_disability_filter_interface.js'
 import RoleService from '#services/role_service'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
+import { createVacationDeductionValidator } from '../validators/vacation_deduction.js'
 import {
   EMPLOYEE_TERMINATION_MODALITIES,
   EMPLOYEE_TERMINATION_TYPES,
@@ -61,6 +62,17 @@ export default class EmployeeController {
     }
     const single = Number(raw)
     return !Number.isNaN(single) && single > 0 ? single : null
+  }
+
+  /**
+   * branchNameIds=2,3,4 → [2,3,4]. Vacío o ausente → undefined (no aplica filtro).
+   */
+  private parseBranchNameIds(value: unknown): number[] | undefined {
+    const parsed = this.parseIdOrIds(value)
+    if (parsed === null) {
+      return undefined
+    }
+    return Array.isArray(parsed) ? parsed : [parsed]
   }
 
   /** Normaliza texto opcional para modalidad/tipo de baja (vacío → null). */
@@ -494,6 +506,13 @@ export default class EmployeeController {
    *         description: Payroll Business Unit Id
    *         schema:
    *           type: integer
+   *       - name: branchNameIds
+   *         in: query
+   *         required: false
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna de ellas. Vacío u omitido = sin filtro.
+   *         schema:
+   *           type: string
+   *           example: "2,3,4"
    *       - name: getMails
    *         in: query
    *         required: false
@@ -629,6 +648,7 @@ export default class EmployeeController {
       const businessUnitId = request.input('businessUnitId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const getMails = request.input('getMails')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
       const filters = {
         search: search,
@@ -651,6 +671,7 @@ export default class EmployeeController {
         shiftEndTime: shiftEndTime,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        branchNameIds: branchNameIds,
         getMails: getMails,
       } as EmployeeFilterSearchInterface
 
@@ -2042,12 +2063,14 @@ export default class EmployeeController {
       const positionId = this.parseIdOrIds(request.input('positionId'))
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
       const filters = {
         search: search,
         departmentId: departmentId,
         positionId: positionId,
         page: page,
         limit: limit,
+        branchNameIds: branchNameIds,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
       const employees = await employeeService.indexWithOutUser(filters)
@@ -3524,6 +3547,12 @@ export default class EmployeeController {
    *           type: integer
    *         description: Filtro opcional; solo empleados de esta unidad de negocio de nómina (cuando fillWithExisting es true).
    *       - in: query
+   *         name: branchNameIds
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: IDs de sucursal separados por comas (ej. 2,3,4). Solo empleados con asignación activa a alguna. Solo aplica cuando fillWithExisting es true.
+   *       - in: query
    *         name: orderBy
    *         required: false
    *         schema:
@@ -3591,6 +3620,7 @@ export default class EmployeeController {
       const orderBy =
         orderByRaw === 'number' || orderByRaw === 'name' ? orderByRaw : undefined
       const orderDirection = request.input('orderDirection')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
       const buffer = await employeeService.generateEmployeeImportTemplate({
         fillWithExisting,
@@ -3598,6 +3628,7 @@ export default class EmployeeController {
         positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
         businessUnitId: businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
         payrollBusinessUnitId: payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
+        branchNameIds,
         orderBy,
         orderDirection: orderDirection !== undefined && orderDirection !== '' ? String(orderDirection) : undefined,
       })
@@ -4843,6 +4874,20 @@ export default class EmployeeController {
    *         description: Year
    *         schema:
    *           type: integer
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados de esta unidad de negocio de trabajo
+   *         schema:
+   *           type: integer
+   *           example: 1
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados con esta unidad de negocio de nómina
+   *         schema:
+   *           type: integer
+   *           example: 12
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -4939,12 +4984,24 @@ export default class EmployeeController {
       const departmentId = this.parseIdOrIds(request.input('departmentId'))
       const positionId = this.parseIdOrIds(request.input('positionId'))
       const year = request.input('year')
+      const businessUnitIdRaw = request.input('businessUnitId')
+      const payrollBusinessUnitIdRaw = request.input('payrollBusinessUnitId')
+      const businessUnitId =
+        businessUnitIdRaw !== undefined && businessUnitIdRaw !== '' && !Number.isNaN(Number(businessUnitIdRaw)) && Number(businessUnitIdRaw) > 0
+          ? Number(businessUnitIdRaw)
+          : undefined
+      const payrollBusinessUnitId =
+        payrollBusinessUnitIdRaw !== undefined && payrollBusinessUnitIdRaw !== '' && !Number.isNaN(Number(payrollBusinessUnitIdRaw)) && Number(payrollBusinessUnitIdRaw) > 0
+          ? Number(payrollBusinessUnitIdRaw)
+          : undefined
       const filters = {
         search: search,
         departmentId: departmentId,
         positionId: positionId,
         year: year,
         userResponsibleId: userResponsibleId,
+        businessUnitId,
+        payrollBusinessUnitId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
       const employees = await employeeService.getVacations(filters)
@@ -6751,6 +6808,13 @@ export default class EmployeeController {
    *         schema:
    *           type: integer
    *         description: Filtro opcional; solo incluir empleados de esta unidad de negocio de nómina.
+   *       - in: query
+   *         name: branchNameIds
+   *         required: false
+   *         schema:
+   *           type: string
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna. Vacío u omitido = sin filtro. Aplica en plantilla editable y en isReport.
+   *         example: "2,3,4"
    *     responses:
    *       200:
    *         description: Plantilla de Excel generada exitosamente
@@ -6892,6 +6956,7 @@ export default class EmployeeController {
 
       const businessUnitId = businessUnitIdParam !== undefined && businessUnitIdParam !== '' ? Number(businessUnitIdParam) : undefined
       const payrollBusinessUnitId = payrollBusinessUnitIdParam !== undefined && payrollBusinessUnitIdParam !== '' ? Number(payrollBusinessUnitIdParam) : undefined
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateShiftAssignmentTemplate(
@@ -6900,7 +6965,8 @@ export default class EmployeeController {
         employeeIds,
         isReport,
         businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
-        payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined
+        payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
+        branchNameIds
       )
 
       // Configurar headers para la descarga del archivo
@@ -6936,6 +7002,8 @@ export default class EmployeeController {
    *     summary: Generar reporte de asistencia en Excel
    *     description: |
    *       Genera un reporte de asistencia en Excel agrupado por departamento.
+   *       Parámetros en query string. También acepta start_date/end_date como alias.
+   *       Si el cliente envía datos en el cuerpo (p. ej. axios con `data` en GET), usar POST /attendance-report con JSON.
    *       Muestra empleados con sus turnos y colores según el estado de asistencia.
    *       - Verde: ontime
    *       - Azul: tolerance
@@ -6975,6 +7043,27 @@ export default class EmployeeController {
    *         schema:
    *           type: string
    *           example: "1,2,3"
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados de esta unidad de negocio de trabajo (debe estar en las unidades del sistema)
+   *         schema:
+   *           type: integer
+   *           example: 1
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Solo empleados con esta unidad de negocio de nómina
+   *         schema:
+   *           type: integer
+   *           example: 12
+   *       - name: branchNameIds
+   *         in: query
+   *         required: false
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna. Vacío u omitido = sin filtro.
+   *         schema:
+   *           type: string
+   *           example: "2,3,4"
    *     responses:
    *       '200':
    *         description: Archivo Excel generado exitosamente
@@ -7011,15 +7100,92 @@ export default class EmployeeController {
    *                   type: string
    *                 error:
    *                   type: string
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Generar reporte de asistencia en Excel (cuerpo JSON)
+   *     description: |
+   *       Igual que GET pero los filtros van en el cuerpo (application/json).
+   *       Útil cuando el cliente envía parámetros en el body o usa alias snake_case.
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - startDate
+   *               - endDate
+   *             properties:
+   *               startDate:
+   *                 type: string
+   *                 format: date
+   *                 example: "2026-04-08"
+   *               endDate:
+   *                 type: string
+   *                 format: date
+   *                 example: "2026-04-08"
+   *               start_date:
+   *                 type: string
+   *                 description: Alternativa a startDate
+   *               end_date:
+   *                 type: string
+   *                 description: Alternativa a endDate
+   *               departmentIds:
+   *                 oneOf:
+   *                   - type: string
+   *                     example: "1,2,3"
+   *                   - type: array
+   *                     items:
+   *                       type: integer
+   *               employeeIds:
+   *                 oneOf:
+   *                   - type: string
+   *                   - type: array
+   *                     items:
+   *                       type: integer
+   *               businessUnitId:
+   *                 type: integer
+   *               payrollBusinessUnitId:
+   *                 type: integer
+   *               business_unit_id:
+   *                 type: integer
+   *               payroll_business_unit_id:
+   *                 type: integer
+   *     responses:
+   *       '200':
+   *         description: Archivo Excel generado exitosamente
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       '400':
+   *         description: Error de validación
+   *       '500':
+   *         description: Error del servidor
    */
   async getAttendanceReport({ auth, request, response, i18n }: HttpContext) {
     try {
       await auth.check()
 
-      const startDate = request.input('startDate')
-      const endDate = request.input('endDate')
-      const departmentIdsParam = request.input('departmentIds')
-      const employeeIdsParam = request.input('employeeIds')
+      const firstNonEmptyInput = (...keys: string[]): string | undefined => {
+        for (const key of keys) {
+          const v = request.input(key)
+          if (v === undefined || v === null) continue
+          const s = typeof v === 'string' ? v.trim() : String(v).trim()
+          if (s !== '') return s
+        }
+        return undefined
+      }
+
+      const startDate = firstNonEmptyInput('startDate', 'start_date')
+      const endDate = firstNonEmptyInput('endDate', 'end_date')
+      const departmentIdsParam =
+        request.input('departmentIds') ?? request.input('department_ids')
+      const employeeIdsParam = request.input('employeeIds') ?? request.input('employee_ids')
 
       // Validar que las fechas sean proporcionadas
       if (!startDate || !endDate) {
@@ -7124,12 +7290,39 @@ export default class EmployeeController {
         }
       }
 
+      const businessUnitIdParam =
+        request.input('businessUnitId') ?? request.input('business_unit_id')
+      const payrollBusinessUnitIdParam =
+        request.input('payrollBusinessUnitId') ?? request.input('payroll_business_unit_id')
+      const businessUnitIdParsed =
+        businessUnitIdParam !== undefined && businessUnitIdParam !== ''
+          ? Number(businessUnitIdParam)
+          : undefined
+      const payrollBusinessUnitIdParsed =
+        payrollBusinessUnitIdParam !== undefined && payrollBusinessUnitIdParam !== ''
+          ? Number(payrollBusinessUnitIdParam)
+          : undefined
+      const businessUnitId =
+        businessUnitIdParsed !== undefined && !Number.isNaN(businessUnitIdParsed) && businessUnitIdParsed > 0
+          ? businessUnitIdParsed
+          : undefined
+      const payrollBusinessUnitId =
+        payrollBusinessUnitIdParsed !== undefined &&
+        !Number.isNaN(payrollBusinessUnitIdParsed) &&
+        payrollBusinessUnitIdParsed > 0
+          ? payrollBusinessUnitIdParsed
+          : undefined
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
+
       const employeeService = new EmployeeService(i18n)
       const buffer = await employeeService.generateAttendanceReport(
         startDate,
         endDate,
         departmentIds,
-        employeeIds
+        employeeIds,
+        businessUnitId,
+        payrollBusinessUnitId,
+        branchNameIds
       )
 
       // Configurar headers para la descarga del archivo
@@ -7319,6 +7512,273 @@ export default class EmployeeController {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al importar las asignaciones',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/vacation-deductions:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Aplicar deducción de días de vacaciones a un periodo sin registrar fechas
+   *     description: Permite inhabilitar (descontar) días de vacaciones disponibles de un periodo específico sin necesidad de registrar fechas concretas. La descripción es opcional.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         description: ID del empleado
+   *         required: true
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vacationSettingId
+   *               - vacationDeductionDays
+   *             properties:
+   *               vacationSettingId:
+   *                 type: number
+   *                 description: ID del periodo de vacaciones (vacation setting)
+   *               vacationDeductionDays:
+   *                 type: number
+   *                 description: Número de días a descontar
+   *               vacationDeductionDescription:
+   *                 type: string
+   *                 description: Descripción opcional de la razón de la deducción
+   *     responses:
+   *       '201':
+   *         description: Deducción aplicada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '400':
+   *         description: Datos inválidos o días insuficientes disponibles
+   *       '404':
+   *         description: Empleado o periodo de vacaciones no encontrado
+   *       default:
+   *         description: Error inesperado del servidor
+   */
+  async applyVacationDeduction({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'El ID del empleado es requerido',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'No se encontró el empleado con el ID ingresado',
+          data: { employeeId },
+        }
+      }
+
+      const data = await request.validateUsing(createVacationDeductionValidator)
+      const result = await employeeService.applyVacationDeduction(
+        employee,
+        data.vacationSettingId,
+        data.vacationDeductionDays,
+        data.vacationDeductionDescription
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/vacation-deductions:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Obtener las deducciones de vacaciones de un empleado por periodo
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         description: ID del empleado
+   *         required: true
+   *       - in: query
+   *         name: vacationSettingId
+   *         schema:
+   *           type: number
+   *         description: ID del periodo de vacaciones para filtrar
+   *         required: false
+   *     responses:
+   *       '200':
+   *         description: Deducciones encontradas correctamente
+   *       '404':
+   *         description: Empleado no encontrado
+   *       default:
+   *         description: Error inesperado del servidor
+   */
+  async getVacationDeductions({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+      if (!employeeId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'El ID del empleado es requerido',
+          data: { employeeId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'No se encontró el empleado con el ID ingresado',
+          data: { employeeId },
+        }
+      }
+
+      const vacationSettingId = request.input('vacationSettingId')
+      const deductions = await employeeService.getVacationDeductionsByPeriod(
+        employee.employeeId,
+        vacationSettingId
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'Las deducciones de vacaciones fueron encontradas correctamente',
+        data: { deductions },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/vacation-deductions/{vacationDeductionId}:
+   *   delete:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Eliminar una deducción de vacaciones del empleado
+   *     description: Realiza borrado lógico (soft delete) del registro. Los días vuelven a estar disponibles en el periodo.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         schema:
+   *           type: number
+   *         required: true
+   *       - in: path
+   *         name: vacationDeductionId
+   *         schema:
+   *           type: number
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Deducción eliminada correctamente
+   *       '404':
+   *         description: Empleado o deducción no encontrada
+   *       default:
+   *         description: Error inesperado del servidor
+   */
+  async deleteVacationDeduction({ request, response, i18n }: HttpContext) {
+    try {
+      const employeeId = request.param('employeeId')
+      const vacationDeductionId = Number(request.param('vacationDeductionId'))
+
+      if (!employeeId || Number.isNaN(vacationDeductionId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Datos incompletos',
+          message: 'El ID del empleado y el ID de la deducción son requeridos',
+          data: { employeeId, vacationDeductionId },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const employee = await employeeService.show(employeeId)
+      if (!employee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'No se encontró el empleado con el ID ingresado',
+          data: { employeeId },
+        }
+      }
+
+      const result = await employeeService.deleteVacationDeduction(
+        employee.employeeId,
+        vacationDeductionId
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
         error: error.message,
       }
     }

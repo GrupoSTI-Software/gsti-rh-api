@@ -64,16 +64,6 @@ export default class PositionSpecificFunctionController {
    *                 description: Position KPI frequency
    *                 required: true
    *                 default: ''
-   *               positionKpiDurationDays:
-   *                 type: number
-   *                 description: Position KPI duration days
-   *                 required: true
-   *                 default: ''
-   *               positionKpiStartDay:
-   *                 type: number
-   *                 description: Position KPI start day
-   *                 required: true
-   *                 default: ''
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -169,8 +159,6 @@ export default class PositionSpecificFunctionController {
       const positionKpiScale = request.input('positionKpiScale')
       const positionKpiType = request.input('positionKpiType')
       const positionKpiFrequency = request.input('positionKpiFrequency')
-      const positionKpiDurationDays = request.input('positionKpiDurationDays')
-      const positionKpiStartDay = request.input('positionKpiStartDay')
       const positionKpi = {
         positionId: positionId,
         positionKpiName: positionKpiName,
@@ -180,8 +168,6 @@ export default class PositionSpecificFunctionController {
         positionKpiScale: positionKpiScale,
         positionKpiType: positionKpiType,
         positionKpiFrequency: positionKpiFrequency,
-        positionKpiDurationDays: positionKpiDurationDays,
-        positionKpiStartDay: positionKpiStartDay,
       } as PositionKpi
 
       const newPositionKpi = await positionKpiService.create(positionKpi)
@@ -265,16 +251,6 @@ export default class PositionSpecificFunctionController {
    *                 type: enum
    *                 enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
    *                 description: Position KPI frequency
-   *                 required: true
-   *                 default: ''
-   *               positionKpiDurationDays:
-   *                 type: number
-   *                 description: Position KPI duration days
-   *                 required: true
-   *                 default: ''
-   *               positionKpiStartDay:
-   *                 type: number
-   *                 description: Position KPI start day
    *                 required: true
    *                 default: ''
    *     responses:
@@ -370,8 +346,6 @@ export default class PositionSpecificFunctionController {
       const positionKpiIdeal = request.input('positionKpiIdeal')
       const positionKpiScale = request.input('positionKpiScale')
       const positionKpiFrequency = request.input('positionKpiFrequency')
-      const positionKpiDurationDays = request.input('positionKpiDurationDays')
-      const positionKpiStartDay = request.input('positionKpiStartDay')
       const positionKpi = {
         positionKpiId: positionKpiId,
         positionKpiName: positionKpiName,
@@ -381,8 +355,6 @@ export default class PositionSpecificFunctionController {
         positionKpiIdeal: positionKpiIdeal,
         positionKpiScale: positionKpiScale,
         positionKpiFrequency: positionKpiFrequency,
-        positionKpiDurationDays: positionKpiDurationDays,
-        positionKpiStartDay: positionKpiStartDay,
       } as PositionKpi
       if (!positionKpiId) {
         response.status(400)
