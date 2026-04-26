@@ -960,7 +960,6 @@ export default class PositionService {
           .replace(/&gt;/g, '>')
           .replace(/&quot;/g, '"')
 
-      // Elimina emojis y caracteres fuera del plano BMP que Roboto no soporta
       const stripEmojis = (s: string): string =>
         s.replace(/[\u{1F000}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{1F300}-\u{1FBFF}]/gu, '')
 
@@ -975,9 +974,7 @@ export default class PositionService {
         let italic = false
         let underline = false
         let listDepth = 0
-        // Stack de tipos de lista para distinguir <ul> de <ol>
         const listTypes: ('ul' | 'ol')[] = []
-        // Contadores de <ol> por nivel de indentación
         const olCounters = new Map<number, number>()
         let cur: HtmlBlock = { spans: [], indent: 0, bulletText: null }
 
@@ -1035,7 +1032,6 @@ export default class PositionService {
                 if (!close) {
                   flush()
                   const qlMatch = (attrs || '').match(/ql-indent-(\d+)/)
-                  // Sin clase: 1 nivel de sangría base. Con ql-indent-N: N+1 para mantener jerarquía
                   const indentLevel = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listDepth
                   cur.indent = indentLevel
                   const currentListType = listTypes.length > 0 ? listTypes[listTypes.length - 1] : 'ul'
@@ -1078,8 +1074,8 @@ export default class PositionService {
           const iw = width - block.indent * INDENT_PX
           if (!block.spans.length) continue
 
-          block.spans.forEach((span, i) => {
-            const isLast = i === block.spans.length - 1
+          block.spans.forEach((span, si) => {
+            const isLast = si === block.spans.length - 1
             const font =
               span.bold && span.italic ? 'BoldItalic'
               : span.bold ? 'Bold'
@@ -1091,7 +1087,7 @@ export default class PositionService {
               lineBreak: true,
               underline: span.underline,
             }
-            if (i === 0) {
+            if (si === 0) {
               const prefix = block.bulletText ? block.bulletText + ' ' : ''
               doc.font(font).fontSize(fs).fillColor(black)
                 .text(prefix + span.text, ix, doc.y, opts)
@@ -1190,18 +1186,7 @@ export default class PositionService {
         doc.fillColor(black).font('Regular')
       }
 
-      const drawSubSectionHeader = (label: string) => {
-        ensureSpace(30)
-        const sY = doc.y
-        doc.rect(40, sY, pageW, 16).fillAndStroke('#2E5FA3', black)
-        doc
-          .fontSize(9)
-          .fillColor(white)
-          .font('Bold')
-          .text(label, 45, sY + 4, { width: pageW - 10, align: 'center', lineBreak: false })
-        doc.y = sY + 16
-        doc.fillColor(black).font('Regular')
-      }
+
 
       // ── Registrar encabezado en páginas nuevas ────────────────────────────
       doc.on('pageAdded', () => {
@@ -1282,29 +1267,11 @@ export default class PositionService {
       drawSectionHeader(t('profile_position.general_objective'))
       const rawObj = position.positionGeneralObjective ?? t('profile_position.no_objective')
       const objH = htmlHeight(rawObj, pageW - 16) + 12
+      ensureSpace(objH)
       const objY = doc.y
       doc.rect(40, objY, pageW, objH).stroke()
       renderHtml(rawObj, 45, objY + 6, pageW - 16)
       doc.y = objY + objH
-
-      // ── Objetivos específicos / Funciones ─────────────────────────────────
-      drawSectionHeader(t('profile_position.specific_objectives'))
-      if (position.specificFunctions?.length) {
-        for (const fn of position.specificFunctions) {
-          const rawFn = fn.positionSpecificFunctionName
-          const fnH = htmlHeight(rawFn, pageW - 16) + 10
-          ensureSpace(fnH)
-          const fnY = doc.y
-          doc.rect(40, fnY, pageW, fnH).stroke()
-          renderHtml(rawFn, 45, fnY + 5, pageW - 16)
-          doc.y = fnY + fnH
-        }
-      } else {
-        const fnY = doc.y
-        doc.rect(40, fnY, pageW, 20).stroke()
-        doc.fontSize(9).text(t('profile_position.no_functions'), 45, fnY + 5, { width: pageW - 16 })
-        doc.y = fnY + 20
-      }
 
       // ── KPIs ──────────────────────────────────────────────────────────────
       drawSectionHeader(t('profile_position.kpis'))
@@ -1467,29 +1434,6 @@ export default class PositionService {
           }
         }
       }
-
-      // ── CONOCIMIENTOS Y HABILIDADES ───────────────────────────────────────
-      drawSectionHeader(t('profile_position.knowledge_skills'))
-
-      // Sub-sección: Experiencia
-      const rawExp = position.positionSpecificRequirement ?? t('profile_position.no_info')
-      const expH = htmlHeight(rawExp, pageW - 16) + 10
-      drawSubSectionHeader(t('profile_position.experience'))
-      ensureSpace(expH)
-      const expY = doc.y
-      doc.rect(40, expY, pageW, expH).stroke()
-      renderHtml(rawExp, 45, expY + 5, pageW - 16)
-      doc.y = expY + expH
-
-      // Sub-sección: Conocimientos teóricos y prácticos
-      const rawKnow = position.positionDescription ?? t('profile_position.no_info')
-      const knowH = htmlHeight(rawKnow, pageW - 16) + 10
-      drawSubSectionHeader(t('profile_position.theoretical_knowledge'))
-      ensureSpace(knowH)
-      const knowY = doc.y
-      doc.rect(40, knowY, pageW, knowH).stroke()
-      renderHtml(rawKnow, 45, knowY + 5, pageW - 16)
-      doc.y = knowY + knowH
 
       // ── Competencias ──────────────────────────────────────────────────────
       if (position.competencies?.length) {
@@ -1688,118 +1632,6 @@ export default class PositionService {
       year: 'numeric',
     })
 
-    type RichRun = ExcelJS.RichText
-
-    const htmlToRichText = (html: string): RichRun[] => {
-      const decodeEntities = (s: string) =>
-        s
-          .replace(/&nbsp;/g, ' ')
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-
-      const runs: RichRun[] = []
-      let bold = false
-      let italic = false
-      let underline = false
-      let buf = ''
-      const listStack: ('ul' | 'ol')[] = []
-      const olCounters: number[] = []
-
-      const flush = () => {
-        const text = decodeEntities(buf)
-        if (text) {
-          runs.push({
-            text,
-            font: {
-              bold: bold || undefined,
-              italic: italic || undefined,
-              underline: underline || undefined,
-              size: 9,
-            },
-          })
-        }
-        buf = ''
-      }
-
-      const pushPrefix = (prefix: string) => {
-        if (prefix) runs.push({ text: prefix, font: { size: 9 } })
-      }
-
-      const tagRe = /<(\/?)([a-z][a-z0-9]*)([^>]*)>/gi
-      let last = 0
-      let m: RegExpExecArray | null
-
-      // eslint-disable-next-line no-cond-assign
-      while ((m = tagRe.exec(html)) !== null) {
-        buf += html.slice(last, m.index)
-        last = m.index + m[0].length
-
-        const close = m[1] === '/'
-        const tag = m[2].toLowerCase()
-        const attrs = m[3]
-
-        if (tag === 'strong' || tag === 'b') {
-          flush(); bold = !close
-        } else if (tag === 'em' || tag === 'i') {
-          flush(); italic = !close
-        } else if (tag === 'u') {
-          flush(); underline = !close
-        } else if (tag === 'br') {
-          buf += '\n'
-        } else if (tag === 'p') {
-          if (close) buf += '\n'
-        } else if (tag === 'ol') {
-          if (!close) { listStack.push('ol'); olCounters.push(0) }
-          else { listStack.pop(); olCounters.pop() }
-        } else if (tag === 'ul') {
-          if (!close) listStack.push('ul')
-          else listStack.pop()
-        } else if (tag === 'li' && !close) {
-          if (buf) {
-            if (!buf.endsWith('\n')) buf += '\n'
-          } else if (runs.length > 0 && !runs[runs.length - 1].text.endsWith('\n')) {
-            // El contenido anterior ya fue flusheado como runs: añadir \n al último
-            runs[runs.length - 1] = {
-              ...runs[runs.length - 1],
-              text: runs[runs.length - 1].text + '\n',
-            }
-          }
-          flush()
-          const qlMatch = attrs.match(/ql-indent-(\d+)/)
-          // Sin ql-indent: sangría base = nivel de anidación (mínimo 1)
-          // Con ql-indent-N: N+1 para mantener jerarquía
-          const depth = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listStack.length
-          const indent = '    '.repeat(depth)
-          const listType = listStack.at(-1) ?? 'ul'
-          if (listType === 'ol') {
-            const idx = olCounters.length - 1
-            olCounters[idx] = (olCounters[idx] ?? 0) + 1
-            pushPrefix(`${indent}${olCounters[idx]}. `)
-          } else {
-            pushPrefix(`${indent}• `)
-          }
-        }
-      }
-
-      buf += html.slice(last)
-      flush()
-
-      // Limpiar saltos de línea excesivos por run sin perder el formato
-      const cleaned = runs
-        .map((r) => ({ ...r, text: r.text.replace(/\n{3,}/g, '\n\n') }))
-        .filter((r) => r.text.length > 0)
-
-      // Recortar el último salto de línea sobrante del bloque final
-      if (cleaned.length > 0) {
-        cleaned[cleaned.length - 1].text = cleaned[cleaned.length - 1].text.trimEnd()
-      }
-
-      return cleaned
-    }
-
     const BLUE = 'FF2E5FA3'
     const GRAY = 'FFF2F2F2'
     const BLACK = 'FF000000'
@@ -1825,7 +1657,7 @@ export default class PositionService {
     sheet.columns = [
       { width: 13 }, { width: 13 }, { width: 7 }, { width: 7 }, // A-D  (tercio 1 / mitad izq)
       { width: 11 }, { width: 11 }, { width: 7 }, { width: 7 }, // E-H  (tercio 2)
-      { width: 11 }, { width: 11 }, { width: 7 }, { width: 7 }, // I-L  (tercio 3 / mitad der)
+      { width: 11 }, { width: 11 }, { width: 12 }, { width: 12 }, // I-L  (tercio 3 / mitad der)
     ]
 
     // Última columna del sheet
@@ -1852,6 +1684,105 @@ export default class PositionService {
       if (opts.bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.bg } }
     }
 
+    type RichRun = ExcelJS.RichText
+
+    const htmlToRichText = (html: string): RichRun[] => {
+      const decodeEnt = (s: string) =>
+        s
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+
+      const runs: RichRun[] = []
+      let bold = false
+      let italic = false
+      let underline = false
+      let buf = ''
+      const listStack: ('ul' | 'ol')[] = []
+      const olCounters: number[] = []
+
+      const flush = () => {
+        const text = decodeEnt(buf)
+        if (text) {
+          runs.push({
+            text,
+            font: { bold: bold || undefined, italic: italic || undefined, underline: underline || undefined, size: 9 },
+          })
+        }
+        buf = ''
+      }
+
+      const pushPrefix = (prefix: string) => {
+        if (prefix) runs.push({ text: prefix, font: { size: 9 } })
+      }
+
+      const tagRe = /<(\/?)([a-z][a-z0-9]*)([^>]*)>/gi
+      let last = 0
+      let mx: RegExpExecArray | null
+
+      // eslint-disable-next-line no-cond-assign
+      while ((mx = tagRe.exec(html)) !== null) {
+        buf += html.slice(last, mx.index)
+        last = mx.index + mx[0].length
+
+        const close = mx[1] === '/'
+        const tag = mx[2].toLowerCase()
+        const attrs = mx[3]
+
+        if (tag === 'strong' || tag === 'b') {
+          flush(); bold = !close
+        } else if (tag === 'em' || tag === 'i') {
+          flush(); italic = !close
+        } else if (tag === 'u') {
+          flush(); underline = !close
+        } else if (tag === 'br') {
+          buf += '\n'
+        } else if (tag === 'p') {
+          if (close) buf += '\n'
+        } else if (tag === 'ol') {
+          if (!close) { listStack.push('ol'); olCounters.push(0) }
+          else { listStack.pop(); olCounters.pop() }
+        } else if (tag === 'ul') {
+          if (!close) listStack.push('ul')
+          else listStack.pop()
+        } else if (tag === 'li' && !close) {
+          if (buf) {
+            if (!buf.endsWith('\n')) buf += '\n'
+          } else if (runs.length > 0 && !runs[runs.length - 1].text.endsWith('\n')) {
+            runs[runs.length - 1] = { ...runs[runs.length - 1], text: runs[runs.length - 1].text + '\n' }
+          }
+          flush()
+          const qlMatch = attrs.match(/ql-indent-(\d+)/)
+          const depth = qlMatch ? Number.parseInt(qlMatch[1]) + 1 : listStack.length
+          const indent = '    '.repeat(depth)
+          const listType = listStack.at(-1) ?? 'ul'
+          if (listType === 'ol') {
+            const idx = olCounters.length - 1
+            olCounters[idx] = (olCounters[idx] ?? 0) + 1
+            pushPrefix(`${indent}${olCounters[idx]}. `)
+          } else {
+            pushPrefix(`${indent}• `)
+          }
+        }
+      }
+
+      buf += html.slice(last)
+      flush()
+
+      const cleaned = runs
+        .map((r) => ({ ...r, text: r.text.replace(/\n{3,}/g, '\n\n') }))
+        .filter((r) => r.text.length > 0)
+
+      if (cleaned.length > 0) {
+        cleaned[cleaned.length - 1].text = cleaned[cleaned.length - 1].text.trimEnd()
+      }
+
+      return cleaned
+    }
+
     const addSectionHeader = (label: string, bg = BLUE) => {
       const row = sheet.addRow([label])
       mergeRow(row, 'A', LAST)
@@ -1876,10 +1807,13 @@ export default class PositionService {
       cell.value = { richText: runs }
       cell.border = borderAll
       cell.alignment = { wrapText: true, vertical: 'top' }
-      const fullText = runs.map((r) => r.text).join('')
+      const fullText = runs.map((r) => r.text).join('').trimEnd()
       const hardLines = fullText.split('\n')
-      const totalLines = hardLines.reduce((acc, line) => acc + Math.max(1, Math.ceil(line.length / 95)), 0)
-      row.height = Math.max(18, totalLines * 13)
+      const totalLines = hardLines.reduce((acc, line) => {
+        if (!line.trim()) return acc
+        return acc + Math.max(1, Math.ceil(line.length / 95))
+      }, 0)
+      row.height = Math.max(18, Math.ceil(totalLines) * 10)
       return row
     }
 
@@ -1970,16 +1904,6 @@ export default class PositionService {
     // ── Objetivo general ─────────────────────────────────────────────────────
     addSectionHeader(t('profile_position.general_objective'))
     addRichRow(htmlToRichText(position.positionGeneralObjective ?? t('profile_position.no_objective')))
-
-    // ── Objetivos específicos ────────────────────────────────────────────────
-    addSectionHeader(t('profile_position.specific_objectives'))
-    if (position.specificFunctions?.length) {
-      for (const fn of position.specificFunctions) {
-        addRichRow(htmlToRichText(fn.positionSpecificFunctionName ?? ''))
-      }
-    } else {
-      addFullRow(t('profile_position.no_functions'))
-    }
 
     // ── KPI's ─────────────────────────────────────────────────── ─────────────
     // A:H = Indicador (8 cols), I:J = Meta/Ideal (2 cols), K:L = Frecuencia (2 cols)
@@ -2124,15 +2048,6 @@ export default class PositionService {
         }
       }
     }
-
-    // ── Conocimientos y habilidades ──────────────────────────────────────────
-    addSectionHeader(t('profile_position.knowledge_skills'))
-
-    addSectionHeader(t('profile_position.experience'))
-    addRichRow(htmlToRichText(position.positionSpecificRequirement ?? t('profile_position.no_info')))
-
-    addSectionHeader(t('profile_position.theoretical_knowledge'))
-    addRichRow(htmlToRichText(position.positionDescription ?? t('profile_position.no_info')))
 
     // ── Competencias (A:F funcionales, G:L técnicas) ─────────────────────────
     if (position.competencies?.length) {

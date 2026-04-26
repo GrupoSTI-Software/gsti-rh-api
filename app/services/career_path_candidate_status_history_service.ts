@@ -1,0 +1,15 @@
+import CareerPathCandidateStatusHistory from '#models/career_path_candidate_status_history'
+
+export default class CareerPathCandidateStatusHistoryService {
+
+  async create(careerPathCandidateStatusHistory: CareerPathCandidateStatusHistory) {
+    const newCareerPathCandidateStatusHistory = new CareerPathCandidateStatusHistory()
+    newCareerPathCandidateStatusHistory.careerPathCandidateId = careerPathCandidateStatusHistory.careerPathCandidateId
+    newCareerPathCandidateStatusHistory.changedBy = careerPathCandidateStatusHistory.changedBy
+    newCareerPathCandidateStatusHistory.careerPathCandidateStatusHistoryFromStatus = careerPathCandidateStatusHistory.careerPathCandidateStatusHistoryFromStatus
+    newCareerPathCandidateStatusHistory.careerPathCandidateStatusHistoryToStatus = careerPathCandidateStatusHistory.careerPathCandidateStatusHistoryToStatus
+    newCareerPathCandidateStatusHistory.careerPathCandidateStatusHistoryReason = careerPathCandidateStatusHistory.careerPathCandidateStatusHistoryReason
+    await newCareerPathCandidateStatusHistory.save()
+    return newCareerPathCandidateStatusHistory
+  }
+}

@@ -197,6 +197,11 @@
   "employee_assessment_already_exists_for_date": "An assessment of the same type already exists for the entered date",
   "position_work_tool": "Position work tool",
   "position_work_tools": "Position work tools",
+  "competency": "Competency",
+  "competencies": "Competencies",
+  "position_competency_level": "Position competency level",
+  "position_competency_levels": "Position competency levels",
+  "resource_already_exists": "The resource already exists",
   "profile_position": {
     "title": "POSITION DESCRIPTION AND PROFILE",
     "implementation_date": "Implementation date",
@@ -217,7 +222,7 @@
     "kpis": "KPI's",
     "indicator": "Indicator",
     "meta_ideal": "Target / Ideal",
-    "frequency": "Frequency",
+    "frequency": "Execution Frequency",
     "no_kpis": "No KPIs registered.",
     "position_profile": "POSITION PROFILE",
     "schooling": "Education :",
@@ -243,5 +248,16 @@
     "range": "Range (Min - Max)",
     "min": "Minimum",
     "max": "Maximum"
-  }
+  },
+  "monthly_conversion_factor": "Monthly conversion factor",
+  "monthly_conversion_factor_helper": "Number of days per month used to convert daily salary to monthly in the UI (e.g. 30.4 per IMSS). Display only — does not affect payroll calculations.",
+  "monthly_conversion_factor_invalid": "The monthly conversion factor must be greater than 0 and less than or equal to 31",
+  "the_origin_and_target_positions_cannot_be_the_same": "The origin and target positions cannot be the same",
+  "origin": "Origin",
+  "target": "Target",
+  "the_origin_and_target_positions_do_not_exist_in_the_current_template": "The origin and target positions do not exist in the current template",
+  "the_override_reason_is_required": "The override reason is required",
+  "the_justification_must_be_at_least_20_characters": "The justification must be at least 20 characters",
+  "the_limit_of_candidates_has_been_exceeded": "The limit of candidates has been exceeded",
+  "the_user_is_not_the_direct_boss_of_the_employee": "The user is not the direct boss of the employee"
 }

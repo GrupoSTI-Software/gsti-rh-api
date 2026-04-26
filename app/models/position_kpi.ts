@@ -42,12 +42,6 @@ import Position from './position.js'
  *            type: enum
  *            enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
  *            description: Position kpi frequency
- *          positionKpiDurationDays:
- *            type: number
- *            description: Position kpi duration days
- *          positionKpiStartDay:
- *            type: number
- *            description: Position kpi start day
  *          positionKpiCreatedAt:
  *            type: string
  *            description: Position kpi created at
@@ -86,12 +80,6 @@ export default class PositionKpi extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare positionKpiFrequency: string
-
-  @column()
-  declare positionKpiDurationDays: number
-
-  @column()
-  declare positionKpiStartDay: number
 
   @column.dateTime({ autoCreate: true })
   declare positionKpiCreatedAt: DateTime

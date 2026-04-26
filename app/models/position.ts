@@ -8,6 +8,7 @@ import PositionAssessmentProfile from './position_assessment_profile.js'
 import PositionSpecificFunction from './position_specific_function.js'
 import PositionKpi from './position_kpi.js'
 import PositionCompetency from './position_competency.js'
+import PositionCompetencyLevel from './position_competency_level.js'
 import PositionWorkTool from './position_work_tool.js'
 
 /**
@@ -227,4 +228,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'positionId',
   })
   declare workTools: HasMany<typeof PositionWorkTool>
+
+  @hasMany(() => PositionCompetencyLevel, {
+    foreignKey: 'positionId',
+  })
+  declare competencyLevels: HasMany<typeof PositionCompetencyLevel>
 }
