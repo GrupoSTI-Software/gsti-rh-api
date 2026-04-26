@@ -1,18 +1,155 @@
 import { HttpContext } from '@adonisjs/core/http'
-import PositionKpiService from '#services/position_kpi_service'
-import PositionKpi from '#models/position_kpi'
-import { createPositionKpiValidator, updatePositionKpiValidator } from '#validators/position_kpi'
+import CareerPathTemplate from '#models/career_path_template'
+import { createCareerPathTemplateValidator } from '#validators/career_path_template'
+import { updateCareerPathTemplateValidator } from '#validators/career_path_template'
+import CareerPathTemplateService from '#services/career_path_template_service'
+import { CareerPathTemplateFilterSearchInterface } from 'app/interfaces/career_path_template_filter_search_interface.js'
 
-export default class PositionSpecificFunctionController {
+export default class CareerPathTemplateController {
   /**
    * @swagger
-   * /api/position-kpis:
+   * /api/career-path-templates:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Career Path Templates
+   *     summary: get all
+   *     parameters:
+   *       - originPositionId: origin position id
+   *         in: query
+   *         required: false
+   *         description: Origin position id
+   *         schema:
+   *           type: number
+   *       - targetPositionId: target position id
+   *         in: query
+   *         required: false
+   *         description: Target position id
+   *         schema:
+   *           type: number
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Object processed
+   *       '404':
+   *         description: The resource could not be found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async index({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const originPositionId = request.input('originPositionId')
+      const targetPositionId = request.input('targetPositionId')
+     
+      const careerPathTemplateService = new CareerPathTemplateService(i18n)
+      const filters = {
+        originPositionId: originPositionId,
+        targetPositionId: targetPositionId,
+      } as CareerPathTemplateFilterSearchInterface
+      const careerPathTemplates = await careerPathTemplateService.index(filters)
+      response.status(200)
+      return {
+        type: 'success',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
+        data: {
+          careerPathTemplates,
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/career-path-templates:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position KPIs
-   *     summary: create new position KPI
+   *       - Career Path Templates
+   *     summary: create new career path template
    *     produces:
    *       - application/json
    *     requestBody:
@@ -21,47 +158,19 @@ export default class PositionSpecificFunctionController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionId:
+   *               companyId:
    *                 type: number
-   *                 description: Position id
+   *                 description: Company id
    *                 required: true
    *                 default: ''
-   *               positionKpiName:
-   *                 type: string
-   *                 description: Position KPI name
-   *                 required: true
-   *                 default: ''
-   *               positionKpiMin:
+   *               originPositionId:
    *                 type: number
-   *                 description: Position KPI min
+   *                 description: Origin position id
    *                 required: true
    *                 default: ''
-   *               positionKpiMax:
+   *               targetPositionId:
    *                 type: number
-   *                 description: Position KPI max
-   *                 required: true
-   *                 default: ''
-   *               positionKpiIdeal:
-   *                 type: string
-   *                 description: Position KPI ideal
-   *                 required: true
-   *                 default: ''
-   *               positionKpiScale:
-   *                 type: enum
-   *                 enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
-   *                 description: Position KPI scale
-   *                 required: true
-   *                 default: ''
-   *               positionKpiType:
-   *                 type: enum
-   *                 enum: ['numerico', 'porcentaje', 'dinero', 'booleano']
-   *                 description: Position KPI type
-   *                 required: true
-   *                 default: ''
-   *               positionKpiFrequency:
-   *                 type: enum
-   *                 enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
-   *                 description: Position KPI frequency
+   *                 description: Target position id
    *                 required: true
    *                 default: ''
    *     responses:
@@ -145,38 +254,52 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store({ request, response, i18n, auth }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-
-      await request.validateUsing(createPositionKpiValidator)
-      const positionKpiService = new PositionKpiService()
-      const positionId = request.input('positionId')
-      const positionKpiName = request.input('positionKpiName')
-      const positionKpiMin = request.input('positionKpiMin')
-      const positionKpiMax = request.input('positionKpiMax')
-      const positionKpiIdeal = request.input('positionKpiIdeal')
-      const positionKpiScale = request.input('positionKpiScale')
-      const positionKpiType = request.input('positionKpiType')
-      const positionKpiFrequency = request.input('positionKpiFrequency')
-      const positionKpi = {
-        positionId: positionId,
-        positionKpiName: positionKpiName,
-        positionKpiMin: positionKpiMin,
-        positionKpiMax: positionKpiMax,
-        positionKpiIdeal: positionKpiIdeal,
-        positionKpiScale: positionKpiScale,
-        positionKpiType: positionKpiType,
-        positionKpiFrequency: positionKpiFrequency,
-      } as PositionKpi
-
-      const newPositionKpi = await positionKpiService.create(positionKpi)
-      response.status(201)
-      return {
-        type: 'success',
-        title: t('resource'),
-        message: t('resource_was_created_successfully'),
-        data: { positionKpi: newPositionKpi },
+      const companyId = request.input('companyId')
+      const originPositionId = request.input('originPositionId')
+      const targetPositionId = request.input('targetPositionId')
+      const createdBy = auth.user?.userId
+      const updatedBy = auth.user?.userId
+      const careerPathTemplate = {
+        companyId: companyId,
+        originPositionId: originPositionId,
+        targetPositionId: targetPositionId,
+        createdBy: createdBy,
+        updatedBy: updatedBy,
+      } as CareerPathTemplate
+      const careerPathTemplateService = new CareerPathTemplateService(i18n)
+      const data = await request.validateUsing(createCareerPathTemplateValidator)
+      const exist = await careerPathTemplateService.verifyInfoExist(careerPathTemplate)
+      if (exist.status !== 200) {
+        response.status(exist.status)
+        return {
+          type: exist.type,
+          title: exist.title,
+          message: exist.message,
+          data: { ...data },
+        }
+      }
+      const verifyInfo = await careerPathTemplateService.verifyInfo(careerPathTemplate)
+      if (verifyInfo.status !== 200) {
+        response.status(verifyInfo.status)
+        return {
+          type: verifyInfo.type,
+          title: verifyInfo.title,
+          message: verifyInfo.message,
+          data: { ...data },
+        }
+      }
+      const newCareerPathTemplate = await careerPathTemplateService.create(careerPathTemplate)
+      if (newCareerPathTemplate) {
+        response.status(201)
+        return {
+          type: 'success',
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
+          data: { careerPathTemplate: newCareerPathTemplate },
+        }
       }
     } catch (error) {
       const messageError =
@@ -193,21 +316,21 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-kpis/{positionKpiId}:
+   * /api/career-path-templates/{careerPathTemplateId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position KPIs
-   *     summary: update position KPI
+   *       - Career Path Templates
+   *     summary: update career path template
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionKpiId
+   *         name: careerPathTemplateId
    *         schema:
    *           type: number
-   *         description: Position KPI id
+   *         description: Career path template id
    *         required: true
    *     requestBody:
    *       content:
@@ -215,42 +338,19 @@ export default class PositionSpecificFunctionController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionKpiName:
-   *                 type: string
-   *                 description: Position KPI name
-   *                 required: true
-   *                 default: ''
-   *               positionKpiMin:
+   *               companyId:
    *                 type: number
-   *                 description: Position KPI min
+   *                 description: Company id
    *                 required: true
    *                 default: ''
-   *               positionKpiMax:
+   *               originPositionId:
    *                 type: number
-   *                 description: Position KPI max
+   *                 description: Origin position id
    *                 required: true
    *                 default: ''
-   *               positionKpiIdeal:
-   *                 type: string
-   *                 description: Position KPI ideal
-   *                 required: true
-   *                 default: ''
-   *               positionKpiScale:
-   *                 type: enum
-   *                 enum: ['mayor-es-mejor', 'menor-es-mejor', 'si', 'no']
-   *                 description: Position KPI scale
-   *                 required: true
-   *                 default: ''
-   *               positionKpiType:
-   *                 type: enum
-   *                 enum: ['numerico', 'porcentaje', 'dinero', 'booleano']
-   *                 description: Position KPI type
-   *                 required: true
-   *                 default: ''
-   *               positionKpiFrequency:
-   *                 type: enum
-   *                 enum: ['sin-especificar', 'diario', 'semanal', 'cada-2-semanas', 'mensual', 'trimestral', 'semestral', 'anual']
-   *                 description: Position KPI frequency
+   *               targetPositionId:
+   *                 type: number
+   *                 description: Target position id
    *                 required: true
    *                 default: ''
    *     responses:
@@ -334,59 +434,77 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ request, response, i18n, auth }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await request.validateUsing(updatePositionKpiValidator)
-      const positionKpiId = request.param('positionKpiId')
-      const positionKpiName = request.input('positionKpiName')
-      const positionKpiType = request.input('positionKpiType')
-      const positionKpiMin = request.input('positionKpiMin')
-      const positionKpiMax = request.input('positionKpiMax')
-      const positionKpiIdeal = request.input('positionKpiIdeal')
-      const positionKpiScale = request.input('positionKpiScale')
-      const positionKpiFrequency = request.input('positionKpiFrequency')
-      const positionKpi = {
-        positionKpiId: positionKpiId,
-        positionKpiName: positionKpiName,
-        positionKpiType: positionKpiType,
-        positionKpiMin: positionKpiMin,
-        positionKpiMax: positionKpiMax,
-        positionKpiIdeal: positionKpiIdeal,
-        positionKpiScale: positionKpiScale,
-        positionKpiFrequency: positionKpiFrequency,
-      } as PositionKpi
-      if (!positionKpiId) {
+      const careerPathTemplateId = request.param('careerPathTemplateId')
+      const companyId = request.input('companyId')
+      const originPositionId = request.input('originPositionId')
+      const targetPositionId = request.input('targetPositionId')
+      const updatedBy = auth.user?.userId
+      const careerPathTemplate = {
+        careerPathTemplateId: careerPathTemplateId,
+        companyId: companyId,
+        originPositionId: originPositionId,
+        targetPositionId: targetPositionId,
+        updatedBy: updatedBy,
+      } as CareerPathTemplate
+      if (!careerPathTemplateId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position KPI Id was not found',
-          message: 'Missing data to process',
-          data: { ...positionKpi },
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { ...careerPathTemplate },
         }
       }
-      const currentPositionKpi = await PositionKpi.query()
-        .whereNull('position_kpi_deleted_at')
-        .where('position_kpi_id', positionKpiId)
+      const currentCareerPathTemplate = await CareerPathTemplate.query()
+        .whereNull('career_path_template_deleted_at')
+        .where('career_path_template_id', careerPathTemplateId)
         .first()
-      if (!currentPositionKpi) {
+      if (!currentCareerPathTemplate) {
+        const entity = `${t('relation')} ${t('department')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position KPI was not found',
-          message: 'The position KPI was not found with the entered ID',
-          data: { ...positionKpi },
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { ...careerPathTemplate },
         }
       }
-      const positionKpiService = new PositionKpiService()
-      const updatePositionKpi = await positionKpiService.update(currentPositionKpi, positionKpi)
-      if (updatePositionKpi) {
+      const careerPathTemplateService = new CareerPathTemplateService(i18n)
+      const data = await request.validateUsing(updateCareerPathTemplateValidator)
+      const exist = await careerPathTemplateService.verifyInfoExist(careerPathTemplate)
+      if (exist.status !== 200) {
+        response.status(exist.status)
+        return {
+          type: exist.type,
+          title: exist.title,
+          message: exist.message,
+          data: { ...data },
+        }
+      }
+      const verifyInfo = await careerPathTemplateService.verifyInfo(careerPathTemplate)
+      if (verifyInfo.status !== 200) {
+        response.status(verifyInfo.status)
+        return {
+          type: verifyInfo.type,
+          title: verifyInfo.title,
+          message: verifyInfo.message,
+          data: { ...data },
+        }
+      }
+      const updateCareerPathTemplate = await careerPathTemplateService.update(
+        currentCareerPathTemplate,
+        careerPathTemplate
+      )
+      if (updateCareerPathTemplate) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_updated_successfully'),
-          data: { positionKpi: updatePositionKpi },
+          data: { careerPathTemplate: updateCareerPathTemplate },
         }
       }
     } catch (error) {
@@ -395,8 +513,8 @@ export default class PositionSpecificFunctionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -404,21 +522,21 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-kpis/delete/{positionKpiId}:
+   * /api/career-path-templates/{careerPathTemplateId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position KPIs
-   *     summary: delete position KPI
+   *       - Career Path Templates
+   *     summary: delete career path template
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionKpiId
+   *         name: careerPathTemplateId
    *         schema:
    *           type: number
-   *         description: Position KPI id
+   *         description: Career path template id
    *         required: true
    *     responses:
    *       '200':
@@ -504,162 +622,48 @@ export default class PositionSpecificFunctionController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionKpiId = request.param('positionKpiId')
-      if (!positionKpiId) {
+      const careerPathTemplateId = request.param('careerPathTemplateId')
+      if (!careerPathTemplateId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position KPI Id was not found',
-          message: 'Missing data to process',
-          data: { positionKpiId },
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { careerPathTemplateId },
         }
       }
-      const currentPositionKpi = await PositionKpi.query()
-        .whereNull('position_kpi_deleted_at')
-        .where('position_kpi_id', positionKpiId)
+      const currentCareerPathTemplate = await CareerPathTemplate.query()
+        .whereNull('career_path_template_deleted_at')
+        .where('career_path_template_id', careerPathTemplateId)
         .first()
-      if (!currentPositionKpi) {
+      if (!currentCareerPathTemplate) {
+        const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position KPI was not found',
-          message: 'The position KPI was not found with the entered ID',
-          data: { positionKpiId },
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { careerPathTemplateId },
         }
       }
-      const positionKpiService = new PositionKpiService()
-      const deletePositionKpi = await positionKpiService.delete(currentPositionKpi)
-      if (deletePositionKpi) {
+      const careerPathTemplateService = new CareerPathTemplateService(i18n)
+      const deleteCareerPathTemplate =
+        await careerPathTemplateService.delete(currentCareerPathTemplate)
+      if (deleteCareerPathTemplate) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_deleted_successfully'),
-          data: { positionKpi: deletePositionKpi },
+          data: { careerPathTemplate: deleteCareerPathTemplate },
         }
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
-    }
-  }
-
-   /**
-   * @swagger
-   * /api/position-kpis/distinct-names:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Position KPIs
-   *     summary: get distinct position KPI names
-   *     produces:
-   *       - application/json
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-   async getDistinctNames({ response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const positionKpiService = new PositionKpiService()
-      const positionKpiNames = await positionKpiService.getDistinctNames()
-
-      response.status(200)
-      return {
-        type: 'success',
-        title: t('resource'),
-        message: t('resource_was_found_successfully'),
-        data: { positionKpiNames },
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -667,21 +671,21 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-kpis/get-by-position/{positionId}:
+   * /api/career-path-templates/{careerPathTemplateId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position KPIs
-   *     summary: get position KPIs by position id
+   *       - Career Path Templates
+   *     summary: get relation career path template by id
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionId
+   *         name: careerPathTemplateId
    *         schema:
-   *           type: integer
-   *         description: Position Identifier
+   *           type: number
+   *         description: Career path template id
    *         required: true
    *     responses:
    *       '200':
@@ -764,44 +768,45 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-  async getByPosition({ request, response, i18n }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionId = request.param('positionId')
-      if (!positionId) {
+      const careerPathTemplateId = request.param('careerPathTemplateId')
+      if (!careerPathTemplateId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The position id was not found',
-          data: { positionId },
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { careerPathTemplateId },
         }
       }
-      const positionKpiService = new PositionKpiService()
-      const positionKpis = await positionKpiService.getByPosition(positionId)
-      if (!positionKpis) {
+      const careerPathTemplateService = new CareerPathTemplateService(i18n)
+      const showCareerPathTemplate = await careerPathTemplateService.show(careerPathTemplateId)
+      if (!showCareerPathTemplate) {
+        const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position KPIs were not found',
-          message: 'The position KPIs were not found with the entered id',
-          data: { positionId },
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { careerPathTemplateId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: t('resources'),
-          message: t('resources_were_found_successfully'),
-          data: { positionKpis },
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
+          data: { careerPathTemplate: showCareerPathTemplate },
         }
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

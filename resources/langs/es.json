@@ -220,7 +220,7 @@
     "kpis": "KPI's",
     "indicator": "Indicador",
     "meta_ideal": "Meta / Ideal",
-    "frequency": "Frecuencia",
+    "frequency": "Frecuencia de ejecución",
     "no_kpis": "No KPIs registrados.",
     "position_profile": "PERFIL DEL PUESTO",
     "schooling": "Escolaridad :",
@@ -249,5 +249,13 @@
   },
   "monthly_conversion_factor": "Factor de conversión mensual",
   "monthly_conversion_factor_helper": "Número de días al mes usado para convertir salario diario a mensual en la interfaz (ej. 30.4 según IMSS). Solo afecta la visualización, no los cálculos de nómina.",
-  "monthly_conversion_factor_invalid": "El factor de conversión mensual debe ser mayor a 0 y menor o igual a 31"
+  "monthly_conversion_factor_invalid": "El factor de conversión mensual debe ser mayor a 0 y menor o igual a 31",
+  "the_origin_and_target_positions_cannot_be_the_same": "El origen y el destino no pueden ser el mismo",
+  "origin": "Origen",
+  "target": "Destino",
+  "the_origin_and_target_positions_do_not_exist_in_the_current_template": "El origen y el destino no existen en la plantilla actual",
+  "the_override_reason_is_required": "La razón de override es requerida",
+  "the_justification_must_be_at_least_20_characters": "La justificación debe tener al menos 20 caracteres",
+  "the_limit_of_candidates_has_been_exceeded": "El límite de candidatos ha sido excedido",
+  "the_user_is_not_the_direct_boss_of_the_employee": "El usuario no es el jefe directo del empleado"
 }
