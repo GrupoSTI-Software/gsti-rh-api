@@ -55,6 +55,9 @@ import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
  *          systemSettingAnniversaryEmails:
  *            type: number
  *            description: System setting anniversary emails status to activate or deactivate the anniversary emails from the command "anniversary_email" by default is false as 0
+ *          systemSettingAttendanceFaultHrEmails:
+ *            type: number
+ *            description: Activa o desactiva el envío de correos a RH por falta de registro de asistencia tras la tolerancia Fault (comando notify:attendance-fault-hr)
  *          systemSettingMaxAbsencesBeforeAttendanceLock:
  *            type: number
  *            description: System setting max absences before attendance lock
@@ -64,6 +67,9 @@ import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
  *          systemSettingPeriodAbsencesBeforeAttendanceLock:
  *            type: string
  *            description: System setting period absences before attendance lock
+ *          systemSettingMonthlyConversionFactor:
+ *            type: number
+ *            description: Factor días/mes para convertir salario diario a mensual en UI (default 30.4, consistente con IMSS). Solo para display, no afecta cálculos de negocio.
  *          systemSettingUpdatedAt:
  *            type: string
  *          systemSettingDeletedAt:
@@ -111,6 +117,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   declare systemSettingAnniversaryEmails: number | 0 // 0 for false, 1 for true
 
   @column()
+  declare systemSettingAttendanceFaultHrEmails: number | 0
+
+  @column()
   declare systemSettingMaxAbsencesBeforeAttendanceLock: number | null
 
   @column()
@@ -121,6 +130,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemSettingPeriodLateArrivalsBeforeAttendanceLock: string
+
+  @column()
+  declare systemSettingMonthlyConversionFactor: number
 
   @column.dateTime({ autoCreate: true })
   declare systemSettingCreatedAt: DateTime

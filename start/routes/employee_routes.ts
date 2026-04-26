@@ -6,6 +6,7 @@ router
     router.get('/employee-generate-excel', '#controllers/employee_controller.getExcel')
     router.get('/shift-assignment-template', '#controllers/employee_controller.getShiftAssignmentTemplate')
     router.get('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
+    router.post('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
     router.post('/import-shift-assignments', '#controllers/employee_controller.importShiftAssignments')
     router.get('/template-excel', '#controllers/employee_controller.getTemplateExcel')
     router.get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
@@ -29,6 +30,13 @@ router
     router.get(
       '/:employeeId/proceeding-files',
       '#controllers/employee_controller.getProceedingFiles'
+    )
+
+    router.post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
+    router.delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
+    router.get(
+      '/:employeeId/branch-offices/history',
+      '#controllers/employee_branch_office_controller.history'
     )
 
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
@@ -56,6 +64,21 @@ router
     )
     router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
     router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
+    router.post(
+      '/:employeeId/vacation-deductions',
+      '#controllers/employee_controller.applyVacationDeduction'
+    )
+    router.get(
+      '/:employeeId/vacation-deductions',
+      '#controllers/employee_controller.getVacationDeductions'
+    )
+    router
+      .delete(
+        '/:employeeId/vacation-deductions/:vacationDeductionId',
+        '#controllers/employee_controller.deleteVacationDeduction'
+      )
+      .where('employeeId', router.matchers.number())
+      .where('vacationDeductionId', router.matchers.number())
 
   })
   .prefix('/api/employees')

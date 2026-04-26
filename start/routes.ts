@@ -52,6 +52,7 @@ import './routes/aircraft_routes.js'
 import './routes/system_module_routes.js'
 import './routes/gallery_routes.js'
 import './routes/business_unit_routes.js'
+import './routes/branch_offices.js'
 import './routes/aircraft_proceeding_file_routes.js'
 import './routes/proceeding_file_status_routes.js'
 import './routes/tolerance_routes.js'
@@ -137,6 +138,10 @@ import './routes/employee_psychometric_evaluation_routes.js'
 import './routes/position_work_tool_routes.js'
 import './routes/competency_routes.js'
 import './routes/position_competency_level_routes.js'
+import './routes/position_salary_range_routes.js'
+import './routes/career_path_override_reason_routes.js'
+import './routes/career_path_template_routes.js'
+import './routes/career_path_candidate_routes.js'
 
 router
   .get('/', async ({ view }) => {

@@ -463,9 +463,28 @@ export default class SystemSettingController {
       const systemSettingMaxLateArrivalsBeforeAttendanceLock = request.input('systemSettingMaxLateArrivalsBeforeAttendanceLock')
       const systemSettingPeriodAbsencesBeforeAttendanceLock = request.input('systemSettingPeriodAbsencesBeforeAttendanceLock')
       const systemSettingPeriodLateArrivalsBeforeAttendanceLock = request.input('systemSettingPeriodLateArrivalsBeforeAttendanceLock')
+      const systemSettingMonthlyConversionFactorRaw = request.input('systemSettingMonthlyConversionFactor')
       const parseNullable = (value: any) =>
         value === 'null' || value === undefined ? null : value
-      
+      const parseConversionFactor = (value: any): number => {
+        const parsed = Number.parseFloat(value)
+        return Number.isNaN(parsed) ? 30.4 : parsed
+      }
+      const systemSettingMonthlyConversionFactor = parseConversionFactor(systemSettingMonthlyConversionFactorRaw)
+      if (
+        systemSettingMonthlyConversionFactorRaw !== undefined &&
+        systemSettingMonthlyConversionFactorRaw !== null &&
+        (systemSettingMonthlyConversionFactor <= 0 || systemSettingMonthlyConversionFactor > 31)
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid monthly conversion factor',
+          message: 'The monthly conversion factor must be greater than 0 and less than or equal to 31',
+          data: { systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactorRaw },
+        }
+      }
+
       const systemSetting = {
         systemSettingTradeName: systemSettingTradeName,
         systemSettingSidebarColor: systemSettingSidebarColor,
@@ -482,6 +501,7 @@ export default class SystemSettingController {
         systemSettingMaxLateArrivalsBeforeAttendanceLock: parseNullable(systemSettingMaxLateArrivalsBeforeAttendanceLock),
         systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
         systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
+        systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
       const data = await request.validateUsing(createSystemSettingValidator)
@@ -823,9 +843,28 @@ export default class SystemSettingController {
       const systemSettingMaxLateArrivalsBeforeAttendanceLock = request.input('systemSettingMaxLateArrivalsBeforeAttendanceLock')
       const systemSettingPeriodAbsencesBeforeAttendanceLock = request.input('systemSettingPeriodAbsencesBeforeAttendanceLock')
       const systemSettingPeriodLateArrivalsBeforeAttendanceLock = request.input('systemSettingPeriodLateArrivalsBeforeAttendanceLock')
+      const systemSettingMonthlyConversionFactorRaw = request.input('systemSettingMonthlyConversionFactor')
       const parseNullable = (value: any) =>
         value === 'null' || value === undefined ? null : value
-      
+      const parseConversionFactor = (value: any): number | undefined => {
+        if (value === undefined || value === null) return undefined
+        const parsed = Number.parseFloat(value)
+        return Number.isNaN(parsed) ? undefined : parsed
+      }
+      const systemSettingMonthlyConversionFactor = parseConversionFactor(systemSettingMonthlyConversionFactorRaw)
+      if (
+        systemSettingMonthlyConversionFactor !== undefined &&
+        (systemSettingMonthlyConversionFactor <= 0 || systemSettingMonthlyConversionFactor > 31)
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Invalid monthly conversion factor',
+          message: 'The monthly conversion factor must be greater than 0 and less than or equal to 31',
+          data: { systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactorRaw },
+        }
+      }
+
       const systemSetting = {
         systemSettingId: systemSettingId,
         systemSettingTradeName: systemSettingTradeName,
@@ -843,6 +882,7 @@ export default class SystemSettingController {
         systemSettingMaxLateArrivalsBeforeAttendanceLock: parseNullable(systemSettingMaxLateArrivalsBeforeAttendanceLock),
         systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
         systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
+        systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       if (!systemSettingId) {
         response.status(400)
@@ -2401,6 +2441,91 @@ export default class SystemSettingController {
       const result = await systemSettingService.updateAnniversaryEmailsStatus(
         systemSettingId,
         systemSettingAnniversaryEmails
+      )
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/system-settings/{systemSettingId}/attendance-fault-hr-emails:
+   *   put:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: Activar o desactivar correos a RH por falta de registro de asistencia
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - systemSettingAttendanceFaultHrEmails
+   *             properties:
+   *               systemSettingAttendanceFaultHrEmails:
+   *                 type: boolean
+   *                 description: Si es true, se envían notificaciones (comando notify:attendance-fault-hr)
+   *     responses:
+   *       '200':
+   *         description: Actualizado correctamente
+   */
+  async updateAttendanceFaultHrEmailsStatus({ request, response }: HttpContext) {
+    try {
+      const systemSettingId = request.param('systemSettingId')
+      const systemSettingAttendanceFaultHrEmails = request.input('systemSettingAttendanceFaultHrEmails')
+
+      if (!systemSettingId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The system setting id was not found',
+          data: { systemSettingId },
+        }
+      }
+
+      if (
+        systemSettingAttendanceFaultHrEmails === undefined ||
+        systemSettingAttendanceFaultHrEmails === null
+      ) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The systemSettingAttendanceFaultHrEmails field is required',
+          data: { systemSettingAttendanceFaultHrEmails },
+        }
+      }
+
+      const systemSettingService = new SystemSettingService()
+      const result = await systemSettingService.updateAttendanceFaultHrEmailsStatus(
+        systemSettingId,
+        systemSettingAttendanceFaultHrEmails
       )
 
       response.status(result.status)
