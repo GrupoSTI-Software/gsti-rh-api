@@ -37,6 +37,7 @@ import CareerPathOverrideReason from './career_path_override_reason.js'
  *         careerPathCandidateJustification:
  *           type: string
  *           description: Career path candidate justification
+ *         proposedBy:
  *           type: number
  *           description: Proposed by user ID
  *         careerPathCandidateStatus:
@@ -48,9 +49,6 @@ import CareerPathOverrideReason from './career_path_override_reason.js'
  *             - rechazado
  *             - desactivado
  *             - expirado
- *         proposedBy:
- *           type: number
- *           description: Proposed by user ID
  *         reviewedBy:
  *           type: number
  *           description: Reviewed by user ID
