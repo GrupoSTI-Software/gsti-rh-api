@@ -202,6 +202,12 @@
   "position_work_tools": "Herramientas de trabajo del puesto",
   "competency": "Competencia",
   "competencies": "Competencias",
+  "competency_level": "Nivel de competencia",
+  "competency_levels": "Niveles de competencia",
+  "competency_level_in_development": "En Desarrollo",
+  "competency_level_capable": "Capaz",
+  "competency_level_expert": "Experto",
+  "competency_level_description": "Descripción del nivel",
   "position_competency_level": "Nivel de competencia del puesto",
   "position_competency_levels": "Niveles de competencia del puesto",
   "resource_already_exists": "El recurso ya existe"

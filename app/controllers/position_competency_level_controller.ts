@@ -14,7 +14,7 @@ export default class PositionCompetencyLevelController {
    *       - bearerAuth: []
    *     tags:
    *       - Position Competency Levels
-   *     summary: Asigna una competencia del catalogo a un puesto con sus descripciones por nivel
+   *     summary: Asigna una competencia del catalogo a un puesto con un nivel deseado
    *     produces:
    *       - application/json
    *     requestBody:
@@ -29,15 +29,10 @@ export default class PositionCompetencyLevelController {
    *               competencyId:
    *                 type: number
    *                 required: true
-   *               positionCompetencyLevelInDevelopmentDescription:
-   *                 type: string
-   *                 description: Descripcion del nivel En desarrollo
-   *               positionCompetencyLevelCapableDescription:
-   *                 type: string
-   *                 description: Descripcion del nivel Capaz
-   *               positionCompetencyLevelExpertDescription:
-   *                 type: string
-   *                 description: Descripcion del nivel Experto
+   *               competencyLevelId:
+   *                 type: number
+   *                 description: Identificador del nivel deseado (catalogo competency_levels)
+   *                 required: true
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -49,7 +44,6 @@ export default class PositionCompetencyLevelController {
     try {
       const payload = await request.validateUsing(createPositionCompetencyLevelValidator)
       const service = new PositionCompetencyLevelService()
-      // Evita duplicar la misma competencia para el mismo puesto
       const existing = await service.findByPositionAndCompetency(
         payload.positionId,
         payload.competencyId
@@ -66,12 +60,7 @@ export default class PositionCompetencyLevelController {
       const newLevel = await service.create({
         positionId: payload.positionId,
         competencyId: payload.competencyId,
-        positionCompetencyLevelInDevelopmentDescription:
-          payload.positionCompetencyLevelInDevelopmentDescription ?? null,
-        positionCompetencyLevelCapableDescription:
-          payload.positionCompetencyLevelCapableDescription ?? null,
-        positionCompetencyLevelExpertDescription:
-          payload.positionCompetencyLevelExpertDescription ?? null,
+        competencyLevelId: payload.competencyLevelId,
       })
       response.status(201)
       return {
@@ -101,7 +90,7 @@ export default class PositionCompetencyLevelController {
    *       - bearerAuth: []
    *     tags:
    *       - Position Competency Levels
-   *     summary: Actualiza las descripciones por nivel de una asignacion
+   *     summary: Actualiza el nivel deseado de una asignacion puesto-competencia
    *     parameters:
    *       - in: path
    *         name: positionCompetencyLevelId
@@ -114,12 +103,9 @@ export default class PositionCompetencyLevelController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionCompetencyLevelInDevelopmentDescription:
-   *                 type: string
-   *               positionCompetencyLevelCapableDescription:
-   *                 type: string
-   *               positionCompetencyLevelExpertDescription:
-   *                 type: string
+   *               competencyLevelId:
+   *                 type: number
+   *                 description: Identificador del nivel deseado
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -154,12 +140,7 @@ export default class PositionCompetencyLevelController {
       }
       const payload = await request.validateUsing(updatePositionCompetencyLevelValidator)
       const updated = await service.update(current, {
-        positionCompetencyLevelInDevelopmentDescription:
-          payload.positionCompetencyLevelInDevelopmentDescription ?? null,
-        positionCompetencyLevelCapableDescription:
-          payload.positionCompetencyLevelCapableDescription ?? null,
-        positionCompetencyLevelExpertDescription:
-          payload.positionCompetencyLevelExpertDescription ?? null,
+        competencyLevelId: payload.competencyLevelId,
       })
       response.status(201)
       return {
@@ -255,7 +236,7 @@ export default class PositionCompetencyLevelController {
    *       - bearerAuth: []
    *     tags:
    *       - Position Competency Levels
-   *     summary: Lista las competencias asignadas a un puesto con sus descripciones por nivel
+   *     summary: Lista las competencias asignadas a un puesto con su nivel deseado
    *     parameters:
    *       - in: path
    *         name: positionId
