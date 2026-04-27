@@ -55,6 +55,8 @@ export default class SystemSettingService {
     newSystemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock
     newSystemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock = systemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock
     newSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
+    newSystemSetting.systemSettingMonthlyConversionFactor =
+      systemSetting.systemSettingMonthlyConversionFactor ?? 30.4
     await newSystemSetting.save()
     return newSystemSetting
   }
@@ -72,6 +74,8 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock
     currentSystemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock = systemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock
     currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
+    currentSystemSetting.systemSettingMonthlyConversionFactor =
+      systemSetting.systemSettingMonthlyConversionFactor ?? currentSystemSetting.systemSettingMonthlyConversionFactor
     await currentSystemSetting.save()
     return currentSystemSetting
   }

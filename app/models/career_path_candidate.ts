@@ -40,6 +40,7 @@ import Employee from './employee.js'
  *         careerPathCandidateJustification:
  *           type: string
  *           description: Career path candidate justification
+ *         proposedBy:
  *           type: number
  *           description: Proposed by user ID
  *         careerPathCandidateStatus:
@@ -51,9 +52,6 @@ import Employee from './employee.js'
  *             - rechazado
  *             - desactivado
  *             - expirado
- *         proposedBy:
- *           type: number
- *           description: Proposed by user ID
  *         reviewedBy:
  *           type: number
  *           description: Reviewed by user ID

@@ -17,7 +17,7 @@ import EmployeeShiftChange from './employee_shift_changes.js'
 import UserResponsibleEmployee from './user_responsible_employee.js'
 import EmployeeShift from './employee_shift.js'
 import EmployeeBonus from './employee_bonus.js'
-import EmployeePsychometricEvaluation from './employee_psychometric_evaluation.js'
+import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
 
 /**
@@ -355,10 +355,10 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   })
   declare employeeBonuses: HasMany<typeof EmployeeBonus>
 
-  @hasMany(() => EmployeePsychometricEvaluation, {
+  @hasMany(() => EmployeeAssessment, {
     foreignKey: 'employeeId',
   })
-  declare psychometricEvaluations: HasMany<typeof EmployeePsychometricEvaluation>
+  declare assessments: HasMany<typeof EmployeeAssessment>
 
   /** Asignación vigente a sucursal (como máximo una fila con employeeBranchOfficeActive = 1) */
   @hasOne(() => EmployeeBranchOffice, {
