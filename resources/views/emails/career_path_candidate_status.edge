@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+</head>
+<body style="background-color: #f5f5fa; padding: 0rem; padding-top: 1rem; padding-bottom: 1rem; color: #303e67; font-family: 'Tajawal', sans-serif;">
+  <div style="width: 100%; max-width: 600px; background-color: #fefefe; min-height: 10rem; border-radius: 0.3rem; margin: auto; box-shadow: 0.1rem 0.1rem 0.2rem #f1f5f9; padding: 1.5rem; box-sizing: border-box;">
+    <div style="background-color: white; margin-bottom: 1rem;">
+      <img src="{{ backgroundImageLogo }}" style="width: 7rem;">
+    </div>
+    <div style="margin-top: 0rem; text-align: left;">
+      <h2 style="font-size: 1.25rem; text-transform: capitalize; margin-bottom: 0; text-align: center;">
+        {{ title }}
+      </h2>
+      <p style="font-size: 1rem; text-align: left; color: #303e67;">
+        {{ greeting }} {{ managerName }},
+      </p>
+      <p style="font-size: 0.9rem; text-align: left; color: #303e67;">
+        {{{ bodyText }}}
+      </p>
+      <ul style="list-style-type: none; padding-left: 0;">
+        <li><strong>{{ labelCandidate }}:</strong> {{ candidateName }}</li>
+        <li><strong>{{ labelOriginPosition }}:</strong> {{ originPosition }}</li>
+        <li><strong>{{ labelTargetPosition }}:</strong> {{ targetPosition }}</li>
+        <li><strong>{{ labelStatus }}:</strong> <span style="text-transform: capitalize;">{{ newStatus }}</span></li>
+      </ul>
+      @if(rejectionReason)
+        <ul style="list-style-type: none; padding-left: 0;">
+          <li style="text-align: justify;"><strong>{{ labelRejectionReason }}:</strong> {{ rejectionReason }}</li>
+        </ul>
+      @endif
+      <div style="border: 1px dashed #e3ebf6; padding: 1.5rem; border-radius: 0.3rem; text-align: justify; font-size: 0.9rem; text-wrap: pretty;">
+        {{ footerText }}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

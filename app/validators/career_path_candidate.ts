@@ -22,6 +22,6 @@ export const createCareerPathCandidateValidator = vine.compile(
 export const updateCareerPathCandidateValidator = vine.compile(
   vine.object({
     careerPathCandidateStatus: vine.string(),
-    careerPathCandidateRejectionReason: vine.string(),
+    careerPathCandidateRejectionReason: vine.string().optional(),
   })
 )

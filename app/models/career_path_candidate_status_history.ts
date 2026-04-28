@@ -76,7 +76,7 @@ export default class CareerPathCandidateStatusHistory extends compose(BaseModel,
   declare changedBy: number
 
   @column()
-  declare careerPathCandidateStatusHistoryFromStatus: string
+  declare careerPathCandidateStatusHistoryFromStatus: string | null
 
   @column()
   declare careerPathCandidateStatusHistoryToStatus: string

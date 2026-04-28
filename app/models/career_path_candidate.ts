@@ -139,8 +139,8 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
   @column()
   declare reviewedBy: number | null
 
-  @column.dateTime()
-  declare careerPathCandidateReviewedAt: DateTime
+  @column()
+  declare careerPathCandidateReviewedAt: DateTime | null | string
 
   @column()
   declare careerPathCandidateRejectionReason: string
@@ -182,6 +182,9 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
 
   @belongsTo(() => User, {
     foreignKey: 'proposedBy',
+    onQuery: (query) => {
+      query.preload('person')
+    },
   })
   declare proposedByUser: BelongsTo<typeof User>
 
@@ -194,6 +197,7 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
     foreignKey: 'employeeId',
     onQuery: (query) => {
       query.preload('person')
+      query.preload('position')
     },
   })
   declare employee: BelongsTo<typeof Employee>
@@ -201,7 +205,9 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
   @hasMany(() => CareerPathCandidateStatusHistory, {
     foreignKey: 'careerPathCandidateId',
     onQuery: (query) => {
-      query.preload('changedByUser')
+      query.preload('changedByUser', (q) => {
+        q.preload('person')
+      })
     },
   })
   declare careerPathCandidateStatusHistories: HasMany<typeof CareerPathCandidateStatusHistory>
