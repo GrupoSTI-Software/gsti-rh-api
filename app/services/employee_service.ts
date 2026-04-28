@@ -6246,7 +6246,6 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       .orderBy('departmentId')
       .orderBy('employeeFirstName')
       .orderBy('employeeLastName')
-
     // Agrupar empleados por departamento
     const employeesByDepartment = new Map<number, Employee[]>()
     employees.forEach((employee) => {
@@ -6628,6 +6627,32 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
       // Iterar por empleados del departamento
       for (const employee of deptEmployees) {
+        // Obtener calendario del empleado
+        const employeeCalendar = employeeCalendarsMap.get(employee.employeeId) || []
+        const calendarByDay = new Map<string, AssistDayInterface>()
+        employeeCalendar.forEach((day) => {
+          calendarByDay.set(day.day, day)
+        })
+
+        // Filtrar solo empleados con días evaluables (totalAvailable > 0)
+        const isEvaluableDay = (assistDate: AssistDayInterface) =>
+          !assistDate.assist.isFutureDay &&
+          !assistDate.assist.isRestDay &&
+          !assistDate.assist.isVacationDate &&
+          !assistDate.assist.isHoliday &&
+          !assistDate.assist.isWorkDisabilityDate &&
+          !assistDate.assist.hasExceptions
+
+        const evaluableDays = employeeCalendar.filter(isEvaluableDay)
+        const assists = evaluableDays.filter((d) => d.assist.checkInStatus === 'ontime').length
+        const tolerances = evaluableDays.filter((d) => d.assist.checkInStatus === 'tolerance').length
+        const delays = evaluableDays.filter((d) => d.assist.checkInStatus === 'delay').length
+        const faults = evaluableDays.filter((d) => d.assist.checkInStatus === 'fault').length
+        const totalAvailable = assists + tolerances + delays + faults
+        const isDiscriminated = !!(employee.employeeAssistDiscriminator && employee.employeeAssistDiscriminator !== 0)
+
+        if (totalAvailable === 0 || isDiscriminated) continue
+
         worksheet.getRow(currentRow).height = 45
 
         const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
@@ -6637,19 +6662,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
         // Departamento - Columna A
         worksheet.getCell(currentRow, 1).value = departmentName
-        worksheet.getCell(currentRow, 1).protection = { locked: true }
 
         // Puesto - Columna B
         worksheet.getCell(currentRow, 2).value = positionName
-        worksheet.getCell(currentRow, 2).protection = { locked: true }
 
         // Número de Nómina - Columna C
         worksheet.getCell(currentRow, 3).value = payrollCode
-        worksheet.getCell(currentRow, 3).protection = { locked: true }
 
         // Nombre del Empleado - Columna D
         worksheet.getCell(currentRow, 4).value = fullName
-        worksheet.getCell(currentRow, 4).protection = { locked: true }
 
         // Aplicar formato a las primeras 4 columnas: fondo gris claro (info empleado), alineación, borde
         for (let col = 1; col <= 4; col++) {
@@ -6671,15 +6692,6 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             right: { style: 'thin', color: { argb: 'FF000000' } }
           }
         }
-
-        // Obtener calendario del empleado
-        const employeeCalendar = employeeCalendarsMap.get(employee.employeeId) || []
-        const calendarByDay = new Map<string, AssistDayInterface>()
-        employeeCalendar.forEach((day) => {
-          calendarByDay.set(day.day, day)
-        })
-
-        const isDiscriminated = !!(employee.employeeAssistDiscriminator && employee.employeeAssistDiscriminator !== 0)
 
         // Columnas de fechas (desde columna E)
         dates.forEach((date, dateIndex) => {
@@ -6766,30 +6778,11 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             bottom: { style: 'thin', color: { argb: 'FF000000' } },
             right: { style: 'thin', color: { argb: 'FF000000' } }
           }
-          cell.protection = { locked: true }
         })
 
         currentRow++
       }
     }
-
-    // ==============================
-    //     PROTEGER HOJA
-    // ==============================
-    await worksheet.protect('', {
-      selectLockedCells: true,
-      selectUnlockedCells: false,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-      pivotTables: false
-    })
 
     // ==============================
     //     CONGELAR ENCABEZADOS

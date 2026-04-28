@@ -7187,6 +7187,7 @@ export default class EmployeeController {
         request.input('departmentIds') ?? request.input('department_ids')
       const employeeIdsParam = request.input('employeeIds') ?? request.input('employee_ids')
 
+
       // Validar que las fechas sean proporcionadas
       if (!startDate || !endDate) {
         response.status(400)
