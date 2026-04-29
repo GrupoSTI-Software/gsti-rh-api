@@ -39,6 +39,15 @@ router
       '#controllers/employee_branch_office_controller.history'
     )
 
+    router.post(
+      '/:employeeId/temporary-assignments',
+      '#controllers/employee_temporary_assignment_controller.store'
+    )
+    router.get(
+      '/:employeeId/temporary-assignments/active',
+      '#controllers/employee_temporary_assignment_controller.showActive'
+    )
+
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
     router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
     router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')

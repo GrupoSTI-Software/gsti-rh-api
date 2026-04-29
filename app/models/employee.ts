@@ -19,6 +19,7 @@ import EmployeeShift from './employee_shift.js'
 import EmployeeBonus from './employee_bonus.js'
 import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
+import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
 
 /**
  * @swagger
@@ -377,4 +378,13 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare employeeBranchOffices: HasMany<typeof EmployeeBranchOffice>
+
+  /** Historial de préstamos temporales a otras sucursales */
+  @hasMany(() => EmployeeTemporaryAssignment, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.orderBy('employee_temporary_assignment_id', 'desc')
+    },
+  })
+  declare temporaryAssignments: HasMany<typeof EmployeeTemporaryAssignment>
 }
