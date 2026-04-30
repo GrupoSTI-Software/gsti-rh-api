@@ -214,7 +214,10 @@ export default class AssistsController {
    *         description: Number of limit on paginator page
    *     responses:
    *       200:
-   *         description: Resource action successful
+   *         description: |
+   *           Incluye `data.employeeCalendar` y `data.temporaryAssignments`: préstamos temporales
+   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`
+   *           (YYYY-MM-DD, UTC-6). Vacío `[]` si no aplica o sin préstamos en el rango.
    *         content:
    *           application/json:
    *             schema:

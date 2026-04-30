@@ -32,6 +32,7 @@ import BusinessUnit from '#models/business_unit'
 import DepartmentService from './department_service.js'
 import { I18n } from '@adonisjs/i18n'
 import EmployeeService from './employee_service.js'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 
 /**
  * Servicio para la sincronización y procesamiento de asistencias de empleados.
@@ -1060,6 +1061,27 @@ export default class SyncAssistsService {
       employee
     )
 
+    /**
+     * Préstamos temporales que intersectan el periodo del calendario (mismas fechas que `date` / `date-end`).
+     * El BO usa `targetBranchId` día a día: si `startDate <= día <= endDate`, la sucursal efectiva es destino;
+     * si no hay préstamo en el arreglo, se usa la sucursal habitual del empleado (sin regresión).
+     */
+    let temporaryAssignments: Awaited<
+      ReturnType<typeof EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod>
+    > = []
+    if (bodyParams.employeeID && bodyParams.date && bodyParams.dateEnd) {
+      const periodStart = DateTime.fromISO(bodyParams.date, { zone: 'UTC-6' })
+        .startOf('day')
+        .toFormat('yyyy-MM-dd')
+      const periodEnd = DateTime.fromISO(bodyParams.dateEnd, { zone: 'UTC-6' })
+        .startOf('day')
+        .toFormat('yyyy-MM-dd')
+      temporaryAssignments = await EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod(
+        bodyParams.employeeID,
+        periodStart,
+        periodEnd
+      )
+    }
 
     return {
       status: 200,
@@ -1068,6 +1090,7 @@ export default class SyncAssistsService {
       message: this.t('resources_were_found_successfully'),
       data: {
         employeeCalendar,
+        temporaryAssignments,
       },
     }
   }

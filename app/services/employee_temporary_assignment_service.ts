@@ -23,6 +23,24 @@ interface ConflictingDay {
   reason: string
 }
 
+/**
+ * Formato alineado con el BO (`TemporaryAssignmentActiveInterface`) para monitor de asistencia
+ * y reportes: sucursal efectiva por día = destino si el día cae en [startDate, endDate] inclusive.
+ */
+export interface TemporaryAssignmentReportRow {
+  id: number
+  employeeId: number
+  sourceBranchId: number
+  targetBranchId: number
+  /** YYYY-MM-DD, misma convención que `day` en employeeCalendar (zona operativa UTC-6). */
+  startDate: string
+  /** YYYY-MM-DD inclusive (último día del préstamo cuenta en sucursal destino). */
+  endDate: string
+  days: number
+  targetBranch: Record<string, unknown> | null
+  shiftOverride: { startTime: string; endTime: string } | null
+}
+
 /** Slugs de los tipos de excepción que bloquean el préstamo */
 const BLOCKING_EXCEPTION_SLUGS = ['vacation', 'incapacidad', 'permiso', 'work-disability']
 
@@ -204,6 +222,47 @@ export default class EmployeeTemporaryAssignmentService {
       .where('end_date', '>=', date)
       .preload('targetBranch')
       .first()
+  }
+
+  /**
+   * Préstamos cuyo intervalo [startDate, endDate] intersecta el periodo del reporte/calendario.
+   * Incluye préstamos consecutivos (B luego C). Orden determinista: start_date ASC, id ASC.
+   * Usado por GET /api/v1/assists y employee-assist-calendars para el monitor de faltas por sucursal.
+   */
+  static async listIntersectingAssistPeriod(
+    employeeId: number,
+    periodStartYyyyMmDd: string,
+    periodEndYyyyMmDd: string
+  ): Promise<TemporaryAssignmentReportRow[]> {
+    const rows = await EmployeeTemporaryAssignment.query()
+      .where('employee_id', employeeId)
+      .where('start_date', '<=', periodEndYyyyMmDd)
+      .where('end_date', '>=', periodStartYyyyMmDd)
+      .orderBy('start_date', 'asc')
+      .orderBy('employee_temporary_assignment_id', 'asc')
+      .preload('targetBranch')
+
+    return rows.map((a) => this.toReportRow(a))
+  }
+
+  static toReportRow(assignment: EmployeeTemporaryAssignment): TemporaryAssignmentReportRow {
+    const targetBranch = assignment.targetBranch
+    return {
+      id: assignment.employeeTemporaryAssignmentId,
+      employeeId: assignment.employeeId,
+      sourceBranchId: assignment.sourceBranchId,
+      targetBranchId: assignment.targetBranchId,
+      startDate: assignment.startDate.toFormat('yyyy-MM-dd'),
+      endDate: assignment.endDate.toFormat('yyyy-MM-dd'),
+      days: assignment.days,
+      targetBranch: targetBranch ? (targetBranch.serialize() as Record<string, unknown>) : null,
+      shiftOverride: assignment.shiftOverrideStart
+        ? {
+            startTime: assignment.shiftOverrideStart,
+            endTime: assignment.shiftOverrideEnd ?? '',
+          }
+        : null,
+    }
   }
 
   /**
