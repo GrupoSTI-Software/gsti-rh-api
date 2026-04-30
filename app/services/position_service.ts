@@ -369,13 +369,13 @@ export default class PositionService {
 
   /**
    * Elimina todos los puestos existentes y sus relaciones en otras tablas
-   * 
+   *
    * Esta función:
    * 1. Elimina todas las relaciones en department_position
    * 2. Establece position_id en null para todos los empleados
    * 3. Establece position_id en null para todos los contratos de empleados
    * 4. Elimina todos los puestos (incluyendo relaciones padre-hijo)
-   * 
+   *
    * @returns Objeto con el resultado de la operación
    */
   async deleteAllPositions() {
@@ -413,7 +413,7 @@ export default class PositionService {
       // 3. Eliminar todos los contratos de empleados
       await EmployeeContract.query()
         .delete()
-      
+
       // 4. Primero, eliminar todos los puestos que tengan padre
       await Position.query()
         .whereNotNull('parent_position_id')
@@ -450,12 +450,12 @@ export default class PositionService {
     }
   }
 
-   /**
-   * Busca una posición por su nombre
-   * @param positionName - Nombre de la posición a buscar
-   * @returns Posición encontrada o null
-   */
-   async findPositionByName(positionName: string): Promise<Position | null> {
+  /**
+  * Busca una posición por su nombre
+  * @param positionName - Nombre de la posición a buscar
+  * @returns Posición encontrada o null
+  */
+  async findPositionByName(positionName: string): Promise<Position | null> {
     const position = await Position.query()
       .where('position_alias', positionName)
       .whereNull('position_deleted_at')
@@ -518,7 +518,7 @@ export default class PositionService {
 
   /**
    * Crea las posiciones demo relacionadas a los departamentos según el organigrama organizacional
-   * 
+   *
    * Estructura de posiciones por departamento:
    * - Dirección General: Director general, Asistente de dirección
    * - Administración: Gerente administrativo
@@ -532,7 +532,7 @@ export default class PositionService {
    * - Producción: Supervisor de producción, Operador de producción
    * - Marketing: Supervisor de marketing, Content Manager, Especialista en Relaciones Públicas
    * - Investigación de Mercados: Analista de mercado
-   * 
+   *
    * @returns Objeto con el resultado de la operación y las posiciones creadas
    */
   async createPositionDemo() {
@@ -565,7 +565,7 @@ export default class PositionService {
         'Investigación de Mercados',
       ]
       const departmentService = new DepartmentService(this.i18n)
-      for await(const deptName of departmentNames) {
+      for await (const deptName of departmentNames) {
         departmentsMap[deptName] = await departmentService.findDepartmentByName(deptName)
       }
 
@@ -605,7 +605,7 @@ export default class PositionService {
           departmentName: 'Administración',
           positionId: undefined,
         },
-        {   
+        {
           key: 'Gerente de recursos humanos',
           code: 'POS-GRH-001',
           name: '(P101) Gerente de recursos humanos',
@@ -835,7 +835,7 @@ export default class PositionService {
           createdRelations.push({ department: 'Sin departamento', position: posData.name })
         }
       }
-      
+
 
       // Preparar resumen
       const summary = Object.keys(createdPositions).map((key) => ({
@@ -1004,9 +1004,9 @@ export default class PositionService {
           } else {
             switch (tl) {
               case 'b': case 'strong': bold = !close; break
-              case 'i': case 'em':    italic = !close; break
-              case 'u': case 'a':     underline = !close; break
-              case 'br':              flush(); break
+              case 'i': case 'em': italic = !close; break
+              case 'u': case 'a': underline = !close; break
+              case 'br': flush(); break
               case 'p': case 'div':
               case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
                 if (close) {
@@ -1078,9 +1078,9 @@ export default class PositionService {
             const isLast = si === block.spans.length - 1
             const font =
               span.bold && span.italic ? 'BoldItalic'
-              : span.bold ? 'Bold'
-              : span.italic ? 'Italic'
-              : 'Regular'
+                : span.bold ? 'Bold'
+                  : span.italic ? 'Italic'
+                    : 'Regular'
             const opts: PDFKit.Mixins.TextOptions = {
               width: iw,
               continued: !isLast,
@@ -1345,7 +1345,6 @@ export default class PositionService {
 
       doc.y = perfilY + perfilRowH
 
-      // ── PERFIL PSICOMÉTRICO ───────────────────────────────────────────────
       drawSectionHeader(t('profile_position.assessment_profile'))
 
       const profiles = position.assessmentProfiles ?? []
@@ -1941,9 +1940,9 @@ export default class PositionService {
     sheet.mergeCells(`D${profileLabelsRow.number}:F${profileLabelsRow.number}`)
     sheet.mergeCells(`G${profileLabelsRow.number}:I${profileLabelsRow.number}`)
     sheet.mergeCells(`J${profileLabelsRow.number}:${LAST}${profileLabelsRow.number}`)
-    ;(['A', 'D', 'G', 'J'] as const).forEach((col) => {
-      styleCell(profileLabelsRow.getCell(col), { bold: true, size: 8 })
-    })
+      ; (['A', 'D', 'G', 'J'] as const).forEach((col) => {
+        styleCell(profileLabelsRow.getCell(col), { bold: true, size: 8 })
+      })
     profileLabelsRow.height = 16
 
     const profileValuesRow = sheet.addRow(['', '', '', '', '', '', '', '', '', '', '', ''])
@@ -1951,12 +1950,11 @@ export default class PositionService {
     sheet.mergeCells(`D${profileValuesRow.number}:F${profileValuesRow.number}`)
     sheet.mergeCells(`G${profileValuesRow.number}:I${profileValuesRow.number}`)
     sheet.mergeCells(`J${profileValuesRow.number}:${LAST}${profileValuesRow.number}`)
-    ;(['A', 'D', 'G', 'J'] as const).forEach((col) => {
-      styleCell(profileValuesRow.getCell(col), { size: 8, align: 'center' })
-    })
+      ; (['A', 'D', 'G', 'J'] as const).forEach((col) => {
+        styleCell(profileValuesRow.getCell(col), { size: 8, align: 'center' })
+      })
     profileValuesRow.height = 20
 
-    // ── Perfil psicométrico (hasta 3 tests lado a lado: A:D, E:H, I:L) ───────
     addSectionHeader(t('profile_position.assessment_profile'))
 
     const profiles = position.assessmentProfiles ?? []
@@ -1981,10 +1979,10 @@ export default class PositionService {
 
       // Columnas de inicio de cada tercio (máximo 3 tests side by side)
       const tercioStart = ['A', 'E', 'I'] as const
-      const tercioEnd   = ['D', 'H', LAST] as const
-      const tercioMin   = ['C', 'G', 'K'] as const
-      const tercioMax   = ['D', 'H', LAST] as const
-      const tercioDim   = ['A', 'E', 'I'] as const
+      const tercioEnd = ['D', 'H', LAST] as const
+      const tercioMin = ['C', 'G', 'K'] as const
+      const tercioMax = ['D', 'H', LAST] as const
+      const tercioDim = ['A', 'E', 'I'] as const
       const tercioDimEnd = ['B', 'F', 'J'] as const
 
       const testEntries = Array.from(testsMap.entries())
