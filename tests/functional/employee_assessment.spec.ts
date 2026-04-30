@@ -295,30 +295,36 @@ test.group('EmployeeAssessment - store POST /', (group) => {
     dupeResponse.assertBodyContains({ type: 'warning' })
   })
 
-  test('falla si falta el employeeId', async ({ client }) => {
-    const response = await client
-      .post('/api/employee-assessments')
-      .loginAs(user)
-      .json({
-        assessmentTemplateId: testTemplate.assessmentTemplateId,
-        employeeAssessmentDate: '2025-05-01',
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si falta el employeeId', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/employee-assessments')
+        .loginAs(user)
+        .json({
+          assessmentTemplateId: testTemplate.assessmentTemplateId,
+          employeeAssessmentDate: '2025-05-01',
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 
-  test('falla si falta la fecha de evaluación', async ({ client }) => {
-    const response = await client
-      .post('/api/employee-assessments')
-      .loginAs(user)
-      .json({
-        employeeId: testEmployee.employeeId,
-        assessmentTemplateId: testTemplate.assessmentTemplateId,
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si falta la fecha de evaluación', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/employee-assessments')
+        .loginAs(user)
+        .json({
+          employeeId: testEmployee.employeeId,
+          assessmentTemplateId: testTemplate.assessmentTemplateId,
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 })
 

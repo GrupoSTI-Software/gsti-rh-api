@@ -870,6 +870,36 @@ export default class PositionService {
   }
 
 
+  /**
+   * Genera un documento PDF con la descripción y perfil completo de un puesto.
+   *
+   * Construye un PDF en formato carta (Letter) con encabezado corporativo,
+   * objetivo general, KPIs, perfil del puesto, perfil de evaluación
+   * (psicométrico), competencias funcionales/técnicas, equipo asignado y
+   * cuadro de firmas (Elaboró/Validó). El método utiliza `pdfkit` y aplica un
+   * parser HTML interno para soportar texto enriquecido proveniente del editor
+   * Quill (negritas, cursivas, subrayado, listas ordenadas y no ordenadas con
+   * indentación `ql-indent-N`).
+   *
+   * Reglas y consideraciones:
+   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
+   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - Solo se consideran puestos no eliminados (`position_deleted_at` nulo) y
+   *   sus relaciones activas (funciones específicas, KPIs, competencias y
+   *   perfiles de evaluación).
+   * - Si existe un logo configurado en `SystemSetting.systemSettingLogo`, se
+   *   descarga vía HTTP (timeout 8s); si la descarga falla, el documento se
+   *   genera sin logo (no es un error fatal).
+   * - El renderizado de secciones usa `ensureSpace()` para forzar saltos de
+   *   página cuando no cabe el bloque siguiente y `drawPageHeader()` se
+   *   registra en el evento `pageAdded` para reimprimir el encabezado.
+   * - Los perfiles de evaluación se agrupan por nombre de prueba y se
+   *   renderizan en grupos de hasta 3 columnas lado a lado.
+   *
+   * @param positionId Identificador único del puesto.
+   * @returns Promesa con el `Buffer` del PDF generado, o `null` si el puesto
+   *          no existe o no pertenece a una unidad de negocio permitida.
+   */
   async getPdf(positionId: number): Promise<Buffer | null> {
     const businessConf = `${env.get('SYSTEM_BUSINESS')}`
     const businessList = businessConf.split(',')
@@ -1579,6 +1609,36 @@ export default class PositionService {
     })
   }
 
+  /**
+   * Genera un libro Excel (XLSX) con la descripción y perfil completo de un puesto.
+   *
+   * Crea un workbook de `exceljs` con una sola hoja en orientación vertical
+   * carta. El layout utiliza 12 columnas (A-L) para mantener proporciones
+   * equivalentes a la versión PDF, con celdas combinadas (`mergeCells`) para
+   * armar el encabezado corporativo, los bloques de metadatos
+   * (Fecha de Emisión / Revisión / Dirección / Área-Cuenta), nombre del puesto,
+   * objetivo general, KPIs, perfil del puesto, perfiles de evaluación
+   * (psicométricos), competencias, equipo asignado y firmas.
+   *
+   * Reglas y consideraciones:
+   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
+   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - Solo se consideran puestos no eliminados y relaciones activas
+   *   (funciones específicas, KPIs, competencias y perfiles de evaluación).
+   * - Si existe logo en `SystemSetting`, se descarga (timeout 8s) y se inserta
+   *   como imagen anclada a las celdas A:B (filas 1-4). Detecta la extensión
+   *   automáticamente (png, jpeg o gif) por la URL.
+   * - El texto enriquecido HTML del objetivo general se convierte a `richText`
+   *   mediante `htmlToRichText`, soportando negritas, cursivas, subrayado,
+   *   listas ordenadas/desordenadas con indentación `ql-indent-N`.
+   * - Los perfiles de evaluación se agrupan por nombre de prueba y se
+   *   distribuyen en tercios A:D, E:H e I:L (hasta 3 pruebas por fila).
+   * - Las columnas 13 y 14 se ocultan al final para limpiar el área visible.
+   *
+   * @param positionId Identificador único del puesto.
+   * @returns Promesa con el `Buffer` del archivo XLSX generado, o `null` si el
+   *          puesto no existe o no pertenece a una unidad de negocio permitida.
+   */
   async getExcel(positionId: number): Promise<Buffer | null> {
     const businessConf = `${env.get('SYSTEM_BUSINESS')}`
     const businessList = businessConf.split(',')

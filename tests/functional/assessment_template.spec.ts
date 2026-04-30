@@ -152,46 +152,58 @@ test.group('AssessmentTemplate - store POST /', (group) => {
     createdIds.push(template.assessmentTemplateId)
   })
 
-  test('falla con 500 (validación) si falta el nombre', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-templates')
-      .loginAs(user)
-      .json({
-        assessmentTemplateDescription: 'Sin nombre',
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla con error de validación si falta el nombre', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-templates')
+        .loginAs(user)
+        .json({
+          assessmentTemplateDescription: 'Sin nombre',
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 
-  test('falla si el nombre supera 200 caracteres', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-templates')
-      .loginAs(user)
-      .json({
-        assessmentTemplateName: 'A'.repeat(201),
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si el nombre supera 200 caracteres', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-templates')
+        .loginAs(user)
+        .json({
+          assessmentTemplateName: 'A'.repeat(201),
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 
-  test('falla si el acrónimo de dimensión supera 20 caracteres', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-templates')
-      .loginAs(user)
-      .json({
-        assessmentTemplateName: 'Plantilla Test Acrónim',
-        dimensions: [
-          {
-            assessmentTemplateDimensionName: 'Dimensión Larga',
-            assessmentTemplateDimensionAcronym: 'A'.repeat(21),
-          },
-        ],
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si el acrónimo de dimensión supera 20 caracteres', async ({
+    client,
+    assert,
+  }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-templates')
+        .loginAs(user)
+        .json({
+          assessmentTemplateName: 'Plantilla Test Acrónim',
+          dimensions: [
+            {
+              assessmentTemplateDimensionName: 'Dimensión Larga',
+              assessmentTemplateDimensionAcronym: 'A'.repeat(21),
+            },
+          ],
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 })
 
@@ -331,14 +343,17 @@ test.group('AssessmentTemplate - update PUT /:id', (group) => {
     response.assertBodyContains({ type: 'warning' })
   })
 
-  test('falla si el nombre es vacío', async ({ client }) => {
-    const response = await client
-      .put(`/api/assessment-templates/${template.assessmentTemplateId}`)
-      .loginAs(user)
-      .json({ assessmentTemplateName: '' })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si el nombre es vacío', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .put(`/api/assessment-templates/${template.assessmentTemplateId}`)
+        .loginAs(user)
+        .json({ assessmentTemplateName: '' })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 })
 

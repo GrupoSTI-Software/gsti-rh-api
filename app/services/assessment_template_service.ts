@@ -2,7 +2,28 @@ import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension from '#models/assessment_template_dimension'
 import { AssessmentTemplateFilterSearchInterface } from '../interfaces/assessment_template_filter_search_interface.js'
 
+/**
+ * Servicio que administra el ciclo de vida de las plantillas de evaluación
+ * (`AssessmentTemplate`) y de sus dimensiones asociadas
+ * (`AssessmentTemplateDimension`). Toda eliminación se realiza como
+ * "soft delete" (se llena la columna `deleted_at`).
+ *
+ * Cada operación de creación o actualización opera en cascada con las
+ * dimensiones enviadas en el payload, manteniendo la integridad de los datos
+ * existentes mediante el método privado `syncDimensions`.
+ */
 export default class AssessmentTemplateService {
+  /**
+   * Devuelve un listado paginado de plantillas activas. Soporta filtro por
+   * nombre (búsqueda case-insensitive con `LIKE %term%`) y precarga las
+   * dimensiones activas de cada plantilla. Solo se seleccionan los campos
+   * imprescindibles para listados (`assessment_template_id`,
+   * `assessment_template_name`, `assessment_template_description`,
+   * `assessment_template_created_at`).
+   *
+   * @param filters Filtros de búsqueda y paginación (search, page, limit).
+   * @returns Resultado paginado de Lucid con las plantillas encontradas.
+   */
   async index(filters: AssessmentTemplateFilterSearchInterface) {
     const selectedColumns = [
       'assessment_template_id',
@@ -27,6 +48,16 @@ export default class AssessmentTemplateService {
     return items
   }
 
+  /**
+   * Crea una nueva plantilla de evaluación y, opcionalmente, sus dimensiones
+   * iniciales. Tras persistir las dimensiones, recarga la relación
+   * `dimensions` (filtrando las activas) en la instancia retornada.
+   *
+   * @param data Datos básicos de la plantilla (nombre y descripción opcional).
+   * @param dimensions Lista opcional de dimensiones a crear junto con la
+   *                   plantilla (cada una con nombre y acrónimo).
+   * @returns La plantilla recién creada con sus dimensiones precargadas.
+   */
   async create(
     data: { assessmentTemplateName: string; assessmentTemplateDescription?: string | null },
     dimensions?: {
@@ -56,6 +87,18 @@ export default class AssessmentTemplateService {
     return newTemplate
   }
 
+  /**
+   * Actualiza una plantilla de evaluación existente. Si se envía el array
+   * `dimensions`, se sincroniza el conjunto completo (ver `syncDimensions`):
+   * - Las dimensiones que ya no están en el array reciben soft delete.
+   * - Las dimensiones presentes con `assessmentTemplateDimensionId` se actualizan.
+   * - Las dimensiones presentes sin id se crean.
+   *
+   * @param currentTemplate Plantilla actual obtenida desde el controlador.
+   * @param data Nuevos valores de nombre y descripción.
+   * @param dimensions Lista opcional de dimensiones a sincronizar.
+   * @returns La plantilla actualizada con sus dimensiones activas precargadas.
+   */
   async update(
     currentTemplate: AssessmentTemplate,
     data: { assessmentTemplateName: string; assessmentTemplateDescription?: string | null },
@@ -128,6 +171,13 @@ export default class AssessmentTemplateService {
     }
   }
 
+  /**
+   * Realiza un soft delete sobre la plantilla y cada una de sus dimensiones
+   * activas (`assessment_template_dimension_deleted_at` se rellena).
+   *
+   * @param currentTemplate Plantilla a eliminar lógicamente.
+   * @returns La misma instancia recibida (ya marcada como eliminada).
+   */
   async delete(currentTemplate: AssessmentTemplate) {
     const dimensions = await AssessmentTemplateDimension.query()
       .where('assessment_template_id', currentTemplate.assessmentTemplateId)
@@ -141,6 +191,13 @@ export default class AssessmentTemplateService {
     return currentTemplate
   }
 
+  /**
+   * Obtiene una plantilla por su identificador con sus dimensiones activas
+   * precargadas.
+   *
+   * @param assessmentTemplateId Identificador de la plantilla.
+   * @returns La plantilla encontrada o `null` si no existe / fue eliminada.
+   */
   async show(assessmentTemplateId: number) {
     const template = await AssessmentTemplate.query()
       .whereNull('assessment_template_deleted_at')

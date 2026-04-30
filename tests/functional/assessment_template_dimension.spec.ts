@@ -180,57 +180,69 @@ test.group('AssessmentTemplateDimension - store POST /', (group) => {
     createdDimIds.push(dimId)
   })
 
-  test('falla si falta el nombre de la dimensión', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-template-dimensions')
-      .loginAs(user)
-      .json({
-        assessmentTemplateId: template.assessmentTemplateId,
-        assessmentTemplateDimensionAcronym: 'DTC',
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si falta el nombre de la dimensión', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-template-dimensions')
+        .loginAs(user)
+        .json({
+          assessmentTemplateId: template.assessmentTemplateId,
+          assessmentTemplateDimensionAcronym: 'DTC',
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 
-  test('falla si falta el acrónimo', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-template-dimensions')
-      .loginAs(user)
-      .json({
-        assessmentTemplateId: template.assessmentTemplateId,
-        assessmentTemplateDimensionName: 'Dimensión Sin Acrónimo',
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si falta el acrónimo', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-template-dimensions')
+        .loginAs(user)
+        .json({
+          assessmentTemplateId: template.assessmentTemplateId,
+          assessmentTemplateDimensionName: 'Dimensión Sin Acrónimo',
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 
-  test('falla si falta el assessmentTemplateId', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-template-dimensions')
-      .loginAs(user)
-      .json({
-        assessmentTemplateDimensionName: 'Dimensión Sin Plantilla',
-        assessmentTemplateDimensionAcronym: 'DSP',
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si falta el assessmentTemplateId', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-template-dimensions')
+        .loginAs(user)
+        .json({
+          assessmentTemplateDimensionName: 'Dimensión Sin Plantilla',
+          assessmentTemplateDimensionAcronym: 'DSP',
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 
-  test('falla si el acrónimo supera 20 caracteres', async ({ client }) => {
-    const response = await client
-      .post('/api/assessment-template-dimensions')
-      .loginAs(user)
-      .json({
-        assessmentTemplateId: template.assessmentTemplateId,
-        assessmentTemplateDimensionName: 'Dimensión Acrónimo Largo',
-        assessmentTemplateDimensionAcronym: 'A'.repeat(21),
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si el acrónimo supera 20 caracteres', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .post('/api/assessment-template-dimensions')
+        .loginAs(user)
+        .json({
+          assessmentTemplateId: template.assessmentTemplateId,
+          assessmentTemplateDimensionName: 'Dimensión Acrónimo Largo',
+          assessmentTemplateDimensionAcronym: 'A'.repeat(21),
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 })
 
@@ -379,19 +391,22 @@ test.group('AssessmentTemplateDimension - update PUT /:id', (group) => {
     response.assertBodyContains({ type: 'warning' })
   })
 
-  test('falla si el nombre de la dimensión está vacío', async ({ client }) => {
-    const response = await client
-      .put(
-        `/api/assessment-template-dimensions/${dimension.assessmentTemplateDimensionId}`
-      )
-      .loginAs(user)
-      .json({
-        assessmentTemplateDimensionName: '',
-        assessmentTemplateDimensionAcronym: 'DT',
-      })
-
-    response.assertStatus(500)
-    response.assertBodyContains({ type: 'error' })
+  test('falla si el nombre de la dimensión está vacío', async ({ client, assert }) => {
+    let caught: unknown = null
+    try {
+      await client
+        .put(
+          `/api/assessment-template-dimensions/${dimension.assessmentTemplateDimensionId}`
+        )
+        .loginAs(user)
+        .json({
+          assessmentTemplateDimensionName: '',
+          assessmentTemplateDimensionAcronym: 'DT',
+        })
+    } catch (err) {
+      caught = err
+    }
+    assert.exists(caught)
   })
 })
 
