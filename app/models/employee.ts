@@ -257,6 +257,11 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
 
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'payrollBusinessUnitId',
+  })
+  declare payrollBusinessUnit: BelongsTo<typeof BusinessUnit>
+
   @belongsTo(() => EmployeeType, {
     foreignKey: 'employeeTypeId',
   })

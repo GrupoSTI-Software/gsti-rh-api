@@ -6207,6 +6207,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     let employeesQuery = Employee.query()
       .whereNull('deletedAt')
       .whereIn('businessUnitId', businessUnitsList)
+      .where('employee_type_of_contract', 'Internal')
+      .where('employeeAssistDiscriminator', 0)
+      .whereHas('position', (query) => {
+        query.whereNull('position_deleted_at')
+        query.where('position_active', 1)
+      })
+      .whereHas('department', (query) => {
+        query.whereNull('department_deleted_at')
+      })
       .preload('position', (query) => {
         query.whereNull('position_deleted_at')
         query.where('position_active', 1)
@@ -6214,6 +6223,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       .preload('department', (query) => {
         query.whereNull('department_deleted_at')
       })
+      .preload('businessUnit')
+      .preload('payrollBusinessUnit')
 
     if (businessUnitId !== undefined && businessUnitId > 0 && !Number.isNaN(businessUnitId)) {
       employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
@@ -6527,13 +6538,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     worksheet.getRow(1).height = 60
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
-    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
+    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 5 + dates.length)}2`)
     titleRow.getCell(1).value = 'Reporte de Asistencia'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
     titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' }
 
     // Primera fila de encabezados (fechas)
-    const headerRow1 = ['Departamento', 'Puesto', 'Número de Nómina', 'Nombre del Empleado']
+    const headerRow1 = ['Unidad de negocio de trabajo', 'Unidad de nómina', 'Departamento', 'Puesto', 'Número de Nómina', 'Nombre del Empleado']
     dates.forEach((date) => {
       const dateStr = date.toFormat('dd/MM/yyyy')
       headerRow1.push(dateStr)
@@ -6542,7 +6553,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     row1.height = 30
 
     // Segunda fila de encabezados (días de la semana)
-    const headerRow2 = ['', '', '', '']
+    const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
       const dayName = date.toFormat('cccc', { locale: 'es' })
       headerRow2.push(dayName)
@@ -6575,8 +6586,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     // Aplicar formato a la segunda fila de encabezados (misma alineación)
     row2.eachCell((cell, colNum) => {
-      const headerAlign = colNum === 1 || colNum === 2 || colNum === 4 ? 'left' : 'center'
-      if (colNum > 4) {
+      const headerAlign = colNum <= 6 ? 'left' : 'center'
+      if (colNum > 6) {
         cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
         cell.fill = {
           type: 'pattern',
@@ -6604,13 +6615,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // ==============================
     //     ANCHO DE COLUMNAS
     // ==============================
-    worksheet.getColumn(1).width = 25 // Departamento
-    worksheet.getColumn(2).width = 30 // Puesto
-    worksheet.getColumn(3).width = 20 // Número de Nómina
-    worksheet.getColumn(4).width = 35 // Nombre del Empleado
+    worksheet.getColumn(1).width = 20 // UN Trabajo
+    worksheet.getColumn(2).width = 20 // UN Nómina
+    worksheet.getColumn(3).width = 25 // Departamento
+    worksheet.getColumn(4).width = 30 // Puesto
+    worksheet.getColumn(5).width = 20 // Número de Nómina
+    worksheet.getColumn(6).width = 35 // Nombre del Empleado
 
     // Aplicar ancho mayor a columnas de fechas para que quepa mejor el contenido (hora + turno)
-    for (let col = 5; col <= 4 + dates.length; col++) {
+    for (let col = 7; col <= 6 + dates.length; col++) {
       worksheet.getColumn(col).width = 28
     }
 
@@ -6649,9 +6662,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         const delays = evaluableDays.filter((d) => d.assist.checkInStatus === 'delay').length
         const faults = evaluableDays.filter((d) => d.assist.checkInStatus === 'fault').length
         const totalAvailable = assists + tolerances + delays + faults
-        const isDiscriminated = !!(employee.employeeAssistDiscriminator && employee.employeeAssistDiscriminator !== 0)
 
-        if (totalAvailable === 0 || isDiscriminated) continue
+        if (totalAvailable === 0) continue
 
         worksheet.getRow(currentRow).height = 45
 
@@ -6659,21 +6671,29 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         const positionName = employee.position?.positionName || 'Sin posición'
         const departmentName = department?.departmentName || 'Sin departamento'
         const payrollCode = employee.employeePayrollCode || 'Sin código'
+        const payrollBuName = employee.payrollBusinessUnit?.businessUnitName || 'Sin UN'
+        const workBuName = employee.businessUnit?.businessUnitName || 'Sin UN'
 
-        // Departamento - Columna A
-        worksheet.getCell(currentRow, 1).value = departmentName
+        // UN Trabajo - Columna A
+        worksheet.getCell(currentRow, 1).value = workBuName
 
-        // Puesto - Columna B
-        worksheet.getCell(currentRow, 2).value = positionName
+        // UN Nómina - Columna B
+        worksheet.getCell(currentRow, 2).value = payrollBuName
 
-        // Número de Nómina - Columna C
-        worksheet.getCell(currentRow, 3).value = payrollCode
+        // Departamento - Columna C
+        worksheet.getCell(currentRow, 3).value = departmentName
 
-        // Nombre del Empleado - Columna D
-        worksheet.getCell(currentRow, 4).value = fullName
+        // Puesto - Columna D
+        worksheet.getCell(currentRow, 4).value = positionName
 
-        // Aplicar formato a las primeras 4 columnas: fondo gris claro (info empleado), alineación, borde
-        for (let col = 1; col <= 4; col++) {
+        // Número de Nómina - Columna E
+        worksheet.getCell(currentRow, 5).value = payrollCode
+
+        // Nombre del Empleado - Columna F
+        worksheet.getCell(currentRow, 6).value = fullName
+
+        // Aplicar formato a las primeras 6 columnas: fondo gris claro (info empleado), alineación, borde
+        for (let col = 1; col <= 6; col++) {
           const infoCell = worksheet.getCell(currentRow, col)
           infoCell.fill = {
             type: 'pattern',
@@ -6682,7 +6702,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           }
           infoCell.alignment = {
             vertical: 'middle',
-            horizontal: col === 3 ? 'center' : 'left',
+            horizontal: col === 5 ? 'center' : 'left',
             wrapText: true
           }
           infoCell.border = {
@@ -6693,9 +6713,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           }
         }
 
-        // Columnas de fechas (desde columna E)
+        // Columnas de fechas (desde columna G)
         dates.forEach((date, dateIndex) => {
-          const colNumber = 5 + dateIndex
+          const colNumber = 7 + dateIndex
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
@@ -6715,10 +6735,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             cellText = getDayCellText(dayData, employee)
             cellColor = 'FFFFFFFF' // Blanco por defecto
 
-            // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
-            if (isDiscriminated) {
-              cellColor = 'FFFFFFFF'
-            } else if (dayData && dayData.assist) {
+            // Celdas de turnos: días con turno: gama de colores
+            if (dayData && dayData.assist) {
               const assist = dayData.assist
 
               // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
@@ -6788,7 +6806,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     //     CONGELAR ENCABEZADOS
     // ==============================
     worksheet.views = [
-      { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
+      { state: 'frozen', ySplit: 4, xSplit: 6, topLeftCell: 'G5', activeCell: 'G5' }
     ]
 
     // ==============================

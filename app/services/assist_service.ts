@@ -3116,7 +3116,7 @@ export default class AssistsService {
 
       // Configurar título
       worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:H1')
+      worksheet.mergeCells('A1:J1')
       const titleRow = worksheet.addRow(['Reporte de Permisos por Fechas'])
       let color = '244062'
       let fgColor = 'FFFFFFF'
@@ -3129,7 +3129,7 @@ export default class AssistsService {
       titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:I2')
+      worksheet.mergeCells('A2:K2')
 
       // Período
       color = '366092'
@@ -3142,10 +3142,12 @@ export default class AssistsService {
       }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
-      worksheet.mergeCells('A3:I3')
+      worksheet.mergeCells('A3:K3')
 
       // Headers
       const headerRow = worksheet.addRow([
+        'Unidad de negocio de trabajo',
+        'Unidad de nómina',
         'ID Empleado',
         'Empleado',
         'Departamento',
@@ -3194,6 +3196,8 @@ export default class AssistsService {
             employeeQuery.preload('person')
             employeeQuery.preload('department')
             employeeQuery.preload('position')
+            employeeQuery.preload('businessUnit')
+            employeeQuery.preload('payrollBusinessUnit')
           })
           .orderBy('shift_exceptions_date', 'asc')
 
@@ -3215,6 +3219,8 @@ export default class AssistsService {
             employeeQuery.preload('person')
             employeeQuery.preload('department')
             employeeQuery.preload('position')
+            employeeQuery.preload('businessUnit')
+            employeeQuery.preload('payrollBusinessUnit')
           })
 
         // Agregar excepciones de turno al reporte
@@ -3227,8 +3233,12 @@ export default class AssistsService {
           const description = exception.shiftExceptionsDescription || ''
           const checkInTime = exception.shiftExceptionCheckInTime || ''
           const checkOutTime = exception.shiftExceptionCheckOutTime || ''
+          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
+          const workBuName = exception.employee.businessUnit?.businessUnitName || 'N/A'
 
           worksheet.addRow([
+            workBuName,
+            payrollBuName,
             employee.employeePayrollCode,
             employeeName,
             departmentName,
@@ -3247,6 +3257,8 @@ export default class AssistsService {
             const employeeName = `${disability.employee.person.personFirstname} ${disability.employee.person.personLastname}`
             const departmentName = disability.employee.department?.departmentName || 'N/A'
             const positionName = disability.employee.position?.positionName || 'N/A'
+            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
+            const workBuName = disability.employee.businessUnit?.businessUnitName || 'N/A'
 
             // Generar fechas para cada día del período de incapacidad
             const periodStart = DateTime.fromJSDate(new Date(period.workDisabilityPeriodStartDate))
@@ -3264,6 +3276,8 @@ export default class AssistsService {
               const description = `Período: ${periodStart.toFormat('yyyy-MM-dd')} a ${periodEnd.toFormat('yyyy-MM-dd')}`
 
               worksheet.addRow([
+                workBuName,
+                payrollBuName,
                 employee.employeePayrollCode,
                 employeeName,
                 departmentName,
@@ -3283,6 +3297,8 @@ export default class AssistsService {
 
       // Ajustar ancho de columnas
       worksheet.columns = [
+        { width: 35 }, // UN Trabajo
+        { width: 25 }, // UN Nómina
         { width: 25 }, // ID de Empleado
         { width: 25 }, // Empleado
         { width: 20 }, // Departamento
