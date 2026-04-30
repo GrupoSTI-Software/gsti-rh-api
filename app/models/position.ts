@@ -111,6 +111,10 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
   @column()
   declare positionAlias: string
 
+  /** Lista de alias separados por comas (búsqueda y unicidad en organigrama). */
+  @column({ columnName: 'position_aliases' })
+  declare aliases: string | null
+
   @column()
   declare positionDescription: string
 
