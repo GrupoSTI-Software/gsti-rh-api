@@ -3,7 +3,6 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
-import Position from './position.js'
 import Competency from './competency.js'
 import CompetencyLevel from './competency_level.js'
 
@@ -11,37 +10,34 @@ import CompetencyLevel from './competency_level.js'
  * @swagger
  * components:
  *   schemas:
- *      PositionCompetencyLevel:
+ *      CompetencyLevelDescription:
  *        type: object
  *        properties:
- *          positionCompetencyLevelId:
+ *          competencyLevelDescriptionId:
  *            type: number
- *            description: Position competency level id
- *          positionId:
- *            type: number
- *            description: Position id
+ *            description: Competency level description id
  *          competencyId:
  *            type: number
  *            description: Competency id
  *          competencyLevelId:
  *            type: number
- *            description: Desired competency level id
- *          positionCompetencyLevelCreatedAt:
+ *            description: Competency level id
+ *          competencyLevelDescription:
  *            type: string
- *          positionCompetencyLevelUpdatedAt:
+ *            description: Description text for the given competency and level
+ *          competencyLevelDescriptionCreatedAt:
  *            type: string
- *          positionCompetencyLevelDeletedAt:
+ *          competencyLevelDescriptionUpdatedAt:
+ *            type: string
+ *          competencyLevelDescriptionDeletedAt:
  *            type: string
  */
 
-export default class PositionCompetencyLevel extends compose(BaseModel, SoftDeletes) {
-  static table = 'position_competency_levels'
+export default class CompetencyLevelDescription extends compose(BaseModel, SoftDeletes) {
+  static table = 'competency_level_descriptions'
 
   @column({ isPrimary: true })
-  declare positionCompetencyLevelId: number
-
-  @column()
-  declare positionId: number
+  declare competencyLevelDescriptionId: number
 
   @column()
   declare competencyId: number
@@ -49,19 +45,17 @@ export default class PositionCompetencyLevel extends compose(BaseModel, SoftDele
   @column()
   declare competencyLevelId: number
 
+  @column()
+  declare competencyLevelDescription: string
+
   @column.dateTime({ autoCreate: true })
-  declare positionCompetencyLevelCreatedAt: DateTime
+  declare competencyLevelDescriptionCreatedAt: DateTime
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare positionCompetencyLevelUpdatedAt: DateTime
+  declare competencyLevelDescriptionUpdatedAt: DateTime
 
-  @column.dateTime({ columnName: 'position_competency_level_deleted_at' })
+  @column.dateTime({ columnName: 'competency_level_description_deleted_at' })
   declare deletedAt: DateTime | null
-
-  @belongsTo(() => Position, {
-    foreignKey: 'positionId',
-  })
-  declare position: BelongsTo<typeof Position>
 
   @belongsTo(() => Competency, {
     foreignKey: 'competencyId',
