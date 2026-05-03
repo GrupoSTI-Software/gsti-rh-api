@@ -16,6 +16,8 @@ import { DepartmentIndexFilterInterface } from '../interfaces/department_index_f
 import db from '@adonisjs/lucid/services/db'
 import RoleDepartment from '#models/role_department'
 import Role from '#models/role'
+import OrgAliasAppError from '#exceptions/org_alias_app_error'
+import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 
 export default class DepartmentController {
   /**
@@ -466,6 +468,9 @@ export default class DepartmentController {
         }
       }
       const departmentId = request.param('departmentId')
+      const positionSearch =
+        request.input('q') ?? request.input('search') ?? request.input('positionName')
+
       if (!departmentId) {
         response.status(400)
         return {
@@ -489,9 +494,15 @@ export default class DepartmentController {
         const allPositions = await DepartmentPosition.query()
           .whereHas('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .preload('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .orderBy('position_id')
 
@@ -511,9 +522,15 @@ export default class DepartmentController {
         .where('department_id', departmentId)
           .whereHas('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .preload('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .orderBy('position_id')
 
@@ -584,9 +601,15 @@ export default class DepartmentController {
         })
         .whereHas('position', (queryPosition) => {
           queryPosition.whereIn('businessUnitId', businessUnitsList)
+          if (positionSearch?.trim()) {
+            applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+          }
         })
         .preload('position', (queryPosition) => {
           queryPosition.whereIn('businessUnitId', businessUnitsList)
+          if (positionSearch?.trim()) {
+            applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+          }
         })
         .orderBy('position_id')
 
@@ -1234,6 +1257,7 @@ export default class DepartmentController {
     try {
       const departmentName = request.input('departmentName')
       const departmentAlias = request.input('departmentAlias')
+      const aliasesInput = request.input('aliases')
       const departmentIsDefault = request.input('departmentIsDefault')
       const departmentActive = request.input('departmentActive')
       const parentDepartmentId = request.input('parentDepartmentId')
@@ -1244,6 +1268,10 @@ export default class DepartmentController {
         departmentCode: departmentCode,
         departmentName: departmentName,
         departmentAlias: departmentAlias || '',
+        aliases:
+          aliasesInput === null || aliasesInput === undefined || aliasesInput === ''
+            ? null
+            : String(aliasesInput),
         departmentIsDefault: departmentIsDefault || 0,
         departmentActive: departmentActive || 1,
         parentDepartmentId: parentDepartmentId,
@@ -1298,6 +1326,16 @@ export default class DepartmentController {
         }
       }
     } catch (error) {
+      if (error instanceof OrgAliasAppError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: error.title,
+          message: error.detail,
+          detail: error.detail,
+          data: { key: error.key },
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1456,6 +1494,7 @@ export default class DepartmentController {
       const departmentActive = request.input('departmentActive')
       const parentDepartmentId = request.input('parentDepartmentId')
 
+      const body = request.all() as Record<string, unknown>
       const department = {
         departmentId: departmentId,
         departmentCode: departmentCode,
@@ -1465,6 +1504,10 @@ export default class DepartmentController {
         departmentActive: departmentActive,
         parentDepartmentId: parentDepartmentId,
       } as Department
+      if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
+        const a = body.aliases
+        department.aliases = a === null || a === '' ? null : String(a)
+      }
 
       if (!departmentId) {
         response.status(400)
@@ -1530,6 +1573,16 @@ export default class DepartmentController {
         }
       }
     } catch (error) {
+      if (error instanceof OrgAliasAppError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: error.title,
+          message: error.detail,
+          detail: error.detail,
+          data: { key: error.key },
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

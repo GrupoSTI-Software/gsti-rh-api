@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import User from './user.js'
+import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 /**
  * @swagger
  * components:
@@ -74,7 +76,7 @@ export default class CareerPathCandidateStatusHistory extends compose(BaseModel,
   declare changedBy: number
 
   @column()
-  declare careerPathCandidateStatusHistoryFromStatus: string
+  declare careerPathCandidateStatusHistoryFromStatus: string | null
 
   @column()
   declare careerPathCandidateStatusHistoryToStatus: string
@@ -90,4 +92,9 @@ export default class CareerPathCandidateStatusHistory extends compose(BaseModel,
 
   @column.dateTime({ columnName: 'career_path_candidate_status_history_deleted_at' })
   declare deletedAt: DateTime | null
+
+  @belongsTo(() => User, {
+    foreignKey: 'changedBy',
+  })
+  declare changedByUser: BelongsTo<typeof User>
 }

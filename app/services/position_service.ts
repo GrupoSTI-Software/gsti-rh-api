@@ -20,6 +20,9 @@ import SystemSetting from '#models/system_setting'
 import axios from 'axios'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
+import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
+import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
 
 export default class PositionService {
 
@@ -88,6 +91,13 @@ export default class PositionService {
     newPosition.positionMaxStaff = position.positionMaxStaff ?? null
     newPosition.positionMinActiveStaffPerShift = position.positionMinActiveStaffPerShift ?? null
 
+    const prepared = prepareAliasesForPersistence(position.aliases ?? null)
+    newPosition.aliases = prepared.display
+    await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+      businessUnitId: newPosition.businessUnitId,
+      normalizedTokens: prepared.normalizedTokens,
+    })
+
     await newPosition.save()
     await newPosition.load('parentPosition')
     await newPosition.load('subPositions')
@@ -122,6 +132,17 @@ export default class PositionService {
     if (position.positionMinActiveStaffPerShift !== undefined) {
       currentPosition.positionMinActiveStaffPerShift = position.positionMinActiveStaffPerShift
     }
+
+    if (position.aliases !== undefined) {
+      const prepared = prepareAliasesForPersistence(position.aliases ?? null)
+      await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+        businessUnitId: currentPosition.businessUnitId,
+        normalizedTokens: prepared.normalizedTokens,
+        excludePositionId: currentPosition.positionId,
+      })
+      currentPosition.aliases = prepared.display
+    }
+
     await currentPosition.save()
     await currentPosition.load('parentPosition')
     await currentPosition.load('subPositions')
@@ -229,8 +250,12 @@ export default class PositionService {
     return position ? position : null
   }
 
-  async get() {
-    const positions = await Position.query().whereNull('position_deleted_at')
+  async get(search?: string | null) {
+    const positionsQuery = Position.query().whereNull('position_deleted_at')
+    if (search?.trim()) {
+      applyPositionNameOrAliasesSearch(positionsQuery, search)
+    }
+    const positions = await positionsQuery
     return positions
   }
 
@@ -457,8 +482,10 @@ export default class PositionService {
    */
    async findPositionByName(positionName: string): Promise<Position | null> {
     const position = await Position.query()
-      .where('position_alias', positionName)
       .whereNull('position_deleted_at')
+      .where((sub) => {
+        applyPositionNameOrAliasesSearch(sub, positionName)
+      })
       .first()
     return position || null
   }

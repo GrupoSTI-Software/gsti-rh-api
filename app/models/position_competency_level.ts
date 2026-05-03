@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Position from './position.js'
 import Competency from './competency.js'
+import CompetencyLevel from './competency_level.js'
 
 /**
  * @swagger
@@ -22,15 +23,9 @@ import Competency from './competency.js'
  *          competencyId:
  *            type: number
  *            description: Competency id
- *          positionCompetencyLevelInDevelopmentDescription:
- *            type: string
- *            description: Descripcion del nivel En desarrollo
- *          positionCompetencyLevelCapableDescription:
- *            type: string
- *            description: Descripcion del nivel Capaz
- *          positionCompetencyLevelExpertDescription:
- *            type: string
- *            description: Descripcion del nivel Experto
+ *          competencyLevelId:
+ *            type: number
+ *            description: Desired competency level id
  *          positionCompetencyLevelCreatedAt:
  *            type: string
  *          positionCompetencyLevelUpdatedAt:
@@ -52,13 +47,7 @@ export default class PositionCompetencyLevel extends compose(BaseModel, SoftDele
   declare competencyId: number
 
   @column()
-  declare positionCompetencyLevelInDevelopmentDescription: string | null
-
-  @column()
-  declare positionCompetencyLevelCapableDescription: string | null
-
-  @column()
-  declare positionCompetencyLevelExpertDescription: string | null
+  declare competencyLevelId: number
 
   @column.dateTime({ autoCreate: true })
   declare positionCompetencyLevelCreatedAt: DateTime
@@ -78,4 +67,9 @@ export default class PositionCompetencyLevel extends compose(BaseModel, SoftDele
     foreignKey: 'competencyId',
   })
   declare competency: BelongsTo<typeof Competency>
+
+  @belongsTo(() => CompetencyLevel, {
+    foreignKey: 'competencyLevelId',
+  })
+  declare competencyLevel: BelongsTo<typeof CompetencyLevel>
 }
