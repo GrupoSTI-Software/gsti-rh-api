@@ -48,6 +48,7 @@ router
       '#controllers/employee_temporary_assignment_controller.showActive'
     )
 
+    router.get('/:employeeId/salary-history', '#controllers/employee_controller.salaryHistory')
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
     router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
     router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')

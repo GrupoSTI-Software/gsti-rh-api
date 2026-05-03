@@ -4,6 +4,15 @@ export default class extends BaseSchema {
   protected tableName = 'passkey_credentials'
 
   async up() {
+    const existing = await this.db.rawQuery(
+      `SELECT COUNT(*) as count FROM information_schema.tables
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+      [this.tableName]
+    )
+    if (Number(existing[0]?.[0]?.count ?? 0) > 0) {
+      return
+    }
+
     this.schema.createTable(this.tableName, (table) => {
       table.increments('passkey_credential_id').primary()
       table
@@ -25,12 +34,11 @@ export default class extends BaseSchema {
       table.timestamp('passkey_credential_updated_at', { useTz: true }).defaultTo(this.now())
       table.timestamp('passkey_credential_deleted_at', { useTz: true }).nullable()
 
-      // Índices para optimizar búsquedas
       table.index('user_id')
     })
   }
 
   async down() {
-    this.schema.dropTable(this.tableName)
+    await this.schema.dropTableIfExists(this.tableName)
   }
 }
