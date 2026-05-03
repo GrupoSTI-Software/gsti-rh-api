@@ -36,6 +36,7 @@ import {
   isTerminationTypeCompatibleWithModality,
   isValidEmployeeTerminationModality,
 } from '../constants/employee_termination.js'
+import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -1254,7 +1255,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ request, response, i18n, auth }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       const employeeFirstName = request.input('employeeFirstName')
@@ -1275,6 +1276,7 @@ export default class EmployeeController {
       const employeeBusinessEmail = request.input('employeeBusinessEmail')
       const employeeTypeOfContract = request.input('employeeTypeOfContract')
       const dailySalary = request.input('dailySalary') || 0
+      const salaryChangeReason: string | null = request.input('salaryChangeReason') ?? null
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
@@ -1400,8 +1402,12 @@ export default class EmployeeController {
         }
       }
       const previousEmail = currentEmployee.employeeBusinessEmail
+      const actorId = auth.user?.userId
 
-      const updateEmployee = await employeeService.update(currentEmployee, employee)
+      const updateEmployee = await employeeService.update(currentEmployee, employee, {
+        changedBy: actorId,
+        salaryChangeReason,
+      })
 
       if (updateEmployee) {
         const user = await User.query()
@@ -7773,6 +7779,71 @@ export default class EmployeeController {
         title: result.title,
         message: result.message,
         data: result.data,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/salary-history:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Obtener el histórico de salarios de un empleado
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Histórico de salarios ordenado del más reciente al más antiguo
+   *       '404':
+   *         description: Empleado no encontrado
+   */
+  async salaryHistory({ request, response }: HttpContext) {
+    try {
+      const employeeId = Number(request.param('employeeId'))
+
+      if (!employeeId || Number.isNaN(employeeId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'ID inválido',
+          message: 'El ID del empleado no es válido',
+        }
+      }
+
+      const service = new EmployeeSalaryHistoryService()
+      const result = await service.getHistory(employeeId)
+
+      if ('data' in result) {
+        response.status(200)
+        return {
+          type: 'success',
+          title: 'Historial de salarios',
+          message: 'Historial de salarios encontrado correctamente',
+          data: result.data,
+        }
+      }
+
+      response.status(result.status)
+      return {
+        type: 'warning',
+        title: result.title,
+        message: result.message,
+        key: result.key,
       }
     } catch (error) {
       response.status(500)

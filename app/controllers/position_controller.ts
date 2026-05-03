@@ -6,6 +6,7 @@ import axios from 'axios'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
 import { createPositionValidator, updatePositionValidator } from '#validators/position'
 import { PositionShiftFilterInterface } from '../interfaces/position_shift_filter_interface.js'
+import OrgAliasAppError from '#exceptions/org_alias_app_error'
 
 export default class PositionController {
   /**
@@ -379,10 +380,16 @@ export default class PositionController {
       const positionIdealStaff = request.input('positionIdealStaff')
       const positionMaxStaff = request.input('positionMaxStaff')
       const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
+      const aliasesInput = request.input('aliases')
+
       const position = {
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
+        aliases:
+          aliasesInput === null || aliasesInput === undefined || aliasesInput === ''
+            ? null
+            : String(aliasesInput),
         positionDescription: positionDescription,
         positionGeneralObjective: positionGeneralObjective,
         positionSpecificRequirement: positionSpecificRequirement,
@@ -425,6 +432,16 @@ export default class PositionController {
         }
       }
     } catch (error) {
+      if (error instanceof OrgAliasAppError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: error.title,
+          message: error.detail,
+          detail: error.detail,
+          data: { key: error.key },
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -650,6 +667,7 @@ export default class PositionController {
       const positionMaxStaff = request.input('positionMaxStaff')
       const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
 
+      const body = request.all() as Record<string, unknown>
       const position = {
         positionId: positionId,
         positionCode: positionCode,
@@ -671,6 +689,10 @@ export default class PositionController {
         positionMaxStaff,
         positionMinActiveStaffPerShift,
       } as Position
+      if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
+        const a = body.aliases
+        position.aliases = a === null || a === '' ? null : String(a)
+      }
       if (!positionId) {
         response.status(400)
         return {
@@ -726,6 +748,16 @@ export default class PositionController {
         }
       }
     } catch (error) {
+      if (error instanceof OrgAliasAppError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: error.title,
+          message: error.detail,
+          detail: error.detail,
+          data: { key: error.key },
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1187,10 +1219,11 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async get({ response, i18n }: HttpContext) {
+  async get({ request, response, i18n }: HttpContext) {
     try {
       const positionService = new PositionService(i18n)
-      const positions = await positionService.get()
+      const search = request.input('q') ?? request.input('positionName') ?? request.input('search')
+      const positions = await positionService.get(search)
 
       response.status(200)
       return {

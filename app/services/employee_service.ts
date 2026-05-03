@@ -42,6 +42,7 @@ import EmployeeZone from '#models/employee_zone'
 import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
+import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import EmployeeAddress from '#models/employee_address'
 import EmployeeSpouse from '#models/employee_spouse'
@@ -577,7 +578,14 @@ export default class EmployeeService {
 
 
 
-  async update(currentEmployee: Employee, employee: Employee) {
+  async update(
+    currentEmployee: Employee,
+    employee: Employee,
+    options?: { changedBy?: number; salaryChangeReason?: string | null }
+  ) {
+    const salarioAnterior = currentEmployee.dailySalary
+    const salarioNuevo = employee.dailySalary || 0
+
     currentEmployee.employeeFirstName = employee.employeeFirstName
     currentEmployee.employeeLastName = employee.employeeLastName
     currentEmployee.employeeSecondLastName = employee.employeeSecondLastName
@@ -597,7 +605,7 @@ export default class EmployeeService {
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
     currentEmployee.businessUnitId = employee.businessUnitId
-    currentEmployee.dailySalary = employee.dailySalary || 0
+    currentEmployee.dailySalary = salarioNuevo
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
     currentEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
     currentEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
@@ -607,6 +615,17 @@ export default class EmployeeService {
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
     await currentEmployee.save()
+
+    if (Number(salarioAnterior) !== Number(salarioNuevo) && options?.changedBy) {
+      const historialService = new EmployeeSalaryHistoryService()
+      await historialService.registrarCambio({
+        employeeId: currentEmployee.employeeId,
+        salaryDaily: salarioNuevo,
+        changedBy: options.changedBy,
+        reason: options.salaryChangeReason ?? null,
+      })
+    }
+
     await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee

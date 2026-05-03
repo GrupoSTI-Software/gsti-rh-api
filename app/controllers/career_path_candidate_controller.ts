@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
 import CareerPathCandidateService from '#services/career_path_candidate_service'
 import { CareerPathCandidateFilterSearchInterface } from 'app/interfaces/career_path_candidate_filter_search_interface.js'
 import CareerPathCandidate from '#models/career_path_candidate'
@@ -27,6 +28,30 @@ export default class CareerPathCandidateController {
    *         description: Target position id
    *         schema:
    *           type: number
+   *       - status: status
+   *         in: query
+   *         required: false
+   *         description: Status
+   *         schema:
+   *           type: string
+   *           enum:
+   *             - propuesto
+   *             - activo
+   *             - rechazado
+   *             - desactivado
+   *             - expirado
+   *       - employeeName: employee name
+   *         in: query
+   *         required: false
+   *         description: Employee name
+   *         schema:
+   *           type: string
+   *       - proposedByName: proposed by name
+   *         in: query
+   *         required: false
+   *         description: Proposed by name
+   *         schema:
+   *           type: string
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -113,11 +138,16 @@ export default class CareerPathCandidateController {
     try {
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
-     
+      const status = request.input('status')
+      const employeeName = request.input('employeeName')
+      const proposedByName = request.input('proposedByName')
       const careerPathCandidateService = new CareerPathCandidateService(i18n)
       const filters = {
         originPositionId: originPositionId,
         targetPositionId: targetPositionId,
+        status: status,
+        employeeName: employeeName,
+        proposedByName: proposedByName,
       } as CareerPathCandidateFilterSearchInterface
       const careerPathCandidates = await careerPathCandidateService.index(filters)
       response.status(200)
@@ -538,6 +568,44 @@ export default class CareerPathCandidateController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *       '422':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '409':
+   *         description: The limit of candidates has been exceeded
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
    *       '404':
    *         description: Resource not found
    *         content:
@@ -599,34 +667,19 @@ export default class CareerPathCandidateController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async updateStatus({ request, response, i18n, auth }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const careerPathCandidateId = request.param('careerPathCandidateId')
-      const businessUnitId = request.input('businessUnitId')
-      const employeeId = request.input('employeeId')
-      const originPositionId = request.input('originPositionId')
-      const targetPositionId = request.input('targetPositionId')
-      const careerPathCandidateIsOverride = request.input('careerPathCandidateIsOverride')
-      const careerPathOverrideReasonId = request.input('careerPathOverrideReasonId')
-      const careerPathCandidateJustification = request.input('careerPathCandidateJustification')
       const careerPathCandidateStatus = request.input('careerPathCandidateStatus')
-      const reviewedBy = request.input('reviewedBy')
-      const careerPathCandidateReviewedAt = request.input('careerPathCandidateReviewedAt')
+      const reviewedBy = auth.user?.userId
       const careerPathCandidateRejectionReason = request.input('careerPathCandidateRejectionReason')
       const careerPathCandidateActivatedAt = request.input('careerPathCandidateActivatedAt')
       const careerPathCandidate = {
         careerPathCandidateId: careerPathCandidateId,
-        businessUnitId: businessUnitId,
-        employeeId: employeeId,
-        originPositionId: originPositionId,
-        targetPositionId: targetPositionId,
-        careerPathCandidateIsOverride: careerPathCandidateIsOverride,
-        careerPathOverrideReasonId: careerPathOverrideReasonId,
-        careerPathCandidateJustification: careerPathCandidateJustification,
         careerPathCandidateStatus: careerPathCandidateStatus,
         reviewedBy: reviewedBy,
-        careerPathCandidateReviewedAt: careerPathCandidateReviewedAt,
+        careerPathCandidateReviewedAt: DateTime.now().toFormat('yyyy-MM-dd HH:mm:ss'),
         careerPathCandidateRejectionReason: careerPathCandidateRejectionReason,
         careerPathCandidateActivatedAt: careerPathCandidateActivatedAt,
       } as CareerPathCandidate
@@ -655,32 +708,45 @@ export default class CareerPathCandidateController {
         }
       }
       const careerPathCandidateService = new CareerPathCandidateService(i18n)
-      const data = await request.validateUsing(updateCareerPathCandidateValidator)
-      const exist = await careerPathCandidateService.verifyInfoExist(careerPathCandidate)
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
-        }
-      }
-      const verifyInfo = await careerPathCandidateService.verifyInfo(careerPathCandidate)
+      await request.validateUsing(updateCareerPathCandidateValidator)
+      const verifyInfo = careerPathCandidateService.verifyInvalidTransitions(currentCareerPathCandidate, careerPathCandidate)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
           type: verifyInfo.type,
           title: verifyInfo.title,
           message: verifyInfo.message,
-          data: { ...data },
+          data: { ...careerPathCandidate },
         }
       }
-      const updateCareerPathCandidate = await careerPathCandidateService.update(
+      if (careerPathCandidateStatus === 'activo') {
+      const verifyLimitCandidatesActive = await careerPathCandidateService.verifyLimitCandidatesActive(currentCareerPathCandidate.employeeId)
+        if (verifyLimitCandidatesActive.status !== 200) {
+          response.status(verifyLimitCandidatesActive.status)
+          return {
+            type: verifyLimitCandidatesActive.type,
+            title: verifyLimitCandidatesActive.title,
+            message: verifyLimitCandidatesActive.message,
+            data: { ...careerPathCandidate },
+          }
+        }
+      }
+      const updateCareerPathCandidate = await careerPathCandidateService.updateStatus(
         currentCareerPathCandidate,
         careerPathCandidate
       )
       if (updateCareerPathCandidate) {
+        if (
+          careerPathCandidateStatus === 'activo' ||
+          careerPathCandidateStatus === 'rechazado'
+        ) {
+          await careerPathCandidateService.sendStatusNotificationEmail(
+            currentCareerPathCandidate.proposedBy,
+            currentCareerPathCandidate,
+            careerPathCandidateStatus,
+            i18n
+          )
+        }
         response.status(200)
         return {
           type: 'success',
@@ -966,7 +1032,7 @@ export default class CareerPathCandidateController {
       const careerPathCandidateService = new CareerPathCandidateService(i18n)
       const showCareerPathCandidate = await careerPathCandidateService.show(careerPathCandidateId)
       if (!showCareerPathCandidate) {
-        const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
+        const entity = `${t('relation')} ${t('company')} - ${t('position')}}`
         response.status(404)
         return {
           type: 'warning',

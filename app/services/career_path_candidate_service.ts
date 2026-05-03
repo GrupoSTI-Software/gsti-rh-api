@@ -7,6 +7,13 @@ import { CareerPathCandidateFilterSearchInterface } from 'app/interfaces/career_
 import CareerPathCandidateStatusHistoryService from './career_path_candidate_status_history_service.js'
 import CareerPathTemplate from '#models/career_path_template'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
+import Employee from '#models/employee'
+import DepartmentPosition from '#models/department_position'
+import env from '#start/env'
+import mail from '@adonisjs/mail/services/main'
+import User from '#models/user'
+import SystemSettingService from '#services/system_setting_service'
+import SystemSetting from '#models/system_setting'
 
 export default class CareerPathCandidateService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -24,9 +31,31 @@ export default class CareerPathCandidateService {
       .if(filters.targetPositionId, (query) => {
         query.where('target_position_id', filters.targetPositionId)
       })
+      .if(filters.status, (query) => {
+        query.where('career_path_candidate_status', filters.status)
+      })
+      .if(filters.employeeName, (query) => {
+        query.whereHas('employee', (q) => {
+          q.whereHas('person', (p) => {
+            p.whereRaw('UPPER(CONCAT(person_firstname, " ", person_lastname, " ", person_second_lastname)) LIKE ?', [`%${filters.employeeName.toUpperCase()}%`])
+          })
+        })
+      })
+      .if(filters.proposedByName, (query) => {
+        query.whereHas('proposedByUser', (q) => {
+          q.whereHas('person', (p) => {
+            p.whereRaw('UPPER(CONCAT(person_firstname, " ", person_lastname, " ", person_second_lastname)) LIKE ?', [`%${filters.proposedByName.toUpperCase()}%`])
+          })
+        })
+      })
+      .preload('employee')
       .preload('businessUnit')
       .preload('originPosition')
       .preload('targetPosition')
+      .preload('careerPathOverrideReason')
+      .preload('proposedByUser')
+      .preload('reviewedByUser')
+      .preload('careerPathCandidateStatusHistories')
       .orderBy('career_path_candidate_id', 'desc')
     return careerPathCandidates
   }
@@ -53,42 +82,49 @@ export default class CareerPathCandidateService {
     const careerPathCandidateStatusHistory = {
       careerPathCandidateId: newCareerPathCandidate.careerPathCandidateId,
       changedBy: newCareerPathCandidate.proposedBy,
-      careerPathCandidateStatusHistoryFromStatus: newCareerPathCandidate.careerPathCandidateStatus,
+      careerPathCandidateStatusHistoryFromStatus: null,
       careerPathCandidateStatusHistoryToStatus: newCareerPathCandidate.careerPathCandidateStatus,
-      careerPathCandidateStatusHistoryReason: newCareerPathCandidate.careerPathCandidateJustification,
+      careerPathCandidateStatusHistoryReason: careerPathCandidate.careerPathCandidateJustification,
     } as CareerPathCandidateStatusHistory
     await careerPathCandidateStatusHistoryService.create(careerPathCandidateStatusHistory)
 
     return newCareerPathCandidate
   }
 
-  async update(
+  async updateStatus(
     currentCareerPathCandidate: CareerPathCandidate,
     careerPathCandidate: CareerPathCandidate,
   ) {
-    currentCareerPathCandidate.businessUnitId = careerPathCandidate.businessUnitId
-    currentCareerPathCandidate.employeeId = careerPathCandidate.employeeId
-    currentCareerPathCandidate.originPositionId = careerPathCandidate.originPositionId
-    currentCareerPathCandidate.targetPositionId = careerPathCandidate.targetPositionId
-    currentCareerPathCandidate.careerPathCandidateIsOverride = careerPathCandidate.careerPathCandidateIsOverride
-    currentCareerPathCandidate.careerPathOverrideReasonId = careerPathCandidate.careerPathOverrideReasonId
-    currentCareerPathCandidate.careerPathCandidateJustification = careerPathCandidate.careerPathCandidateJustification
+    const currentCareerPathCandidateStatus = currentCareerPathCandidate.careerPathCandidateStatus
     currentCareerPathCandidate.careerPathCandidateStatus = careerPathCandidate.careerPathCandidateStatus
-    currentCareerPathCandidate.proposedBy = careerPathCandidate.proposedBy
     currentCareerPathCandidate.reviewedBy = careerPathCandidate.reviewedBy
     currentCareerPathCandidate.careerPathCandidateReviewedAt = careerPathCandidate.careerPathCandidateReviewedAt
     currentCareerPathCandidate.careerPathCandidateRejectionReason = careerPathCandidate.careerPathCandidateRejectionReason
-    currentCareerPathCandidate.careerPathCandidateActivatedAt = careerPathCandidate.careerPathCandidateActivatedAt
-    currentCareerPathCandidate.careerPathCandidateExpiresAt = careerPathCandidate.careerPathCandidateExpiresAt
     await currentCareerPathCandidate.save()
-
+    // si el estatus es activo , se cambia el puesto al empleado
+    if (careerPathCandidate.careerPathCandidateStatus === 'activo') {
+      const employee = await Employee.query()
+        .where('employee_id', currentCareerPathCandidate.employeeId)
+        .first()
+      if (employee) {
+        const positionDepartment = await DepartmentPosition.query()
+          .where('position_id', currentCareerPathCandidate.targetPositionId)
+          .first()
+        if (positionDepartment) {
+          employee.positionId = positionDepartment.positionId
+          employee.departmentId = positionDepartment.departmentId
+          await employee.save()
+        }
+      }
+    }
+    
     const careerPathCandidateStatusHistoryService = new CareerPathCandidateStatusHistoryService()
     const careerPathCandidateStatusHistory = {
       careerPathCandidateId: currentCareerPathCandidate.careerPathCandidateId,
       changedBy: currentCareerPathCandidate.reviewedBy,
-      careerPathCandidateStatusHistoryFromStatus: currentCareerPathCandidate.careerPathCandidateStatus,
-      careerPathCandidateStatusHistoryToStatus: currentCareerPathCandidate.careerPathCandidateStatus,
-      careerPathCandidateStatusHistoryReason: currentCareerPathCandidate.careerPathCandidateJustification,
+      careerPathCandidateStatusHistoryFromStatus: currentCareerPathCandidateStatus,
+      careerPathCandidateStatusHistoryToStatus: careerPathCandidate.careerPathCandidateStatus,
+      careerPathCandidateStatusHistoryReason: currentCareerPathCandidate.careerPathCandidateRejectionReason ? currentCareerPathCandidate.careerPathCandidateRejectionReason : careerPathCandidate.careerPathCandidateJustification,
     } as CareerPathCandidateStatusHistory
     await careerPathCandidateStatusHistoryService.create(careerPathCandidateStatusHistory)
 
@@ -104,6 +140,14 @@ export default class CareerPathCandidateService {
     const careerPathCandidate = await CareerPathCandidate.query()
       .whereNull('career_path_candidate_deleted_at')
       .where('career_path_candidate_id', careerPathCandidateId)
+      .preload('employee')
+      .preload('businessUnit')
+      .preload('originPosition')
+      .preload('targetPosition')
+      .preload('careerPathOverrideReason')
+      .preload('proposedByUser')
+      .preload('reviewedByUser')
+      .preload('careerPathCandidateStatusHistories')
       .first()
     return careerPathCandidate
   }
@@ -291,6 +335,73 @@ export default class CareerPathCandidateService {
     }
   }
 
+  async verifyLimitCandidatesActive(employeeId: number) {
+    const countCareerPathCandidates = await CareerPathCandidate.query()
+      .whereNull('career_path_candidate_deleted_at')
+      .where('employee_id', employeeId)
+      .whereIn('career_path_candidate_status', ['activo'])
+    if (countCareerPathCandidates.length >= 3) {
+      return {
+        status: 409,
+        type: 'warning',
+        title: this.t('the_limit_of_candidates_has_been_exceeded'),
+        message: this.t('the_limit_of_candidates_active_has_been_exceeded'),
+        data: { employeeId },
+  }
+  }
+  return {
+    status: 200,
+    type: 'success',
+    title: this.t('info_verify_successfully'),
+    message: this.t('info_verify_successfully'),
+    data: { employeeId },
+  }
+}
+
+verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, careerPathCandidate: CareerPathCandidate) {
+  if (careerPathCandidate.careerPathCandidateStatus === 'rechazado' && !careerPathCandidate.careerPathCandidateRejectionReason) {
+    return {
+      status: 422,
+      type: 'warning',
+      title: this.t('rejection_reason_required'),
+      message: this.t('rejection_reason_required'),
+      data: { ...careerPathCandidate },
+    }
+  }
+  if (currentCareerPathCandidate.careerPathCandidateStatus === 'rechazado' && careerPathCandidate.careerPathCandidateStatus === 'activo') {
+    return {
+      status: 422,
+      type: 'warning',
+      title: this.t('invalid_transition'),
+      message: this.t('invalid_transition_from_rejected_to_active'),
+    }
+  }
+  if (currentCareerPathCandidate.careerPathCandidateStatus === 'desactivado' && careerPathCandidate.careerPathCandidateStatus === 'activo') {
+    return {
+      status: 422,
+      type: 'warning',
+      title: this.t('invalid_transition'),
+      message: this.t('invalid_transition_from_desactivated_to_active'),
+    }
+  }
+  const allowedStatuses = ['activo', 'rechazado', 'desactivado', 'expirado']
+  if (!allowedStatuses.includes(careerPathCandidate.careerPathCandidateStatus)) {
+    return {
+      status: 422,
+      type: 'warning',
+      title: this.t('invalid_transition'),
+      message: this.t('invalid_transition_from_any_status_to_other_status'),
+    }
+  }
+  return {
+    status: 200,
+    type: 'success',
+    title: this.t('info_verify_successfully'),
+    message: this.t('info_verify_successfully'),
+    data: { currentCareerPathCandidate, careerPathCandidate },
+  }
+}
+
   async getByEmployeeId(employeeId: number) {
     const careerPathCandidates = await CareerPathCandidate.query()
       .whereNull('career_path_candidate_deleted_at')
@@ -302,4 +413,84 @@ export default class CareerPathCandidateService {
       .orderBy('career_path_candidate_id', 'desc')
     return careerPathCandidates
   } 
+
+
+  async sendStatusNotificationEmail(
+    proposedByUserId: number,
+    candidate: CareerPathCandidate,
+    newStatus: string,
+    i18n: I18n
+  ): Promise<void> {
+    try {
+      const smtpUsername = env.get('SMTP_USERNAME')
+      if (!smtpUsername) return
+
+      const proposer = await User.query()
+        .where('user_id', proposedByUserId)
+        .whereNull('user_deleted_at')
+        .preload('person')
+        .first()
+
+      if (!proposer?.userEmail) return
+
+      await candidate.load('employee', (q) => q.preload('person'))
+      await candidate.load('originPosition')
+      await candidate.load('targetPosition')
+
+      let tradeName = 'BO'
+      let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+      const systemSettingService = new SystemSettingService()
+      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      if (systemSettingActive) {
+        if (systemSettingActive.systemSettingLogo) {
+          backgroundImageLogo = systemSettingActive.systemSettingLogo
+        }
+        if (systemSettingActive.systemSettingTradeName) {
+          tradeName = systemSettingActive.systemSettingTradeName
+        }
+      }
+
+      const t = i18n.formatMessage.bind(i18n)
+
+      const statusLabel =
+        newStatus === 'activo'
+          ? t('career_path_candidate_status_approved')
+          : t('career_path_candidate_status_rejected')
+
+      const managerName = proposer.person
+        ? `${proposer.person.personFirstname} ${proposer.person.personLastname} ${proposer.person.personSecondLastname}`
+        : proposer.userEmail
+
+      const candidateName = candidate.employee?.person
+        ? `${candidate.employee.person.personFirstname} ${candidate.employee.person.personLastname} ${candidate.employee.person.personSecondLastname}`
+        : `#${candidate.employeeId}`
+
+      await mail.send((message) => {
+        message
+          .to(proposer.userEmail)
+          .from(smtpUsername, tradeName)
+          .subject(t('career_path_candidate_email_subject', { tradeName, statusLabel }))
+          .htmlView('emails/career_path_candidate_status', {
+            lang: i18n.locale,
+            title: t('career_path_candidate_email_title'),
+            greeting: t('career_path_candidate_email_greeting'),
+            bodyText: t('career_path_candidate_email_body', { statusLabel }),
+            labelCandidate: t('career_path_candidate_email_label_candidate'),
+            labelOriginPosition: t('career_path_candidate_email_label_origin_position'),
+            labelTargetPosition: t('career_path_candidate_email_label_target_position'),
+            labelStatus: t('career_path_candidate_email_label_status'),
+            labelRejectionReason: t('career_path_candidate_email_label_rejection_reason'),
+            footerText: t('career_path_candidate_email_footer'),
+            managerName,
+            candidateName,
+            originPosition: candidate.originPosition?.positionName ?? `#${candidate.originPositionId}`,
+            targetPosition: candidate.targetPosition?.positionName ?? `#${candidate.targetPositionId}`,
+            newStatus: statusLabel,
+            rejectionReason: candidate.careerPathCandidateRejectionReason ?? null,
+            backgroundImageLogo,
+          })
+      })
+    } catch (_error) {
+    }
+  }
 }
