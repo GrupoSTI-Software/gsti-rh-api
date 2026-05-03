@@ -265,5 +265,18 @@
   "the_override_reason_is_required": "The override reason is required",
   "the_justification_must_be_at_least_20_characters": "The justification must be at least 20 characters",
   "the_limit_of_candidates_has_been_exceeded": "The limit of candidates has been exceeded",
-  "the_user_is_not_the_direct_boss_of_the_employee": "The user is not the direct boss of the employee"
+  "the_user_is_not_the_direct_boss_of_the_employee": "The user is not the direct boss of the employee",
+  "salary_history": "Salary history",
+  "salary_history_empty": "No salary changes have been recorded for this employee yet",
+  "salary_daily": "Daily salary",
+  "salary_monthly_equivalent": "Monthly salary equivalent",
+  "valid_from": "Valid from",
+  "valid_to": "Valid to",
+  "current": "Current",
+  "changed_by": "Changed by",
+  "salary_change_reason": "Reason for change",
+  "salary_change_reason_placeholder": "E.g. Annual raise, Promotion, Reclassification",
+  "salary_history_not_found": "Employee not found",
+  "salary_history_found": "Salary history found successfully",
+  "salary_history_employee_not_found": "No employee exists with the given ID"
 }
