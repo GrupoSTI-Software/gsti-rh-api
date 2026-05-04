@@ -31,6 +31,11 @@ export default class PositionSpecificFunctionController {
    *                 description: Weight id
    *                 required: true
    *                 default: ''
+   *               competencyId:
+   *                 type: number
+   *                 description: Competency id
+   *                 required: true
+   *                 default: ''
    *               positionCompetencyName:
    *                 type: string
    *                 description: Position competency name
@@ -130,11 +135,13 @@ export default class PositionSpecificFunctionController {
       const positionCompetencyService = new PositionCompetencyService()
       const positionId = request.input('positionId')
       const weightId = request.input('weightId')
+      const competencyId = request.input('competencyId')
       const positionCompetencyName = request.input('positionCompetencyName')
       const positionCompetencyType = request.input('positionCompetencyType')
       const positionCompetency = {
         positionId: positionId,
         weightId: weightId,
+        competencyId: competencyId,
         positionCompetencyName: positionCompetencyName,
         positionCompetencyType: positionCompetencyType,
       } as PositionCompetency
@@ -188,6 +195,11 @@ export default class PositionSpecificFunctionController {
    *               weightId:
    *                 type: number
    *                 description: Weight id
+   *                 required: true
+   *                 default: ''
+   *               competencyId:
+   *                 type: number
+   *                 description: Competency id
    *                 required: true
    *                 default: ''
    *               positionCompetencyName:
@@ -286,12 +298,14 @@ export default class PositionSpecificFunctionController {
     try {
       const positionCompetencyId = request.param('positionCompetencyId')
       const weightId = request.input('weightId')
+      const competencyId = request.input('competencyId')
       const positionCompetencyName = request.input('positionCompetencyName')
       const positionCompetencyType = request.input('positionCompetencyType')
 
       const positionCompetency = {
         positionCompetencyId: positionCompetencyId,
         weightId: weightId,
+        competencyId: competencyId,
         positionCompetencyName: positionCompetencyName,
         positionCompetencyType: positionCompetencyType,
       } as PositionCompetency
