@@ -43,5 +43,13 @@ export const updatePositionValidator = vine.compile(
     positionIdealStaff: optionalPositiveInteger,
     positionMaxStaff: optionalPositiveInteger,
     positionMinActiveStaffPerShift: optionalPositiveInteger,
+    departmentId: vine.number().positive().optional().nullable(),
+  })
+)
+
+export const movePositionValidator = vine.compile(
+  vine.object({
+    parentPositionId: vine.number().positive().nullable(),
+    departmentId: vine.number().positive().nullable(),
   })
 )

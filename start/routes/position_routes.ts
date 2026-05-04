@@ -12,6 +12,13 @@ router
     router.get('/get-excel/:positionId', '#controllers/position_controller.getExcel')
   })
   .prefix('/api/positions')
+
+router
+  .group(() => {
+    router.patch('/:positionId/move', '#controllers/position_controller.move')
+  })
+  .prefix('/api/positions')
+  .use(middleware.auth())
 router
   .group(() => {
     router.post('/assign-shift/:positionId', '#controllers/position_controller.assignShift')

@@ -18,6 +18,13 @@ router.group(() => {
 })
  .prefix('/api/departments')//.use(middleware.auth())
 
+router
+  .group(() => {
+    router.patch('/:departmentId/move', '#controllers/department_controller.move')
+  })
+  .prefix('/api/departments')
+  .use(middleware.auth())
+
 router.group(() => {
   router.post('/assign-shift/:departmentId', '#controllers/department_controller.assignShift')
 })

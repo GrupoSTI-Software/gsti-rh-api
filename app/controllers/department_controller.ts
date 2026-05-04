@@ -7,7 +7,12 @@ import BiometricDepartmentInterface from '../interfaces/biometric_department_int
 import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
 import DepartmentPositionService from '#services/department_position_service'
-import { createDepartmentValidator, updateDepartmentValidator } from '#validators/department'
+import {
+  createDepartmentValidator,
+  moveDepartmentValidator,
+  updateDepartmentValidator,
+} from '#validators/department'
+import OrgChartMoveService from '#services/org_chart_move_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
 import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
@@ -1549,6 +1554,41 @@ export default class DepartmentController {
         }
       }
 
+      const normalizeDepartmentParentInput = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') {
+          return null
+        }
+        const n = Number(v)
+        if (Number.isNaN(n) || n < 1) {
+          return null
+        }
+        return n
+      }
+
+      const nextParentDeptId = normalizeDepartmentParentInput(department.parentDepartmentId)
+      const currentParentDeptId = normalizeDepartmentParentInput(currentDepartment.parentDepartmentId)
+
+      if (nextParentDeptId !== null && nextParentDeptId !== currentParentDeptId) {
+        const orgChartMoveService = new OrgChartMoveService(i18n)
+        const relocateResult = await orgChartMoveService.relocateDepartment(
+          Number(departmentId),
+          nextParentDeptId
+        )
+        if (!relocateResult.ok) {
+          const p = relocateResult.payload
+          response.status(p.status)
+          return {
+            type: 'warning',
+            title: t('validation_error'),
+            message: p.message,
+            ...(p.detail !== undefined ? { detail: p.detail } : {}),
+            data: { ...data },
+          }
+        }
+
+        await currentDepartment.refresh()
+      }
+
       const verifyInfo = await departmentService.verifyInfo(department)
 
       if (verifyInfo.status !== 200) {
@@ -1591,6 +1631,76 @@ export default class DepartmentController {
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
+      }
+    }
+  }
+
+  async move({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const departmentIdRaw = request.param('departmentId')
+      const departmentId =
+        typeof departmentIdRaw === 'string' ? Number.parseInt(departmentIdRaw, 10) : departmentIdRaw
+
+      const moveService = new OrgChartMoveService(i18n)
+
+      const user = auth.user!
+
+      const canMove = await moveService.assertCanUpdateOrganizationChart(user.roleId)
+      if (!canMove) {
+        response.status(403)
+        return {
+          status: 403,
+          message: t('org_chart_move_forbidden'),
+        }
+      }
+
+      if (
+        departmentId === null ||
+        departmentId === undefined ||
+        Number.isNaN(Number(departmentId)) ||
+        Number(departmentId) < 1
+      ) {
+        response.status(400)
+        return {
+          status: 400,
+          message: t('resource_id_was_not_found'),
+        }
+      }
+
+      const { parentDepartmentId } = await request.validateUsing(moveDepartmentValidator)
+
+      const result = await moveService.relocateDepartment(Number(departmentId), parentDepartmentId)
+
+      if (!result.ok) {
+        const payload = result.payload
+        response.status(payload.status)
+        return {
+          status: payload.status,
+          message: payload.message,
+          ...(payload.detail !== undefined ? { detail: payload.detail } : {}),
+        }
+      }
+
+      response.status(200)
+      return { data: { department: result.department } }
+    } catch (error) {
+      const err = error as { code?: string; messages?: Array<{ message: string }>; message?: string }
+      if (err.code === 'E_VALIDATION_ERROR') {
+        const msg = err.messages?.[0]?.message ?? t('validation_error')
+        response.status(422)
+        return {
+          status: 422,
+          message: msg,
+          detail: msg,
+        }
+      }
+
+      response.status(500)
+      return {
+        status: 500,
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        ...(err.message ? { detail: err.message } : {}),
       }
     }
   }

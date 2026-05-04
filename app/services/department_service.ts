@@ -283,6 +283,11 @@ export default class DepartmentService {
       this.preloadDepartmentHierarchy(childQuery)
     })
     query.preload('departmentPositions', (departmentPositionQuery) => {
+      departmentPositionQuery
+        .whereNull('department_position_deleted_at')
+        .whereHas('position', (pq) => {
+          pq.whereNull('position_deleted_at').whereNull('parent_position_id')
+        })
       departmentPositionQuery.preload('position', (positionQuery) => {
         this.preloadPositionHierarchy(positionQuery)
       })
@@ -300,6 +305,7 @@ export default class DepartmentService {
       employeeQuery.preload('person')
     })
     query.preload('positions', (childPositionQuery) => {
+      childPositionQuery.whereNull('position_deleted_at').orderBy('positionName', 'asc')
       this.preloadPositionHierarchy(childPositionQuery)
     })
   }
