@@ -299,5 +299,8 @@
   "salary_change_reason_placeholder": "Ej. Aumento anual, Promoción, Reclasificación",
   "salary_history_not_found": "Empleado no encontrado",
   "salary_history_found": "Historial de salarios encontrado correctamente",
-  "salary_history_employee_not_found": "No existe ningún empleado con el ID indicado"
+  "salary_history_employee_not_found": "No existe ningún empleado con el ID indicado",
+  "company_competency_level": "Nivel de competencia de la empresa",
+  "label": "Etiqueta",
+  "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5"
 }

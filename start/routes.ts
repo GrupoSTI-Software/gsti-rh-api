@@ -143,6 +143,7 @@ import './routes/position_salary_range_routes.js'
 import './routes/career_path_override_reason_routes.js'
 import './routes/career_path_template_routes.js'
 import './routes/career_path_candidate_routes.js'
+import './routes/company_competency_level_routes.js'
 
 router
   .get('/', async ({ view }) => {
