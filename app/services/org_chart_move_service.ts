@@ -3,10 +3,11 @@ import DepartmentPosition from '#models/department_position'
 import Position from '#models/position'
 import Role from '#models/role'
 import RoleService from '#services/role_service'
+import { wouldCreateHierarchyCycleFetchingParent } from '#utils/tree_validator'
 import db from '@adonisjs/lucid/services/db'
 import type { I18n } from '@adonisjs/i18n'
 
-const SPECIAL_DEPARTMENT_ID = 999
+export const SPECIAL_DEPARTMENT_ID = 999
 
 function isDeptActive(active: number | null | undefined) {
   return active === 1
@@ -16,10 +17,13 @@ function isPositionActive(active: number | null | undefined) {
   return active === 1
 }
 
-type MoveErrorPayload = {
-  status: 403 | 404 | 422
+/** Respuesta estándar de error en movimientos de organigrama (title, detail, key). */
+export type OrgChartMoveErrorPayload = {
+  status: number
+  title: string
   message: string
   detail?: string
+  key?: string
 }
 
 export default class OrgChartMoveService {
@@ -50,42 +54,22 @@ export default class OrgChartMoveService {
     return roleService.hasAccess(roleId, 'organization-chart', 'update')
   }
 
-  private async wouldCreateDeptCycleViaAncestor(
-    movingDeptId: number,
-    newParentDeptId: number
-  ): Promise<boolean> {
-    let current: number | null = newParentDeptId
-    while (current !== null) {
-      if (current === movingDeptId) {
-        return true
-      }
-      const row = await Department.query()
-        .whereNull('department_deleted_at')
-        .where('department_id', current)
-        .select('parent_department_id')
-        .first()
-      current = row?.parentDepartmentId ?? null
-    }
-    return false
+  private async fetchDepartmentParentDepartmentId(id: number): Promise<number | null> {
+    const row = await Department.query()
+      .whereNull('department_deleted_at')
+      .where('department_id', id)
+      .select('parent_department_id')
+      .first()
+    return row?.parentDepartmentId ?? null
   }
 
-  private async wouldCreatePositionCycleViaAncestor(
-    movingPositionId: number,
-    newParentPositionId: number | null
-  ): Promise<boolean> {
-    let current: number | null = newParentPositionId
-    while (current !== null) {
-      if (current === movingPositionId) {
-        return true
-      }
-      const row = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_id', current)
-        .select('parent_position_id')
-        .first()
-      current = row?.parentPositionId ?? null
-    }
-    return false
+  private async fetchPositionParentPositionId(id: number): Promise<number | null> {
+    const row = await Position.query()
+      .whereNull('position_deleted_at')
+      .where('position_id', id)
+      .select('parent_position_id')
+      .first()
+    return row?.parentPositionId ?? null
   }
 
   private async collectPositionSubtree(positionId: number): Promise<number[]> {
@@ -116,14 +100,20 @@ export default class OrgChartMoveService {
   async relocateDepartment(
     departmentId: number,
     parentDepartmentId: number
-  ): Promise<{ ok: true; department: Department } | { ok: false; payload: MoveErrorPayload }> {
+  ): Promise<
+    { ok: true; department: Department } | { ok: false; payload: OrgChartMoveErrorPayload }
+  > {
+    const hierarchyTitle = this.t('org_chart_hierarchy_invalid_title')
+
     if (departmentId === parentDepartmentId) {
       return {
         ok: false,
         payload: {
-          status: 422,
-          message: this.t('org_chart_move_department_self_parent'),
-          detail: this.t('org_chart_move_department_self_parent_detail'),
+          status: 400,
+          title: hierarchyTitle,
+          message: hierarchyTitle,
+          detail: this.t('org_chart_hierarchy_cycle_detail_departments'),
+          key: 'jerarquia-ciclo',
         },
       }
     }
@@ -136,8 +126,10 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: hierarchyTitle,
           message: this.t('org_chart_move_department_invalid_special'),
           detail: this.t('org_chart_move_department_invalid_special_detail'),
+          key: 'departamento-sistema-invalido',
         },
       }
     }
@@ -148,22 +140,13 @@ export default class OrgChartMoveService {
       .first()
 
     if (!movingDept) {
+      const entity = this.t('department')
       return {
         ok: false,
         payload: {
           status: 404,
-          message: this.t('entity_was_not_found_with_entered_id', { entity: this.t('department') }),
-        },
-      }
-    }
-
-    if (movingDept.parentDepartmentId === null) {
-      return {
-        ok: false,
-        payload: {
-          status: 422,
-          message: this.t('org_chart_move_department_root_locked'),
-          detail: this.t('org_chart_move_department_root_locked_detail'),
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
         },
       }
     }
@@ -178,7 +161,10 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 404,
-          message: this.t('org_chart_move_parent_department_not_found'),
+          title: this.t('org_chart_parent_department_missing_title'),
+          message: this.t('org_chart_parent_department_missing_title'),
+          detail: this.t('org_chart_parent_department_missing_detail'),
+          key: 'padre-no-encontrado',
         },
       }
     }
@@ -188,8 +174,10 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
-          message: this.t('org_chart_move_department_parent_inactive'),
+          title: this.t('org_chart_parent_inactive_title'),
+          message: this.t('org_chart_parent_department_inactive_message'),
           detail: this.t('org_chart_move_department_parent_inactive_detail'),
+          key: 'padre-inactivo',
         },
       }
     }
@@ -199,23 +187,45 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: this.t('org_chart_scope_mismatch_title'),
           message: this.t('org_chart_move_department_business_unit'),
           detail: this.t('org_chart_move_department_business_unit_detail'),
+          key: 'alcance-organizacional',
         },
       }
     }
 
-    const cycles = await this.wouldCreateDeptCycleViaAncestor(
-      departmentId,
-      parentDepartmentId
-    )
-    if (cycles) {
+    if (
+      movingDept.companyId !== null &&
+      parentDept.companyId !== null &&
+      movingDept.companyId !== parentDept.companyId
+    ) {
       return {
         ok: false,
         payload: {
           status: 422,
-          message: this.t('org_chart_move_department_cycle_message'),
-          detail: this.t('org_chart_move_department_cycle_detail'),
+          title: this.t('org_chart_scope_mismatch_title'),
+          message: this.t('org_chart_department_company_mismatch_message'),
+          detail: this.t('org_chart_department_company_mismatch_detail'),
+          key: 'alcance-organizacional',
+        },
+      }
+    }
+
+    const cycles = await wouldCreateHierarchyCycleFetchingParent({
+      nodeId: departmentId,
+      proposedParentId: parentDepartmentId,
+      fetchParentOf: async (id) => this.fetchDepartmentParentDepartmentId(id),
+    })
+    if (cycles) {
+      return {
+        ok: false,
+        payload: {
+          status: 400,
+          title: hierarchyTitle,
+          message: hierarchyTitle,
+          detail: this.t('org_chart_hierarchy_cycle_detail_departments'),
+          key: 'jerarquia-ciclo',
         },
       }
     }
@@ -237,14 +247,18 @@ export default class OrgChartMoveService {
     positionId: number,
     parentPositionId: number | null,
     departmentId: number | null
-  ): Promise<{ ok: true; position: Position } | { ok: false; payload: MoveErrorPayload }> {
+  ): Promise<{ ok: true; position: Position } | { ok: false; payload: OrgChartMoveErrorPayload }> {
+    const hierarchyTitle = this.t('org_chart_hierarchy_invalid_title')
+
     if (parentPositionId !== null && parentPositionId === positionId) {
       return {
         ok: false,
         payload: {
-          status: 422,
-          message: this.t('org_chart_move_position_self_parent'),
-          detail: this.t('org_chart_move_position_self_parent_detail'),
+          status: 400,
+          title: hierarchyTitle,
+          message: hierarchyTitle,
+          detail: this.t('org_chart_hierarchy_cycle_detail_positions'),
+          key: 'jerarquia-ciclo',
         },
       }
     }
@@ -254,8 +268,10 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: hierarchyTitle,
           message: this.t('org_chart_move_position_department_required'),
           detail: this.t('org_chart_move_position_department_required_detail'),
+          key: 'departamento-requerido-organigrama',
         },
       }
     }
@@ -265,8 +281,10 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: hierarchyTitle,
           message: this.t('org_chart_move_department_invalid_special'),
           detail: this.t('org_chart_move_position_invalid_department_special_detail'),
+          key: 'departamento-sistema-invalido',
         },
       }
     }
@@ -277,11 +295,13 @@ export default class OrgChartMoveService {
       .first()
 
     if (!moving) {
+      const entity = this.t('position')
       return {
         ok: false,
         payload: {
           status: 404,
-          message: this.t('entity_was_not_found_with_entered_id', { entity: this.t('position') }),
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
         },
       }
     }
@@ -292,11 +312,13 @@ export default class OrgChartMoveService {
       .first()
 
     if (!targetDept) {
+      const entity = this.t('department')
       return {
         ok: false,
         payload: {
           status: 404,
-          message: this.t('entity_was_not_found_with_entered_id', { entity: this.t('department') }),
+          title: this.t('entity_was_not_found', { entity }),
+          message: this.t('entity_was_not_found_with_entered_id', { entity }),
         },
       }
     }
@@ -306,8 +328,10 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: this.t('org_chart_parent_inactive_title'),
           message: this.t('org_chart_move_department_parent_inactive'),
           detail: this.t('org_chart_move_position_department_inactive_detail'),
+          key: 'padre-inactivo',
         },
       }
     }
@@ -317,8 +341,27 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: this.t('org_chart_scope_mismatch_title'),
           message: this.t('org_chart_move_department_business_unit'),
           detail: this.t('org_chart_move_position_business_unit_detail'),
+          key: 'alcance-organizacional',
+        },
+      }
+    }
+
+    if (
+      moving.companyId !== null &&
+      targetDept.companyId !== null &&
+      moving.companyId !== targetDept.companyId
+    ) {
+      return {
+        ok: false,
+        payload: {
+          status: 422,
+          title: this.t('org_chart_scope_mismatch_title'),
+          message: this.t('org_chart_position_company_mismatch_message'),
+          detail: this.t('org_chart_position_company_mismatch_detail'),
+          key: 'alcance-organizacional',
         },
       }
     }
@@ -337,7 +380,10 @@ export default class OrgChartMoveService {
           ok: false,
           payload: {
             status: 404,
-            message: this.t('org_chart_move_parent_position_not_found'),
+            title: this.t('org_chart_parent_position_missing_title'),
+            message: this.t('org_chart_parent_position_missing_title'),
+            detail: this.t('org_chart_parent_position_missing_detail'),
+            key: 'padre-no-encontrado',
           },
         }
       }
@@ -347,8 +393,10 @@ export default class OrgChartMoveService {
           ok: false,
           payload: {
             status: 422,
+            title: this.t('org_chart_parent_inactive_title'),
             message: this.t('org_chart_move_position_parent_inactive'),
             detail: this.t('org_chart_move_position_parent_inactive_detail'),
+            key: 'padre-inactivo',
           },
         }
       }
@@ -363,8 +411,10 @@ export default class OrgChartMoveService {
           ok: false,
           payload: {
             status: 404,
+            title: this.t('org_chart_parent_position_missing_title'),
             message: this.t('org_chart_move_position_parent_not_in_department'),
             detail: this.t('org_chart_move_position_parent_not_in_department_detail'),
+            key: 'padre-no-encontrado',
           },
         }
       }
@@ -379,13 +429,15 @@ export default class OrgChartMoveService {
           ok: false,
           payload: {
             status: 422,
+            title: this.t('org_chart_parent_inactive_title'),
             message: this.t('org_chart_move_department_parent_inactive'),
             detail: this.t('org_chart_move_position_parent_dept_detail'),
+            key: 'padre-inactivo',
           },
         }
       }
 
-      // Coherencia: el destino efectivo es el departamento donde está enlazado el puesto padre
+      // Coherencia: el departamento efectivo es el donde está enlazado el puesto padre
       resolvedDepartmentId = parentDeptLink.departmentId
       resolvedParentPositionId = parentPositionId
 
@@ -394,8 +446,40 @@ export default class OrgChartMoveService {
           ok: false,
           payload: {
             status: 422,
+            title: this.t('org_chart_scope_mismatch_title'),
             message: this.t('org_chart_move_department_business_unit'),
             detail: this.t('org_chart_move_position_parent_bu_detail'),
+            key: 'alcance-organizacional',
+          },
+        }
+      }
+
+      if (
+        moving.companyId !== null &&
+        parentDept.companyId !== null &&
+        moving.companyId !== parentDept.companyId
+      ) {
+        return {
+          ok: false,
+          payload: {
+            status: 422,
+            title: this.t('org_chart_scope_mismatch_title'),
+            message: this.t('org_chart_position_company_mismatch_message'),
+            detail: this.t('org_chart_position_parent_company_mismatch_detail'),
+            key: 'alcance-organizacional',
+          },
+        }
+      }
+
+      if (departmentId !== resolvedDepartmentId) {
+        return {
+          ok: false,
+          payload: {
+            status: 422,
+            title: this.t('org_chart_position_department_consistency_title'),
+            message: this.t('org_chart_position_department_consistency_message'),
+            detail: this.t('org_chart_position_department_consistency_detail'),
+            key: 'consistencia-puesto-departamento',
           },
         }
       }
@@ -411,23 +495,31 @@ export default class OrgChartMoveService {
         ok: false,
         payload: {
           status: 422,
+          title: hierarchyTitle,
           message: this.t('org_chart_move_position_no_department_link'),
           detail: this.t('org_chart_move_position_no_department_link_detail'),
+          key: 'vinculo-departamento-faltante',
         },
       }
     }
 
-    const cycle = await this.wouldCreatePositionCycleViaAncestor(
-      positionId,
-      resolvedParentPositionId ?? null
-    )
+    const cycle =
+      resolvedParentPositionId === null
+        ? false
+        : await wouldCreateHierarchyCycleFetchingParent({
+            nodeId: positionId,
+            proposedParentId: resolvedParentPositionId,
+            fetchParentOf: async (id) => this.fetchPositionParentPositionId(id),
+          })
     if (cycle) {
       return {
         ok: false,
         payload: {
-          status: 422,
-          message: this.t('org_chart_move_position_cycle_message'),
-          detail: this.t('org_chart_move_position_cycle_detail'),
+          status: 400,
+          title: hierarchyTitle,
+          message: hierarchyTitle,
+          detail: this.t('org_chart_hierarchy_cycle_detail_positions'),
+          key: 'jerarquia-ciclo',
         },
       }
     }

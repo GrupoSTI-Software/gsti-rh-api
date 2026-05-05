@@ -13,6 +13,7 @@ import {
 } from '#validators/position'
 import { PositionShiftFilterInterface } from '../interfaces/position_shift_filter_interface.js'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
+import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 
 export default class PositionController {
   /**
@@ -541,9 +542,20 @@ export default class PositionController {
    *                 default: false
    *               parentPositionId:
    *                 type: number
-   *                 description: Position parent id
+   *                 nullable: true
+   *                 description: Identificador del puesto padre en el organigrama. Equivale opcionalmente a `parent_id`.
    *                 required: false
-   *                 default: ''
+   *               parent_id:
+   *                 type: number
+   *                 nullable: true
+   *                 description: Alias snake_case de `parentPositionId` para actualizar el padre jerárquico.
+   *                 required: false
+   *               departmentId:
+   *                 type: number
+   *                 description: >-
+   *                   Departamento vínculo organigrama; si el nuevo padre está en otra rama, debe enviarse igual
+   *                   al departamento del padre para evitar inconsistencia (error `consistencia-puesto-departamento`).
+   *                 required: false
    *               companyId:
    *                 type: number
    *                 description: Company id
@@ -610,7 +622,8 @@ export default class PositionController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           Parámetros inválidos o jerarquía inválida en puestos; `data.key` puede ser `jerarquia-ciclo`.
    *         content:
    *           application/json:
    *             schema:
@@ -625,9 +638,28 @@ export default class PositionController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 detail:
+   *                   type: string
    *                 data:
    *                   type: object
-   *                   description: List of parameters set by the client
+   *       '422':
+   *         description: >-
+   *           Validaciones organigrama: `padre-inactivo`, `padre-no-encontrado`, `consistencia-puesto-departamento`, etc. en `data.key`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 data:
+   *                   type: object
    *       default:
    *         description: Unexpected error
    *         content:
@@ -666,7 +698,6 @@ export default class PositionController {
       const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
-      const parentPositionId = request.input('parentPositionId')
       const companyId = request.input('companyId')
       const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
       const positionMinStaff = request.input('positionMinStaff')
@@ -675,6 +706,38 @@ export default class PositionController {
       const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
 
       const body = request.all() as Record<string, unknown>
+
+      if (!positionId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'The position Id was not found',
+          message: 'Missing data to process',
+          data: { positionId },
+        }
+      }
+      const currentPosition = await Position.query()
+        .whereNull('position_deleted_at')
+        .where('position_id', positionId)
+        .first()
+      if (!currentPosition) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The position was not found',
+          message: 'The position was not found with the entered ID',
+          data: { positionId },
+        }
+      }
+
+      const hasPositionParentPayload =
+        Object.prototype.hasOwnProperty.call(body, 'parentPositionId') ||
+        Object.prototype.hasOwnProperty.call(body, 'parent_id')
+
+      const mergedParentPositionId = hasPositionParentPayload
+        ? resolvePositionParentFromBody(body)
+        : currentPosition.parentPositionId
+
       const position = {
         positionId: positionId,
         positionCode: positionCode,
@@ -688,7 +751,7 @@ export default class PositionController {
         positionEvaluationStartDay: positionEvaluationStartDay,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
-        parentPositionId: parentPositionId,
+        parentPositionId: mergedParentPositionId,
         companyId: companyId,
         positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
         positionMinStaff,
@@ -696,32 +759,12 @@ export default class PositionController {
         positionMaxStaff,
         positionMinActiveStaffPerShift,
       } as Position
+
       if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
         const a = body.aliases
         position.aliases = a === null || a === '' ? null : String(a)
       }
-      if (!positionId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
-          data: { ...position },
-        }
-      }
-      const currentPosition = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_id', positionId)
-        .first()
-      if (!currentPosition) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
-          data: { ...position },
-        }
-      }
+
       const positionService = new PositionService(i18n)
       const data = await request.validateUsing(updatePositionValidator)
 
@@ -741,11 +784,13 @@ export default class PositionController {
         .where('position_id', positionId)
         .first()
 
-      const parentFieldProvided = Object.prototype.hasOwnProperty.call(body, 'parentPositionId')
+      const parentFieldProvided =
+        Object.prototype.hasOwnProperty.call(body, 'parentPositionId') ||
+        Object.prototype.hasOwnProperty.call(body, 'parent_id')
       const deptFieldProvided = Object.prototype.hasOwnProperty.call(body, 'departmentId')
 
       const resolvedNextParentId = parentFieldProvided
-        ? normalizeHierarchyId(body.parentPositionId)
+        ? normalizeHierarchyId(resolvePositionParentFromBody(body))
         : currentPosition.parentPositionId
 
       const pivotDeptId = pivotRow?.departmentId ?? null
@@ -794,10 +839,10 @@ export default class PositionController {
           response.status(p.status)
           return {
             type: 'warning',
-            title: t('validation_error'),
+            title: p.title,
             message: p.message,
             ...(p.detail !== undefined ? { detail: p.detail } : {}),
-            data: { ...data },
+            data: { ...data, ...(p.key !== undefined ? { key: p.key } : {}) },
           }
         }
 
@@ -900,8 +945,10 @@ export default class PositionController {
         response.status(payload.status)
         return {
           status: payload.status,
+          title: payload.title,
           message: payload.message,
           ...(payload.detail !== undefined ? { detail: payload.detail } : {}),
+          data: { ...(payload.key !== undefined ? { key: payload.key } : {}) },
         }
       }
 

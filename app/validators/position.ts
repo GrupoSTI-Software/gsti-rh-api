@@ -39,6 +39,7 @@ export const updatePositionValidator = vine.compile(
     positionIsDefault: vine.boolean().optional(),
     positionActive: vine.boolean().optional(),
     parentPositionId: vine.number().min(0).optional(),
+    parent_id: vine.number().positive().nullable().optional(),
     positionMinStaff: optionalPositiveInteger,
     positionIdealStaff: optionalPositiveInteger,
     positionMaxStaff: optionalPositiveInteger,

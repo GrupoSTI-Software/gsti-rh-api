@@ -23,6 +23,7 @@ import RoleDepartment from '#models/role_department'
 import Role from '#models/role'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
+import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
 
 export default class DepartmentController {
   /**
@@ -1404,9 +1405,14 @@ export default class DepartmentController {
    *                 default: false
    *               parentDepartmentId:
    *                 type: number
-   *                 description: Department parent id
+   *                 nullable: true
+   *                 description: Departamento padre (ID). También puede enviarse `parent_id`.
    *                 required: false
-   *                 default: ''
+   *               parent_id:
+   *                 type: number
+   *                 nullable: true
+   *                 description: Equivalente opcional snake_case de `parentDepartmentId` para mover el nodo padre en el organigrama.
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1447,7 +1453,8 @@ export default class DepartmentController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           Parámetros inválidos o jerarquía inválida; `data.key` puede ser `jerarquia-ciclo` si el padre propuesto genera ciclo.
    *         content:
    *           application/json:
    *             schema:
@@ -1462,9 +1469,30 @@ export default class DepartmentController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 detail:
+   *                   type: string
+   *                   description: Detalle localizado
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '422':
+   *         description: >-
+   *           Reglas de organigrama no satisfechas; `data.key` puede ser `padre-inactivo`, `padre-no-encontrado`, `alcance-organizacional`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 data:
+   *                   type: object
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1497,22 +1525,8 @@ export default class DepartmentController {
       const departmentAlias = request.input('departmentAlias')
       const departmentIsDefault = request.input('departmentIsDefault')
       const departmentActive = request.input('departmentActive')
-      const parentDepartmentId = request.input('parentDepartmentId')
 
       const body = request.all() as Record<string, unknown>
-      const department = {
-        departmentId: departmentId,
-        departmentCode: departmentCode,
-        departmentName: departmentName,
-        departmentAlias: departmentAlias,
-        departmentIsDefault: departmentIsDefault,
-        departmentActive: departmentActive,
-        parentDepartmentId: parentDepartmentId,
-      } as Department
-      if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
-        const a = body.aliases
-        department.aliases = a === null || a === '' ? null : String(a)
-      }
 
       if (!departmentId) {
         response.status(400)
@@ -1520,7 +1534,7 @@ export default class DepartmentController {
           type: 'warning',
           title: t('resource'),
           message: t('resource_id_was_not_found'),
-          data: { ...department },
+          data: { departmentId },
         }
       }
 
@@ -1536,8 +1550,31 @@ export default class DepartmentController {
           type: 'warning',
           title: t('entity_was_not_found', { entity }),
           message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { ...department },
+          data: { departmentId },
         }
+      }
+
+      const hasDeptParentPayload =
+        Object.prototype.hasOwnProperty.call(body, 'parentDepartmentId') ||
+        Object.prototype.hasOwnProperty.call(body, 'parent_id')
+
+      const parentDepartmentIdMerged = hasDeptParentPayload
+        ? resolveDepartmentParentFromBody(body)
+        : currentDepartment.parentDepartmentId
+
+      const department = {
+        departmentId: departmentId,
+        departmentCode: departmentCode,
+        departmentName: departmentName,
+        departmentAlias: departmentAlias,
+        departmentIsDefault: departmentIsDefault,
+        departmentActive: departmentActive,
+        parentDepartmentId: parentDepartmentIdMerged,
+      } as Department
+
+      if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
+        const a = body.aliases
+        department.aliases = a === null || a === '' ? null : String(a)
       }
 
       const departmentService = new DepartmentService(i18n)
@@ -1579,10 +1616,10 @@ export default class DepartmentController {
           response.status(p.status)
           return {
             type: 'warning',
-            title: t('validation_error'),
+            title: p.title,
             message: p.message,
             ...(p.detail !== undefined ? { detail: p.detail } : {}),
-            data: { ...data },
+            data: { ...data, ...(p.key !== undefined ? { key: p.key } : {}) },
           }
         }
 
@@ -1677,8 +1714,10 @@ export default class DepartmentController {
         response.status(payload.status)
         return {
           status: payload.status,
+          title: payload.title,
           message: payload.message,
           ...(payload.detail !== undefined ? { detail: payload.detail } : {}),
+          data: { ...(payload.key !== undefined ? { key: payload.key } : {}) },
         }
       }
 
