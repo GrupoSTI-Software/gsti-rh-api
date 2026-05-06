@@ -299,5 +299,6 @@
   "salary_history_employee_not_found": "No employee exists with the given ID",
   "company_competency_level": "Company competency level",
   "label": "Label",
-  "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5"
+  "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5",
+  "business_unit_competency_level": "Business unit competency level"
 }

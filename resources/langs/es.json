@@ -302,5 +302,6 @@
   "salary_history_employee_not_found": "No existe ningún empleado con el ID indicado",
   "company_competency_level": "Nivel de competencia de la empresa",
   "label": "Etiqueta",
-  "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5"
+  "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
+  "business_unit_competency_level": "Nivel de competencia de la unidad de negocio"
 }

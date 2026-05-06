@@ -1,26 +1,21 @@
 import { HttpContext } from '@adonisjs/core/http'
-import { createCompanyCompetencyLevelValidator, updateCompanyCompetencyLevelValidator } from '#validators/company_competency_level'
-import CompanyCompetencyLevelService from '#services/company_competency_level_service'
-import CompanyCompetencyLevel from '#models/company_competency_level'
-import { CompanyCompetencyLevelFilterInterface } from 'app/interfaces/company_competency_level_filter_interface.js'
+import { createBusinessUnitCompetencyLevelValidator, updateBusinessUnitCompetencyLevelValidator } from '#validators/business_unit_competency_level'
+import { BusinessUnitCompetencyLevelFilterInterface } from 'app/interfaces/business_unit_competency_level_filter_interface.js'
+import BusinessUnitCompetencyLevelService from '#services/business_unit_competency_level_service'
+import BusinessUnitCompetencyLevel from '#models/business_unit_competency_level'
+import BusinessUnit from '#models/business_unit'
+import env from '#start/env'
 
-export default class CompanyCompetencyLevelController {
+export default class BusinessUnitCompetencyLevelController {
   /**
    * @swagger
-   * /api/company-competency-levels:
+   * /api/business-unit-competency-levels:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Company Competency Levels
+   *       - Business Unit Competency Levels
    *     summary: get all
-   *     parameters:
-   *       - name: businessUnitId
-   *         in: query
-   *         required: true
-   *         description: Business unit id
-   *         schema:
-   *           type: number
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -102,22 +97,29 @@ export default class CompanyCompetencyLevelController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index({ response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const businessUnitId = request.input('businessUnitId')
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 1
       const filters = {
         businessUnitId: businessUnitId,
-      } as CompanyCompetencyLevelFilterInterface
-      const companyCompetencyLevelService = new CompanyCompetencyLevelService(i18n)
-      const companyCompetencyLevels = await companyCompetencyLevelService.index(filters)
+      } as BusinessUnitCompetencyLevelFilterInterface
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const businessUnitCompetencyLevels = await businessUnitCompetencyLevelService.index(filters)
       response.status(200)
       return {
         type: 'success',
         title: t('resources'),
         message: t('resources_were_found_successfully'),
         data: {
-          companyCompetencyLevels,
+          businessUnitCompetencyLevels,
         },
       }
     } catch (error) {
@@ -133,13 +135,13 @@ export default class CompanyCompetencyLevelController {
 
  /**
    * @swagger
-   * /api/company-competency-levels:
+   * /api/business-unit-competency-levels:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Company Competency Levels
-   *     summary: create new company competency level
+   *       - Business Unit Competency Levels
+   *     summary: create new business unit competency level
    *     produces:
    *       - application/json
    *     requestBody:
@@ -148,19 +150,14 @@ export default class CompanyCompetencyLevelController {
    *           schema:
    *             type: object
    *             properties:
-   *               businessUnitId:
-   *                 type: number
-   *                 description: Business unit id
-   *                 required: true
-   *                 default: ''
-   *               companyCompetencyLevelLabel:
+   *               businessUnitCompetencyLevelLabel:
    *                 type: string
-   *                 description: Company competency level label
+   *                 description: Business unit competency level label
    *                 required: true
    *                 default: ''
-   *               companyCompetencyLevelPosition:
+   *               businessUnitCompetencyLevelPosition:
    *                 type: number
-   *                 description: Company competency level position
+   *                 description: Business unit competency level position
    *                 required: true
    *                 default: ''
    *     responses:
@@ -248,44 +245,51 @@ export default class CompanyCompetencyLevelController {
   const t = i18n.formatMessage.bind(i18n)
   try {
 
-    await request.validateUsing(createCompanyCompetencyLevelValidator)
-    const companyCompetencyLevelService = new CompanyCompetencyLevelService(i18n)
-    const businessUnitId = request.input('businessUnitId')
-    const companyCompetencyLevelLabel = request.input('companyCompetencyLevelLabel')
-    const companyCompetencyLevelPosition = request.input('companyCompetencyLevelPosition')
-    const companyCompetencyLevel = {
-      businessUnitId: businessUnitId,
-      companyCompetencyLevelLabel: companyCompetencyLevelLabel,
-      companyCompetencyLevelPosition: companyCompetencyLevelPosition,
-    } as CompanyCompetencyLevel
+    await request.validateUsing(createBusinessUnitCompetencyLevelValidator)
+    const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+      .first()
 
-    const existInfoDate = await companyCompetencyLevelService.verifyInfoExist(companyCompetencyLevel)
+    const businessUnitId = businessUnits?.businessUnitId || 1
+    const businessUnitCompetencyLevelLabel = request.input('businessUnitCompetencyLevelLabel')
+    const businessUnitCompetencyLevelPosition = request.input('businessUnitCompetencyLevelPosition')
+    const businessUnitCompetencyLevel = {
+      businessUnitId: businessUnitId,
+      businessUnitCompetencyLevelLabel: businessUnitCompetencyLevelLabel,
+      businessUnitCompetencyLevelPosition: businessUnitCompetencyLevelPosition,
+    } as BusinessUnitCompetencyLevel
+
+    const existInfoDate = await businessUnitCompetencyLevelService.verifyInfoExist(businessUnitCompetencyLevel)
     if (existInfoDate.status !== 200) {
       response.status(existInfoDate.status)
       return {
         type: existInfoDate.type,
         title: existInfoDate.title,
         message: existInfoDate.message,
-        data: { ...companyCompetencyLevel },
+        data: { ...businessUnitCompetencyLevel },
       }
     }
-    const verifyInfo = await companyCompetencyLevelService.verifyInfo(companyCompetencyLevel)
+    const verifyInfo = await businessUnitCompetencyLevelService.verifyInfo(businessUnitCompetencyLevel)
     if (verifyInfo.status !== 200) {
       response.status(verifyInfo.status)
       return {
         type: verifyInfo.type,
         title: verifyInfo.title,
         message: verifyInfo.message,
-        data: { ...companyCompetencyLevel },
+        data: { ...businessUnitCompetencyLevel },
       }
     }
-    const newCompanyCompetencyLevel = await companyCompetencyLevelService.create(companyCompetencyLevel)
+    const newBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.create(businessUnitCompetencyLevel)
     response.status(201)
     return {
       type: 'success',
       title: t('resource'),
       message: t('resource_was_created_successfully'),
-      data: { companyCompetencyLevel: newCompanyCompetencyLevel },
+      data: { businessUnitCompetencyLevel: newBusinessUnitCompetencyLevel },
     }
   } catch (error) {
     const messageError =
@@ -303,21 +307,21 @@ export default class CompanyCompetencyLevelController {
 
    /**
    * @swagger
-   * /api/company-competency-levels/{companyCompetencyLevelId}:
+   * /api/business-unit-competency-levels/{businessUnitCompetencyLevelId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Company Competency Levels
-   *     summary: update company competency level
+   *       - Business Unit Competency Levels
+   *     summary: update business unit competency level
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: companyCompetencyLevelId
+   *         name: businessUnitCompetencyLevelId
    *         schema:
    *           type: number
-   *         description: Company competency level id
+   *         description: Business unit competency level id
    *         required: true
    *     requestBody:
    *       content:
@@ -325,13 +329,13 @@ export default class CompanyCompetencyLevelController {
    *           schema:
    *             type: object
    *             properties:
-   *               companyCompetencyLevelLabel:
+   *               businessUnitCompetencyLevelLabel:
    *                 type: string
-   *                 description: Company competency level label
+   *                 description: Business unit competency level label
    *                 required: true
-   *               companyCompetencyLevelPosition:
+   *               businessUnitCompetencyLevelPosition:
    *                 type: number
-   *                 description: Company competency level position
+   *                 description: Business unit competency level position
    *                 required: true
    *     responses:
    *       '200':
@@ -417,56 +421,65 @@ export default class CompanyCompetencyLevelController {
   async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await request.validateUsing(updateCompanyCompetencyLevelValidator)
-      const companyCompetencyLevelId = request.param('companyCompetencyLevelId')
-      const companyCompetencyLevelLabel = request.input('companyCompetencyLevelLabel')
-      const companyCompetencyLevelPosition = request.input('companyCompetencyLevelPosition')
-      const companyCompetencyLevel = {
-        companyCompetencyLevelId: companyCompetencyLevelId,
-        companyCompetencyLevelLabel: companyCompetencyLevelLabel,
-        companyCompetencyLevelPosition: companyCompetencyLevelPosition,
-      } as CompanyCompetencyLevel
-      if (!companyCompetencyLevelId) {
+      await request.validateUsing(updateBusinessUnitCompetencyLevelValidator)
+      const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 1
+      const businessUnitCompetencyLevelLabel = request.input('businessUnitCompetencyLevelLabel')
+      const businessUnitCompetencyLevelPosition = request.input('businessUnitCompetencyLevelPosition')
+      const businessUnitCompetencyLevel = {
+        businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
+        businessUnitId: businessUnitId,
+        businessUnitCompetencyLevelLabel: businessUnitCompetencyLevelLabel,
+        businessUnitCompetencyLevelPosition: businessUnitCompetencyLevelPosition,
+      } as BusinessUnitCompetencyLevel
+      if (!businessUnitCompetencyLevelId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The company competency level Id was not found',
+          title: 'The business unit competency level Id was not found',
           message: 'Missing data to process',
-          data: { ...companyCompetencyLevel },
+          data: { ...businessUnitCompetencyLevel },
         }
       }
-      const currentCompanyCompetencyLevel = await CompanyCompetencyLevel.query()
-        .whereNull('company_competency_level_deleted_at')
-        .where('company_competency_level_id', companyCompetencyLevelId)
+      const currentBusinessUnitCompetencyLevel = await BusinessUnitCompetencyLevel.query()
+        .whereNull('business_unit_competency_level_deleted_at')
+        .where('business_unit_competency_level_id', businessUnitCompetencyLevelId)
         .first()
-      if (!currentCompanyCompetencyLevel) {
+      if (!currentBusinessUnitCompetencyLevel) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The company competency level was not found',
-          message: 'The company competency level was not found with the entered ID',
-          data: { ...companyCompetencyLevel },
+          title: 'The business unit competency level was not found',
+          message: 'The business unit competency level was not found with the entered ID',
+          data: { ...businessUnitCompetencyLevel },
         }
       }
-      const companyCompetencyLevelService = new CompanyCompetencyLevelService(i18n)
-      const verifyInfo = await companyCompetencyLevelService.verifyInfo(companyCompetencyLevel)
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const verifyInfo = await businessUnitCompetencyLevelService.verifyInfo(businessUnitCompetencyLevel)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
           type: verifyInfo.type,
           title: verifyInfo.title,
           message: verifyInfo.message,
-          data: { ...companyCompetencyLevel },
+          data: { ...businessUnitCompetencyLevel },
         }
       }
-      const updateCompanyCompetencyLevel = await companyCompetencyLevelService.update(currentCompanyCompetencyLevel, companyCompetencyLevel)
-      if (updateCompanyCompetencyLevel) {
+      const updateBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.update(currentBusinessUnitCompetencyLevel, businessUnitCompetencyLevel)
+      if (updateBusinessUnitCompetencyLevel) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_updated_successfully'),
-          data: { companyCompetencyLevel: updateCompanyCompetencyLevel },
+          data: { businessUnitCompetencyLevel: updateBusinessUnitCompetencyLevel },
         }
       }
     } catch (error) {
@@ -484,21 +497,21 @@ export default class CompanyCompetencyLevelController {
 
   /**
    * @swagger
-   * /api/company-competency-levels/delete/{companyCompetencyLevelId}:
+   * /api/business-unit-competency-levels/delete/{businessUnitCompetencyLevelId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Company Competency Levels
-   *     summary: delete company competency level
+   *       - Business Unit Competency Levels
+   *     summary: delete business unit competency level
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: companyCompetencyLevelId
+   *         name: businessUnitCompetencyLevelId
    *         schema:
    *           type: number
-   *         description: Company competency level id
+   *         description: Business unit competency level id
    *         required: true
    *     responses:
    *       '200':
@@ -581,41 +594,51 @@ export default class CompanyCompetencyLevelController {
    *                     error:
    *                       type: string
    */
-  async destroy({ request, response, i18n }: HttpContext) {
+  async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const companyCompetencyLevelId = request.param('companyCompetencyLevelId')
-      if (!companyCompetencyLevelId) {
+      const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
+      if (!businessUnitCompetencyLevelId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The company competency level Id was not found',
+          title: 'The business unit competency level Id was not found',
           message: 'Missing data to process',
-          data: { companyCompetencyLevelId },
+          data: { businessUnitCompetencyLevelId },
         }
       }
-      const currentCompanyCompetencyLevel = await CompanyCompetencyLevel.query()
-        .whereNull('company_competency_level_deleted_at')
-        .where('company_competency_level_id', companyCompetencyLevelId)
+      const currentBusinessUnitCompetencyLevel = await BusinessUnitCompetencyLevel.query()
+        .whereNull('business_unit_competency_level_deleted_at')
+        .where('business_unit_competency_level_id', businessUnitCompetencyLevelId)
         .first()
-      if (!currentCompanyCompetencyLevel) {
+      if (!currentBusinessUnitCompetencyLevel) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The company competency level was not found',
-          message: 'The company competency level was not found with the entered ID',
-          data: { companyCompetencyLevelId },
+          title: 'The business unit competency level was not found',
+          message: 'The business unit competency level was not found with the entered ID',
+          data: { businessUnitCompetencyLevelId },
         }
       }
-      const companyCompetencyLevelService = new CompanyCompetencyLevelService(i18n)
-      const deleteCompanyCompetencyLevel = await companyCompetencyLevelService.delete(currentCompanyCompetencyLevel)
-      if (deleteCompanyCompetencyLevel) {
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const verifyInfoQuantity = await businessUnitCompetencyLevelService.verifyInfoQuantity(currentBusinessUnitCompetencyLevel)
+      if (verifyInfoQuantity.status !== 200) {
+        response.status(verifyInfoQuantity.status)
+        return {
+          type: verifyInfoQuantity.type,
+          title: verifyInfoQuantity.title,
+          message: verifyInfoQuantity.message,
+          data: { ...currentBusinessUnitCompetencyLevel },
+        }
+      }
+      const deleteBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.delete(currentBusinessUnitCompetencyLevel)
+      if (deleteBusinessUnitCompetencyLevel) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_deleted_successfully'),
-          data: { companyCompetencyLevel: deleteCompanyCompetencyLevel },
+          data: { businessUnitCompetencyLevel: deleteBusinessUnitCompetencyLevel },
         }
       }
     } catch (error) {
@@ -631,21 +654,21 @@ export default class CompanyCompetencyLevelController {
 
   /**
    * @swagger
-   * /api/company-competency-levels/{companyCompetencyLevelId}:
+   * /api/business-unit-competency-levels/{businessUnitCompetencyLevelId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Company Competency Levels
-   *     summary: get company competency level by id
+   *       - Business Unit Competency Levels
+   *     summary: get business unit competency level by id
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: companyCompetencyLevelId
+   *         name: businessUnitCompetencyLevelId
    *         schema:
    *           type: number
-   *         description: Company competency level id
+   *         description: Business unit competency level id
    *         required: true
    *     responses:
    *       '200':
@@ -730,34 +753,34 @@ export default class CompanyCompetencyLevelController {
    */
   async show({ request, response, i18n }: HttpContext) {
     try {
-      const companyCompetencyLevelId = request.param('companyCompetencyLevelId')
-      if (!companyCompetencyLevelId) {
+      const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
+      if (!businessUnitCompetencyLevelId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The company competency level Id was not found',
+          title: 'The business unit competency level Id was not found',
           message: 'Missing data to process',
-          data: { companyCompetencyLevelId },
+          data: { businessUnitCompetencyLevelId },
         }
       }
 
-      const companyCompetencyLevelService = new CompanyCompetencyLevelService(i18n)
-      const showCompanyCompetencyLevel = await companyCompetencyLevelService.show(companyCompetencyLevelId)
-      if (!showCompanyCompetencyLevel) {
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const showBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.show(businessUnitCompetencyLevelId)
+      if (!showBusinessUnitCompetencyLevel) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The company competency level was not found',
-          message: 'The company competency level was not found with the entered ID',
-          data: { companyCompetencyLevelId },
+          title: 'The business unit competency level was not found',
+          message: 'The business unit competency level was not found with the entered ID',
+          data: { businessUnitCompetencyLevelId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: 'Company competency level',
-          message: 'The company competency level was found successfully',
-          data: { companyCompetencyLevel: showCompanyCompetencyLevel },
+          title: 'Business unit competency level',
+          message: 'The business unit competency level was found successfully',
+          data: { businessUnitCompetencyLevel: showBusinessUnitCompetencyLevel },
         }
       }
     } catch (error) {
