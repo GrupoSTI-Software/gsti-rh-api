@@ -6227,7 +6227,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       .whereNull('deletedAt')
       .whereIn('businessUnitId', businessUnitsList)
       .where('employee_type_of_contract', 'Internal')
-      .where('employeeAssistDiscriminator', 0)
+      // .where('employeeAssistDiscriminator', 0)
       .whereHas('position', (query) => {
         query.whereNull('position_deleted_at')
         query.where('position_active', 1)
