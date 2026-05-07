@@ -10,6 +10,7 @@
     "dev": "node ace serve --hmr",
     "test": "node ace test",
     "lint": "eslint .",
+    "lint:terminology": "node scripts/lint-terminology.mjs",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "prepare": "husky"
