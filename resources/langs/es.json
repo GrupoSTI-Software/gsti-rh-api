@@ -303,5 +303,7 @@
   "company_competency_level": "Nivel de competencia de la empresa",
   "label": "Etiqueta",
   "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
-  "business_unit_competency_level": "Nivel de competencia de la unidad de negocio"
+  "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
+  "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
+  "competency_descriptor": "Descriptor de competencia"
 }
