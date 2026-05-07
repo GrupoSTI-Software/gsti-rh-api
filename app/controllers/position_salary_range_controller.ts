@@ -13,6 +13,9 @@ import {
   updatePositionSalaryRangeValidator,
   closePositionSalaryRangeValidator,
 } from '#validators/position_salary_range'
+import {
+  resolveSalaryRangeTimeZone,
+} from '#utils/salary_range_timezone'
 
 export default class PositionSalaryRangeController {
   /**
@@ -24,6 +27,14 @@ export default class PositionSalaryRangeController {
    *     tags:
    *       - Position Salary Ranges
    *     summary: Crear un nuevo rango salarial para un puesto
+   *     parameters:
+   *       - in: header
+   *         name: X-User-Timezone
+   *         required: false
+   *         schema:
+   *           type: string
+   *           example: America/Mexico_City
+   *         description: Zona IANA del cliente para validar la fecha de vigencia (también X-Timezone, X-Client-Timezone).
    *     requestBody:
    *       required: true
    *       content:
@@ -57,6 +68,17 @@ export default class PositionSalaryRangeController {
    */
   async store({ request, response, auth }: HttpContext) {
     try {
+      const tzRes = resolveSalaryRangeTimeZone(request)
+      if (!tzRes.ok) {
+        response.status(422)
+        return {
+          type: 'warning',
+          title: 'Zona horaria inválida',
+          message: tzRes.message,
+          key: tzRes.key,
+        }
+      }
+
       const data = await request.validateUsing(createPositionSalaryRangeValidator)
 
       const validFromDateTime = DateTime.fromJSDate(data.validFrom)
@@ -78,6 +100,7 @@ export default class PositionSalaryRangeController {
         minSalaryDaily: data.minSalaryDaily,
         maxSalaryDaily: data.maxSalaryDaily,
         validFrom: validFromDateTime,
+        timeZone: tzRes.zone,
         reason: data.reason,
         createdBy: actorId,
       })
@@ -270,6 +293,13 @@ export default class PositionSalaryRangeController {
    *         required: true
    *         schema:
    *           type: integer
+   *       - in: header
+   *         name: X-User-Timezone
+   *         required: false
+   *         schema:
+   *           type: string
+   *           example: America/Mexico_City
+   *         description: Zona IANA del cliente para validar la fecha de vigencia.
    *     requestBody:
    *       required: true
    *       content:
@@ -299,6 +329,17 @@ export default class PositionSalaryRangeController {
    */
   async update({ request, response, auth }: HttpContext) {
     try {
+      const tzRes = resolveSalaryRangeTimeZone(request)
+      if (!tzRes.ok) {
+        response.status(422)
+        return {
+          type: 'warning',
+          title: 'Zona horaria inválida',
+          message: tzRes.message,
+          key: tzRes.key,
+        }
+      }
+
       const positionSalaryRangeId = Number(request.param('positionSalaryRangeId'))
 
       if (!positionSalaryRangeId || Number.isNaN(positionSalaryRangeId)) {
@@ -333,6 +374,7 @@ export default class PositionSalaryRangeController {
         minSalaryDaily: data.minSalaryDaily,
         maxSalaryDaily: data.maxSalaryDaily,
         validFrom,
+        timeZone: tzRes.zone,
         reason: data.reason,
         actorId,
       })
