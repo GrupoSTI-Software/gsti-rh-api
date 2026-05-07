@@ -1,0 +1,27 @@
+diff --git a/node_modules/adonisjs-6-swagger/build/src/utils/build_file_path.js b/node_modules/adonisjs-6-swagger/build/src/utils/build_file_path.js
+index 5fde4dc..dc45e1a 100644
+--- a/node_modules/adonisjs-6-swagger/build/src/utils/build_file_path.js
++++ b/node_modules/adonisjs-6-swagger/build/src/utils/build_file_path.js
+@@ -1,6 +1,7 @@
+ import { join } from 'node:path';
+ export function buildFilePath(appRootPathname, specFilePath) {
+-    const filePath = join(appRootPathname, specFilePath);
++    const decodedAppRoot = decodeURIComponent(appRootPathname);
++    const filePath = join(decodedAppRoot, specFilePath);
+     const windowsBugRegex = /^([A-Z]:\\)[A-Z]:\\/;
+     if (windowsBugRegex.test(filePath)) {
+         return filePath.replace(windowsBugRegex, '$1');
+diff --git a/node_modules/adonisjs-6-swagger/src/utils/build_file_path.ts b/node_modules/adonisjs-6-swagger/src/utils/build_file_path.ts
+index 86628f7..b676ece 100644
+--- a/node_modules/adonisjs-6-swagger/src/utils/build_file_path.ts
++++ b/node_modules/adonisjs-6-swagger/src/utils/build_file_path.ts
+@@ -1,7 +1,8 @@
+ import { join } from 'node:path'
+ 
+ export function buildFilePath(appRootPathname: string, specFilePath: string) {
+-  const filePath = join(appRootPathname, specFilePath)
++  const decodedAppRoot = decodeURIComponent(appRootPathname)
++  const filePath = join(decodedAppRoot, specFilePath)
+ 
+   const windowsBugRegex = /^([A-Z]:\\)[A-Z]:\\/
+   if (windowsBugRegex.test(filePath)) {
