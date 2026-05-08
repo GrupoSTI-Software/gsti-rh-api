@@ -5,6 +5,7 @@ import ShiftService from '#services/shift_service'
 import EmployeeService from '#services/employee_service'
 import UserService from '#services/user_service'
 import AssistsService from '#services/assist_service'
+import DemoFactoryService from '#services/demo_factory_service'
 
 export default class EstructureDemoController {
    /**
@@ -269,6 +270,81 @@ export default class EstructureDemoController {
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/generate-demo-v2:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Demo Information
+   *     summary: Genera datos DEMO usando factories (v2)
+   *     description: >
+   *       Versión mejorada del endpoint de generación de datos DEMO.
+   *       Usa factories de AdonisJS Lucid en lugar de servicios de dominio.
+   *       Genera departamentos, posiciones, turnos, 41 empleados, usuarios,
+   *       domicilios, contactos de emergencia, expediente, sucursal, vacaciones,
+   *       permisos y asistencias con distribución 90/5/3/2.
+   *       Es idempotente: verifica existencia antes de crear cada entidad.
+   *     produces:
+   *       - application/json
+   *     responses:
+   *       '201':
+   *         description: Datos DEMO generados exitosamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   description: Resumen de entidades creadas por paso
+   *       '500':
+   *         description: Error interno del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: string
+   */
+  async generateFactoryDemo({ response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const service = new DemoFactoryService()
+      const result  = await service.run()
+
+      response.status(201)
+      return {
+        type:    'success',
+        title:   t('information'),
+        message: t('the_information_was_created_successfully'),
+        data:    result,
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type:    'error',
+        title:   t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error:   error.message,
       }
     }
   }
