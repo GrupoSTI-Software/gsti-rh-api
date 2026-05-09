@@ -107,7 +107,7 @@ export default class PositionBusinessUnitCompetencyLevelController {
    *                 type: number
    *                 description: Identificador del nivel deseado (catalogo business_unit_competency_levels)
    *     responses:
-   *       '201':
+   *       '200:
    *         description: Resource processed successfully
    *       default:
    *         description: Unexpected error
@@ -142,7 +142,7 @@ export default class PositionBusinessUnitCompetencyLevelController {
       const updated = await service.update(current, {
         businessUnitCompetencyLevelId: payload.businessUnitCompetencyLevelId,
       })
-      response.status(201)
+      response.status(200)
       return {
         type: 'success',
         title: t('position_competency_level'),

@@ -1,6 +1,6 @@
 import Employee from '#models/employee'
 import EmployeeCompetencyEvaluation from '#models/employee_competency_evaluation'
-import PositionCompetency from '#models/position_competency'
+import PositionBusinessUnitCompetencyLevel from '#models/position_business_unit_competency_level'
 import { I18n } from '@adonisjs/i18n'
 
 export default class EmployeeCompetencyEvaluationService {
@@ -12,14 +12,14 @@ export default class EmployeeCompetencyEvaluationService {
   async create(employeeCompetencyEvaluation: EmployeeCompetencyEvaluation) {
     const newEmployeeCompetencyEvaluation = new EmployeeCompetencyEvaluation()
     newEmployeeCompetencyEvaluation.employeeEvaluationId = employeeCompetencyEvaluation.employeeEvaluationId
-    newEmployeeCompetencyEvaluation.positionCompetencyId = employeeCompetencyEvaluation.positionCompetencyId
-    newEmployeeCompetencyEvaluation.weightId = employeeCompetencyEvaluation.weightId
+    newEmployeeCompetencyEvaluation.positionBusinessUnitCompetencyLevelId = employeeCompetencyEvaluation.positionBusinessUnitCompetencyLevelId
+    newEmployeeCompetencyEvaluation.businessUnitCompetencyLevelId = employeeCompetencyEvaluation.businessUnitCompetencyLevelId
     await newEmployeeCompetencyEvaluation.save()
     return newEmployeeCompetencyEvaluation
   }
 
   async update(currentEmployeeCompetencyEvaluation: EmployeeCompetencyEvaluation, employeeCompetencyEvaluation: EmployeeCompetencyEvaluation) {
-    currentEmployeeCompetencyEvaluation.weightId = employeeCompetencyEvaluation.weightId
+    currentEmployeeCompetencyEvaluation.businessUnitCompetencyLevelId = employeeCompetencyEvaluation.businessUnitCompetencyLevelId
     await currentEmployeeCompetencyEvaluation.save()
     return currentEmployeeCompetencyEvaluation
   }
@@ -33,7 +33,7 @@ export default class EmployeeCompetencyEvaluationService {
     const employeeCompetencyEvaluation = await EmployeeCompetencyEvaluation.query()
       .whereNull('employee_competency_evaluation_deleted_at')
       .where('employee_competency_evaluation_id', employeeCompetencyEvaluationId)
-      .preload('weight')
+      .preload('businessUnitCompetencyLevel')
       .first()
     return employeeCompetencyEvaluation ? employeeCompetencyEvaluation : null
   }
@@ -55,13 +55,13 @@ export default class EmployeeCompetencyEvaluationService {
       }
     }
 
-    const existPositionCompetency = await PositionCompetency.query()
-      .whereNull('position_competency_deleted_at')
-      .where('position_competency_id', employeeCompetencyEvaluation.positionCompetencyId)
+    const existPositionBusinessUnitCompetencyLevel = await PositionBusinessUnitCompetencyLevel.query()
+      .whereNull('position_business_unit_competency_level_deleted_at')
+      .where('position_business_unit_competency_level_id', employeeCompetencyEvaluation.positionBusinessUnitCompetencyLevelId)
       .first()
 
-    if (!existPositionCompetency && employeeCompetencyEvaluation.positionCompetencyId) {
-      const entity = this.t('position_competency')
+    if (!existPositionBusinessUnitCompetencyLevel && employeeCompetencyEvaluation.positionBusinessUnitCompetencyLevelId) {
+      const entity = this.t('position_business_unit_competency_level')
       return {
         status: 400,
         type: 'warning',

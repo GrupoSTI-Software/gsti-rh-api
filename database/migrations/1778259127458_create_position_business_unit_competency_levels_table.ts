@@ -17,7 +17,6 @@ export default class extends BaseSchema {
       table.timestamp('position_business_unit_competency_level_updated_at').nullable()
       table.timestamp('position_business_unit_competency_level_deleted_at').nullable()
 
-      table.unique(['position_id', 'business_unit_competency_level_id'], 'pbc_pos_buc_unique')
     })
   }
 

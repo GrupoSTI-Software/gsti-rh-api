@@ -98,7 +98,7 @@ export default class EmployeeEvaluationService {
       .whereNull('employee_evaluation_deleted_at')
       .where('employee_id', employeeId)
       .preload('employeeCompetencyEvaluations', (query) => {
-        query.preload('weight')
+        query.preload('businessUnitCompetencyLevel')
       })
       .orderBy('employee_evaluation_type', 'asc')
       .orderBy('employee_evaluation_date', 'desc')

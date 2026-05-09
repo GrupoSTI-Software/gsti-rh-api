@@ -25,17 +25,14 @@ export default class EmployeeCompetencyEvaluationController {
    *                 type: number
    *                 description: Employee evaluation id
    *                 required: true
-   *                 default: ''
-   *               positionCompetencyId:
+   *               positionBusinessUnitCompetencyLevelId:
    *                 type: number
-   *                 description: Position competency id
+   *                 description: Position business unit competency level id
    *                 required: true
-   *                 default: ''
-   *               weightId:
+   *               businessUnitCompetencyLevelId:
    *                 type: number
-   *                 description: Weight id
+   *                 description: Business unit competency level id
    *                 required: true
-   *                 default: ''
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -124,12 +121,12 @@ export default class EmployeeCompetencyEvaluationController {
     await request.validateUsing(createEmployeeCompetencyEvaluationValidator)
     const employeeCompetencyEvaluationService = new EmployeeCompetencyEvaluationService(i18n)
     const employeeEvaluationId = request.input('employeeEvaluationId')
-    const positionCompetencyId = request.input('positionCompetencyId')
-    const weightId = request.input('weightId')
+    const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
+    const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
     const employeeCompetencyEvaluation = {
       employeeEvaluationId: employeeEvaluationId,
-      positionCompetencyId: positionCompetencyId,
-      weightId: weightId,
+      positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
+      businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
     } as EmployeeCompetencyEvaluation
 
     const newEmployeeCompetencyEvaluation = await employeeCompetencyEvaluationService.create(employeeCompetencyEvaluation)
@@ -177,13 +174,13 @@ export default class EmployeeCompetencyEvaluationController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionCompetencyId:
-   *                 type: string
-   *                 description: Position competency id
-   *                 required: true
-   *               weightId:
+   *               positionBusinessUnitCompetencyLevelId:
    *                 type: number
-   *                 description: Weight id
+   *                 description: Position business unit competency level id
+   *                 required: true
+   *               businessUnitCompetencyLevelId:
+   *                 type: number
+   *                 description: Business unit competency level id
    *                 required: true
    *     responses:
    *       '200':
@@ -271,12 +268,12 @@ export default class EmployeeCompetencyEvaluationController {
     try {
       await request.validateUsing(updateEmployeeCompetencyEvaluationValidator)
       const employeeCompetencyEvaluationId = request.param('employeeCompetencyEvaluationId')
-      const positionCompetencyId = request.input('positionCompetencyId')
-      const weightId = request.input('weightId')
+      const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
+      const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
       const employeeCompetencyEvaluation = {
         employeeCompetencyEvaluationId: employeeCompetencyEvaluationId,
-        positionCompetencyId: positionCompetencyId,
-        weightId: weightId,
+        positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
+        businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
       } as EmployeeCompetencyEvaluation
       if (!employeeCompetencyEvaluationId) {
         response.status(400)
