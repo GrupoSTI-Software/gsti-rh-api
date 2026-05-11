@@ -4,10 +4,15 @@ export default class extends BaseSchema {
   protected tableName = 'attendance_fault_hr_notification_logs'
 
   async up() {
-    const hasTable = await this.schema.hasTable(this.tableName)
-    if (hasTable) {
+    const existing = await this.db.rawQuery(
+      `SELECT COUNT(*) as count FROM information_schema.tables
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+      [this.tableName]
+    )
+    if (Number(existing[0]?.[0]?.count ?? 0) > 0) {
       return
     }
+
     this.schema.createTable(this.tableName, (table) => {
       table.increments('attendance_fault_hr_notification_log_id').notNullable()
       table.integer('employee_assist_calendar_id').unsigned().notNullable()

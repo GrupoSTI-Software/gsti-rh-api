@@ -22,6 +22,9 @@ import Weight from './weight.js'
  *          weightId:
  *            type: number
  *            description: Position competency weight
+ *          competencyId:
+ *            type: number
+ *            description: Competency id
  *          positionCompetencyName:
  *            type: string
  *            description: Position competency name
@@ -48,6 +51,9 @@ export default class PositionCompetency extends compose(BaseModel, SoftDeletes) 
 
   @column()
   declare weightId: number
+
+  @column()
+  declare competencyId: number
 
   @column()
   declare positionCompetencyName: string

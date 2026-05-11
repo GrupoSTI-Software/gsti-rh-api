@@ -73,6 +73,10 @@ export default class Department extends compose(BaseModel, SoftDeletes) {
   @column()
   declare departmentAlias: string
 
+  /** Lista de alias separados por comas (búsqueda y unicidad en organigrama). */
+  @column({ columnName: 'department_aliases' })
+  declare aliases: string | null
+
   @column()
   declare departmentIsDefault: boolean
 
@@ -154,7 +158,6 @@ export default class Department extends compose(BaseModel, SoftDeletes) {
     onQuery(query) {
       if (!query.isRelatedSubQuery) {
         query.preload('departments')
-        query.preload('departmentPositions')
         query.orderBy('departmentName', 'asc')
       }
     },

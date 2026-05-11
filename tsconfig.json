@@ -5,7 +5,8 @@
     "outDir": "./build",
     "baseUrl": "./",
     "paths": {
-      "#constants/*": ["./app/constants/*"]
+      "#constants/*": ["./app/constants/*"],
+      "#utils/*": ["./app/utils/*"]
     }
   }
 }

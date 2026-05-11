@@ -5,6 +5,7 @@ export default class PositionCompetencyService {
     const newPositionCompetency = new PositionCompetency()
     newPositionCompetency.positionId = positionCompetency.positionId
     newPositionCompetency.weightId = positionCompetency.weightId
+    newPositionCompetency.competencyId = positionCompetency.competencyId
     newPositionCompetency.positionCompetencyName = positionCompetency.positionCompetencyName
     newPositionCompetency.positionCompetencyType = positionCompetency.positionCompetencyType
     await newPositionCompetency.save()
@@ -12,9 +13,10 @@ export default class PositionCompetencyService {
   }
 
   async update(currentPositionCompetency: PositionCompetency, positionCompetency: PositionCompetency) {
+    currentPositionCompetency.weightId = positionCompetency.weightId
+    currentPositionCompetency.competencyId = positionCompetency.competencyId
     currentPositionCompetency.positionCompetencyName = positionCompetency.positionCompetencyName
     currentPositionCompetency.positionCompetencyType = positionCompetency.positionCompetencyType
-    currentPositionCompetency.weightId = positionCompetency.weightId
     await currentPositionCompetency.save()
     return currentPositionCompetency
   }

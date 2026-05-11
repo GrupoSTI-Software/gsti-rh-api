@@ -19,6 +19,8 @@ import EmployeeShift from './employee_shift.js'
 import EmployeeBonus from './employee_bonus.js'
 import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
+import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
+import EmployeeSalaryHistory from './employee_salary_history.js'
 
 /**
  * @swagger
@@ -257,6 +259,11 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
 
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'payrollBusinessUnitId',
+  })
+  declare payrollBusinessUnit: BelongsTo<typeof BusinessUnit>
+
   @belongsTo(() => EmployeeType, {
     foreignKey: 'employeeTypeId',
   })
@@ -377,4 +384,22 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare employeeBranchOffices: HasMany<typeof EmployeeBranchOffice>
+
+  /** Historial de préstamos temporales a otras sucursales */
+  @hasMany(() => EmployeeTemporaryAssignment, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.orderBy('employee_temporary_assignment_id', 'desc')
+    },
+  })
+  declare temporaryAssignments: HasMany<typeof EmployeeTemporaryAssignment>
+  
+  /** Histórico de salarios diarios del empleado */
+  @hasMany(() => EmployeeSalaryHistory, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_salary_history_deleted_at').orderBy('valid_from', 'desc')
+    },
+  })
+  declare salaryHistory: HasMany<typeof EmployeeSalaryHistory>
 }

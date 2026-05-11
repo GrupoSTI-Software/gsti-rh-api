@@ -23,6 +23,9 @@ import type {
   HasManyQueryBuilderContract,
   RelationQueryBuilderContract,
 } from '@adonisjs/lucid/types/relations'
+import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
+import { applyDepartmentNameOrAliasesSearch } from '#utils/org_alias_search_sql'
+import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
 
 export default class DepartmentService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -46,7 +49,7 @@ export default class DepartmentService {
       .whereIn('departmentId', departmentsList)
       .where('departmentId', '<>', 999)
       .if(filters?.departmentName, (query) => {
-        query.whereILike('departmentName', `%${filters?.departmentName}%`)
+        applyDepartmentNameOrAliasesSearch(query, filters?.departmentName)
       })
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
@@ -76,7 +79,7 @@ export default class DepartmentService {
       .whereIn('departmentId', departmentsList)
       .where('departmentId', '<>', 999)
       .if(filters?.departmentName, (query) => {
-        query.whereILike('departmentName', `%${filters?.departmentName}%`)
+        applyDepartmentNameOrAliasesSearch(query, filters?.departmentName)
       })
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
@@ -194,6 +197,14 @@ export default class DepartmentService {
     newDepartment.parentDepartmentId = department.parentDepartmentId
     newDepartment.companyId = department.companyId
     newDepartment.businessUnitId = businessUnits?.businessUnitId || 0
+
+    const prepared = prepareAliasesForPersistence(department.aliases ?? null)
+    newDepartment.aliases = prepared.display
+    await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+      businessUnitId: newDepartment.businessUnitId,
+      normalizedTokens: prepared.normalizedTokens,
+    })
+
     await newDepartment.save()
     return newDepartment
   }
@@ -206,6 +217,17 @@ export default class DepartmentService {
     currentDepartment.departmentActive = department.departmentActive
     currentDepartment.parentDepartmentId = department.parentDepartmentId
     currentDepartment.companyId = department.companyId
+
+    if (department.aliases !== undefined) {
+      const prepared = prepareAliasesForPersistence(department.aliases ?? null)
+      await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+        businessUnitId: currentDepartment.businessUnitId,
+        normalizedTokens: prepared.normalizedTokens,
+        excludeDepartmentId: currentDepartment.departmentId,
+      })
+      currentDepartment.aliases = prepared.display
+    }
+
     await currentDepartment.save()
     return currentDepartment
   }
@@ -261,6 +283,11 @@ export default class DepartmentService {
       this.preloadDepartmentHierarchy(childQuery)
     })
     query.preload('departmentPositions', (departmentPositionQuery) => {
+      departmentPositionQuery
+        .whereNull('department_position_deleted_at')
+        .whereHas('position', (pq) => {
+          pq.whereNull('position_deleted_at').whereNull('parent_position_id')
+        })
       departmentPositionQuery.preload('position', (positionQuery) => {
         this.preloadPositionHierarchy(positionQuery)
       })
@@ -278,6 +305,7 @@ export default class DepartmentService {
       employeeQuery.preload('person')
     })
     query.preload('positions', (childPositionQuery) => {
+      childPositionQuery.whereNull('position_deleted_at').orderBy('positionName', 'asc')
       this.preloadPositionHierarchy(childPositionQuery)
     })
   }
@@ -532,8 +560,10 @@ export default class DepartmentService {
    */
   async findDepartmentByName(departmentName: string): Promise<Department | null> {
     return await Department.query()
-      .where('department_name', 'like', `%${departmentName}%`)
       .whereNull('department_deleted_at')
+      .where((sub) => {
+        applyDepartmentNameOrAliasesSearch(sub, departmentName)
+      })
       .first()
   }
 

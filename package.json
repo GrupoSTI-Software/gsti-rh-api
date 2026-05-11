@@ -13,7 +13,8 @@
     "lint:terminology": "node scripts/lint-terminology.mjs",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "patch-package"
   },
   "imports": {
     "#controllers/*": "./app/controllers/*.js",
@@ -33,7 +34,8 @@
     "#start/*": "./start/*.js",
     "#tests/*": "./tests/*.js",
     "#config/*": "./config/*.js",
-    "#constants/*": "./app/constants/*.js"
+    "#constants/*": "./app/constants/*.js",
+    "#utils/*": "./app/utils/*.js"
   },
   "devDependencies": {
     "@adonisjs/assembler": "^7.5.2",
@@ -52,6 +54,7 @@
     "eslint": "^8.57.0",
     "hot-hook": "^0.2.5",
     "lint-staged": "^15.2.5",
+    "patch-package": "^8.0.1",
     "pino-pretty": "^11.0.0",
     "prettier": "^3.2.5",
     "ts-node": "^10.9.2",
