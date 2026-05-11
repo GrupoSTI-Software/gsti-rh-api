@@ -57,6 +57,7 @@ const EXCLUDED_DIRS = new Set([
   'coverage',
   'docs',
   '.github',
+  '.gsti-kg',
 ])
 
 const EXCLUDED_FILES = new Set([
