@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/naming-convention */
 /**
  * Lint de neutralidad terminológica.
  *
