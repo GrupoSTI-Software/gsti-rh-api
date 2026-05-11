@@ -1,12 +1,19 @@
 import Position from '#models/position'
+import DepartmentPosition from '#models/department_position'
 import PositionService from '#services/position_service'
 import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
 import axios from 'axios'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
-import { createPositionValidator, updatePositionValidator } from '#validators/position'
+import OrgChartMoveService from '#services/org_chart_move_service'
+import {
+  createPositionValidator,
+  movePositionValidator,
+  updatePositionValidator,
+} from '#validators/position'
 import { PositionShiftFilterInterface } from '../interfaces/position_shift_filter_interface.js'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
+import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 
 export default class PositionController {
   /**
@@ -535,9 +542,20 @@ export default class PositionController {
    *                 default: false
    *               parentPositionId:
    *                 type: number
-   *                 description: Position parent id
+   *                 nullable: true
+   *                 description: Identificador del puesto padre en el organigrama. Equivale opcionalmente a `parent_id`.
    *                 required: false
-   *                 default: ''
+   *               parent_id:
+   *                 type: number
+   *                 nullable: true
+   *                 description: Alias snake_case de `parentPositionId` para actualizar el padre jerárquico.
+   *                 required: false
+   *               departmentId:
+   *                 type: number
+   *                 description: >-
+   *                   Departamento vínculo organigrama; si el nuevo padre está en otra rama, debe enviarse igual
+   *                   al departamento del padre para evitar inconsistencia (error `consistencia-puesto-departamento`).
+   *                 required: false
    *               companyId:
    *                 type: number
    *                 description: Company id
@@ -604,7 +622,8 @@ export default class PositionController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           Parámetros inválidos o jerarquía inválida en puestos; `data.key` puede ser `jerarquia-ciclo`.
    *         content:
    *           application/json:
    *             schema:
@@ -619,9 +638,28 @@ export default class PositionController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 detail:
+   *                   type: string
    *                 data:
    *                   type: object
-   *                   description: List of parameters set by the client
+   *       '422':
+   *         description: >-
+   *           Validaciones organigrama: `padre-inactivo`, `padre-no-encontrado`, `consistencia-puesto-departamento`, etc. en `data.key`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 data:
+   *                   type: object
    *       default:
    *         description: Unexpected error
    *         content:
@@ -646,6 +684,7 @@ export default class PositionController {
    *                       type: string
    */
   async update({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const positionId = request.param('positionId')
       const positionCode = request.input('positionCode')
@@ -659,7 +698,6 @@ export default class PositionController {
       const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
       const positionIsDefault = request.input('positionIsDefault')
       const positionActive = request.input('positionActive')
-      const parentPositionId = request.input('parentPositionId')
       const companyId = request.input('companyId')
       const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
       const positionMinStaff = request.input('positionMinStaff')
@@ -668,6 +706,38 @@ export default class PositionController {
       const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
 
       const body = request.all() as Record<string, unknown>
+
+      if (!positionId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'The position Id was not found',
+          message: 'Missing data to process',
+          data: { positionId },
+        }
+      }
+      const currentPosition = await Position.query()
+        .whereNull('position_deleted_at')
+        .where('position_id', positionId)
+        .first()
+      if (!currentPosition) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The position was not found',
+          message: 'The position was not found with the entered ID',
+          data: { positionId },
+        }
+      }
+
+      const hasPositionParentPayload =
+        Object.prototype.hasOwnProperty.call(body, 'parentPositionId') ||
+        Object.prototype.hasOwnProperty.call(body, 'parent_id')
+
+      const mergedParentPositionId = hasPositionParentPayload
+        ? resolvePositionParentFromBody(body)
+        : currentPosition.parentPositionId
+
       const position = {
         positionId: positionId,
         positionCode: positionCode,
@@ -681,7 +751,7 @@ export default class PositionController {
         positionEvaluationStartDay: positionEvaluationStartDay,
         positionIsDefault: positionIsDefault,
         positionActive: positionActive,
-        parentPositionId: parentPositionId,
+        parentPositionId: mergedParentPositionId,
         companyId: companyId,
         positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
         positionMinStaff,
@@ -689,34 +759,97 @@ export default class PositionController {
         positionMaxStaff,
         positionMinActiveStaffPerShift,
       } as Position
+
       if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
         const a = body.aliases
         position.aliases = a === null || a === '' ? null : String(a)
       }
-      if (!positionId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
-          data: { ...position },
-        }
-      }
-      const currentPosition = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_id', positionId)
-        .first()
-      if (!currentPosition) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
-          data: { ...position },
-        }
-      }
+
       const positionService = new PositionService(i18n)
       const data = await request.validateUsing(updatePositionValidator)
+
+      const normalizeHierarchyId = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') {
+          return null
+        }
+        const n = Number(v)
+        if (Number.isNaN(n) || n < 1) {
+          return null
+        }
+        return n
+      }
+
+      const pivotRow = await DepartmentPosition.query()
+        .whereNull('department_position_deleted_at')
+        .where('position_id', positionId)
+        .first()
+
+      const parentFieldProvided =
+        Object.prototype.hasOwnProperty.call(body, 'parentPositionId') ||
+        Object.prototype.hasOwnProperty.call(body, 'parent_id')
+      const deptFieldProvided = Object.prototype.hasOwnProperty.call(body, 'departmentId')
+
+      const resolvedNextParentId = parentFieldProvided
+        ? normalizeHierarchyId(resolvePositionParentFromBody(body))
+        : currentPosition.parentPositionId
+
+      const pivotDeptId = pivotRow?.departmentId ?? null
+      let targetDeptForRelocate: number | null = null
+
+      if (deptFieldProvided && body.departmentId !== null && body.departmentId !== undefined && body.departmentId !== '') {
+        targetDeptForRelocate = normalizeHierarchyId(body.departmentId)
+      } else {
+        targetDeptForRelocate = pivotDeptId
+      }
+
+      const parentDirty =
+        parentFieldProvided &&
+        (resolvedNextParentId ?? null) !== (currentPosition.parentPositionId ?? null)
+
+      const deptDirty =
+        deptFieldProvided &&
+        body.departmentId !== null &&
+        body.departmentId !== undefined &&
+        body.departmentId !== '' &&
+        normalizeHierarchyId(body.departmentId) !== pivotDeptId
+
+      if (parentDirty || deptDirty) {
+        if (targetDeptForRelocate === null || Number.isNaN(targetDeptForRelocate)) {
+          response.status(422)
+          return {
+            type: 'warning',
+            title: t('validation_error'),
+            message:
+              pivotDeptId === null && !deptFieldProvided
+                ? 'Se requiere departmentId cuando el puesto no tiene vínculo en departamento-puesto para el organigrama'
+                : 'Departamento destino inválido para reorganizar el puesto',
+            ...(pivotDeptId === null ? { detail: t('org_chart_move_position_no_department_link_detail') } : {}),
+            data: { ...data },
+          }
+        }
+
+        const orgChartMoveService = new OrgChartMoveService(i18n)
+        const relocateResult = await orgChartMoveService.relocatePosition(
+          Number(positionId),
+          resolvedNextParentId,
+          targetDeptForRelocate
+        )
+        if (!relocateResult.ok) {
+          const p = relocateResult.payload
+          response.status(p.status)
+          return {
+            type: 'warning',
+            title: p.title,
+            message: p.message,
+            ...(p.detail !== undefined ? { detail: p.detail } : {}),
+            data: { ...data, ...(p.key !== undefined ? { key: p.key } : {}) },
+          }
+        }
+
+        await currentPosition.refresh()
+        position.parentPositionId = currentPosition.parentPositionId
+      }
+
       const exist = await positionService.verifyInfoExist(position)
       if (exist.status !== 200) {
         response.status(exist.status)
@@ -766,6 +899,78 @@ export default class PositionController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: messageError,
+      }
+    }
+  }
+
+  async move({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const positionIdRaw = request.param('positionId')
+      const positionId =
+        typeof positionIdRaw === 'string' ? Number.parseInt(positionIdRaw, 10) : positionIdRaw
+
+      const moveService = new OrgChartMoveService(i18n)
+
+      const user = auth.user!
+
+      const canMove = await moveService.assertCanUpdateOrganizationChart(user.roleId)
+      if (!canMove) {
+        response.status(403)
+        return {
+          status: 403,
+          message: t('org_chart_move_forbidden'),
+        }
+      }
+
+      if (
+        positionId === null ||
+        positionId === undefined ||
+        Number.isNaN(Number(positionId)) ||
+        Number(positionId) < 1
+      ) {
+        response.status(400)
+        return {
+          status: 400,
+          message: t('resource_id_was_not_found'),
+        }
+      }
+
+      const { parentPositionId, departmentId } = await request.validateUsing(movePositionValidator)
+
+      const result = await moveService.relocatePosition(Number(positionId), parentPositionId, departmentId)
+
+      if (!result.ok) {
+        const payload = result.payload
+        response.status(payload.status)
+        return {
+          status: payload.status,
+          title: payload.title,
+          message: payload.message,
+          ...(payload.detail !== undefined ? { detail: payload.detail } : {}),
+          data: { ...(payload.key !== undefined ? { key: payload.key } : {}) },
+        }
+      }
+
+      response.status(200)
+      return { data: { position: result.position } }
+    } catch (error) {
+      const err = error as { code?: string; messages?: Array<{ message: string }>; message?: string }
+      if (err.code === 'E_VALIDATION_ERROR') {
+        const msg = err.messages?.[0]?.message ?? t('validation_error')
+        response.status(422)
+        return {
+          status: 422,
+          message: msg,
+          detail: msg,
+        }
+      }
+
+      response.status(500)
+      return {
+        status: 500,
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        ...(err.message ? { detail: err.message } : {}),
       }
     }
   }

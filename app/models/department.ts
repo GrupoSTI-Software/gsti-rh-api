@@ -158,7 +158,6 @@ export default class Department extends compose(BaseModel, SoftDeletes) {
     onQuery(query) {
       if (!query.isRelatedSubQuery) {
         query.preload('departments')
-        query.preload('departmentPositions')
         query.orderBy('departmentName', 'asc')
       }
     },

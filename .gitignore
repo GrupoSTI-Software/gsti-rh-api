@@ -26,3 +26,5 @@ yarn-error.log
 
 docs/swagger.json
 .qodo
+.claude/settings.local.json
+.gsti-kg/
