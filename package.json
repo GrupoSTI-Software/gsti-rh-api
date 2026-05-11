@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "patch-package"
   },
   "imports": {
     "#controllers/*": "./app/controllers/*.js",
@@ -52,6 +53,7 @@
     "eslint": "^8.57.0",
     "hot-hook": "^0.2.5",
     "lint-staged": "^15.2.5",
+    "patch-package": "^8.0.1",
     "pino-pretty": "^11.0.0",
     "prettier": "^3.2.5",
     "ts-node": "^10.9.2",

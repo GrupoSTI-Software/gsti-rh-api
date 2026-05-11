@@ -346,5 +346,9 @@
   "org_chart_position_parent_company_mismatch_detail": "The department linked to the parent position does not match the expected legal entity for this position.",
   "org_chart_position_department_consistency_title": "Position and department mismatch",
   "org_chart_position_department_consistency_message": "The department sent does not match the department of the selected parent position.",
-  "org_chart_position_department_consistency_detail": "Send as departmentId the same department where the parent position is linked, or choose a parent from the same branch."
+  "org_chart_position_department_consistency_detail": "Send as departmentId the same department where the parent position is linked, or choose a parent from the same branch.",
+  "company_competency_level": "Company competency level",
+  "label": "Label",
+  "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5",
+  "business_unit_competency_level": "Business unit competency level"
 }

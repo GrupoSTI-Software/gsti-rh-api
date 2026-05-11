@@ -349,5 +349,9 @@
   "org_chart_position_parent_company_mismatch_detail": "El departamento vinculado al puesto padre no comparte la razón social esperada para este puesto.",
   "org_chart_position_department_consistency_title": "Inconsistencia entre puesto y departamento",
   "org_chart_position_department_consistency_message": "El departamento enviado no coincide con el departamento del puesto padre seleccionado.",
-  "org_chart_position_department_consistency_detail": "Indique como departmentId el mismo departamento donde está enlazado el puesto padre, o elija un padre de la misma rama."
+  "org_chart_position_department_consistency_detail": "Indique como departmentId el mismo departamento donde está enlazado el puesto padre, o elija un padre de la misma rama.",
+  "company_competency_level": "Nivel de competencia de la empresa",
+  "label": "Etiqueta",
+  "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
+  "business_unit_competency_level": "Nivel de competencia de la unidad de negocio"
 }
