@@ -14,12 +14,14 @@ export default class EmployeeCompetencyEvaluationService {
     newEmployeeCompetencyEvaluation.employeeEvaluationId = employeeCompetencyEvaluation.employeeEvaluationId
     newEmployeeCompetencyEvaluation.positionBusinessUnitCompetencyLevelId = employeeCompetencyEvaluation.positionBusinessUnitCompetencyLevelId
     newEmployeeCompetencyEvaluation.businessUnitCompetencyLevelId = employeeCompetencyEvaluation.businessUnitCompetencyLevelId
+    newEmployeeCompetencyEvaluation.competencyBracketId = employeeCompetencyEvaluation.competencyBracketId
     await newEmployeeCompetencyEvaluation.save()
     return newEmployeeCompetencyEvaluation
   }
 
   async update(currentEmployeeCompetencyEvaluation: EmployeeCompetencyEvaluation, employeeCompetencyEvaluation: EmployeeCompetencyEvaluation) {
     currentEmployeeCompetencyEvaluation.businessUnitCompetencyLevelId = employeeCompetencyEvaluation.businessUnitCompetencyLevelId
+    currentEmployeeCompetencyEvaluation.competencyBracketId = employeeCompetencyEvaluation.competencyBracketId
     await currentEmployeeCompetencyEvaluation.save()
     return currentEmployeeCompetencyEvaluation
   }

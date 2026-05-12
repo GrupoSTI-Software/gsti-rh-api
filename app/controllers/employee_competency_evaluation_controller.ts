@@ -33,6 +33,10 @@ export default class EmployeeCompetencyEvaluationController {
    *                 type: number
    *                 description: Business unit competency level id
    *                 required: true
+   *               competencyBracketId:
+   *                 type: number
+   *                 description: Competency bracket id
+   *                 required: true
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -123,10 +127,12 @@ export default class EmployeeCompetencyEvaluationController {
     const employeeEvaluationId = request.input('employeeEvaluationId')
     const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
     const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
+    const competencyBracketId = request.input('competencyBracketId')
     const employeeCompetencyEvaluation = {
       employeeEvaluationId: employeeEvaluationId,
       positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
       businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
+      competencyBracketId: competencyBracketId,
     } as EmployeeCompetencyEvaluation
 
     const newEmployeeCompetencyEvaluation = await employeeCompetencyEvaluationService.create(employeeCompetencyEvaluation)
@@ -181,6 +187,10 @@ export default class EmployeeCompetencyEvaluationController {
    *               businessUnitCompetencyLevelId:
    *                 type: number
    *                 description: Business unit competency level id
+   *                 required: true
+   *               competencyBracketId:
+   *                 type: number
+   *                 description: Competency bracket id
    *                 required: true
    *     responses:
    *       '200':
@@ -270,10 +280,12 @@ export default class EmployeeCompetencyEvaluationController {
       const employeeCompetencyEvaluationId = request.param('employeeCompetencyEvaluationId')
       const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
       const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
+      const competencyBracketId = request.input('competencyBracketId')
       const employeeCompetencyEvaluation = {
         employeeCompetencyEvaluationId: employeeCompetencyEvaluationId,
         positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
         businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
+        competencyBracketId: competencyBracketId,
       } as EmployeeCompetencyEvaluation
       if (!employeeCompetencyEvaluationId) {
         response.status(400)

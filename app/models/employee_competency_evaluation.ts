@@ -24,6 +24,9 @@ import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
  *          businessUnitCompetencyLevelId:
  *            type: number
  *            description: Business unit competency level id
+ *          competencyBracketId:
+ *            type: number
+ *            description: Competency bracket id
  *          employeeCompetencyEvaluationCreatedAt:
  *            type: string
  *          employeeCompetencyEvaluationUpdatedAt:
@@ -45,6 +48,9 @@ export default class EmployeeCompetencyEvaluation extends compose(BaseModel, Sof
 
   @column()
   declare businessUnitCompetencyLevelId: number
+
+  @column()
+  declare competencyBracketId: number
 
   @column.dateTime({ autoCreate: true })
   declare employeeCompetencyEvaluationCreatedAt: DateTime
