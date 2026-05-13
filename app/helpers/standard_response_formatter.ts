@@ -87,6 +87,9 @@ export class StandardResponseFormatter {
       'Branch': 'branchOffice',
       'Employee Branch Office': 'employeeBranchOffice',
       'Employee Branch Offices': 'employeeBranchOffices',
+      'Certifications': 'certifications',
+      'Certification': 'certification',
+      'Certification Categories': 'certificationCategories',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

@@ -424,6 +424,64 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 
 ---
 
+## Catálogo de certificaciones (`/api/certifications`, `/api/certification-categories`)
+
+Módulo de **catálogo de certificaciones** reconocidas por la empresa. Los errores usan **`errorCode`** tipo `CERT.*`; el caso de nombre duplicado en categoría usa además **`key`**: `certificacion-duplicada` en la respuesta 409.
+
+### CERT.VAL.001 — Validación de entrada
+
+**Cuándo ocurre:** Vine (tipos/longitudes) u otra validación servidor (URL externa que no usa `http` o `https`).
+
+**Respuesta API:** HTTP **400**, `errorCode: 'CERT.VAL.001'`, campo `message` con el texto (p. ej. *«El link debe ser una URL válida con protocolo http o https.»*).
+
+---
+
+### CERT.NF.CAT.001 — Categoría no encontrada o inactiva
+
+**Cuándo ocurre:** `categoryId` inválido o categoría marcada como inactiva.
+
+**Respuesta API:** HTTP **404**, `errorCode: 'CERT.NF.CAT.001'`.
+
+---
+
+### CERT.NF.BU.001 — Unidad de negocio inválida o inactiva
+
+**Cuándo ocurre:** Algún `businessUnitIds[]` no existe, está eliminada lógicamente o `business_unit_active ≠ 1`.
+
+**Respuesta API:** HTTP **404**, `errorCode: 'CERT.NF.BU.001'`.
+
+---
+
+### CERT.NF.PSS.001 — Certificación no encontrada
+
+**Cuándo ocurre:** `PUT` o `DELETE` con id inexistente.
+
+**Respuesta API:** HTTP **404**, `errorCode: 'CERT.NF.PSS.001'`.
+
+---
+
+### CERT.PSS.CONF.001 — Certificación duplicada (`certificacion-duplicada`)
+
+**Cuándo ocurre:** Mismo nombre (comparación insensible mayúsculas y espacios normalizados en servidor) dentro de la misma categoría.
+
+**Respuesta API:** HTTP **409** con `title`, `key`, `detail`, `message`, `errorCode: 'CERT.PSS.CONF.001'` (ver especificación frontend en `docs/certifications_frontend_implementation_guide.md`).
+
+---
+
+### CERT.SYS.001 — Error no clasificado
+
+**Cuándo ocurre:** Excepción no envuelta en `CertificationServiceError` después de validación Vine en el mismo módulo.
+
+**Respuesta API:** HTTP contextual (400/404/500), `errorCode: 'CERT.SYS.001'`.
+
+---
+
+### Auditoría
+
+Alta/edición/baja registra también en colección **`log_certifications`** (Mongo via `LogStore`) con `user_id` y snapshot de recurso cuando hay usuario autenticado.
+
+---
+
 ## Error Code Summary Table
 
 | Code | Error Type | HTTP Status | User Action | System Action |
@@ -449,6 +507,12 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 | BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
+| CERT.VAL.001 | Validación Vine o URL externa HTTP/HTTPS | 400 | Corregir payload | Vine + CertificationService |
+| CERT.NF.CAT.001 | Categoría inexistente o inactiva | 404 | Refrescar `/api/certification-categories` | CertificationService.ensureCategoryExists |
+| CERT.NF.BU.001 | Business unit inválida, baja lógica o inactiva | 404 | Usar sólo IDs de `/api/business-units` | CertificationService.ensureBusinessUnitsExist |
+| CERT.NF.PSS.001 | Certificación no encontrada (PUT/DELETE) | 404 | Refrescar listado | CertificationService.update/delete |
+| CERT.PSS.CONF.001 | Duplicado nombre categoría (`certificacion-duplicada`) | 409 | Otro nombre o categoría | CertificationService.ensureNoDuplicate |
+| CERT.SYS.001 | Error dominio certificaciones no clasificado | Variado | Revisar logs | CertificationsController catch genérico |
 
 ---
 
@@ -478,6 +542,11 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 - Flujo: crear archivador (POST `/api/employee-vacation-archives`) con `employeeId`, `vacationSettingId` y opcionalmente `shiftExceptionIds` (solo excepciones de turno con tipo slug `vacation`) → subir archivos (POST `.../contents`) con límite 5MB y tipos imagen/PDF.
 - Los archivadores se vinculan a **excepciones de turno** (ShiftException) mediante tabla pivote `employee_vacation_archive_shift_exceptions`; cada excepción solo puede estar en un archivador.
 - Códigos propios del módulo: VAC.ARCH.001–VAC.ARCH.010; se reutilizan SYS.CNFG.PRSS.016 y SYS.CNFG.PRSS.017 para fallos de S3.
+
+### Catálogo de certificaciones
+
+- Códigos `CERT.*`: ver sección anterior. El **409** expone también `title`, `key: certificacion-duplicada` y `detail` además del `message` habitual.
+- OpenAPI/Swagger del módulo: `app/controllers/certifications_controller.ts` (JSDoc). Guía frontend en `docs/certifications_frontend_implementation_guide.md`.
 
 ### Sucursales (branch offices)
 
