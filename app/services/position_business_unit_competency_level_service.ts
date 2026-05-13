@@ -53,6 +53,7 @@ export default class PositionBusinessUnitCompetencyLevelService {
       .where('position_id', positionId)
       .preload('competency', (competencyQuery) => {
         competencyQuery.whereNull('competency_deleted_at')
+        competencyQuery.preload('competencyDescriptors')
       })
       .preload('businessUnitCompetencyLevel', (levelQuery) => {
         levelQuery.whereNull('business_unit_competency_level_deleted_at')

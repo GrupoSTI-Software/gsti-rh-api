@@ -37,6 +37,10 @@ export default class EmployeeCompetencyEvaluationController {
    *                 type: number
    *                 description: Competency bracket id
    *                 required: true
+   *               employeeCompetencyEvaluationScore:
+   *                 type: number
+   *                 description: Employee competency evaluation score
+   *                 required: true
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -128,11 +132,13 @@ export default class EmployeeCompetencyEvaluationController {
     const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
     const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
     const competencyBracketId = request.input('competencyBracketId')
+    const employeeCompetencyEvaluationScore = request.input('employeeCompetencyEvaluationScore')
     const employeeCompetencyEvaluation = {
       employeeEvaluationId: employeeEvaluationId,
       positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
       businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
       competencyBracketId: competencyBracketId,
+      employeeCompetencyEvaluationScore: employeeCompetencyEvaluationScore,
     } as EmployeeCompetencyEvaluation
 
     const newEmployeeCompetencyEvaluation = await employeeCompetencyEvaluationService.create(employeeCompetencyEvaluation)
@@ -191,6 +197,10 @@ export default class EmployeeCompetencyEvaluationController {
    *               competencyBracketId:
    *                 type: number
    *                 description: Competency bracket id
+   *                 required: true
+   *               employeeCompetencyEvaluationScore:
+   *                 type: number
+   *                 description: Employee competency evaluation score
    *                 required: true
    *     responses:
    *       '200':
@@ -281,11 +291,13 @@ export default class EmployeeCompetencyEvaluationController {
       const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
       const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
       const competencyBracketId = request.input('competencyBracketId')
+      const employeeCompetencyEvaluationScore = request.input('employeeCompetencyEvaluationScore')
       const employeeCompetencyEvaluation = {
         employeeCompetencyEvaluationId: employeeCompetencyEvaluationId,
         positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
         businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
         competencyBracketId: competencyBracketId,
+        employeeCompetencyEvaluationScore: employeeCompetencyEvaluationScore,
       } as EmployeeCompetencyEvaluation
       if (!employeeCompetencyEvaluationId) {
         response.status(400)
