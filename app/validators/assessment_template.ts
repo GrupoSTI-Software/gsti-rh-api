@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { assessmentTemplateDimensionDataTypeEnum } from './assessment_template_dimension.js'
 
 /**
  * Validador para crear una plantilla de evaluación.
@@ -28,6 +29,9 @@ import vine from '@vinejs/vine'
  *     @subfield assessmentTemplateDimensionAcronym
  *       - Requerido dentro del objeto
  *       - Tipo: string, trim automático, mínimo 1, máximo 20 caracteres
+ *     @subfield assessmentTemplateDimensionDataType
+ *       - Opcional dentro del objeto (default 'numeric')
+ *       - Enum: 'numeric' | 'percent' | 'categorical_amb'
  */
 export const createAssessmentTemplateValidator = vine.compile(
   vine.object({
@@ -38,6 +42,7 @@ export const createAssessmentTemplateValidator = vine.compile(
         vine.object({
           assessmentTemplateDimensionName: vine.string().trim().minLength(1).maxLength(200),
           assessmentTemplateDimensionAcronym: vine.string().trim().minLength(1).maxLength(20),
+          assessmentTemplateDimensionDataType: assessmentTemplateDimensionDataTypeEnum.optional(),
         })
       )
       .optional(),
@@ -83,6 +88,9 @@ export const createAssessmentTemplateValidator = vine.compile(
  *     @subfield assessmentTemplateDimensionAcronym
  *       - Requerido dentro del objeto
  *       - Tipo: string, trim automático, mínimo 1, máximo 20 caracteres
+ *     @subfield assessmentTemplateDimensionDataType
+ *       - Opcional dentro del objeto
+ *       - Enum: 'numeric' | 'percent' | 'categorical_amb'
  */
 export const updateAssessmentTemplateValidator = vine.compile(
   vine.object({
@@ -94,6 +102,7 @@ export const updateAssessmentTemplateValidator = vine.compile(
           assessmentTemplateDimensionId: vine.number().positive().optional(),
           assessmentTemplateDimensionName: vine.string().trim().minLength(1).maxLength(200),
           assessmentTemplateDimensionAcronym: vine.string().trim().minLength(1).maxLength(20),
+          assessmentTemplateDimensionDataType: assessmentTemplateDimensionDataTypeEnum.optional(),
         })
       )
       .optional(),

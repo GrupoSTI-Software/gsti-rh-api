@@ -5,6 +5,32 @@ import {
   updateAssessmentTemplateValidator,
 } from '#validators/assessment_template'
 
+/**
+ * Detecta si la falla VineJS proviene de un valor inválido en
+ * `assessmentTemplateDimensionDataType` (campo plano o anidado dentro de
+ * `dimensions[]`). Cuando ocurre, el controlador responde 422 con la clave
+ * estable `tipo-dato-invalido` (CAP-02-08-01).
+ */
+function isInvalidDataTypeError(error: any): boolean {
+  if (error?.code !== 'E_VALIDATION_ERROR') return false
+  const messages: Array<{ field?: string; rule?: string }> = error.messages ?? []
+  return messages.some(
+    (m) =>
+      m.rule === 'enum' &&
+      typeof m.field === 'string' &&
+      m.field.endsWith('assessmentTemplateDimensionDataType')
+  )
+}
+
+function buildInvalidDataTypeResponse(t: (key: string, args?: Record<string, unknown>) => string) {
+  return {
+    type: 'error',
+    title: t('assessment_template_dimension'),
+    detail: t('assessment_template_dimension_data_type_invalid'),
+    key: 'tipo-dato-invalido',
+  }
+}
+
 export default class AssessmentTemplateController {
   /**
    * @swagger
@@ -112,9 +138,15 @@ export default class AssessmentTemplateController {
    *                       type: string
    *                     assessmentTemplateDimensionAcronym:
    *                       type: string
+   *                     assessmentTemplateDimensionDataType:
+   *                       type: string
+   *                       enum: [numeric, percent, categorical_amb]
+   *                       description: Tipo de dato de la dimensión (default 'numeric')
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: Tipo de dato inválido (key 'tipo-dato-invalido')
    *       default:
    *         description: Unexpected error
    */
@@ -138,6 +170,10 @@ export default class AssessmentTemplateController {
         data: { assessmentTemplate: newTemplate },
       }
     } catch (error) {
+      if (isInvalidDataTypeError(error)) {
+        response.status(422)
+        return buildInvalidDataTypeResponse(t)
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -187,9 +223,15 @@ export default class AssessmentTemplateController {
    *                       type: string
    *                     assessmentTemplateDimensionAcronym:
    *                       type: string
+   *                     assessmentTemplateDimensionDataType:
+   *                       type: string
+   *                       enum: [numeric, percent, categorical_amb]
+   *                       description: Tipo de dato de la dimensión
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: Tipo de dato inválido (key 'tipo-dato-invalido')
    *       default:
    *         description: Unexpected error
    */
@@ -234,6 +276,10 @@ export default class AssessmentTemplateController {
         data: { assessmentTemplate: updatedTemplate },
       }
     } catch (error) {
+      if (isInvalidDataTypeError(error)) {
+        response.status(422)
+        return buildInvalidDataTypeResponse(t)
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

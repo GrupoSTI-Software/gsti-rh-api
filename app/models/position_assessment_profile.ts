@@ -7,6 +7,19 @@ import Position from './position.js'
 import AssessmentTemplateDimension from './assessment_template_dimension.js'
 
 /**
+ * Valores admitidos para una dimensión de tipo `categorical_amb`
+ * (Alto / Medio / Bajo). Los códigos son agnósticos al idioma; el front
+ * mapea cada uno a su etiqueta localizada.
+ */
+export type AssessmentCategoricalValue = 'high' | 'medium' | 'low'
+
+export const ASSESSMENT_CATEGORICAL_VALUES: readonly AssessmentCategoricalValue[] = [
+  'high',
+  'medium',
+  'low',
+] as const
+
+/**
  * @swagger
  * components:
  *   schemas:
@@ -25,11 +38,18 @@ import AssessmentTemplateDimension from './assessment_template_dimension.js'
  *         positionAssessmentProfileMinimumValue:
  *           type: number
  *           format: double
- *           description: Valor mínimo esperado
+ *           nullable: true
+ *           description: Valor mínimo esperado (sólo aplica para tipos numeric/percent)
  *         positionAssessmentProfileMaximumValue:
  *           type: number
  *           format: double
- *           description: Valor máximo esperado
+ *           nullable: true
+ *           description: Valor máximo esperado (sólo aplica para tipos numeric/percent)
+ *         positionAssessmentProfileExpectedValue:
+ *           type: string
+ *           enum: [high, medium, low]
+ *           nullable: true
+ *           description: Valor único esperado (sólo aplica para tipo categorical_amb)
  *         positionAssessmentProfileCreatedAt:
  *           type: string
  *         positionAssessmentProfileUpdatedAt:
@@ -48,10 +68,13 @@ export default class PositionAssessmentProfile extends compose(BaseModel, SoftDe
   declare assessmentTemplateDimensionId: number
 
   @column()
-  declare positionAssessmentProfileMinimumValue: number
+  declare positionAssessmentProfileMinimumValue: number | null
 
   @column()
-  declare positionAssessmentProfileMaximumValue: number
+  declare positionAssessmentProfileMaximumValue: number | null
+
+  @column()
+  declare positionAssessmentProfileExpectedValue: AssessmentCategoricalValue | null
 
   @column.dateTime({ autoCreate: true })
   declare positionAssessmentProfileCreatedAt: DateTime

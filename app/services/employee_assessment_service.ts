@@ -366,7 +366,16 @@ export default class EmployeeAssessmentService {
   }
 
   /**
-   * Calcula el estado de un resultado individual comparando el valor contra los rangos del perfil.
+   * Calcula el estado de un resultado individual comparando el valor contra
+   * el perfil del puesto, **respetando el `dataType` de la dimensión**:
+   *
+   *  - `numeric` / `percent`: comparación numérica contra el rango [min, max]
+   *    del perfil → 'insufficient' | 'approved' | 'excellent'.
+   *  - `categorical_amb`: comparación exacta contra `expectedValue` del perfil
+   *    → 'approved' si coincide, 'insufficient' si difiere.
+   *
+   * Devuelve `null` cuando el valor está vacío, no es válido para el tipo o
+   * no existe perfil configurado para la dimensión.
    */
   private calculateDimensionStatus(
     value: string | null,
@@ -375,13 +384,29 @@ export default class EmployeeAssessmentService {
   ): string | null {
     if (!value || value.trim() === '') return null
 
-    const numericValue = Number.parseFloat(value)
-    if (Number.isNaN(numericValue)) return null
-
     const profile = positionProfiles.find(
       (p) => p.assessmentTemplateDimensionId === dimensionId
     )
     if (!profile) return null
+
+    const dataType =
+      profile.assessmentTemplateDimension?.assessmentTemplateDimensionDataType ?? 'numeric'
+
+    if (dataType === 'categorical_amb') {
+      const expected = profile.positionAssessmentProfileExpectedValue
+      if (!expected) return null
+      return value.trim() === expected ? 'approved' : 'insufficient'
+    }
+
+    const numericValue = Number.parseFloat(value)
+    if (!Number.isFinite(numericValue)) return null
+
+    if (
+      profile.positionAssessmentProfileMinimumValue === null ||
+      profile.positionAssessmentProfileMaximumValue === null
+    ) {
+      return null
+    }
 
     const minVal = Number(profile.positionAssessmentProfileMinimumValue)
     const maxVal = Number(profile.positionAssessmentProfileMaximumValue)

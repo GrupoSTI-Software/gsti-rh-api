@@ -7,6 +7,19 @@ import AssessmentTemplate from './assessment_template.js'
 import PositionAssessmentProfile from './position_assessment_profile.js'
 
 /**
+ * Tipos de dato admitidos para una dimensión de plantilla de evaluación
+ * (CAP-02-08-01).
+ *
+ *  - `numeric`         — valor numérico libre (ej. 0–100, 0–10).
+ *  - `percent`         — porcentaje (0–100 con semántica de %).
+ *  - `categorical_amb` — categórico Alto / Medio / Bajo.
+ */
+export type AssessmentTemplateDimensionDataType = 'numeric' | 'percent' | 'categorical_amb'
+
+export const ASSESSMENT_TEMPLATE_DIMENSION_DATA_TYPES: readonly AssessmentTemplateDimensionDataType[] =
+  ['numeric', 'percent', 'categorical_amb'] as const
+
+/**
  * @swagger
  * components:
  *   schemas:
@@ -25,6 +38,10 @@ import PositionAssessmentProfile from './position_assessment_profile.js'
  *         assessmentTemplateDimensionAcronym:
  *           type: string
  *           description: Sigla de la dimensión
+ *         assessmentTemplateDimensionDataType:
+ *           type: string
+ *           enum: [numeric, percent, categorical_amb]
+ *           description: Tipo de dato de la dimensión (numérico, porcentual o categórico Alto-Medio-Bajo)
  *         assessmentTemplateDimensionCreatedAt:
  *           type: string
  *         assessmentTemplateDimensionUpdatedAt:
@@ -44,6 +61,9 @@ export default class AssessmentTemplateDimension extends compose(BaseModel, Soft
 
   @column()
   declare assessmentTemplateDimensionAcronym: string
+
+  @column()
+  declare assessmentTemplateDimensionDataType: AssessmentTemplateDimensionDataType
 
   @column.dateTime({ autoCreate: true })
   declare assessmentTemplateDimensionCreatedAt: DateTime

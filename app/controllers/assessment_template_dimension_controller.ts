@@ -1,10 +1,40 @@
 import { HttpContext } from '@adonisjs/core/http'
 import AssessmentTemplateDimensionService from '#services/assessment_template_dimension_service'
-import AssessmentTemplateDimension from '#models/assessment_template_dimension'
+import AssessmentTemplateDimension, {
+  type AssessmentTemplateDimensionDataType,
+} from '#models/assessment_template_dimension'
 import {
   createAssessmentTemplateDimensionValidator,
   updateAssessmentTemplateDimensionValidator,
 } from '#validators/assessment_template_dimension'
+
+/**
+ * Construye una respuesta 422 con la clave estable `tipo-dato-invalido`
+ * cuando un payload trae un valor fuera del enum de `assessmentTemplateDimensionDataType`.
+ *
+ * Aplica un contrato consistente para que el frontend pueda mapear el error
+ * sin depender de mensajes localizados.
+ */
+function buildInvalidDataTypeResponse(t: (key: string, args?: Record<string, unknown>) => string) {
+  return {
+    type: 'error',
+    title: t('assessment_template_dimension'),
+    detail: t('assessment_template_dimension_data_type_invalid'),
+    key: 'tipo-dato-invalido',
+  }
+}
+
+/**
+ * Determina si el error de validación VineJS corresponde al campo
+ * `assessmentTemplateDimensionDataType` (enum fuera de rango).
+ */
+function isInvalidDataTypeError(error: any): boolean {
+  if (error?.code !== 'E_VALIDATION_ERROR') return false
+  const messages: Array<{ field?: string; rule?: string }> = error.messages ?? []
+  return messages.some(
+    (m) => m.field === 'assessmentTemplateDimensionDataType' && m.rule === 'enum'
+  )
+}
 
 export default class AssessmentTemplateDimensionController {
   /**
@@ -123,9 +153,15 @@ export default class AssessmentTemplateDimensionController {
    *                 type: string
    *                 description: Dimension acronym
    *                 required: true
+   *               assessmentTemplateDimensionDataType:
+   *                 type: string
+   *                 enum: [numeric, percent, categorical_amb]
+   *                 description: Tipo de dato de la dimensión (default 'numeric')
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: Tipo de dato inválido (key 'tipo-dato-invalido')
    *       default:
    *         description: Unexpected error
    */
@@ -137,6 +173,9 @@ export default class AssessmentTemplateDimensionController {
         assessmentTemplateId: request.input('assessmentTemplateId'),
         assessmentTemplateDimensionName: request.input('assessmentTemplateDimensionName'),
         assessmentTemplateDimensionAcronym: request.input('assessmentTemplateDimensionAcronym'),
+        assessmentTemplateDimensionDataType: request.input(
+          'assessmentTemplateDimensionDataType'
+        ) as AssessmentTemplateDimensionDataType | undefined,
       } as AssessmentTemplateDimension
       const service = new AssessmentTemplateDimensionService()
       const newDimension = await service.create(dimension)
@@ -148,6 +187,10 @@ export default class AssessmentTemplateDimensionController {
         data: { assessmentTemplateDimension: newDimension },
       }
     } catch (error) {
+      if (isInvalidDataTypeError(error)) {
+        response.status(422)
+        return buildInvalidDataTypeResponse(t)
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -186,9 +229,15 @@ export default class AssessmentTemplateDimensionController {
    *                 type: string
    *               assessmentTemplateDimensionAcronym:
    *                 type: string
+   *               assessmentTemplateDimensionDataType:
+   *                 type: string
+   *                 enum: [numeric, percent, categorical_amb]
+   *                 description: Tipo de dato de la dimensión
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: Tipo de dato inválido (key 'tipo-dato-invalido')
    *       default:
    *         description: Unexpected error
    */
@@ -224,6 +273,9 @@ export default class AssessmentTemplateDimensionController {
       const dimension = {
         assessmentTemplateDimensionName: request.input('assessmentTemplateDimensionName'),
         assessmentTemplateDimensionAcronym: request.input('assessmentTemplateDimensionAcronym'),
+        assessmentTemplateDimensionDataType: request.input(
+          'assessmentTemplateDimensionDataType'
+        ) as AssessmentTemplateDimensionDataType | undefined,
       } as AssessmentTemplateDimension
       const updatedDimension = await service.update(currentDimension, dimension)
       response.status(201)
@@ -234,6 +286,10 @@ export default class AssessmentTemplateDimensionController {
         data: { assessmentTemplateDimension: updatedDimension },
       }
     } catch (error) {
+      if (isInvalidDataTypeError(error)) {
+        response.status(422)
+        return buildInvalidDataTypeResponse(t)
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

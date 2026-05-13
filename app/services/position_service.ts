@@ -1421,10 +1421,12 @@ export default class PositionService {
             ?? 'Sin prueba'
           const dimensionLabel = (dimension as any)?.assessmentTemplateDimensionName ?? ''
           if (!testsMap.has(templateName)) testsMap.set(templateName, [])
+          // Para dimensiones `categorical_amb` (sin rango numérico) se asigna 0/0 al
+          // reporte numérico actual; el `expectedValue` no se renderiza en este PDF.
           testsMap.get(templateName)!.push({
             label: dimensionLabel,
-            min: profile.positionAssessmentProfileMinimumValue,
-            max: profile.positionAssessmentProfileMaximumValue,
+            min: profile.positionAssessmentProfileMinimumValue ?? 0,
+            max: profile.positionAssessmentProfileMaximumValue ?? 0,
           })
         }
 
@@ -2057,10 +2059,12 @@ export default class PositionService {
           'Sin prueba'
         const dimensionLabel = (dimension as any)?.assessmentTemplateDimensionName ?? ''
         if (!testsMap.has(templateName)) testsMap.set(templateName, [])
+        // Para dimensiones `categorical_amb` (sin rango numérico) se asigna 0/0 al
+        // reporte XLSX actual; el `expectedValue` no se renderiza en este reporte.
         testsMap.get(templateName)!.push({
           label: dimensionLabel,
-          min: profile.positionAssessmentProfileMinimumValue,
-          max: profile.positionAssessmentProfileMaximumValue,
+          min: profile.positionAssessmentProfileMinimumValue ?? 0,
+          max: profile.positionAssessmentProfileMaximumValue ?? 0,
         })
       }
 
