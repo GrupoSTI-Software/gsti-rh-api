@@ -27,6 +27,15 @@ import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
  *          competencyBracketId:
  *            type: number
  *            description: Competency bracket id
+ *          employeeCompetencyEvaluationBracketDescription:
+ *            type: string
+ *            description: Employee competency evaluation bracket description
+ *          employeeCompetencyEvaluationBracketRangeMin:
+ *            type: number
+ *            description: Employee competency evaluation bracket range min
+ *          employeeCompetencyEvaluationBracketRangeMax:
+ *            type: number
+ *            description: Employee competency evaluation bracket range max
  *          employeeCompetencyEvaluationScore:
  *            type: number
  *            description: Employee competency evaluation score
@@ -54,6 +63,15 @@ export default class EmployeeCompetencyEvaluation extends compose(BaseModel, Sof
 
   @column()
   declare competencyBracketId: number
+
+  @column()
+  declare employeeCompetencyEvaluationBracketDescription: string
+
+  @column()
+  declare employeeCompetencyEvaluationBracketRangeMin: number
+
+  @column()
+  declare employeeCompetencyEvaluationBracketRangeMax: number
 
   @column()
   declare employeeCompetencyEvaluationScore: number

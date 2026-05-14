@@ -37,6 +37,18 @@ export default class EmployeeCompetencyEvaluationController {
    *                 type: number
    *                 description: Competency bracket id
    *                 required: true
+   *               employeeCompetencyEvaluationBracketDescription:
+   *                 type: string
+   *                 description: Employee competency evaluation bracket description
+   *                 required: true
+   *               employeeCompetencyEvaluationBracketRangeMin:
+   *                 type: number
+   *                 description: Employee competency evaluation bracket range min
+   *                 required: true
+   *               employeeCompetencyEvaluationBracketRangeMax:
+   *                 type: number
+   *                 description: Employee competency evaluation bracket range max
+   *                 required: true
    *               employeeCompetencyEvaluationScore:
    *                 type: number
    *                 description: Employee competency evaluation score
@@ -132,11 +144,17 @@ export default class EmployeeCompetencyEvaluationController {
     const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
     const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
     const competencyBracketId = request.input('competencyBracketId')
+    const employeeCompetencyEvaluationBracketDescription = request.input('employeeCompetencyEvaluationBracketDescription')
+    const employeeCompetencyEvaluationBracketRangeMin = request.input('employeeCompetencyEvaluationBracketRangeMin')
+    const employeeCompetencyEvaluationBracketRangeMax = request.input('employeeCompetencyEvaluationBracketRangeMax')
     const employeeCompetencyEvaluationScore = request.input('employeeCompetencyEvaluationScore')
     const employeeCompetencyEvaluation = {
       employeeEvaluationId: employeeEvaluationId,
       positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
       businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
+      employeeCompetencyEvaluationBracketDescription: employeeCompetencyEvaluationBracketDescription,
+      employeeCompetencyEvaluationBracketRangeMin: employeeCompetencyEvaluationBracketRangeMin,
+      employeeCompetencyEvaluationBracketRangeMax: employeeCompetencyEvaluationBracketRangeMax,
       competencyBracketId: competencyBracketId,
       employeeCompetencyEvaluationScore: employeeCompetencyEvaluationScore,
     } as EmployeeCompetencyEvaluation
@@ -197,6 +215,18 @@ export default class EmployeeCompetencyEvaluationController {
    *               competencyBracketId:
    *                 type: number
    *                 description: Competency bracket id
+   *                 required: true
+   *               employeeCompetencyEvaluationBracketDescription:
+   *                 type: string
+   *                 description: Employee competency evaluation bracket description
+   *                 required: true
+   *               employeeCompetencyEvaluationBracketRangeMin:
+   *                 type: number
+   *                 description: Employee competency evaluation bracket range min
+   *                 required: true
+   *               employeeCompetencyEvaluationBracketRangeMax:
+   *                 type: number
+   *                 description: Employee competency evaluation bracket range max
    *                 required: true
    *               employeeCompetencyEvaluationScore:
    *                 type: number
@@ -291,12 +321,18 @@ export default class EmployeeCompetencyEvaluationController {
       const positionBusinessUnitCompetencyLevelId = request.input('positionBusinessUnitCompetencyLevelId')
       const businessUnitCompetencyLevelId = request.input('businessUnitCompetencyLevelId')
       const competencyBracketId = request.input('competencyBracketId')
+      const employeeCompetencyEvaluationBracketDescription = request.input('employeeCompetencyEvaluationBracketDescription')
+      const employeeCompetencyEvaluationBracketRangeMin = request.input('employeeCompetencyEvaluationBracketRangeMin')
+      const employeeCompetencyEvaluationBracketRangeMax = request.input('employeeCompetencyEvaluationBracketRangeMax')
       const employeeCompetencyEvaluationScore = request.input('employeeCompetencyEvaluationScore')
       const employeeCompetencyEvaluation = {
         employeeCompetencyEvaluationId: employeeCompetencyEvaluationId,
         positionBusinessUnitCompetencyLevelId: positionBusinessUnitCompetencyLevelId,
         businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
         competencyBracketId: competencyBracketId,
+        employeeCompetencyEvaluationBracketDescription: employeeCompetencyEvaluationBracketDescription,
+        employeeCompetencyEvaluationBracketRangeMin: employeeCompetencyEvaluationBracketRangeMin,
+        employeeCompetencyEvaluationBracketRangeMax: employeeCompetencyEvaluationBracketRangeMax,
         employeeCompetencyEvaluationScore: employeeCompetencyEvaluationScore,
       } as EmployeeCompetencyEvaluation
       if (!employeeCompetencyEvaluationId) {
