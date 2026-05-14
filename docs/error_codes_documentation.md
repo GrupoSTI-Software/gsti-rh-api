@@ -507,6 +507,9 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 | BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
+| EC.VAL.001 | Parámetro employeeId inválido | 400 | Corregir ID | EmployeeCertificationController |
+| EC.NF.EMP.001 | Empleado no encontrado o dado de baja | 404 | Verificar employeeId | EmployeeCertificationService |
+| EC.SYS.001 | Error dominio certificaciones empleado no clasificado | 500 | Revisar logs | EmployeeCertificationController catch |
 | PCR.VAL.001 | Validación entrada certificaciones requeridas | 400 | Corregir payload | Vine + assertNumericId |
 | PCR.NF.POS.001 | Puesto no encontrado o dado de baja | 404 | Verificar positionId | PositionCertificationRequirementService |
 | PCR.NF.CERT.001 | Certificación del catálogo no encontrada | 404 | Verificar certificationId | PositionCertificationRequirementService |
@@ -549,6 +552,31 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 - Flujo: crear archivador (POST `/api/employee-vacation-archives`) con `employeeId`, `vacationSettingId` y opcionalmente `shiftExceptionIds` (solo excepciones de turno con tipo slug `vacation`) → subir archivos (POST `.../contents`) con límite 5MB y tipos imagen/PDF.
 - Los archivadores se vinculan a **excepciones de turno** (ShiftException) mediante tabla pivote `employee_vacation_archive_shift_exceptions`; cada excepción solo puede estar en un archivador.
 - Códigos propios del módulo: VAC.ARCH.001–VAC.ARCH.010; se reutilizan SYS.CNFG.PRSS.016 y SYS.CNFG.PRSS.017 para fallos de S3.
+
+## Certificaciones del empleado (`/api/employees/:employeeId/certifications`)
+
+Endpoint de lectura que cruza certificaciones requeridas por el puesto actual del empleado, cumplimientos históricos y catálogo. Calcula 6 estados: `no_iniciada`, `vigente`, `por_vencer`, `vencida`, `sin_renovacion`, `historico`. Los errores usan prefijo **`EC.*`**.
+
+### EC.VAL.001 — Validación de entrada
+
+**Cuándo:** `employeeId` no numérico o menor que 1.  
+**HTTP 400.**
+
+---
+
+### EC.NF.EMP.001 — Empleado no encontrado
+
+**Cuándo:** `employeeId` no existe o tiene soft delete.  
+**HTTP 404.**
+
+---
+
+### EC.SYS.001 — Error no clasificado
+
+**Cuándo:** Excepción inesperada.  
+**HTTP 500.**
+
+---
 
 ## Certificaciones requeridas por puesto (`/api/positions/:positionId/certification-requirements`)
 

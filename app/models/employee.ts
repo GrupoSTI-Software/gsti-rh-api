@@ -21,6 +21,7 @@ import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
 import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
 import EmployeeSalaryHistory from './employee_salary_history.js'
+import EmployeeCertification from './employee_certification.js'
 
 /**
  * @swagger
@@ -402,4 +403,12 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare salaryHistory: HasMany<typeof EmployeeSalaryHistory>
+
+  @hasMany(() => EmployeeCertification, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_certification_deleted_at')
+    },
+  })
+  declare certifications: HasMany<typeof EmployeeCertification>
 }

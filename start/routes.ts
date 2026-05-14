@@ -146,6 +146,7 @@ import './routes/career_path_candidate_routes.js'
 import './routes/business_unit_competency_level_routes.js'
 import './routes/certifications_routes.js'
 import './routes/position_certification_requirement_routes.js'
+import './routes/employee_certification_routes.js'
 
 router
   .get('/', async ({ view }) => {
