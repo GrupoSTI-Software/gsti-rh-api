@@ -108,3 +108,21 @@ export const updateAssessmentTemplateValidator = vine.compile(
       .optional(),
   })
 )
+
+/**
+ * Validador para el endpoint PATCH /assessment-templates/:id/status.
+ *
+ * Sólo acepta `isActive` (boolean). El controlador valida adicionalmente
+ * que el rol del usuario tenga el permiso `toggle-status` sobre el módulo
+ * `assessment-templates`; en caso contrario responde 403 con
+ * `key: 'sin-permiso'` (CAP-02-08-01).
+ *
+ * @field isActive
+ *   - Requerido
+ *   - Tipo: boolean
+ */
+export const toggleStatusAssessmentTemplateValidator = vine.compile(
+  vine.object({
+    isActive: vine.boolean(),
+  })
+)

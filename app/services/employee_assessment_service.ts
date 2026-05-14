@@ -102,7 +102,12 @@ export default class EmployeeAssessmentService {
 
   /**
    * Obtiene las plantillas de evaluación distintas asignadas a un puesto a través
-   * del JOIN: position_assessment_profiles → assessment_template_dimensions → assessment_templates
+   * del JOIN: position_assessment_profiles → assessment_template_dimensions → assessment_templates.
+   *
+   * CAP-02-08-04 — Sólo devuelve plantillas con `is_active = true`. Las
+   * plantillas inactivas no deben ofrecerse al asignar nuevas evaluaciones
+   * a empleados; el histórico ya creado permanece intacto (consultado vía
+   * `getByEmployee`).
    */
   async getTemplatesByPosition(positionId: number) {
     const profiles = await PositionAssessmentProfile.query()
@@ -123,6 +128,7 @@ export default class EmployeeAssessmentService {
 
     const templates = await AssessmentTemplate.query()
       .whereNull('assessment_template_deleted_at')
+      .where('assessment_template_is_active', true)
       .whereIn('assessment_template_id', Array.from(templateIdSet))
       .preload('dimensions', (dimQuery) => {
         dimQuery.whereNull('assessment_template_dimension_deleted_at')

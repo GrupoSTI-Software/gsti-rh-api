@@ -183,6 +183,8 @@
   "new_notice": "New notice",
   "assessment_template": "Assessment template",
   "assessment_templates": "Assessment templates",
+  "assessment_template_no_permission_to_toggle_status": "You do not have permission to activate or deactivate assessment templates",
+  "user_unauthorized": "User not authenticated",
   "assessment_template_dimension": "Assessment template dimension",
   "assessment_template_dimensions": "Assessment template dimensions",
   "assessment_template_dimension_data_type_invalid": "The dimension data type is invalid",

@@ -609,6 +609,12 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Delete',
         systemPermissionSlug: 'delete',
         systemModuleId: 35
+      },
+      {
+        systemPermissionId: 148,
+        systemPermissionName: 'Activar / desactivar plantilla de evaluación',
+        systemPermissionSlug: 'toggle-status',
+        systemModuleId: 35
       }
     ]
 

@@ -43,14 +43,22 @@ export default class AssessmentTemplateService {
       'assessment_template_id',
       'assessment_template_name',
       'assessment_template_description',
+      'assessment_template_is_active',
       'assessment_template_created_at',
     ]
+    const status = filters.status ?? 'active'
     const items = await AssessmentTemplate.query()
       .whereNull('assessment_template_deleted_at')
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(assessment_template_name) LIKE ?', [
           `%${filters.search!.toUpperCase()}%`,
         ])
+      })
+      .if(status === 'active', (query) => {
+        query.where('assessment_template_is_active', true)
+      })
+      .if(status === 'inactive', (query) => {
+        query.where('assessment_template_is_active', false)
       })
       .preload('dimensions', (dimQuery) => {
         dimQuery.whereNull('assessment_template_dimension_deleted_at')
@@ -60,6 +68,21 @@ export default class AssessmentTemplateService {
       .paginate(filters.page, filters.limit)
 
     return items
+  }
+
+  /**
+   * Activa o desactiva una plantilla sin tocar el resto de sus campos.
+   * El soft-delete sigue siendo el mecanismo para retirar definitivamente
+   * una plantilla; este método sólo conmuta `is_active` (CAP-02-08-01).
+   *
+   * @param currentTemplate Instancia ya cargada de la plantilla.
+   * @param isActive Nuevo valor de `is_active`.
+   * @returns La plantilla actualizada.
+   */
+  async toggleStatus(currentTemplate: AssessmentTemplate, isActive: boolean) {
+    currentTemplate.assessmentTemplateIsActive = isActive
+    await currentTemplate.save()
+    return currentTemplate
   }
 
   /**

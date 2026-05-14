@@ -186,6 +186,8 @@
   "new_notice": "Nuevo aviso",
   "assessment_template": "Plantilla de evaluación",
   "assessment_templates": "Plantillas de evaluación",
+  "assessment_template_no_permission_to_toggle_status": "No tienes permiso para activar o desactivar plantillas de evaluación",
+  "user_unauthorized": "Usuario no autenticado",
   "assessment_template_dimension": "Dimensión de plantilla",
   "assessment_template_dimensions": "Dimensiones de plantilla",
   "assessment_template_dimension_data_type_invalid": "El tipo de dato de la dimensión es inválido",
