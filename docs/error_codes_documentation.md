@@ -507,6 +507,13 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 | BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
+| PCR.VAL.001 | Validación entrada certificaciones requeridas | 400 | Corregir payload | Vine + assertNumericId |
+| PCR.NF.POS.001 | Puesto no encontrado o dado de baja | 404 | Verificar positionId | PositionCertificationRequirementService |
+| PCR.NF.CERT.001 | Certificación del catálogo no encontrada | 404 | Verificar certificationId | PositionCertificationRequirementService |
+| PCR.NF.REQ.001 | Relación puesto-certificación inexistente | 404 | Refrescar listado | PositionCertificationRequirementService.remove |
+| PCR.CONF.001 | Certificación ya asignada al puesto (`certificacion-ya-asignada`) | 409 | No agregar duplicado | PositionCertificationRequirementService.ensureNotDuplicate |
+| PCR.UNAP.001 | Certificación no aplicable por unidad de negocio (`certificacion-no-aplicable`) | 422 | Revisar BU del puesto | PositionCertificationRequirementService.assertApplicable |
+| PCR.SYS.001 | Error dominio certificaciones requeridas no clasificado | Variado | Revisar logs | PositionCertificationRequirementController catch |
 | CERT.VAL.001 | Validación Vine o URL externa HTTP/HTTPS | 400 | Corregir payload | Vine + CertificationService |
 | CERT.NF.CAT.001 | Categoría inexistente o inactiva | 404 | Refrescar `/api/certification-categories` | CertificationService.ensureCategoryExists |
 | CERT.NF.BU.001 | Business unit inválida, baja lógica o inactiva | 404 | Usar sólo IDs de `/api/business-units` | CertificationService.ensureBusinessUnitsExist |
@@ -542,6 +549,59 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 - Flujo: crear archivador (POST `/api/employee-vacation-archives`) con `employeeId`, `vacationSettingId` y opcionalmente `shiftExceptionIds` (solo excepciones de turno con tipo slug `vacation`) → subir archivos (POST `.../contents`) con límite 5MB y tipos imagen/PDF.
 - Los archivadores se vinculan a **excepciones de turno** (ShiftException) mediante tabla pivote `employee_vacation_archive_shift_exceptions`; cada excepción solo puede estar en un archivador.
 - Códigos propios del módulo: VAC.ARCH.001–VAC.ARCH.010; se reutilizan SYS.CNFG.PRSS.016 y SYS.CNFG.PRSS.017 para fallos de S3.
+
+## Certificaciones requeridas por puesto (`/api/positions/:positionId/certification-requirements`)
+
+Módulo que relaciona puestos con certificaciones del catálogo. Soft delete en la relación; cumplimientos históricos de empleados no se afectan al quitar. Los errores usan prefijo **`PCR.*`**; los casos 409 y 422 llevan además `key` y `detail`.
+
+### PCR.VAL.001 — Validación de entrada
+
+**Cuándo:** `certificationIds` ausente, vacío o con valores no numéricos; `positionId`/`certificationId` no numérico.  
+**HTTP 400.**
+
+---
+
+### PCR.NF.POS.001 — Puesto no encontrado
+
+**Cuándo:** `positionId` no existe o tiene soft delete.  
+**HTTP 404.**
+
+---
+
+### PCR.NF.CERT.001 — Certificación no encontrada
+
+**Cuándo:** Un `certificationId` del batch no existe en el catálogo.  
+**HTTP 404.**
+
+---
+
+### PCR.NF.REQ.001 — Relación no encontrada
+
+**Cuándo:** `DELETE` con `certificationId` que no está asignado activamente al puesto.  
+**HTTP 404.**
+
+---
+
+### PCR.CONF.001 — Certificación ya asignada (`certificacion-ya-asignada`)
+
+**Cuándo:** `POST` incluye un `certificationId` que ya existe (activo) para ese puesto.  
+**HTTP 409.** Cuerpo incluye `key: "certificacion-ya-asignada"` y `detail`.
+
+---
+
+### PCR.UNAP.001 — Certificación no aplicable (`certificacion-no-aplicable`)
+
+**Cuándo:** La certificación tiene unidades de negocio restringidas y la `businessUnitId` del puesto no está entre ellas.  
+**HTTP 422.** Cuerpo incluye `key: "certificacion-no-aplicable"` y `detail`.
+
+---
+
+### PCR.SYS.001 — Error no clasificado
+
+**Cuándo:** Excepción inesperada dentro del dominio.  
+**HTTP variable.**
+
+---
 
 ### Catálogo de certificaciones
 
