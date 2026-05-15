@@ -507,6 +507,14 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 | BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
+| EC.VAL.FILE.001 | Tipo de archivo no permitido (PDF/JPG/PNG) | 415/400 | Corregir tipo | EmployeeCertificationUploadService |
+| EC.VAL.FILE.002 | Archivo supera 10 MB | 413 | Reducir tamaño | EmployeeCertificationUploadService |
+| EC.VAL.DATE.001 | Fecha de cumplimiento futura | 422 | Corregir fecha | EmployeeCertificationUploadService |
+| EC.NF.CERT.001 | Certificación inexistente en catálogo | 404 | Verificar certificationId | EmployeeCertificationUploadService |
+| EC.NF.UPL.001 | Cumplimiento no encontrado o fuera del par | 404 | Refrescar historial | EmployeeCertificationUploadService |
+| EC.FORBID.001 | No es el cumplimiento más reciente | 403 | Solo borrar el más reciente | EmployeeCertificationUploadService |
+| EC.UNAP.001 | Certificación no aplica a la BU del empleado | 422 | Revisar BU | EmployeeCertificationUploadService |
+| EC.S3.001 | Error al subir o descargar de S3 | 500 | Revisar configuración AWS | EmployeeCertificationUploadService |
 | EC.VAL.001 | Parámetro employeeId inválido | 400 | Corregir ID | EmployeeCertificationController |
 | EC.NF.EMP.001 | Empleado no encontrado o dado de baja | 404 | Verificar employeeId | EmployeeCertificationService |
 | EC.SYS.001 | Error dominio certificaciones empleado no clasificado | 500 | Revisar logs | EmployeeCertificationController catch |
@@ -552,6 +560,59 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 - Flujo: crear archivador (POST `/api/employee-vacation-archives`) con `employeeId`, `vacationSettingId` y opcionalmente `shiftExceptionIds` (solo excepciones de turno con tipo slug `vacation`) → subir archivos (POST `.../contents`) con límite 5MB y tipos imagen/PDF.
 - Los archivadores se vinculan a **excepciones de turno** (ShiftException) mediante tabla pivote `employee_vacation_archive_shift_exceptions`; cada excepción solo puede estar en un archivador.
 - Códigos propios del módulo: VAC.ARCH.001–VAC.ARCH.010; se reutilizan SYS.CNFG.PRSS.016 y SYS.CNFG.PRSS.017 para fallos de S3.
+
+## Upload de comprobantes de certificación (`/api/employees/:employeeId/certifications/:certificationId/uploads`)
+
+Gestión de archivos de acreditación. Usa S3 privado + URLs pre-firmadas (5 min). Los errores usan prefijo **`EC.*`** (compartido con el módulo de listado de certificaciones).
+
+### EC.VAL.FILE.001 — Tipo de archivo no permitido
+
+**Cuándo:** extensión o MIME type distinto a PDF, JPG, JPEG, PNG; o archivo ausente.  
+**HTTP 415 / 400.**
+
+---
+
+### EC.VAL.FILE.002 — Archivo muy grande
+
+**Cuándo:** archivo supera 10 MB.  
+**HTTP 413.**
+
+---
+
+### EC.VAL.DATE.001 — Fecha futura
+
+**Cuándo:** `compliedAt` es posterior a hoy.  
+**HTTP 422.**
+
+---
+
+### EC.NF.UPL.001 — Cumplimiento no encontrado
+
+**Cuándo:** `employeeCertificationId` no existe o no pertenece al par empleado/certificación indicado.  
+**HTTP 404.**
+
+---
+
+### EC.FORBID.001 — No es el más reciente
+
+**Cuándo:** `DELETE` sobre un cumplimiento que no es el más reciente del par.  
+**HTTP 403.**
+
+---
+
+### EC.UNAP.001 — Certificación no aplicable (upload)
+
+**Cuándo:** La certificación tiene unidades de negocio restringidas y la BU del empleado no está entre ellas.  
+**HTTP 422.**
+
+---
+
+### EC.S3.001 — Error al subir a S3
+
+**Cuándo:** Fallo en la subida o al generar la URL pre-firmada.  
+**HTTP 500.**
+
+---
 
 ## Certificaciones del empleado (`/api/employees/:employeeId/certifications`)
 
