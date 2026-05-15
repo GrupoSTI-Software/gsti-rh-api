@@ -148,6 +148,7 @@ import './routes/certifications_routes.js'
 import './routes/position_certification_requirement_routes.js'
 import './routes/employee_certification_routes.js'
 import './routes/employee_certification_upload_routes.js'
+import './routes/employee_certification_expiration_routes.js'
 
 router
   .get('/', async ({ view }) => {
