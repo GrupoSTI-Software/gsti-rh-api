@@ -10,6 +10,7 @@
 
 import router from '@adonisjs/core/services/router'
 import server from '@adonisjs/core/services/server'
+import env from '#start/env'
 
 /**
  * The error handler is used to convert an exception
@@ -46,4 +47,7 @@ router.use([
 export const middleware = router.named({
   auth: () => import('#middleware/auth_middleware'),
   basicAuth: () => import('#middleware/basic_auth_middleware'),
+  ...(env.get('APP_MODE') === 'demo'
+    ? { demoGuard: () => import('../app/modules/demo/middleware/demo_guard_middleware.js') }
+    : {}),
 })

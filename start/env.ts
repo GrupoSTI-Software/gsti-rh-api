@@ -72,4 +72,16 @@ export default await Env.create(new URL('../', import.meta.url), {
   */
   BASIC_AUTH_USER: Env.schema.string.optional(),
   BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables para el modo demo y hardening del endpoint demo
+  |----------------------------------------------------------
+  */
+  APP_MODE: Env.schema.enum.optional(['demo', 'production', 'development'] as const),
+  DEMO_PASSWORD_HASH: Env.schema.string.optional(),
+  /** Hash PHC en Base64 (recomendado: evita que caracteres `$` en .env corrompan el valor). */
+  DEMO_PASSWORD_HASH_B64: Env.schema.string.optional(),
+  DEMO_ALLOWED_HOSTNAME: Env.schema.string.optional(),
+  DEMO_ALLOWED_DB_PATTERN: Env.schema.string.optional(),
+  DEMO_AUDIT_EMAIL: Env.schema.string.optional(),
 })

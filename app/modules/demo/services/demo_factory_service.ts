@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- trazas temporales modo demo */
 import { DateTime } from 'luxon'
 import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
@@ -29,23 +30,54 @@ import SystemSetting from '#models/system_setting'
 import Tolerance from '#models/tolerance'
 import Assist from '#models/assist'
 
-import { PersonFactory, resetDemoPeopleIndex } from '#database/factories/person_factory'
-import { EmployeeFactory, DEMO_POSITION_ASSIGNMENTS } from '#database/factories/employee_factory'
-import { AssistFactory, buildWorkDays, distributeWorkDays, buildPunchTime } from '#database/factories/assist_factory'
-import { DepartmentFactory, DEMO_DEPARTMENTS } from '#database/factories/department_factory'
-import { PositionFactory, DEMO_POSITIONS } from '#database/factories/position_factory'
-import { ShiftFactory, DEMO_SHIFTS, DEMO_DEFAULT_SHIFT_NAME } from '#database/factories/shift_factory'
-import { UserFactory, DEMO_ROOT_USERS, DEMO_DEFAULT_PASSWORD, DEMO_ROLE_RULES } from '#database/factories/user_factory'
-import { AddressFactory } from '#database/factories/address_factory'
-import { EmployeeAddressFactory } from '#database/factories/employee_address_factory'
-import { EmployeeEmergencyContactFactory } from '#database/factories/employee_emergency_contact_factory'
-import { EmployeeRecordFactory } from '#database/factories/employee_record_factory'
-import { BranchOfficeFactory, DEMO_BRANCH_OFFICE_SLUG } from '#database/factories/branch_office_factory'
-import { EmployeeBranchOfficeFactory } from '#database/factories/employee_branch_office_factory'
-import { ShiftExceptionFactory } from '#database/factories/shift_exception_factory'
-import { EmployeeVacationArchiveFactory } from '#database/factories/employee_vacation_archive_factory'
-import { EmployeeVacationArchiveContentFactory } from '#database/factories/employee_vacation_archive_content_factory'
-import { ExceptionRequestFactory } from '#database/factories/exception_request_factory'
+import db from '@adonisjs/lucid/services/db'
+import {
+  purgeDemoOperationalData,
+  type DemoPurgePreserveRequestingUser,
+} from './demo_operational_purge.js'
+import { PersonFactory, resetDemoPeopleIndex } from '../factories/person_factory.js'
+import { EmployeeFactory, DEMO_POSITION_ASSIGNMENTS } from '../factories/employee_factory.js'
+import {
+  AssistFactory,
+  buildWorkDays,
+  distributeWorkDays,
+  buildPunchTime,
+  demoAssistNow,
+  DEMO_ASSIST_CALENDAR_ZONE,
+} from '../factories/assist_factory.js'
+import { DepartmentFactory, DEMO_DEPARTMENTS } from '../factories/department_factory.js'
+import { PositionFactory, DEMO_POSITIONS } from '../factories/position_factory.js'
+import { ShiftFactory, DEMO_SHIFTS, DEMO_DEFAULT_SHIFT_NAME } from '../factories/shift_factory.js'
+import { UserFactory, DEMO_ROOT_USERS, DEMO_DEFAULT_PASSWORD, DEMO_ROLE_RULES } from '../factories/user_factory.js'
+import { AddressFactory } from '../factories/address_factory.js'
+import { EmployeeAddressFactory } from '../factories/employee_address_factory.js'
+import { EmployeeEmergencyContactFactory } from '../factories/employee_emergency_contact_factory.js'
+import { EmployeeRecordFactory } from '../factories/employee_record_factory.js'
+import { BranchOfficeFactory, DEMO_BRANCH_OFFICE_SLUG } from '../factories/branch_office_factory.js'
+import { EmployeeBranchOfficeFactory } from '../factories/employee_branch_office_factory.js'
+import { ShiftExceptionFactory } from '../factories/shift_exception_factory.js'
+import { EmployeeVacationArchiveFactory } from '../factories/employee_vacation_archive_factory.js'
+import { EmployeeVacationArchiveContentFactory } from '../factories/employee_vacation_archive_content_factory.js'
+import { ExceptionRequestFactory } from '../factories/exception_request_factory.js'
+
+async function demoDbCounts(tag: string, label: string): Promise<void> {
+  const q = async (table: string): Promise<number> => {
+    try {
+      const rows = await db.rawQuery(`SELECT COUNT(*) as total FROM \`${table}\``)
+      const r = rows as [{ total: number | string }][]
+      const v = r?.[0]?.[0]?.total
+      return typeof v === 'number' ? v : Number(v ?? 0)
+    } catch (e) {
+      console.log(tag, `conteo omitido (${table})`, e instanceof Error ? e.message : e)
+      return -1
+    }
+  }
+  const employees = await q('employees')
+  const people    = await q('people')
+  const users     = await q('users')
+  const assists   = await q('assists')
+  console.log(tag, `snapshot: ${label}`, { employees, people, users, assists })
+}
 
 // ---------------------------------------------------------------------------
 // Resultado estructurado por paso
@@ -74,6 +106,12 @@ export interface DemoFactoryResult {
 // Helpers internos
 // ---------------------------------------------------------------------------
 
+/**
+ * Cantidad de meses hacia atrás desde **hoy** (misma hora de reloj, inicio de día)
+ * para generar checadas demo; la ventana es [hoy − N meses, hoy].
+ */
+const DEMO_ASSIST_HISTORY_MONTHS = 6
+
 async function resolveToleranceMinutes(type: 'delay' | 'fault'): Promise<number> {
   const systemSetting = await SystemSetting.query()
     .where('system_setting_active', 1)
@@ -91,6 +129,25 @@ async function resolveToleranceMinutes(type: 'delay' | 'fault'): Promise<number>
   return row?.toleranceMinutes ?? 10
 }
 
+/**
+ * Mismo límite inferior que `intialSyncDate` en SyncAssistsService al llamar
+ * ShiftForEmployeeService.getEmployeeShifts (whereBetween sobre applySince).
+ * Si `employeShiftsApplySince` es la fecha de ejecución del demo, un calendario
+ * con `dateEnd` anterior a “hoy” no encuentra el turno → no_employee_shifts.
+ */
+const SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START = '2024-01-01'
+
+function demoEmployeShiftsApplySince(employee: Employee): string {
+  const raw = employee.employeeHireDate
+  if (!raw) return SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START
+  const hireStr = raw instanceof DateTime
+    ? raw.toFormat('yyyy-MM-dd')
+    : DateTime.fromJSDate(raw as unknown as Date).toFormat('yyyy-MM-dd')
+  return hireStr >= SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START
+    ? hireStr
+    : SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START
+}
+
 // ---------------------------------------------------------------------------
 // Servicio principal
 // ---------------------------------------------------------------------------
@@ -99,9 +156,8 @@ async function resolveToleranceMinutes(type: 'delay' | 'fault'): Promise<number>
  * DemoFactoryService
  *
  * Contiene toda la lógica de generación de datos DEMO usando factories de
- * AdonisJS Lucid. Es el único lugar donde vive esa lógica; tanto el seeder
- * (`DemoSeeder`) como el endpoint HTTP (`EstructureDemoController.generateFactoryDemo`)
- * delegan en este servicio.
+ * AdonisJS Lucid. Es el único lugar donde vive esa lógica; el endpoint HTTP
+ * (`EstructureDemoController.generateFactoryDemo`) delega en este servicio.
  *
  * Orden de generación:
  *  1. Departamentos
@@ -114,14 +170,32 @@ async function resolveToleranceMinutes(type: 'delay' | 'fault'): Promise<number>
  *  7. Datos adicionales por empleado (domicilio, contacto, expediente,
  *     sucursal, excepciones de vacaciones/permiso, archivo de vacaciones,
  *     solicitudes de excepción)
- *  8. Asistencias (distribución 90/5/3/2)
+ *  8. Asistencias (6 meses atrás desde hoy; ~83 % a tiempo, ~10 % retraso,
+ *     ~5 % tolerancia, ~2 % faltas por mes calendario)
  */
 export default class DemoFactoryService {
+  // -------------------------------------------------------------------------
+  // Limpieza previa (orden inverso a FK)
+  // -------------------------------------------------------------------------
+
+  private async purgeDemo(preserve?: DemoPurgePreserveRequestingUser): Promise<void> {
+    const tag = `[DEMO-RUN ${new Date().toISOString()}]`
+    console.log(tag, 'purgeDemo(): llamando purgeDemoOperationalData()', { preserve: !!preserve })
+    await purgeDemoOperationalData(undefined, preserve)
+    console.log(tag, 'purgeDemo(): purgeDemoOperationalData() terminó')
+  }
+
   // -------------------------------------------------------------------------
   // Punto de entrada público
   // -------------------------------------------------------------------------
 
-  async run(): Promise<DemoFactoryResult> {
+  async run(options?: { requestingUserId?: number }): Promise<DemoFactoryResult> {
+    const tag = `[DEMO-RUN ${new Date().toISOString()}]`
+    console.log(tag, 'run(): inicio', {
+      requestingUserId: options?.requestingUserId ?? null,
+    })
+    await demoDbCounts(tag, 'al inicio (antes de contexto)')
+
     const result: DemoFactoryResult = {
       departments:    { created: 0, total: 0 },
       positions:      { created: 0, total: 0 },
@@ -146,11 +220,19 @@ export default class DemoFactoryService {
     const businessList   = businessConf.split(',').map((u: string) => u.trim()).filter(Boolean)
     const systemBusiness = businessConf
 
+    console.log(tag, 'contexto SYSTEM_BUSINESS', { businessConf, businessList })
+
     const businessUnit = await BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereIn('business_unit_slug', businessList)
       .first()
     const businessUnitId = businessUnit?.businessUnitId ?? 0
+
+    console.log(tag, 'BusinessUnit resuelto', {
+      found:       !!businessUnit,
+      businessUnitId,
+      slug:        businessUnit?.businessUnitSlug,
+    })
 
     const employeeType = await EmployeeType.query()
       .where('employee_type_slug', 'employee')
@@ -158,14 +240,50 @@ export default class DemoFactoryService {
       .first()
     const employeeTypeId = employeeType?.employeeTypeId ?? 1
 
+    console.log(tag, 'EmployeeType resuelto', { found: !!employeeType, employeeTypeId })
+
+    await demoDbCounts(tag, 'antes de purgeDemo()')
+
+    let preserve: DemoPurgePreserveRequestingUser | undefined
+    if (options?.requestingUserId) {
+      const reqUser = await User.query()
+        .where('user_id', options.requestingUserId)
+        .whereNull('user_deleted_at')
+        .first()
+      if (reqUser?.personId) {
+        preserve = { userId: reqUser.userId, personId: reqUser.personId }
+        console.log(tag, 'purge: se preserva usuario solicitante', preserve)
+      }
+    }
+
+    // 0.5 Vaciar todas las tablas operacionales antes de repoblar
+    await this.purgeDemo(preserve)
+
+    await demoDbCounts(tag, 'después de purgeDemo()')
+
     // 1–7
+    console.log(tag, 'iniciando seedOrganizationAndPeople()')
     await this.seedOrganizationAndPeople(
       businessUnitId, employeeTypeId, systemBusiness, result
     )
+    console.log(tag, 'seedOrganizationAndPeople() terminó', {
+      departments: result.departments,
+      positions:   result.positions,
+      shifts:      result.shifts,
+      employees:   result.employees,
+      users:       result.users,
+    })
+
+    await demoDbCounts(tag, 'después de seedOrganizationAndPeople()')
 
     // 8. Asistencias
+    console.log(tag, 'iniciando seedAssists()')
     await this.seedAssists(businessList, result)
+    console.log(tag, 'seedAssists() terminó', { assists: result.assists })
 
+    await demoDbCounts(tag, 'después de seedAssists() (run fin)')
+
+    console.log(tag, 'run(): fin OK')
     return result
   }
 
@@ -179,6 +297,11 @@ export default class DemoFactoryService {
     systemBusiness: string,
     result: DemoFactoryResult
   ) {
+    console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'inicio', {
+      businessUnitId,
+      employeeTypeId,
+      systemBusiness,
+    })
     // --- 1. Departamentos ---------------------------------------------------
     const departmentsMap: Record<string, Department> = {}
 
@@ -191,6 +314,7 @@ export default class DemoFactoryService {
 
         if (!dept) {
           dept = await DepartmentFactory.merge({
+            departmentId:       deptData.departmentId,
             departmentCode:     deptData.code,
             departmentName:     deptData.name,
             departmentAlias:    deptData.alias,
@@ -241,6 +365,7 @@ export default class DemoFactoryService {
 
         if (!pos) {
           pos = await PositionFactory.merge({
+            positionId:       posData.positionId,
             positionCode:     posData.code,
             positionName:     posData.name,
             positionAlias:    posData.alias,
@@ -339,9 +464,16 @@ export default class DemoFactoryService {
       result.shifts.total++
     }
 
-    const defaultShift = shiftsMap[DEMO_DEFAULT_SHIFT_NAME]
+    const defaultFromMap = shiftsMap[DEMO_DEFAULT_SHIFT_NAME]
+    let shiftForDemo =
+      defaultFromMap ??
+      (await Shift.query().whereNull('shift_deleted_at').orderBy('shift_id', 'asc').first())
 
-    // --- 4. Empleados + Personas --------------------------------------------
+    console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'turno demo para asignación', {
+      fromMap: !!defaultFromMap,
+      shiftId: shiftForDemo?.shiftId ?? null,
+      shiftName: shiftForDemo?.shiftName ?? null,
+    })
     resetDemoPeopleIndex()
 
     const employeeAssignments: Array<{
@@ -409,7 +541,7 @@ export default class DemoFactoryService {
     result.employees.total = createdEmployees.length
 
     // --- 5. Asignar turno por defecto a empleados ---------------------------
-    if (defaultShift) {
+    if (shiftForDemo) {
       for (const employee of createdEmployees) {
         const existsShift = await EmployeeShift.query()
           .where('employee_id', employee.employeeId)
@@ -419,8 +551,8 @@ export default class DemoFactoryService {
         if (!existsShift) {
           const empShift = new EmployeeShift()
           empShift.employeeId              = employee.employeeId
-          empShift.shiftId                 = defaultShift.shiftId
-          empShift.employeShiftsApplySince = DateTime.now().toFormat('yyyy-MM-dd')
+          empShift.shiftId                 = shiftForDemo.shiftId
+          empShift.employeShiftsApplySince = demoEmployeShiftsApplySince(employee)
           await empShift.save()
         }
       }
@@ -503,7 +635,9 @@ export default class DemoFactoryService {
 
       result.users.created++
 
-      const fallbackShift = defaultShift ?? await Shift.query().whereNull('shift_deleted_at').first()
+      const fallbackShift =
+        shiftForDemo ??
+        (await Shift.query().whereNull('shift_deleted_at').orderBy('shift_id', 'asc').first())
       if (fallbackShift) {
         const prefix      = `DEMO-ROOT-${Date.now()}-${index + 1}`
         const empCode     = `ROOT-${prefix}`
@@ -527,7 +661,7 @@ export default class DemoFactoryService {
         const rootEmpShift = new EmployeeShift()
         rootEmpShift.employeeId              = rootEmployee.employeeId
         rootEmpShift.shiftId                 = fallbackShift.shiftId
-        rootEmpShift.employeShiftsApplySince = DateTime.now().toFormat('yyyy-MM-dd')
+        rootEmpShift.employeShiftsApplySince = demoEmployeShiftsApplySince(rootEmployee)
         await rootEmpShift.save()
       }
     }
@@ -731,6 +865,15 @@ export default class DemoFactoryService {
       }
     }
 
+    console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'fin', {
+      departments:     result.departments,
+      positions:       result.positions,
+      shifts:          result.shifts,
+      employees:       result.employees,
+      users:           result.users,
+      employeeExtras:  result.employeeExtras,
+    })
+
   }
 
   // -------------------------------------------------------------------------
@@ -741,22 +884,34 @@ export default class DemoFactoryService {
     businessList: string[],
     result: DemoFactoryResult
   ): Promise<void> {
+    const t0 = `[DEMO-SEED-ASSISTS ${new Date().toISOString()}]`
+    console.log(t0, 'inicio seedAssists', { businessList })
     const delayToleranceMinutes = await resolveToleranceMinutes('delay')
     const faultToleranceMinutes = await resolveToleranceMinutes('fault')
 
-    const holidays = await Holiday.query()
+    const assistWindowEnd   = demoAssistNow().endOf('day')
+    const assistWindowStart = demoAssistNow()
+      .startOf('day')
+      .minus({ months: DEMO_ASSIST_HISTORY_MONTHS })
+
+    const holidayRangeStart = assistWindowStart.toFormat('yyyy-MM-dd')
+    const holidayRangeEnd   = demoAssistNow().toFormat('yyyy-MM-dd')
+
+    const holidaysQuery = Holiday.query()
       .whereNull('holiday_deleted_at')
-      .whereBetween('holiday_date', [
-        DateTime.now().minus({ months: 1 }).startOf('month').toFormat('yyyy-MM-dd'),
-        DateTime.now().toFormat('yyyy-MM-dd'),
-      ])
-      .andWhere((q) => {
+      .whereBetween('holiday_date', [holidayRangeStart, holidayRangeEnd])
+
+    if (businessList.length > 0) {
+      holidaysQuery.andWhere((q) => {
         q.andWhere((sub) => {
-          businessList.forEach((b) => {
+          for (const b of businessList) {
             sub.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [b])
-          })
+          }
         })
       })
+    }
+
+    const holidays = await holidaysQuery
 
     const holidayDates = holidays.map((h) => {
       const hd = h.holidayDate as any
@@ -765,34 +920,74 @@ export default class DemoFactoryService {
       return DateTime.fromISO(String(hd)).toFormat('yyyy-MM-dd')
     })
 
+    console.log(t0, 'ventana demo asistencias', {
+      zonaCalendario: DEMO_ASSIST_CALENDAR_ZONE,
+      hoyNegocio:     demoAssistNow().toFormat('yyyy-MM-dd'),
+      monthsRolling:  DEMO_ASSIST_HISTORY_MONTHS,
+      assistWindowStart: assistWindowStart.toFormat('yyyy-MM-dd'),
+      assistWindowEnd: assistWindowEnd.toFormat('yyyy-MM-dd'),
+      holidayRangeStart,
+      holidayRangeEnd,
+    })
+
     const allEmployees = await Employee.query()
       .preload('employeeShifts', (q) => q.preload('shift'))
       .whereNull('employee_deleted_at')
 
-    for (const employee of allEmployees) {
-      const empShift = employee.employeeShifts?.[0]
-      if (!empShift?.shift) continue
+    console.log(t0, 'empleados candidatos a asistencias', {
+      count: allEmployees.length,
+      holidayCount: holidays.length,
+      tolDelay: delayToleranceMinutes,
+      tolFault: faultToleranceMinutes,
+    })
 
-      const shift            = empShift.shift
-      const shiftTimeStart   = shift.shiftTimeStart
-      const shiftActiveHours = shift.shiftActiveHours
-      const restDays         = shift.shiftRestDays.split(',').map(Number)
+    for (const employee of allEmployees) {
+      let shiftModel: Shift | undefined = employee.employeeShifts?.[0]?.shift
+
+      if (!shiftModel) {
+        const link = await EmployeeShift.query()
+          .where('employee_id', employee.employeeId)
+          .whereNull('employe_shifts_deleted_at')
+          .preload('shift')
+          .first()
+        shiftModel = link?.shift
+      }
+
+      if (!shiftModel) {
+        console.log(t0, 'empleado sin turno, omitiendo asistencias', { employeeId: employee.employeeId })
+        continue
+      }
+
+      const shiftTimeStart   = shiftModel.shiftTimeStart
+      const shiftActiveHours = shiftModel.shiftActiveHours
+      const restRaw          = shiftModel.shiftRestDays ?? ''
+      const restDays         = restRaw
+        .split(',')
+        .map((s) => Number(String(s).trim()))
+        .filter((n) => Number.isFinite(n))
 
       const existingAssist = await Assist.query()
         .where('assist_emp_id', employee.employeeId)
         .whereNull('assist_deleted_at')
         .whereBetween('assist_punch_time', [
-          DateTime.now().minus({ months: 1 }).startOf('month').toFormat('yyyy-MM-dd HH:mm:ss'),
-          DateTime.now().endOf('day').toFormat('yyyy-MM-dd HH:mm:ss'),
+          assistWindowStart.toFormat('yyyy-MM-dd HH:mm:ss'),
+          assistWindowEnd.toFormat('yyyy-MM-dd HH:mm:ss'),
         ])
         .first()
 
       if (existingAssist) continue
 
-      const workDays = buildWorkDays(restDays, holidayDates, 1)
-      const { onTimeDays, toleranceDays, delayDays } = distributeWorkDays(workDays)
+      const workDays = buildWorkDays(
+        restDays,
+        holidayDates,
+        DEMO_ASSIST_HISTORY_MONTHS,
+        'rollingFromToday',
+      )
+      const { onTimeDays, toleranceDays, delayDays, faultDays } = distributeWorkDays(workDays)
 
-      const savePair = async (workDate: Date, type: 'on_time' | 'tolerance' | 'delay') => {
+      let pairsThisEmployee = 0
+
+      const savePair = async (workDate: string, type: 'on_time' | 'tolerance' | 'delay') => {
         const punchIn = buildPunchTime({
           workDate,
           shiftTimeStart,
@@ -824,14 +1019,27 @@ export default class DemoFactoryService {
           assistSyncId:          0,
         }).create()
 
+        pairsThisEmployee++
         result.assists.pairs++
       }
 
-      for (const d of onTimeDays)    await savePair(d, 'on_time')
+      for (const d of onTimeDays) await savePair(d, 'on_time')
       for (const d of toleranceDays) await savePair(d, 'tolerance')
-      for (const d of delayDays)     await savePair(d, 'delay')
+      for (const d of delayDays) await savePair(d, 'delay')
 
-      result.assists.employees++
+      if (pairsThisEmployee > 0) result.assists.employees++
+
+      console.log(t0, 'asistencias empleado', {
+        employeeId: employee.employeeId,
+        workDays: workDays.length,
+        onTime: onTimeDays.length,
+        tolerance: toleranceDays.length,
+        delay: delayDays.length,
+        fault: faultDays.length,
+        pairs: pairsThisEmployee,
+      })
     }
+
+    console.log(t0, 'fin seedAssists', result.assists)
   }
 }

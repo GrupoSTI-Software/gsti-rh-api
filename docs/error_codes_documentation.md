@@ -484,3 +484,87 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 - `StandardResponseFormatter.error` acepta `errorCode` opcional; el módulo sucursales lo envía en todos los errores HTTP del controlador.
 - Constantes: `app/constants/branch_office_error_codes.ts`; resolución: `app/helpers/branch_office_api_error.ts`; dominio: `BranchOfficeServiceError` en `app/exceptions/branch_office_service_error.ts`.
 
+---
+
+## Módulo Demo — Endpoint POST /api/generate-demo-v2
+
+Este endpoint **solo existe en el servidor demo** (`APP_MODE=demo`). En producción el módulo se excluye físicamente del build y el endpoint responde `404`. Los errores del middleware de protección se documentan a continuación.
+
+Los errores se devuelven como `{ type: 'error', title: string, data: { key: string } }`.
+
+### demo-https-requerido — HTTPS obligatorio
+
+**HTTP 403**
+
+**Cuándo ocurre:** El request llega por HTTP plano (no HTTPS) en un entorno `NODE_ENV=production`.
+
+**Respuesta:** `{ title: 'HTTPS requerido', data: { key: 'demo-https-requerido' } }`
+
+**Acción cliente:** Usar HTTPS en todas las peticiones al servidor demo.
+
+---
+
+### demo-rol-root-requerido — Permisos insuficientes
+
+**HTTP 403**
+
+**Cuándo ocurre:** El usuario autenticado tiene un rol distinto a `root`.
+
+**Respuesta:** `{ title: 'Permisos insuficientes', data: { key: 'demo-rol-root-requerido' } }`
+
+**Acción cliente:** Autenticarse con un usuario de rol `root` antes de invocar el endpoint.
+
+---
+
+### demo-db-no-autorizada — Conexión de DB no autorizada
+
+**HTTP 403**
+
+**Cuándo ocurre:** El nombre de la base de datos activa (`DB_DATABASE`) no contiene el patrón configurado en `DEMO_ALLOWED_DB_PATTERN` (valor por defecto: `"demo"`). Protege contra ejecución accidental en una DB de producción.
+
+**Respuesta:** `{ title: 'Conexión de base de datos no autorizada', data: { key: 'demo-db-no-autorizada' } }`
+
+**Acción:** El administrador debe verificar que `DB_DATABASE` apunte a una base de datos demo.
+
+---
+
+### demo-password-invalida — Password de demo incorrecta
+
+**HTTP 401**
+
+**Cuándo ocurre:** La password enviada en el body no coincide con el hash `DEMO_PASSWORD_HASH` del servidor (verificación timing-safe con argon2id).
+
+**Respuesta:** `{ title: 'Password de demo incorrecta', data: { key: 'demo-password-invalida' } }`
+
+**Acción cliente:** Verificar la password correcta en 1Password. Los intentos fallidos se registran en el correo de auditoría.
+
+---
+
+### demo-rate-limit — Demasiados intentos
+
+**HTTP 429**
+
+**Cuándo ocurre:** Se superaron los 3 intentos permitidos por IP en una ventana de 15 minutos. La IP queda bloqueada por 1 hora.
+
+**Respuesta:** `{ title: 'Demasiados intentos', data: { key: 'demo-rate-limit' } }`
+
+**Acción cliente:** Esperar que se libere el bloqueo (mínimo 15 minutos desde el último intento, hasta 1 hora). El equipo de desarrollo recibe un correo de auditoría con `resultado=rate_limit`.
+
+---
+
+### Tabla de resumen — Módulo Demo
+
+| Key | HTTP | Descripción |
+|-----|------|-------------|
+| `demo-https-requerido` | 403 | Request por HTTP en producción |
+| `demo-rol-root-requerido` | 403 | Usuario sin rol root |
+| `demo-db-no-autorizada` | 403 | DB activa no contiene el patrón demo |
+| `demo-password-invalida` | 401 | Password argon2 incorrecta |
+| `demo-rate-limit` | 429 | Más de 3 intentos en 15 min |
+| `server-error` | 500 | `DEMO_PASSWORD_HASH` no configurado u otro error inesperado |
+
+### Audit email
+
+Cada intento al endpoint (exitoso o fallido) dispara un correo a la dirección configurada en `DEMO_AUDIT_EMAIL` con los siguientes datos: timestamp ISO, IP origen, user-agent, GID del usuario autenticado, resultado y motivo. La password y el hash nunca se incluyen en el correo.
+
+
