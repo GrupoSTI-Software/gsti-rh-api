@@ -941,9 +941,7 @@ export default class PositionService {
       .where('position_id', positionId)
       .preload('specificFunctions', (q) => q.whereNull('position_specific_function_deleted_at'))
       .preload('kpis', (q) => q.whereNull('position_kpi_deleted_at'))
-      .preload('competencies', (q) => {
-        q.whereNull('position_competency_deleted_at').preload('weight')
-      })
+      .preload('positionBusinessUnitCompetencyLevels')
       .preload('assessmentProfiles', (q) => {
         q.preload('assessmentTemplateDimension', (dq) => {
           dq.preload('assessmentTemplate')
@@ -1494,15 +1492,14 @@ export default class PositionService {
       }
 
       // ── Competencias ──────────────────────────────────────────────────────
-      if (position.competencies?.length) {
+      if (position.positionBusinessUnitCompetencyLevels?.length) {
         ensureSpace(90)
         drawSectionHeader(t('profile_position.competencies'))
-
-        const functionalCompetencies = position.competencies.filter(
-          (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
+        const transversalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+          (c) => c.competency?.competencyType === 'transversal'
         )
-        const technicalCompetencies = position.competencies.filter(
-          (c) => c.positionCompetencyType === 'technical'
+        const technicalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+          (c) => c.competency?.competencyType === 'technical'
         )
 
         const halfW = pageW / 2
@@ -1518,14 +1515,14 @@ export default class PositionService {
           .text(t('profile_position.technical'), 40 + halfW, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.y = competencySubHeaderY + 14
 
-        const numRows = Math.max(Math.ceil(functionalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
+        const numRows = Math.max(Math.ceil(transversalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
 
         for (let r = 0; r < numRows; r++) {
           const items = [
-            functionalCompetencies[r * 2]?.positionCompetencyName,
-            functionalCompetencies[r * 2 + 1]?.positionCompetencyName,
-            technicalCompetencies[r * 2]?.positionCompetencyName,
-            technicalCompetencies[r * 2 + 1]?.positionCompetencyName,
+            transversalCompetencies[r * 2]?.competency?.competencyName,
+            transversalCompetencies[r * 2 + 1]?.competency?.competencyName,
+            technicalCompetencies[r * 2]?.competency?.competencyName,
+            technicalCompetencies[r * 2 + 1]?.competency?.competencyName,
           ]
 
           const rowH = Math.max(
@@ -1683,9 +1680,7 @@ export default class PositionService {
       .where('position_id', positionId)
       .preload('specificFunctions', (query) => query.whereNull('position_specific_function_deleted_at'))
       .preload('kpis', (query) => query.whereNull('position_kpi_deleted_at'))
-      .preload('competencies', (query) => {
-        query.whereNull('position_competency_deleted_at').preload('weight')
-      })
+      .preload('positionBusinessUnitCompetencyLevels')
       .preload('assessmentProfiles', (query) => {
         query.preload('assessmentTemplateDimension', (subQuery) => {
           subQuery.preload('assessmentTemplate')
@@ -2138,14 +2133,16 @@ export default class PositionService {
       }
     }
 
-    // ── Competencias (A:F funcionales, G:L técnicas) ─────────────────────────
-    if (position.competencies?.length) {
+    // ── Competencias (A:F transversales, G:L técnicas) ───────────────────────
+    if (position.positionBusinessUnitCompetencyLevels?.length) {
       addSectionHeader(t('profile_position.competencies'))
 
-      const functionalCompetencies = position.competencies.filter(
-        (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
+      const transversalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+        (c) => c.competency?.competencyType === 'transversal'
       )
-      const technicalCompetencies = position.competencies.filter((c) => c.positionCompetencyType === 'technical')
+      const technicalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+        (c) => c.competency?.competencyType === 'technical'
+      )
 
       const competencyHeaderRow = sheet.addRow([t('profile_position.functional'), '', '', '', '', '', t('profile_position.technical')])
       sheet.mergeCells(`A${competencyHeaderRow.number}:F${competencyHeaderRow.number}`)
@@ -2154,10 +2151,10 @@ export default class PositionService {
       styleCell(competencyHeaderRow.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
       competencyHeaderRow.height = 18
 
-      const numRows = Math.max(functionalCompetencies.length, technicalCompetencies.length, 1)
+      const numRows = Math.max(transversalCompetencies.length, technicalCompetencies.length, 1)
       for (let r = 0; r < numRows; r++) {
-        const fName = functionalCompetencies[r]?.positionCompetencyName ?? ''
-        const tName = technicalCompetencies[r]?.positionCompetencyName ?? ''
+        const fName = transversalCompetencies[r]?.competency?.competencyName ?? ''
+        const tName = technicalCompetencies[r]?.competency?.competencyName ?? ''
         const compRow = sheet.addRow([fName, '', '', '', '', '', tName])
         sheet.mergeCells(`A${compRow.number}:F${compRow.number}`)
         sheet.mergeCells(`G${compRow.number}:${LAST}${compRow.number}`)

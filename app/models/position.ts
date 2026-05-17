@@ -7,9 +7,9 @@ import Employee from './employee.js'
 import PositionAssessmentProfile from './position_assessment_profile.js'
 import PositionSpecificFunction from './position_specific_function.js'
 import PositionKpi from './position_kpi.js'
-import PositionCompetency from './position_competency.js'
-import PositionCompetencyLevel from './position_competency_level.js'
+import PositionBusinessUnitCompetencyLevel from './position_business_unit_competency_level.js'
 import PositionWorkTool from './position_work_tool.js'
+import PositionCertificationRequirement from './position_certification_requirement.js'
 
 /**
  * @swagger
@@ -223,18 +223,28 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
   })
   declare kpis: HasMany<typeof PositionKpi>
 
-  @hasMany(() => PositionCompetency, {
+  @hasMany(() => PositionBusinessUnitCompetencyLevel, {
     foreignKey: 'positionId',
+    onQuery: (query) => {
+      query.whereNull('position_business_unit_competency_level_deleted_at')
+      query.preload('competency')
+      query.preload('businessUnitCompetencyLevel')
+    },
   })
-  declare competencies: HasMany<typeof PositionCompetency>
+  declare positionBusinessUnitCompetencyLevels: HasMany<typeof PositionBusinessUnitCompetencyLevel>
 
   @hasMany(() => PositionWorkTool, {
     foreignKey: 'positionId',
   })
   declare workTools: HasMany<typeof PositionWorkTool>
 
-  @hasMany(() => PositionCompetencyLevel, {
+  // @hasMany(() => PositionCompetencyLevel, {
+  //   foreignKey: 'positionId',
+  // })
+  // declare competencyLevels: HasMany<typeof PositionCompetencyLevel>
+
+  @hasMany(() => PositionCertificationRequirement, {
     foreignKey: 'positionId',
   })
-  declare competencyLevels: HasMany<typeof PositionCompetencyLevel>
+  declare certificationRequirements: HasMany<typeof PositionCertificationRequirement>
 }

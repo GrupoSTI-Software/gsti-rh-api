@@ -366,5 +366,7 @@
   "company_competency_level": "Company competency level",
   "label": "Label",
   "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5",
-  "business_unit_competency_level": "Business unit competency level"
+  "business_unit_competency_level": "Business unit competency level",
+  "the_range_min_must_be_less_than_the_range_max": "The range min must be less than the range max",
+  "competency_descriptor": "Competency descriptor"
 }
