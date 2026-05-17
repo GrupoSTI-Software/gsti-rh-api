@@ -642,8 +642,33 @@ export default class extends BaseSeeder {
           <path d="M.5 0a.5.5 0 0 1 .5.5v15a.5.5 0 0 1-1 0V.5A.5.5 0 0 1 .5 0M2 1.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1-.5-.5zm2 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5zm2 4a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5zm2 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5z"/>
         </svg>`,
       },
+      {
+        systemModuleId: 36,
+        systemModuleName: 'Catálogo de certificaciones',
+        systemModuleSlug: 'certifications',
+        systemModuleDescription: 'Certificaciones reconocidas por la empresa y alcance por unidad de negocio',
+        systemModules: 1,
+        systemModulePath: '/certifications',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 3v4a1 1 0 0 0 1 1h4" />
+          <path d="M18 21h-11a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z" />
+          <path d="M9 17h7" />
+          <path d="M9 13h7" />
+        </svg>`,
+      },
     ]
-
     for (const systemModule of systemModules) {
       const { systemModuleId, ...systemModuleData } = systemModule
       // updateOrCreate: actualiza el módulo si ya existe, lo crea si no existe

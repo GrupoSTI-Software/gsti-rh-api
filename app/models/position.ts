@@ -9,6 +9,7 @@ import PositionSpecificFunction from './position_specific_function.js'
 import PositionKpi from './position_kpi.js'
 import PositionBusinessUnitCompetencyLevel from './position_business_unit_competency_level.js'
 import PositionWorkTool from './position_work_tool.js'
+import PositionCertificationRequirement from './position_certification_requirement.js'
 
 /**
  * @swagger
@@ -236,4 +237,14 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'positionId',
   })
   declare workTools: HasMany<typeof PositionWorkTool>
+
+  // @hasMany(() => PositionCompetencyLevel, {
+  //   foreignKey: 'positionId',
+  // })
+  // declare competencyLevels: HasMany<typeof PositionCompetencyLevel>
+
+  @hasMany(() => PositionCertificationRequirement, {
+    foreignKey: 'positionId',
+  })
+  declare certificationRequirements: HasMany<typeof PositionCertificationRequirement>
 }

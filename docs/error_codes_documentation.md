@@ -424,6 +424,64 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 
 ---
 
+## Catálogo de certificaciones (`/api/certifications`, `/api/certification-categories`)
+
+Módulo de **catálogo de certificaciones** reconocidas por la empresa. Los errores usan **`errorCode`** tipo `CERT.*`; el caso de nombre duplicado en categoría usa además **`key`**: `certificacion-duplicada` en la respuesta 409.
+
+### CERT.VAL.001 — Validación de entrada
+
+**Cuándo ocurre:** Vine (tipos/longitudes) u otra validación servidor (URL externa que no usa `http` o `https`).
+
+**Respuesta API:** HTTP **400**, `errorCode: 'CERT.VAL.001'`, campo `message` con el texto (p. ej. *«El link debe ser una URL válida con protocolo http o https.»*).
+
+---
+
+### CERT.NF.CAT.001 — Categoría no encontrada o inactiva
+
+**Cuándo ocurre:** `categoryId` inválido o categoría marcada como inactiva.
+
+**Respuesta API:** HTTP **404**, `errorCode: 'CERT.NF.CAT.001'`.
+
+---
+
+### CERT.NF.BU.001 — Unidad de negocio inválida o inactiva
+
+**Cuándo ocurre:** Algún `businessUnitIds[]` no existe, está eliminada lógicamente o `business_unit_active ≠ 1`.
+
+**Respuesta API:** HTTP **404**, `errorCode: 'CERT.NF.BU.001'`.
+
+---
+
+### CERT.NF.PSS.001 — Certificación no encontrada
+
+**Cuándo ocurre:** `PUT` o `DELETE` con id inexistente.
+
+**Respuesta API:** HTTP **404**, `errorCode: 'CERT.NF.PSS.001'`.
+
+---
+
+### CERT.PSS.CONF.001 — Certificación duplicada (`certificacion-duplicada`)
+
+**Cuándo ocurre:** Mismo nombre (comparación insensible mayúsculas y espacios normalizados en servidor) dentro de la misma categoría.
+
+**Respuesta API:** HTTP **409** con `title`, `key`, `detail`, `message`, `errorCode: 'CERT.PSS.CONF.001'` (ver especificación frontend en `docs/certifications_frontend_implementation_guide.md`).
+
+---
+
+### CERT.SYS.001 — Error no clasificado
+
+**Cuándo ocurre:** Excepción no envuelta en `CertificationServiceError` después de validación Vine en el mismo módulo.
+
+**Respuesta API:** HTTP contextual (400/404/500), `errorCode: 'CERT.SYS.001'`.
+
+---
+
+### Auditoría
+
+Alta/edición/baja registra también en colección **`log_certifications`** (Mongo via `LogStore`) con `user_id` y snapshot de recurso cuando hay usuario autenticado.
+
+---
+
 ## Error Code Summary Table
 
 | Code | Error Type | HTTP Status | User Action | System Action |
@@ -449,6 +507,30 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 | BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
+| EC.VAL.FILE.001 | Tipo de archivo no permitido (PDF/JPG/PNG) | 415/400 | Corregir tipo | EmployeeCertificationUploadService |
+| EC.VAL.FILE.002 | Archivo supera 10 MB | 413 | Reducir tamaño | EmployeeCertificationUploadService |
+| EC.VAL.DATE.001 | Fecha de cumplimiento futura | 422 | Corregir fecha | EmployeeCertificationUploadService |
+| EC.NF.CERT.001 | Certificación inexistente en catálogo | 404 | Verificar certificationId | EmployeeCertificationUploadService |
+| EC.NF.UPL.001 | Cumplimiento no encontrado o fuera del par | 404 | Refrescar historial | EmployeeCertificationUploadService |
+| EC.FORBID.001 | No es el cumplimiento más reciente | 403 | Solo borrar el más reciente | EmployeeCertificationUploadService |
+| EC.UNAP.001 | Certificación no aplica a la BU del empleado | 422 | Revisar BU | EmployeeCertificationUploadService |
+| EC.S3.001 | Error al subir o descargar de S3 | 500 | Revisar configuración AWS | EmployeeCertificationUploadService |
+| EC.VAL.001 | Parámetro employeeId inválido | 400 | Corregir ID | EmployeeCertificationController |
+| EC.NF.EMP.001 | Empleado no encontrado o dado de baja | 404 | Verificar employeeId | EmployeeCertificationService |
+| EC.SYS.001 | Error dominio certificaciones empleado no clasificado | 500 | Revisar logs | EmployeeCertificationController catch |
+| PCR.VAL.001 | Validación entrada certificaciones requeridas | 400 | Corregir payload | Vine + assertNumericId |
+| PCR.NF.POS.001 | Puesto no encontrado o dado de baja | 404 | Verificar positionId | PositionCertificationRequirementService |
+| PCR.NF.CERT.001 | Certificación del catálogo no encontrada | 404 | Verificar certificationId | PositionCertificationRequirementService |
+| PCR.NF.REQ.001 | Relación puesto-certificación inexistente | 404 | Refrescar listado | PositionCertificationRequirementService.remove |
+| PCR.CONF.001 | Certificación ya asignada al puesto (`certificacion-ya-asignada`) | 409 | No agregar duplicado | PositionCertificationRequirementService.ensureNotDuplicate |
+| PCR.UNAP.001 | Certificación no aplicable por unidad de negocio (`certificacion-no-aplicable`) | 422 | Revisar BU del puesto | PositionCertificationRequirementService.assertApplicable |
+| PCR.SYS.001 | Error dominio certificaciones requeridas no clasificado | Variado | Revisar logs | PositionCertificationRequirementController catch |
+| CERT.VAL.001 | Validación Vine o URL externa HTTP/HTTPS | 400 | Corregir payload | Vine + CertificationService |
+| CERT.NF.CAT.001 | Categoría inexistente o inactiva | 404 | Refrescar `/api/certification-categories` | CertificationService.ensureCategoryExists |
+| CERT.NF.BU.001 | Business unit inválida, baja lógica o inactiva | 404 | Usar sólo IDs de `/api/business-units` | CertificationService.ensureBusinessUnitsExist |
+| CERT.NF.PSS.001 | Certificación no encontrada (PUT/DELETE) | 404 | Refrescar listado | CertificationService.update/delete |
+| CERT.PSS.CONF.001 | Duplicado nombre categoría (`certificacion-duplicada`) | 409 | Otro nombre o categoría | CertificationService.ensureNoDuplicate |
+| CERT.SYS.001 | Error dominio certificaciones no clasificado | Variado | Revisar logs | CertificationsController catch genérico |
 
 ---
 
@@ -478,6 +560,142 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 - Flujo: crear archivador (POST `/api/employee-vacation-archives`) con `employeeId`, `vacationSettingId` y opcionalmente `shiftExceptionIds` (solo excepciones de turno con tipo slug `vacation`) → subir archivos (POST `.../contents`) con límite 5MB y tipos imagen/PDF.
 - Los archivadores se vinculan a **excepciones de turno** (ShiftException) mediante tabla pivote `employee_vacation_archive_shift_exceptions`; cada excepción solo puede estar en un archivador.
 - Códigos propios del módulo: VAC.ARCH.001–VAC.ARCH.010; se reutilizan SYS.CNFG.PRSS.016 y SYS.CNFG.PRSS.017 para fallos de S3.
+
+## Upload de comprobantes de certificación (`/api/employees/:employeeId/certifications/:certificationId/uploads`)
+
+Gestión de archivos de acreditación. Usa S3 privado + URLs pre-firmadas (5 min). Los errores usan prefijo **`EC.*`** (compartido con el módulo de listado de certificaciones).
+
+### EC.VAL.FILE.001 — Tipo de archivo no permitido
+
+**Cuándo:** extensión o MIME type distinto a PDF, JPG, JPEG, PNG; o archivo ausente.  
+**HTTP 415 / 400.**
+
+---
+
+### EC.VAL.FILE.002 — Archivo muy grande
+
+**Cuándo:** archivo supera 10 MB.  
+**HTTP 413.**
+
+---
+
+### EC.VAL.DATE.001 — Fecha futura
+
+**Cuándo:** `compliedAt` es posterior a hoy.  
+**HTTP 422.**
+
+---
+
+### EC.NF.UPL.001 — Cumplimiento no encontrado
+
+**Cuándo:** `employeeCertificationId` no existe o no pertenece al par empleado/certificación indicado.  
+**HTTP 404.**
+
+---
+
+### EC.FORBID.001 — No es el más reciente
+
+**Cuándo:** `DELETE` sobre un cumplimiento que no es el más reciente del par.  
+**HTTP 403.**
+
+---
+
+### EC.UNAP.001 — Certificación no aplicable (upload)
+
+**Cuándo:** La certificación tiene unidades de negocio restringidas y la BU del empleado no está entre ellas.  
+**HTTP 422.**
+
+---
+
+### EC.S3.001 — Error al subir a S3
+
+**Cuándo:** Fallo en la subida o al generar la URL pre-firmada.  
+**HTTP 500.**
+
+---
+
+## Certificaciones del empleado (`/api/employees/:employeeId/certifications`)
+
+Endpoint de lectura que cruza certificaciones requeridas por el puesto actual del empleado, cumplimientos históricos y catálogo. Calcula 6 estados: `no_iniciada`, `vigente`, `por_vencer`, `vencida`, `sin_renovacion`, `historico`. Los errores usan prefijo **`EC.*`**.
+
+### EC.VAL.001 — Validación de entrada
+
+**Cuándo:** `employeeId` no numérico o menor que 1.  
+**HTTP 400.**
+
+---
+
+### EC.NF.EMP.001 — Empleado no encontrado
+
+**Cuándo:** `employeeId` no existe o tiene soft delete.  
+**HTTP 404.**
+
+---
+
+### EC.SYS.001 — Error no clasificado
+
+**Cuándo:** Excepción inesperada.  
+**HTTP 500.**
+
+---
+
+## Certificaciones requeridas por puesto (`/api/positions/:positionId/certification-requirements`)
+
+Módulo que relaciona puestos con certificaciones del catálogo. Soft delete en la relación; cumplimientos históricos de empleados no se afectan al quitar. Los errores usan prefijo **`PCR.*`**; los casos 409 y 422 llevan además `key` y `detail`.
+
+### PCR.VAL.001 — Validación de entrada
+
+**Cuándo:** `certificationIds` ausente, vacío o con valores no numéricos; `positionId`/`certificationId` no numérico.  
+**HTTP 400.**
+
+---
+
+### PCR.NF.POS.001 — Puesto no encontrado
+
+**Cuándo:** `positionId` no existe o tiene soft delete.  
+**HTTP 404.**
+
+---
+
+### PCR.NF.CERT.001 — Certificación no encontrada
+
+**Cuándo:** Un `certificationId` del batch no existe en el catálogo.  
+**HTTP 404.**
+
+---
+
+### PCR.NF.REQ.001 — Relación no encontrada
+
+**Cuándo:** `DELETE` con `certificationId` que no está asignado activamente al puesto.  
+**HTTP 404.**
+
+---
+
+### PCR.CONF.001 — Certificación ya asignada (`certificacion-ya-asignada`)
+
+**Cuándo:** `POST` incluye un `certificationId` que ya existe (activo) para ese puesto.  
+**HTTP 409.** Cuerpo incluye `key: "certificacion-ya-asignada"` y `detail`.
+
+---
+
+### PCR.UNAP.001 — Certificación no aplicable (`certificacion-no-aplicable`)
+
+**Cuándo:** La certificación tiene unidades de negocio restringidas y la `businessUnitId` del puesto no está entre ellas.  
+**HTTP 422.** Cuerpo incluye `key: "certificacion-no-aplicable"` y `detail`.
+
+---
+
+### PCR.SYS.001 — Error no clasificado
+
+**Cuándo:** Excepción inesperada dentro del dominio.  
+**HTTP variable.**
+
+---
+
+### Catálogo de certificaciones
+
+- Códigos `CERT.*`: ver sección anterior. El **409** expone también `title`, `key: certificacion-duplicada` y `detail` además del `message` habitual.
+- OpenAPI/Swagger del módulo: `app/controllers/certifications_controller.ts` (JSDoc). Guía frontend en `docs/certifications_frontend_implementation_guide.md`.
 
 ### Sucursales (branch offices)
 
