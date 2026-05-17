@@ -107,7 +107,7 @@ export default class PositionBusinessUnitCompetencyLevelController {
    *                 type: number
    *                 description: Identificador del nivel deseado (catalogo business_unit_competency_levels)
    *     responses:
-   *       '200:
+   *       '200':
    *         description: Resource processed successfully
    *       default:
    *         description: Unexpected error
