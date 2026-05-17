@@ -115,16 +115,6 @@ export default class CompetencyController {
    *                 enum: [technical, transversal]
    *                 required: true
    *                 default: 'technical'
-   *               levelDescriptions:
-   *                 type: array
-   *                 description: Descripciones por nivel para la competencia
-   *                 items:
-   *                   type: object
-   *                   properties:
-   *                     competencyLevelId:
-   *                       type: number
-   *                     competencyLevelDescription:
-   *                       type: string
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -139,7 +129,6 @@ export default class CompetencyController {
       const newCompetency = await service.create({
         competencyName: payload.competencyName,
         competencyType: payload.competencyType,
-        levelDescriptions: payload.levelDescriptions,
       })
       response.status(201)
       return {
@@ -188,15 +177,6 @@ export default class CompetencyController {
    *               competencyType:
    *                 type: string
    *                 enum: [technical, transversal]
-   *               levelDescriptions:
-   *                 type: array
-   *                 items:
-   *                   type: object
-   *                   properties:
-   *                     competencyLevelId:
-   *                       type: number
-   *                     competencyLevelDescription:
-   *                       type: string
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -231,7 +211,6 @@ export default class CompetencyController {
       const updated = await service.update(current, {
         competencyName: payload.competencyName,
         competencyType: payload.competencyType,
-        levelDescriptions: payload.levelDescriptions,
       })
       response.status(201)
       return {

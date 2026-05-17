@@ -6,7 +6,8 @@
     "baseUrl": "./",
     "paths": {
       "#constants/*": ["./app/constants/*"],
-      "#utils/*": ["./app/utils/*"]
+      "#utils/*": ["./app/utils/*"],
+      "#modules/*": ["./app/modules/*"]
     }
   }
 }

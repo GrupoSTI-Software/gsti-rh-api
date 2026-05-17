@@ -3,8 +3,7 @@ import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
-import PositionCompetencyLevel from './position_competency_level.js'
-import CompetencyLevelDescription from './competency_level_description.js'
+import CompetencyDescriptor from './competency_descriptor.js'
 
 /**
  * @swagger
@@ -32,11 +31,6 @@ import CompetencyLevelDescription from './competency_level_description.js'
  *          competencyDeletedAt:
  *            type: string
  *            description: Competency deleted at
- *          levelDescriptions:
- *            type: array
- *            description: Descriptions for each competency level
- *            items:
- *              $ref: '#/components/schemas/CompetencyLevelDescription'
  */
 
 export default class Competency extends compose(BaseModel, SoftDeletes) {
@@ -60,13 +54,8 @@ export default class Competency extends compose(BaseModel, SoftDeletes) {
   @column.dateTime({ columnName: 'competency_deleted_at' })
   declare deletedAt: DateTime | null
 
-  @hasMany(() => PositionCompetencyLevel, {
+  @hasMany(() => CompetencyDescriptor, {
     foreignKey: 'competencyId',
   })
-  declare positionLevels: HasMany<typeof PositionCompetencyLevel>
-
-  @hasMany(() => CompetencyLevelDescription, {
-    foreignKey: 'competencyId',
-  })
-  declare levelDescriptions: HasMany<typeof CompetencyLevelDescription>
+  declare competencyDescriptors: HasMany<typeof CompetencyDescriptor>
 }

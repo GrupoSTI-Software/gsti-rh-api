@@ -4,7 +4,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import EmployeeEvaluation from './employee_evaluation.js'
 import { DateTime } from 'luxon'
-import Weight from './weight.js'
+import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
 /**
  * @swagger
  * components:
@@ -18,12 +18,27 @@ import Weight from './weight.js'
  *          employeeEvaluationId:
  *            type: number
  *            description: Employee evaluation id
- *          positionCompetencyId:
+ *          positionBusinessUnitCompetencyLevelId:
  *            type: number
- *            description: Position competency id
- *          weightId:
+ *            description: Position business unit competency level id
+ *          businessUnitCompetencyLevelId:
  *            type: number
- *            description: Weight id
+ *            description: Business unit competency level id
+ *          competencyBracketId:
+ *            type: number
+ *            description: Competency bracket id
+ *          employeeCompetencyEvaluationBracketDescription:
+ *            type: string
+ *            description: Employee competency evaluation bracket description
+ *          employeeCompetencyEvaluationBracketRangeMin:
+ *            type: number
+ *            description: Employee competency evaluation bracket range min
+ *          employeeCompetencyEvaluationBracketRangeMax:
+ *            type: number
+ *            description: Employee competency evaluation bracket range max
+ *          employeeCompetencyEvaluationScore:
+ *            type: number
+ *            description: Employee competency evaluation score
  *          employeeCompetencyEvaluationCreatedAt:
  *            type: string
  *          employeeCompetencyEvaluationUpdatedAt:
@@ -41,10 +56,25 @@ export default class EmployeeCompetencyEvaluation extends compose(BaseModel, Sof
   declare employeeEvaluationId: number
 
   @column()
-  declare positionCompetencyId: number
+  declare positionBusinessUnitCompetencyLevelId: number
 
   @column()
-  declare weightId: number
+  declare businessUnitCompetencyLevelId: number
+
+  @column()
+  declare competencyBracketId: number
+
+  @column()
+  declare employeeCompetencyEvaluationBracketDescription: string
+
+  @column()
+  declare employeeCompetencyEvaluationBracketRangeMin: number
+
+  @column()
+  declare employeeCompetencyEvaluationBracketRangeMax: number
+
+  @column()
+  declare employeeCompetencyEvaluationScore: number
 
   @column.dateTime({ autoCreate: true })
   declare employeeCompetencyEvaluationCreatedAt: DateTime
@@ -60,10 +90,10 @@ export default class EmployeeCompetencyEvaluation extends compose(BaseModel, Sof
   })
   declare employeeEvaluation: BelongsTo<typeof EmployeeEvaluation>
 
-  @belongsTo(() => Weight, {
-    foreignKey: 'weightId',
+  @belongsTo(() => BusinessUnitCompetencyLevel, {
+    foreignKey: 'businessUnitCompetencyLevelId',
   })
-  declare weight: BelongsTo<typeof Weight>
+  declare businessUnitCompetencyLevel: BelongsTo<typeof BusinessUnitCompetencyLevel>
 
   static softDeletes = true
 }
