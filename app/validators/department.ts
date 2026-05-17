@@ -21,5 +21,12 @@ export const updateDepartmentValidator = vine.compile(
     departmentIsDefault: vine.boolean().optional(),
     departmentActive: vine.boolean().optional(),
     parentDepartmentId: vine.number().min(0).optional(),
+    parent_id: vine.number().positive().nullable().optional(),
+  })
+)
+
+export const moveDepartmentValidator = vine.compile(
+  vine.object({
+    parentDepartmentId: vine.number().positive(),
   })
 )

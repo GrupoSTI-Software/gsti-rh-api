@@ -1,18 +1,147 @@
 import { HttpContext } from '@adonisjs/core/http'
-import { createPositionCompetencyValidator } from '#validators/position_competency'
-import PositionCompetency from '#models/position_competency'
-import PositionCompetencyService from '#services/position_competency_service'
+import { createBusinessUnitCompetencyLevelValidator, updateBusinessUnitCompetencyLevelValidator } from '#validators/business_unit_competency_level'
+import { BusinessUnitCompetencyLevelFilterInterface } from 'app/interfaces/business_unit_competency_level_filter_interface.js'
+import BusinessUnitCompetencyLevelService from '#services/business_unit_competency_level_service'
+import BusinessUnitCompetencyLevel from '#models/business_unit_competency_level'
+import BusinessUnit from '#models/business_unit'
+import env from '#start/env'
 
-export default class PositionSpecificFunctionController {
+export default class BusinessUnitCompetencyLevelController {
   /**
    * @swagger
-   * /api/position-competencies:
+   * /api/business-unit-competency-levels:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Business Unit Competency Levels
+   *     summary: get all
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Object processed
+   *       '404':
+   *         description: The resource could not be found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async index({ response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
+
+      const businessUnitId = businessUnits?.businessUnitId || 1
+      const filters = {
+        businessUnitId: businessUnitId,
+      } as BusinessUnitCompetencyLevelFilterInterface
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const businessUnitCompetencyLevels = await businessUnitCompetencyLevelService.index(filters)
+      response.status(200)
+      return {
+        type: 'success',
+        title: t('resources'),
+        message: t('resources_were_found_successfully'),
+        data: {
+          businessUnitCompetencyLevels,
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+ /**
+   * @swagger
+   * /api/business-unit-competency-levels:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: create new position competency
+   *       - Business Unit Competency Levels
+   *     summary: create new business unit competency level
    *     produces:
    *       - application/json
    *     requestBody:
@@ -21,29 +150,14 @@ export default class PositionSpecificFunctionController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionId:
-   *                 type: number
-   *                 description: Position id
-   *                 required: true
-   *                 default: ''
-   *               weightId:
-   *                 type: number
-   *                 description: Weight id
-   *                 required: true
-   *                 default: ''
-   *               competencyId:
-   *                 type: number
-   *                 description: Competency id
-   *                 required: true
-   *                 default: ''
-   *               positionCompetencyName:
+   *               businessUnitCompetencyLevelLabel:
    *                 type: string
-   *                 description: Position competency name
+   *                 description: Business unit competency level label
    *                 required: true
    *                 default: ''
-   *               positionCompetencyType:
-   *                 type: string
-   *                 description: Position competency type
+   *               businessUnitCompetencyLevelPosition:
+   *                 type: number
+   *                 description: Business unit competency level position
    *                 required: true
    *                 default: ''
    *     responses:
@@ -127,64 +241,87 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
+ async store({ request, response, i18n }: HttpContext) {
+  const t = i18n.formatMessage.bind(i18n)
+  try {
 
-      await request.validateUsing(createPositionCompetencyValidator)
-      const positionCompetencyService = new PositionCompetencyService()
-      const positionId = request.input('positionId')
-      const weightId = request.input('weightId')
-      const competencyId = request.input('competencyId')
-      const positionCompetencyName = request.input('positionCompetencyName')
-      const positionCompetencyType = request.input('positionCompetencyType')
-      const positionCompetency = {
-        positionId: positionId,
-        weightId: weightId,
-        competencyId: competencyId,
-        positionCompetencyName: positionCompetencyName,
-        positionCompetencyType: positionCompetencyType,
-      } as PositionCompetency
+    await request.validateUsing(createBusinessUnitCompetencyLevelValidator)
+    const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const businessList = businessConf.split(',')
+    const businessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereIn('business_unit_slug', businessList)
+      .first()
 
-      const newPositionCompetency = await positionCompetencyService.create(positionCompetency)
-      await newPositionCompetency.load('weight')
-      response.status(201)
+    const businessUnitId = businessUnits?.businessUnitId || 1
+    const businessUnitCompetencyLevelLabel = request.input('businessUnitCompetencyLevelLabel')
+    const businessUnitCompetencyLevelPosition = request.input('businessUnitCompetencyLevelPosition')
+    const businessUnitCompetencyLevel = {
+      businessUnitId: businessUnitId,
+      businessUnitCompetencyLevelLabel: businessUnitCompetencyLevelLabel,
+      businessUnitCompetencyLevelPosition: businessUnitCompetencyLevelPosition,
+    } as BusinessUnitCompetencyLevel
+
+    const existInfoDate = await businessUnitCompetencyLevelService.verifyInfoExist(businessUnitCompetencyLevel)
+    if (existInfoDate.status !== 200) {
+      response.status(existInfoDate.status)
       return {
-        type: 'success',
-        title: t('resource'),
-        message: t('resource_was_created_successfully'),
-        data: { positionCompetency: newPositionCompetency },
-      }
-    } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
+        type: existInfoDate.type,
+        title: existInfoDate.title,
+        message: existInfoDate.message,
+        data: { ...businessUnitCompetencyLevel },
       }
     }
+    const verifyInfo = await businessUnitCompetencyLevelService.verifyInfo(businessUnitCompetencyLevel)
+    if (verifyInfo.status !== 200) {
+      response.status(verifyInfo.status)
+      return {
+        type: verifyInfo.type,
+        title: verifyInfo.title,
+        message: verifyInfo.message,
+        data: { ...businessUnitCompetencyLevel },
+      }
+    }
+    const newBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.create(businessUnitCompetencyLevel)
+    response.status(201)
+    return {
+      type: 'success',
+      title: t('resource'),
+      message: t('resource_was_created_successfully'),
+      data: { businessUnitCompetencyLevel: newBusinessUnitCompetencyLevel },
+    }
+  } catch (error) {
+    const messageError =
+      error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+    response.status(500)
+    return {
+      type: 'error',
+      title: t('server_error'),
+      message: t('an_unexpected_error_has_occurred_on_the_server'),
+      error: messageError,
+    }
   }
+}
 
-  /**
+
+   /**
    * @swagger
-   * /api/position-competencies/{positionCompetencyId}:
+   * /api/business-unit-competency-levels/{businessUnitCompetencyLevelId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: update position competency
+   *       - Business Unit Competency Levels
+   *     summary: update business unit competency level
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionCompetencyId
+   *         name: businessUnitCompetencyLevelId
    *         schema:
    *           type: number
-   *         description: Position competency id
+   *         description: Business unit competency level id
    *         required: true
    *     requestBody:
    *       content:
@@ -192,26 +329,14 @@ export default class PositionSpecificFunctionController {
    *           schema:
    *             type: object
    *             properties:
-   *               weightId:
-   *                 type: number
-   *                 description: Weight id
-   *                 required: true
-   *                 default: ''
-   *               competencyId:
-   *                 type: number
-   *                 description: Competency id
-   *                 required: true
-   *                 default: ''
-   *               positionCompetencyName:
+   *               businessUnitCompetencyLevelLabel:
    *                 type: string
-   *                 description: Position competency name
+   *                 description: Business unit competency level label
    *                 required: true
-   *                 default: ''
-   *               positionCompetencyType:
-   *                 type: string
-   *                 description: Position competency type
+   *               businessUnitCompetencyLevelPosition:
+   *                 type: number
+   *                 description: Business unit competency level position
    *                 required: true
-   *                 default: ''
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -296,51 +421,65 @@ export default class PositionSpecificFunctionController {
   async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionCompetencyId = request.param('positionCompetencyId')
-      const weightId = request.input('weightId')
-      const competencyId = request.input('competencyId')
-      const positionCompetencyName = request.input('positionCompetencyName')
-      const positionCompetencyType = request.input('positionCompetencyType')
+      await request.validateUsing(updateBusinessUnitCompetencyLevelValidator)
+      const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
+      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const businessList = businessConf.split(',')
+      const businessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereIn('business_unit_slug', businessList)
+        .first()
 
-      const positionCompetency = {
-        positionCompetencyId: positionCompetencyId,
-        weightId: weightId,
-        competencyId: competencyId,
-        positionCompetencyName: positionCompetencyName,
-        positionCompetencyType: positionCompetencyType,
-      } as PositionCompetency
-      if (!positionCompetencyId) {
+      const businessUnitId = businessUnits?.businessUnitId || 1
+      const businessUnitCompetencyLevelLabel = request.input('businessUnitCompetencyLevelLabel')
+      const businessUnitCompetencyLevelPosition = request.input('businessUnitCompetencyLevelPosition')
+      const businessUnitCompetencyLevel = {
+        businessUnitCompetencyLevelId: businessUnitCompetencyLevelId,
+        businessUnitId: businessUnitId,
+        businessUnitCompetencyLevelLabel: businessUnitCompetencyLevelLabel,
+        businessUnitCompetencyLevelPosition: businessUnitCompetencyLevelPosition,
+      } as BusinessUnitCompetencyLevel
+      if (!businessUnitCompetencyLevelId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position competency Id was not found',
+          title: 'The business unit competency level Id was not found',
           message: 'Missing data to process',
-          data: { ...positionCompetency },
+          data: { ...businessUnitCompetencyLevel },
         }
       }
-      const currentPositionCompetency = await PositionCompetency.query()
-        .whereNull('position_competency_deleted_at')
-        .where('position_competency_id', positionCompetencyId)
+      const currentBusinessUnitCompetencyLevel = await BusinessUnitCompetencyLevel.query()
+        .whereNull('business_unit_competency_level_deleted_at')
+        .where('business_unit_competency_level_id', businessUnitCompetencyLevelId)
         .first()
-      if (!currentPositionCompetency) {
+      if (!currentBusinessUnitCompetencyLevel) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position competency was not found',
-          message: 'The position competency was not found with the entered ID',
-          data: { ...positionCompetency },
+          title: 'The business unit competency level was not found',
+          message: 'The business unit competency level was not found with the entered ID',
+          data: { ...businessUnitCompetencyLevel },
         }
       }
-      const positionCompetencyService = new PositionCompetencyService()
-      const updatePositionCompetency = await positionCompetencyService.update(currentPositionCompetency, positionCompetency)
-      await updatePositionCompetency.load('weight')
-      if (updatePositionCompetency) {
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const verifyInfo = await businessUnitCompetencyLevelService.verifyInfo(businessUnitCompetencyLevel)
+      if (verifyInfo.status !== 200) {
+        response.status(verifyInfo.status)
+        return {
+          type: verifyInfo.type,
+          title: verifyInfo.title,
+          message: verifyInfo.message,
+          data: { ...businessUnitCompetencyLevel },
+        }
+      }
+      const updateBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.update(currentBusinessUnitCompetencyLevel, businessUnitCompetencyLevel)
+      if (updateBusinessUnitCompetencyLevel) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_updated_successfully'),
-          data: { positionCompetency: updatePositionCompetency },
+          data: { businessUnitCompetencyLevel: updateBusinessUnitCompetencyLevel },
         }
       }
     } catch (error) {
@@ -358,21 +497,21 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-competencies/{positionCompetencyId}:
+   * /api/business-unit-competency-levels/delete/{businessUnitCompetencyLevelId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: delete position competency
+   *       - Business Unit Competency Levels
+   *     summary: delete business unit competency level
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionCompetencyId
+   *         name: businessUnitCompetencyLevelId
    *         schema:
    *           type: number
-   *         description: Position competency id
+   *         description: Business unit competency level id
    *         required: true
    *     responses:
    *       '200':
@@ -458,155 +597,49 @@ export default class PositionSpecificFunctionController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionCompetencyId = request.param('positionCompetencyId')
-      if (!positionCompetencyId) {
+      const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
+      if (!businessUnitCompetencyLevelId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position competency Id was not found',
+          title: 'The business unit competency level Id was not found',
           message: 'Missing data to process',
-          data: { positionCompetencyId },
+          data: { businessUnitCompetencyLevelId },
         }
       }
-      const currentPositionCompetency = await PositionCompetency.query()
-        .whereNull('position_competency_deleted_at')
-        .where('position_competency_id', positionCompetencyId)
+      const currentBusinessUnitCompetencyLevel = await BusinessUnitCompetencyLevel.query()
+        .whereNull('business_unit_competency_level_deleted_at')
+        .where('business_unit_competency_level_id', businessUnitCompetencyLevelId)
         .first()
-      if (!currentPositionCompetency) {
+      if (!currentBusinessUnitCompetencyLevel) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position competency was not found',
-          message: 'The position competency was not found with the entered ID',
-          data: { positionCompetencyId },
+          title: 'The business unit competency level was not found',
+          message: 'The business unit competency level was not found with the entered ID',
+          data: { businessUnitCompetencyLevelId },
         }
       }
-      const positionCompetencyService = new PositionCompetencyService()
-      const deletePositionCompetency = await positionCompetencyService.delete(currentPositionCompetency)
-      if (deletePositionCompetency) {
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const verifyInfoQuantity = await businessUnitCompetencyLevelService.verifyInfoQuantity(currentBusinessUnitCompetencyLevel)
+      if (verifyInfoQuantity.status !== 200) {
+        response.status(verifyInfoQuantity.status)
+        return {
+          type: verifyInfoQuantity.type,
+          title: verifyInfoQuantity.title,
+          message: verifyInfoQuantity.message,
+          data: { ...currentBusinessUnitCompetencyLevel },
+        }
+      }
+      const deleteBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.delete(currentBusinessUnitCompetencyLevel)
+      if (deleteBusinessUnitCompetencyLevel) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_deleted_successfully'),
-          data: { positionCompetency: deletePositionCompetency },
+          data: { businessUnitCompetencyLevel: deleteBusinessUnitCompetencyLevel },
         }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
-    }
-  }
-
-   /**
-   * @swagger
-   * /api/position-competencies/distinct-names:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Position Competencies
-   *     summary: get distinct position competency names
-   *     produces:
-   *       - application/json
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-   async getDistinctNames({ response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const positionCompetencyService = new PositionCompetencyService()
-      const positionCompetencyNames = await positionCompetencyService.getDistinctNames()
-
-      response.status(200)
-      return {
-        type: 'success',
-        title: t('resource'),
-        message: t('resource_was_found_successfully'),
-        data: { positionCompetencyNames },
       }
     } catch (error) {
       response.status(500)
@@ -621,29 +654,22 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-competencies/get-by-position/{positionId}:
+   * /api/business-unit-competency-levels/{businessUnitCompetencyLevelId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: get position competencies by position id
+   *       - Business Unit Competency Levels
+   *     summary: get business unit competency level by id
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionId
+   *         name: businessUnitCompetencyLevelId
    *         schema:
-   *           type: integer
-   *         description: Position Identifier
+   *           type: number
+   *         description: Business unit competency level id
    *         required: true
-   *       - in: query
-   *         name: positionCompetencyType
-   *         schema:
-   *           type: string
-   *         description: Position competency type (technical, functional, value)
-   *         required: false
-   *         default: 'technical'
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -725,37 +751,36 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-  async getByPosition({ request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
+  async show({ request, response, i18n }: HttpContext) {
     try {
-      const positionId = request.param('positionId')
-      const positionCompetencyType = request.input('positionCompetencyType')
-      if (!positionId) {
+      const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
+      if (!businessUnitCompetencyLevelId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The position id was not found',
-          data: { positionId },
+          title: 'The business unit competency level Id was not found',
+          message: 'Missing data to process',
+          data: { businessUnitCompetencyLevelId },
         }
       }
-      const positionCompetencyService = new PositionCompetencyService()
-      const positionCompetencies = await positionCompetencyService.getByPosition(positionId, positionCompetencyType)
-      if (!positionCompetencies) {
+
+      const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
+      const showBusinessUnitCompetencyLevel = await businessUnitCompetencyLevelService.show(businessUnitCompetencyLevelId)
+      if (!showBusinessUnitCompetencyLevel) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position competencies were not found',
-          message: 'The position competencies were not found with the entered id',
-          data: { positionId },
+          title: 'The business unit competency level was not found',
+          message: 'The business unit competency level was not found with the entered ID',
+          data: { businessUnitCompetencyLevelId },
         }
       } else {
         response.status(200)
         return {
           type: 'success',
-          title: t('resources'),
-          message: t('resources_were_found_successfully'),
-          data: { positionCompetencies },
+          title: 'Business unit competency level',
+          message: 'The business unit competency level was found successfully',
+          data: { businessUnitCompetencyLevel: showBusinessUnitCompetencyLevel },
         }
       }
     } catch (error) {

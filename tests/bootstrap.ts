@@ -4,6 +4,7 @@ import app from '@adonisjs/core/services/app'
 import type { Config } from '@japa/runner/types'
 import { pluginAdonisJS } from '@japa/plugin-adonisjs'
 import testUtils from '@adonisjs/core/services/test_utils'
+import { authApiClient } from '@adonisjs/auth/plugins/api_client'
 
 /**
  * This file is imported by the "bin/test.ts" entrypoint file
@@ -12,8 +13,17 @@ import testUtils from '@adonisjs/core/services/test_utils'
 /**
  * Configure Japa plugins in the plugins array.
  * Learn more - https://japa.dev/docs/runner-config#plugins-optional
+ *
+ * El plugin `authApiClient(app)` añade el método `.loginAs(user)` al cliente HTTP
+ * de Japa, generando un token de acceso para el usuario indicado y enviándolo
+ * automáticamente como Bearer en la cabecera Authorization.
  */
-export const plugins: Config['plugins'] = [assert(), apiClient(), pluginAdonisJS(app)]
+export const plugins: Config['plugins'] = [
+  assert(),
+  apiClient(),
+  authApiClient(app),
+  pluginAdonisJS(app),
+]
 
 /**
  * Configure lifecycle function to run before and after all the
