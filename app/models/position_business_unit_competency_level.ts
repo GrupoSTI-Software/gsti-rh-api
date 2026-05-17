@@ -5,40 +5,40 @@ import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Position from './position.js'
 import Competency from './competency.js'
-import CompetencyLevel from './competency_level.js'
+import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
 
 /**
  * @swagger
  * components:
  *   schemas:
- *      PositionCompetencyLevel:
+ *      PositionBusinessUnitCompetencyLevel:
  *        type: object
  *        properties:
- *          positionCompetencyLevelId:
+ *          positionBusinessUnitCompetencyLevelId:
  *            type: number
- *            description: Position competency level id
+ *            description: Position business unit competency level id
  *          positionId:
  *            type: number
  *            description: Position id
  *          competencyId:
  *            type: number
  *            description: Competency id
- *          competencyLevelId:
+ *          businessUnitCompetencyLevelId:
  *            type: number
- *            description: Desired competency level id
- *          positionCompetencyLevelCreatedAt:
+ *            description: Desired business unit competency level id
+ *          positionBusinessUnitCompetencyLevelCreatedAt:
  *            type: string
- *          positionCompetencyLevelUpdatedAt:
+ *          positionBusinessUnitCompetencyLevelUpdatedAt:
  *            type: string
- *          positionCompetencyLevelDeletedAt:
+ *          positionBusinessUnitCompetencyLevelDeletedAt:
  *            type: string
  */
 
-export default class PositionCompetencyLevel extends compose(BaseModel, SoftDeletes) {
-  static table = 'position_competency_levels'
+export default class PositionBusinessUnitCompetencyLevel extends compose(BaseModel, SoftDeletes) {
+  static table = 'position_business_unit_competency_levels'
 
   @column({ isPrimary: true })
-  declare positionCompetencyLevelId: number
+  declare positionBusinessUnitCompetencyLevelId: number
 
   @column()
   declare positionId: number
@@ -47,15 +47,15 @@ export default class PositionCompetencyLevel extends compose(BaseModel, SoftDele
   declare competencyId: number
 
   @column()
-  declare competencyLevelId: number
+  declare businessUnitCompetencyLevelId: number
 
   @column.dateTime({ autoCreate: true })
-  declare positionCompetencyLevelCreatedAt: DateTime
+  declare positionBusinessUnitCompetencyLevelCreatedAt: DateTime
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare positionCompetencyLevelUpdatedAt: DateTime
+  declare positionBusinessUnitCompetencyLevelUpdatedAt: DateTime
 
-  @column.dateTime({ columnName: 'position_competency_level_deleted_at' })
+  @column.dateTime({ columnName: 'position_business_unit_competency_level_deleted_at' })
   declare deletedAt: DateTime | null
 
   @belongsTo(() => Position, {
@@ -68,8 +68,8 @@ export default class PositionCompetencyLevel extends compose(BaseModel, SoftDele
   })
   declare competency: BelongsTo<typeof Competency>
 
-  @belongsTo(() => CompetencyLevel, {
-    foreignKey: 'competencyLevelId',
+  @belongsTo(() => BusinessUnitCompetencyLevel, {
+    foreignKey: 'businessUnitCompetencyLevelId',
   })
-  declare competencyLevel: BelongsTo<typeof CompetencyLevel>
+  declare businessUnitCompetencyLevel: BelongsTo<typeof BusinessUnitCompetencyLevel>
 }

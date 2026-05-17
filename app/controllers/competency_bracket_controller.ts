@@ -1,18 +1,18 @@
 import { HttpContext } from '@adonisjs/core/http'
-import { createPositionCompetencyValidator } from '#validators/position_competency'
-import PositionCompetency from '#models/position_competency'
-import PositionCompetencyService from '#services/position_competency_service'
+import CompetencyBracket from '#models/competency_bracket'
+import CompetencyBracketService from '#services/competency_bracket_service'
+import { createCompetencyBracketValidator, updateCompetencyBracketValidator } from '#validators/competency_bracket'
 
-export default class PositionSpecificFunctionController {
+export default class CompetencyBracketController {
   /**
    * @swagger
-   * /api/position-competencies:
+   * /api/competency-brackets:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: create new position competency
+   *       - Competency Brackets
+   *     summary: create new competency bracket
    *     produces:
    *       - application/json
    *     requestBody:
@@ -21,31 +21,26 @@ export default class PositionSpecificFunctionController {
    *           schema:
    *             type: object
    *             properties:
-   *               positionId:
+   *               competencyDescriptorId:
    *                 type: number
-   *                 description: Position id
+   *                 description: Competency descriptor id
    *                 required: true
-   *                 default: ''
-   *               weightId:
-   *                 type: number
-   *                 description: Weight id
-   *                 required: true
-   *                 default: ''
-   *               competencyId:
-   *                 type: number
-   *                 description: Competency id
-   *                 required: true
-   *                 default: ''
-   *               positionCompetencyName:
+   *               competencyBracketDescription:
    *                 type: string
-   *                 description: Position competency name
+   *                 description: Competency bracket description
    *                 required: true
-   *                 default: ''
-   *               positionCompetencyType:
-   *                 type: string
-   *                 description: Position competency type
+   *               competencyBracketRangeMin:
+   *                 type: number
+   *                 description: Competency bracket range min
    *                 required: true
-   *                 default: ''
+   *               competencyBracketRangeMax:
+   *                 type: number
+   *                 description: Competency bracket range max
+   *                 required: true
+   *               competencyBracketPosition:
+   *                 type: number
+   *                 description: Competency bracket position
+   *                 required: true
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -130,30 +125,32 @@ export default class PositionSpecificFunctionController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-
-      await request.validateUsing(createPositionCompetencyValidator)
-      const positionCompetencyService = new PositionCompetencyService()
-      const positionId = request.input('positionId')
-      const weightId = request.input('weightId')
-      const competencyId = request.input('competencyId')
-      const positionCompetencyName = request.input('positionCompetencyName')
-      const positionCompetencyType = request.input('positionCompetencyType')
-      const positionCompetency = {
-        positionId: positionId,
-        weightId: weightId,
-        competencyId: competencyId,
-        positionCompetencyName: positionCompetencyName,
-        positionCompetencyType: positionCompetencyType,
-      } as PositionCompetency
-
-      const newPositionCompetency = await positionCompetencyService.create(positionCompetency)
-      await newPositionCompetency.load('weight')
+      const data = await request.validateUsing(createCompetencyBracketValidator)
+      const service = new CompetencyBracketService(i18n)
+      const competencyBracket = {
+        competencyDescriptorId: data.competencyDescriptorId,
+        competencyBracketDescription: data.competencyBracketDescription,
+        competencyBracketRangeMin: data.competencyBracketRangeMin,
+        competencyBracketRangeMax: data.competencyBracketRangeMax,
+        competencyBracketPosition: data.competencyBracketPosition,
+      } as CompetencyBracket
+      const verifyInfoExist = await service.verifyInfoExist(competencyBracket)
+      if (verifyInfoExist.status !== 200) {
+        response.status(verifyInfoExist.status)
+        return {
+          type: verifyInfoExist.type,
+          title: verifyInfoExist.title,
+          message: verifyInfoExist.message,
+          data: { ...competencyBracket },
+        }
+      }
+      const newCompetencyBracket = await service.create(competencyBracket)
       response.status(201)
       return {
         type: 'success',
-        title: t('resource'),
+        title: t('competency'),
         message: t('resource_was_created_successfully'),
-        data: { positionCompetency: newPositionCompetency },
+        data: { competencyBracket: newCompetencyBracket },
       }
     } catch (error) {
       const messageError =
@@ -170,21 +167,19 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-competencies/{positionCompetencyId}:
+   * /api/competency-brackets/{competencyBracketId}:
    *   put:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: update position competency
-   *     produces:
-   *       - application/json
+   *       - Competency Brackets
+   *     summary: update competency bracket
    *     parameters:
    *       - in: path
-   *         name: positionCompetencyId
+   *         name: competencyBracketId
    *         schema:
    *           type: number
-   *         description: Position competency id
+   *         description: Competency bracket id
    *         required: true
    *     requestBody:
    *       content:
@@ -192,26 +187,18 @@ export default class PositionSpecificFunctionController {
    *           schema:
    *             type: object
    *             properties:
-   *               weightId:
-   *                 type: number
-   *                 description: Weight id
-   *                 required: true
-   *                 default: ''
-   *               competencyId:
-   *                 type: number
-   *                 description: Competency id
-   *                 required: true
-   *                 default: ''
-   *               positionCompetencyName:
+   *               competencyBracketDescription:
    *                 type: string
-   *                 description: Position competency name
+   *                 description: Competency bracket description
    *                 required: true
-   *                 default: ''
-   *               positionCompetencyType:
-   *                 type: string
-   *                 description: Position competency type
+   *               competencyBracketRangeMin:
+   *                 type: number
+   *                 description: Competency bracket range min
    *                 required: true
-   *                 default: ''
+   *               competencyBracketRangeMax:
+   *                 type: number
+   *                 description: Competency bracket range max
+   *                 required: true
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -296,61 +283,53 @@ export default class PositionSpecificFunctionController {
   async update({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionCompetencyId = request.param('positionCompetencyId')
-      const weightId = request.input('weightId')
-      const competencyId = request.input('competencyId')
-      const positionCompetencyName = request.input('positionCompetencyName')
-      const positionCompetencyType = request.input('positionCompetencyType')
-
-      const positionCompetency = {
-        positionCompetencyId: positionCompetencyId,
-        weightId: weightId,
-        competencyId: competencyId,
-        positionCompetencyName: positionCompetencyName,
-        positionCompetencyType: positionCompetencyType,
-      } as PositionCompetency
-      if (!positionCompetencyId) {
+      const competencyBracketId = Number(request.param('competencyBracketId'))
+      if (!competencyBracketId || Number.isNaN(competencyBracketId)) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position competency Id was not found',
-          message: 'Missing data to process',
-          data: { ...positionCompetency },
+          title: t('entity_id_was_not_found', { entity: t('competency_bracket') }),
+          message: t('missing_data_to_process'),
+          data: { competencyBracketId },
         }
       }
-      const currentPositionCompetency = await PositionCompetency.query()
-        .whereNull('position_competency_deleted_at')
-        .where('position_competency_id', positionCompetencyId)
+      const currentCompetencyBracket = await CompetencyBracket.query()
+        .whereNull('competency_bracket_deleted_at')
+        .where('competency_bracket_id', competencyBracketId)
         .first()
-      if (!currentPositionCompetency) {
+      if (!currentCompetencyBracket) {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position competency was not found',
-          message: 'The position competency was not found with the entered ID',
-          data: { ...positionCompetency },
+          title: t('entity_was_not_found', { entity: t('competency_bracket') }),
+          message: t('entity_was_not_found_with_entered_id', { entity: t('competency_bracket') }),
+          data: { competencyBracketId },
         }
       }
-      const positionCompetencyService = new PositionCompetencyService()
-      const updatePositionCompetency = await positionCompetencyService.update(currentPositionCompetency, positionCompetency)
-      await updatePositionCompetency.load('weight')
-      if (updatePositionCompetency) {
+      const competencyBracketService = new CompetencyBracketService(i18n)
+      const data = await request.validateUsing(updateCompetencyBracketValidator)
+      const competencyBracket = {
+        competencyBracketDescription: data.competencyBracketDescription,
+        competencyBracketRangeMin: data.competencyBracketRangeMin,
+        competencyBracketRangeMax: data.competencyBracketRangeMax,
+        competencyBracketPosition: data.competencyBracketPosition,
+      } as CompetencyBracket
+      const updatedCompetencyBracket = await competencyBracketService.update(currentCompetencyBracket, competencyBracket)
         response.status(200)
         return {
           type: 'success',
-          title: t('resource'),
+          title: t('competency_bracket'),
           message: t('resource_was_updated_successfully'),
-          data: { positionCompetency: updatePositionCompetency },
+          data: { competencyBracket: updatedCompetencyBracket },
         }
-      }
-    } catch (error) {
+      } catch (error) {
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
       }
     }
@@ -358,21 +337,21 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-competencies/{positionCompetencyId}:
+   * /api/competency-brackets/{competencyBracketId}:
    *   delete:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: delete position competency
+   *       - Competency Brackets
+   *     summary: delete competency bracket
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionCompetencyId
+   *         name: competencyBracketId
    *         schema:
    *           type: number
-   *         description: Position competency id
+   *         description: Competency bracket id
    *         required: true
    *     responses:
    *       '200':
@@ -458,62 +437,71 @@ export default class PositionSpecificFunctionController {
   async delete({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionCompetencyId = request.param('positionCompetencyId')
-      if (!positionCompetencyId) {
+      const competencyBracketId = request.param('competencyBracketId')
+      if (!competencyBracketId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position competency Id was not found',
-          message: 'Missing data to process',
-          data: { positionCompetencyId },
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { competencyBracketId },
         }
       }
-      const currentPositionCompetency = await PositionCompetency.query()
-        .whereNull('position_competency_deleted_at')
-        .where('position_competency_id', positionCompetencyId)
+      const currentCompetencyBracket = await CompetencyBracket.query()
+        .whereNull('competency_bracket_deleted_at')
+        .where('competency_bracket_id', competencyBracketId)
         .first()
-      if (!currentPositionCompetency) {
+      if (!currentCompetencyBracket) {
+        const entity = t('competency_bracket')
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position competency was not found',
-          message: 'The position competency was not found with the entered ID',
-          data: { positionCompetencyId },
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { competencyBracketId },
         }
       }
-      const positionCompetencyService = new PositionCompetencyService()
-      const deletePositionCompetency = await positionCompetencyService.delete(currentPositionCompetency)
-      if (deletePositionCompetency) {
+      const competencyBracketService = new CompetencyBracketService(i18n)
+      const deleteCompetencyBracket = await competencyBracketService.delete(currentCompetencyBracket)
+      if (deleteCompetencyBracket) {
         response.status(200)
         return {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_deleted_successfully'),
-          data: { positionCompetency: deletePositionCompetency },
+          data: { competencyBracket: deleteCompetencyBracket },
         }
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
   }
 
-   /**
+
+  /**
    * @swagger
-   * /api/position-competencies/distinct-names:
+   * /api/competency-brackets/{competencyBracketId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: get distinct position competency names
+   *       - Competency Brackets
+   *     summary: get competency bracket by id
    *     produces:
    *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: competencyBracketId
+   *         schema:
+   *           type: number
+   *         description: Competency bracket id
+   *         required: true
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -595,25 +583,45 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-   async getDistinctNames({ response, i18n }: HttpContext) {
+  async show({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionCompetencyService = new PositionCompetencyService()
-      const positionCompetencyNames = await positionCompetencyService.getDistinctNames()
-
-      response.status(200)
-      return {
-        type: 'success',
-        title: t('resource'),
-        message: t('resource_was_found_successfully'),
-        data: { positionCompetencyNames },
+      const competencyBracketId = request.param('competencyBracketId')
+      if (!competencyBracketId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { competencyBracketId },
+        }
+      }
+      const competencyBracketService = new CompetencyBracketService(i18n)
+      const showCompetencyBracket = await competencyBracketService.show(competencyBracketId)
+      if (!showCompetencyBracket) {
+        const entity = t('competency_bracket')
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { competencyBracketId },
+        }
+      } else {
+        response.status(200)
+        return {
+          type: 'success',
+          title: t('resource'),
+          message: t('resource_was_found_successfully'),
+          data: { competencyBracket: showCompetencyBracket },
+        }
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -621,29 +629,22 @@ export default class PositionSpecificFunctionController {
 
   /**
    * @swagger
-   * /api/position-competencies/get-by-position/{positionId}:
+   * /api/competency-brackets/by-descriptor/{competencyDescriptorId}:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
-   *       - Position Competencies
-   *     summary: get position competencies by position id
+   *       - Competency Brackets
+   *     summary: get competency brackets by competency descriptor id
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
-   *         name: positionId
+   *         name: competencyDescriptorId
    *         schema:
-   *           type: integer
-   *         description: Position Identifier
+   *           type: number
+   *         description: Competency descriptor id
    *         required: true
-   *       - in: query
-   *         name: positionCompetencyType
-   *         schema:
-   *           type: string
-   *         description: Position competency type (technical, functional, value)
-   *         required: false
-   *         default: 'technical'
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -725,29 +726,29 @@ export default class PositionSpecificFunctionController {
    *                     error:
    *                       type: string
    */
-  async getByPosition({ request, response, i18n }: HttpContext) {
+  async getByCompetencyDescriptorId({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const positionId = request.param('positionId')
-      const positionCompetencyType = request.input('positionCompetencyType')
-      if (!positionId) {
+      const competencyDescriptorId = request.param('competencyDescriptorId')
+      if (!competencyDescriptorId) {
         response.status(400)
         return {
           type: 'warning',
-          title: 'Missing data to process',
-          message: 'The position id was not found',
-          data: { positionId },
+          title: t('resource'),
+          message: t('resource_id_was_not_found'),
+          data: { competencyDescriptorId },
         }
       }
-      const positionCompetencyService = new PositionCompetencyService()
-      const positionCompetencies = await positionCompetencyService.getByPosition(positionId, positionCompetencyType)
-      if (!positionCompetencies) {
+      const competencyBracketService = new CompetencyBracketService(i18n)
+      const competencyBrackets = await competencyBracketService.getByCompetencyDescriptorId(competencyDescriptorId)
+      if (!competencyBrackets) {
+        const entity = t('competency_bracket')
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position competencies were not found',
-          message: 'The position competencies were not found with the entered id',
-          data: { positionId },
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { competencyDescriptorId },
         }
       } else {
         response.status(200)
@@ -755,15 +756,15 @@ export default class PositionSpecificFunctionController {
           type: 'success',
           title: t('resources'),
           message: t('resources_were_found_successfully'),
-          data: { positionCompetencies },
+          data: { competencyBrackets },
         }
       }
     } catch (error) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
