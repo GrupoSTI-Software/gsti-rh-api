@@ -2505,6 +2505,13 @@ export default class SyncAssistsService {
   }
 
   private checkDSTSummerTime (date: Date): boolean {
+    // México dejó de aplicar horario de verano en la mayor parte del territorio.
+    // Mantener el ajuste +1h en fixedCSTSummerTime para 2023+ corregía como si
+    // aún hubiera DST y desplazaba entradas/salidas válidas (mayo–octubre vs febrero).
+    if (date.getFullYear() >= 2023) {
+      return false
+    }
+
     const year = date.getFullYear()
     const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
 

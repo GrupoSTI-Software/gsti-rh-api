@@ -10,6 +10,7 @@
 import router from '@adonisjs/core/services/router'
 import Ws from '#services/ws'
 import { middleware } from './kernel.js'
+import env from '#start/env'
 
 import './routes/login_routes.js'
 import './routes/passkey_routes.js'
@@ -118,7 +119,13 @@ import './routes/employee_annotation_routes.js'
 import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
-import './routes/generate_info_demo.js'
+if (env.get('APP_MODE') === 'demo') {
+  try {
+    await import('#modules/demo/routes')
+  } catch {
+    console.warn('Módulo demo no disponible en este bundle')
+  }
+}
 import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
