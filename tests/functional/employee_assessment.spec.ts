@@ -564,6 +564,153 @@ test.group('EmployeeAssessment - getByEmployee GET /employee/:employeeId', (grou
   })
 })
 
+/**
+ * CAP-02-08-02 — Coherencia del valor capturado con el `dataType` de la dimensión.
+ *
+ * Verifica que el endpoint POST rechaza con 422 + key 'valor-no-coherente-con-tipo'
+ * los valores que no respetan el tipo declarado en la dimensión.
+ */
+test.group('EmployeeAssessment - coherencia de valores con dataType', (group) => {
+  let user: User
+  let employee: Employee
+  let template: AssessmentTemplate
+  let numericDim: AssessmentTemplateDimension
+  let percentDim: AssessmentTemplateDimension
+  let categoricalDim: AssessmentTemplateDimension
+
+  group.setup(async () => {
+    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    employee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    template = await AssessmentTemplate.create({
+      assessmentTemplateName: 'EA Plantilla DataType',
+      assessmentTemplateDescription: null,
+    })
+    numericDim = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'EA Dim Numeric',
+      assessmentTemplateDimensionAcronym: 'EADN',
+      assessmentTemplateDimensionDataType: 'numeric',
+    })
+    percentDim = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'EA Dim Percent',
+      assessmentTemplateDimensionAcronym: 'EADP',
+      assessmentTemplateDimensionDataType: 'percent',
+    })
+    categoricalDim = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'EA Dim AMB',
+      assessmentTemplateDimensionAcronym: 'EAAMB',
+      assessmentTemplateDimensionDataType: 'categorical_amb',
+    })
+  })
+
+  group.teardown(async () => {
+    await cleanupTestTemplate(template.assessmentTemplateId)
+  })
+
+  test('numeric: acepta valor numérico parseable', async ({ client }) => {
+    const response = await client
+      .post('/api/employee-assessments')
+      .loginAs(user)
+      .json({
+        employeeId: employee.employeeId,
+        assessmentTemplateId: template.assessmentTemplateId,
+        employeeAssessmentDate: '2025-05-01',
+        results: [
+          {
+            assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
+            employeeAssessmentResultValue: '85.5',
+          },
+        ],
+      })
+    response.assertStatus(201)
+  })
+
+  test('numeric: 422 si el valor no es numérico', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-assessments')
+      .loginAs(user)
+      .json({
+        employeeId: employee.employeeId,
+        assessmentTemplateId: template.assessmentTemplateId,
+        employeeAssessmentDate: '2025-05-02',
+        results: [
+          {
+            assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
+            employeeAssessmentResultValue: 'high',
+          },
+        ],
+      })
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'valor-no-coherente-con-tipo')
+    assert.equal(
+      response.body().data?.assessmentTemplateDimensionId,
+      numericDim.assessmentTemplateDimensionId
+    )
+  })
+
+  test('percent: 422 si el valor está fuera de [0,100]', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-assessments')
+      .loginAs(user)
+      .json({
+        employeeId: employee.employeeId,
+        assessmentTemplateId: template.assessmentTemplateId,
+        employeeAssessmentDate: '2025-05-03',
+        results: [
+          {
+            assessmentTemplateDimensionId: percentDim.assessmentTemplateDimensionId,
+            employeeAssessmentResultValue: '120',
+          },
+        ],
+      })
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'valor-no-coherente-con-tipo')
+  })
+
+  test('categorical_amb: acepta high/medium/low', async ({ client }) => {
+    const response = await client
+      .post('/api/employee-assessments')
+      .loginAs(user)
+      .json({
+        employeeId: employee.employeeId,
+        assessmentTemplateId: template.assessmentTemplateId,
+        employeeAssessmentDate: '2025-05-04',
+        results: [
+          {
+            assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
+            employeeAssessmentResultValue: 'medium',
+          },
+        ],
+      })
+    response.assertStatus(201)
+  })
+
+  test('categorical_amb: 422 si valor no está en el enum', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-assessments')
+      .loginAs(user)
+      .json({
+        employeeId: employee.employeeId,
+        assessmentTemplateId: template.assessmentTemplateId,
+        employeeAssessmentDate: '2025-05-05',
+        results: [
+          {
+            assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
+            employeeAssessmentResultValue: 'super-high',
+          },
+        ],
+      })
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'valor-no-coherente-con-tipo')
+    assert.equal(
+      response.body().data?.assessmentTemplateDimensionId,
+      categoricalDim.assessmentTemplateDimensionId
+    )
+  })
+})
+
 test.group(
   'EmployeeAssessment - getTemplatesByPosition GET /tests-by-position/:positionId',
   (group) => {

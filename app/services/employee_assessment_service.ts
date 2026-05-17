@@ -102,7 +102,12 @@ export default class EmployeeAssessmentService {
 
   /**
    * Obtiene las plantillas de evaluación distintas asignadas a un puesto a través
-   * del JOIN: position_assessment_profiles → assessment_template_dimensions → assessment_templates
+   * del JOIN: position_assessment_profiles → assessment_template_dimensions → assessment_templates.
+   *
+   * CAP-02-08-04 — Sólo devuelve plantillas con `is_active = true`. Las
+   * plantillas inactivas no deben ofrecerse al asignar nuevas evaluaciones
+   * a empleados; el histórico ya creado permanece intacto (consultado vía
+   * `getByEmployee`).
    */
   async getTemplatesByPosition(positionId: number) {
     const profiles = await PositionAssessmentProfile.query()
@@ -123,6 +128,7 @@ export default class EmployeeAssessmentService {
 
     const templates = await AssessmentTemplate.query()
       .whereNull('assessment_template_deleted_at')
+      .where('assessment_template_is_active', true)
       .whereIn('assessment_template_id', Array.from(templateIdSet))
       .preload('dimensions', (dimQuery) => {
         dimQuery.whereNull('assessment_template_dimension_deleted_at')
@@ -366,7 +372,16 @@ export default class EmployeeAssessmentService {
   }
 
   /**
-   * Calcula el estado de un resultado individual comparando el valor contra los rangos del perfil.
+   * Calcula el estado de un resultado individual comparando el valor contra
+   * el perfil del puesto, **respetando el `dataType` de la dimensión**:
+   *
+   *  - `numeric` / `percent`: comparación numérica contra el rango [min, max]
+   *    del perfil → 'insufficient' | 'approved' | 'excellent'.
+   *  - `categorical_amb`: comparación exacta contra `expectedValue` del perfil
+   *    → 'approved' si coincide, 'insufficient' si difiere.
+   *
+   * Devuelve `null` cuando el valor está vacío, no es válido para el tipo o
+   * no existe perfil configurado para la dimensión.
    */
   private calculateDimensionStatus(
     value: string | null,
@@ -375,13 +390,29 @@ export default class EmployeeAssessmentService {
   ): string | null {
     if (!value || value.trim() === '') return null
 
-    const numericValue = Number.parseFloat(value)
-    if (Number.isNaN(numericValue)) return null
-
     const profile = positionProfiles.find(
       (p) => p.assessmentTemplateDimensionId === dimensionId
     )
     if (!profile) return null
+
+    const dataType =
+      profile.assessmentTemplateDimension?.assessmentTemplateDimensionDataType ?? 'numeric'
+
+    if (dataType === 'categorical_amb') {
+      const expected = profile.positionAssessmentProfileExpectedValue
+      if (!expected) return null
+      return value.trim() === expected ? 'approved' : 'insufficient'
+    }
+
+    const numericValue = Number.parseFloat(value)
+    if (!Number.isFinite(numericValue)) return null
+
+    if (
+      profile.positionAssessmentProfileMinimumValue === null ||
+      profile.positionAssessmentProfileMaximumValue === null
+    ) {
+      return null
+    }
 
     const minVal = Number(profile.positionAssessmentProfileMinimumValue)
     const maxVal = Number(profile.positionAssessmentProfileMaximumValue)

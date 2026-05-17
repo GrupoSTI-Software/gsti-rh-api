@@ -244,6 +244,121 @@ test.group('AssessmentTemplateDimension - store POST /', (group) => {
     }
     assert.exists(caught)
   })
+
+  /**
+   * CAP-02-08-01 — Tipado de dimensiones (numeric / percent / categorical_amb).
+   *
+   * Cubre los criterios de aceptación:
+   *  - Dimensión nueva con dataType 'numeric' → 201 y persiste data_type='numeric'.
+   *  - Dimensión nueva con dataType fuera del enum → 422 con key 'tipo-dato-invalido'.
+   *  - Dimensión sin dataType → backend aplica el default 'numeric'.
+   */
+  test('crea dimensión con dataType numeric y persiste el valor', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/assessment-template-dimensions')
+      .loginAs(user)
+      .json({
+        assessmentTemplateId: template.assessmentTemplateId,
+        assessmentTemplateDimensionName: 'Dimensión Numérica',
+        assessmentTemplateDimensionAcronym: 'DN',
+        assessmentTemplateDimensionDataType: 'numeric',
+      })
+
+    response.assertStatus(201)
+    response.assertBodyContains({ type: 'success' })
+
+    const body = response.body()
+    const dimId = body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionId
+    assert.exists(dimId)
+    assert.equal(
+      body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionDataType,
+      'numeric'
+    )
+    createdDimIds.push(dimId)
+  })
+
+  test('crea dimensión con dataType percent', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/assessment-template-dimensions')
+      .loginAs(user)
+      .json({
+        assessmentTemplateId: template.assessmentTemplateId,
+        assessmentTemplateDimensionName: 'Dimensión Porcentual',
+        assessmentTemplateDimensionAcronym: 'DP',
+        assessmentTemplateDimensionDataType: 'percent',
+      })
+
+    response.assertStatus(201)
+    const body = response.body()
+    assert.equal(
+      body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionDataType,
+      'percent'
+    )
+    createdDimIds.push(body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionId)
+  })
+
+  test('crea dimensión con dataType categorical_amb', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/assessment-template-dimensions')
+      .loginAs(user)
+      .json({
+        assessmentTemplateId: template.assessmentTemplateId,
+        assessmentTemplateDimensionName: 'Dimensión Categórica AMB',
+        assessmentTemplateDimensionAcronym: 'DCA',
+        assessmentTemplateDimensionDataType: 'categorical_amb',
+      })
+
+    response.assertStatus(201)
+    const body = response.body()
+    assert.equal(
+      body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionDataType,
+      'categorical_amb'
+    )
+    createdDimIds.push(body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionId)
+  })
+
+  test('responde 422 con key tipo-dato-invalido si dataType está fuera del enum', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .post('/api/assessment-template-dimensions')
+      .loginAs(user)
+      .json({
+        assessmentTemplateId: template.assessmentTemplateId,
+        assessmentTemplateDimensionName: 'Dimensión DataType Inválido',
+        assessmentTemplateDimensionAcronym: 'DDI',
+        assessmentTemplateDimensionDataType: 'text',
+      })
+
+    response.assertStatus(422)
+    const body = response.body()
+    assert.equal(body.key, 'tipo-dato-invalido')
+    assert.exists(body.title)
+    assert.exists(body.detail)
+  })
+
+  test('aplica default numeric cuando no se envía dataType (backfill semántico)', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .post('/api/assessment-template-dimensions')
+      .loginAs(user)
+      .json({
+        assessmentTemplateId: template.assessmentTemplateId,
+        assessmentTemplateDimensionName: 'Dimensión Sin DataType',
+        assessmentTemplateDimensionAcronym: 'DSDT',
+      })
+
+    response.assertStatus(201)
+    const body = response.body()
+    const dimId = body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionId
+    createdDimIds.push(dimId)
+
+    const persisted = await AssessmentTemplateDimension.find(dimId)
+    assert.equal(persisted?.assessmentTemplateDimensionDataType, 'numeric')
+  })
 })
 
 test.group('AssessmentTemplateDimension - show GET /:id', (group) => {
@@ -407,6 +522,46 @@ test.group('AssessmentTemplateDimension - update PUT /:id', (group) => {
       caught = err
     }
     assert.exists(caught)
+  })
+
+  test('actualiza dataType a un valor válido del enum', async ({ client, assert }) => {
+    const response = await client
+      .put(
+        `/api/assessment-template-dimensions/${dimension.assessmentTemplateDimensionId}`
+      )
+      .loginAs(user)
+      .json({
+        assessmentTemplateDimensionName: 'Dimensión Update Modificada',
+        assessmentTemplateDimensionAcronym: 'DUM',
+        assessmentTemplateDimensionDataType: 'percent',
+      })
+
+    response.assertStatus(201)
+    const body = response.body()
+    assert.equal(
+      body.data?.assessmentTemplateDimension?.assessmentTemplateDimensionDataType,
+      'percent'
+    )
+  })
+
+  test('responde 422 con key tipo-dato-invalido al actualizar con dataType fuera del enum', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .put(
+        `/api/assessment-template-dimensions/${dimension.assessmentTemplateDimensionId}`
+      )
+      .loginAs(user)
+      .json({
+        assessmentTemplateDimensionName: 'Dimensión Update DataType',
+        assessmentTemplateDimensionAcronym: 'DUDT',
+        assessmentTemplateDimensionDataType: 'invalid_value',
+      })
+
+    response.assertStatus(422)
+    const body = response.body()
+    assert.equal(body.key, 'tipo-dato-invalido')
   })
 })
 

@@ -1,6 +1,20 @@
 import AssessmentTemplate from '#models/assessment_template'
-import AssessmentTemplateDimension from '#models/assessment_template_dimension'
+import AssessmentTemplateDimension, {
+  type AssessmentTemplateDimensionDataType,
+} from '#models/assessment_template_dimension'
 import { AssessmentTemplateFilterSearchInterface } from '../interfaces/assessment_template_filter_search_interface.js'
+
+/**
+ * Forma esperada de cada dimensión cuando se envía como parte del payload
+ * de creación/actualización de una plantilla. Incluye soporte para
+ * `assessmentTemplateDimensionDataType` (CAP-02-08-01).
+ */
+type DimensionPayload = {
+  assessmentTemplateDimensionId?: number
+  assessmentTemplateDimensionName: string
+  assessmentTemplateDimensionAcronym: string
+  assessmentTemplateDimensionDataType?: AssessmentTemplateDimensionDataType
+}
 
 /**
  * Servicio que administra el ciclo de vida de las plantillas de evaluación
@@ -29,14 +43,22 @@ export default class AssessmentTemplateService {
       'assessment_template_id',
       'assessment_template_name',
       'assessment_template_description',
+      'assessment_template_is_active',
       'assessment_template_created_at',
     ]
+    const status = filters.status ?? 'active'
     const items = await AssessmentTemplate.query()
       .whereNull('assessment_template_deleted_at')
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(assessment_template_name) LIKE ?', [
           `%${filters.search!.toUpperCase()}%`,
         ])
+      })
+      .if(status === 'active', (query) => {
+        query.where('assessment_template_is_active', true)
+      })
+      .if(status === 'inactive', (query) => {
+        query.where('assessment_template_is_active', false)
       })
       .preload('dimensions', (dimQuery) => {
         dimQuery.whereNull('assessment_template_dimension_deleted_at')
@@ -49,21 +71,33 @@ export default class AssessmentTemplateService {
   }
 
   /**
+   * Activa o desactiva una plantilla sin tocar el resto de sus campos.
+   * El soft-delete sigue siendo el mecanismo para retirar definitivamente
+   * una plantilla; este método sólo conmuta `is_active` (CAP-02-08-01).
+   *
+   * @param currentTemplate Instancia ya cargada de la plantilla.
+   * @param isActive Nuevo valor de `is_active`.
+   * @returns La plantilla actualizada.
+   */
+  async toggleStatus(currentTemplate: AssessmentTemplate, isActive: boolean) {
+    currentTemplate.assessmentTemplateIsActive = isActive
+    await currentTemplate.save()
+    return currentTemplate
+  }
+
+  /**
    * Crea una nueva plantilla de evaluación y, opcionalmente, sus dimensiones
    * iniciales. Tras persistir las dimensiones, recarga la relación
    * `dimensions` (filtrando las activas) en la instancia retornada.
    *
    * @param data Datos básicos de la plantilla (nombre y descripción opcional).
    * @param dimensions Lista opcional de dimensiones a crear junto con la
-   *                   plantilla (cada una con nombre y acrónimo).
+   *                   plantilla (cada una con nombre, acrónimo y dataType opcional).
    * @returns La plantilla recién creada con sus dimensiones precargadas.
    */
   async create(
     data: { assessmentTemplateName: string; assessmentTemplateDescription?: string | null },
-    dimensions?: {
-      assessmentTemplateDimensionName: string
-      assessmentTemplateDimensionAcronym: string
-    }[]
+    dimensions?: DimensionPayload[]
   ) {
     const newTemplate = new AssessmentTemplate()
     newTemplate.assessmentTemplateName = data.assessmentTemplateName
@@ -76,6 +110,9 @@ export default class AssessmentTemplateService {
         newDim.assessmentTemplateId = newTemplate.assessmentTemplateId
         newDim.assessmentTemplateDimensionName = dim.assessmentTemplateDimensionName
         newDim.assessmentTemplateDimensionAcronym = dim.assessmentTemplateDimensionAcronym
+        if (dim.assessmentTemplateDimensionDataType) {
+          newDim.assessmentTemplateDimensionDataType = dim.assessmentTemplateDimensionDataType
+        }
         await newDim.save()
       }
     }
@@ -102,11 +139,7 @@ export default class AssessmentTemplateService {
   async update(
     currentTemplate: AssessmentTemplate,
     data: { assessmentTemplateName: string; assessmentTemplateDescription?: string | null },
-    dimensions?: {
-      assessmentTemplateDimensionId?: number
-      assessmentTemplateDimensionName: string
-      assessmentTemplateDimensionAcronym: string
-    }[]
+    dimensions?: DimensionPayload[]
   ) {
     currentTemplate.assessmentTemplateName = data.assessmentTemplateName
     currentTemplate.assessmentTemplateDescription = data.assessmentTemplateDescription ?? null
@@ -126,14 +159,7 @@ export default class AssessmentTemplateService {
   /**
    * Sincroniza las dimensiones de una plantilla: crea nuevas, actualiza existentes y elimina las ausentes.
    */
-  private async syncDimensions(
-    assessmentTemplateId: number,
-    dimensions: {
-      assessmentTemplateDimensionId?: number
-      assessmentTemplateDimensionName: string
-      assessmentTemplateDimensionAcronym: string
-    }[]
-  ) {
+  private async syncDimensions(assessmentTemplateId: number, dimensions: DimensionPayload[]) {
     const existingDimensions = await AssessmentTemplateDimension.query()
       .where('assessment_template_id', assessmentTemplateId)
       .whereNull('assessment_template_dimension_deleted_at')
@@ -151,21 +177,25 @@ export default class AssessmentTemplateService {
 
     for (const dim of dimensions) {
       if (dim.assessmentTemplateDimensionId) {
-        // Actualizar existente
         const existing = existingDimensions.find(
           (e) => e.assessmentTemplateDimensionId === dim.assessmentTemplateDimensionId
         )
         if (existing) {
           existing.assessmentTemplateDimensionName = dim.assessmentTemplateDimensionName
           existing.assessmentTemplateDimensionAcronym = dim.assessmentTemplateDimensionAcronym
+          if (dim.assessmentTemplateDimensionDataType) {
+            existing.assessmentTemplateDimensionDataType = dim.assessmentTemplateDimensionDataType
+          }
           await existing.save()
         }
       } else {
-        // Crear nueva
         const newDim = new AssessmentTemplateDimension()
         newDim.assessmentTemplateId = assessmentTemplateId
         newDim.assessmentTemplateDimensionName = dim.assessmentTemplateDimensionName
         newDim.assessmentTemplateDimensionAcronym = dim.assessmentTemplateDimensionAcronym
+        if (dim.assessmentTemplateDimensionDataType) {
+          newDim.assessmentTemplateDimensionDataType = dim.assessmentTemplateDimensionDataType
+        }
         await newDim.save()
       }
     }

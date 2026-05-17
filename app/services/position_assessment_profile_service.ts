@@ -63,19 +63,23 @@ export default class PositionAssessmentProfileService {
     newProfile.positionId = profile.positionId
     newProfile.assessmentTemplateDimensionId = profile.assessmentTemplateDimensionId
     newProfile.positionAssessmentProfileMinimumValue =
-      profile.positionAssessmentProfileMinimumValue
+      profile.positionAssessmentProfileMinimumValue ?? null
     newProfile.positionAssessmentProfileMaximumValue =
-      profile.positionAssessmentProfileMaximumValue
+      profile.positionAssessmentProfileMaximumValue ?? null
+    newProfile.positionAssessmentProfileExpectedValue =
+      profile.positionAssessmentProfileExpectedValue ?? null
     await newProfile.save()
     return newProfile
   }
 
   /**
-   * Actualiza únicamente los rangos mínimo y máximo de un perfil existente.
-   * El puesto y la dimensión asociados no se modifican mediante este método.
+   * Actualiza los campos editables de un perfil existente: rango numérico
+   * (`min`/`max` para tipos `numeric`/`percent`) o `expectedValue` (para
+   * tipo `categorical_amb`). El puesto y la dimensión asociados son
+   * inmutables a través de este método.
    *
    * @param currentProfile Instancia actual del perfil.
-   * @param profile DTO con los nuevos valores de mínimo/máximo.
+   * @param profile DTO con los nuevos valores.
    * @returns El perfil actualizado.
    */
   async update(
@@ -83,9 +87,11 @@ export default class PositionAssessmentProfileService {
     profile: PositionAssessmentProfile
   ) {
     currentProfile.positionAssessmentProfileMinimumValue =
-      profile.positionAssessmentProfileMinimumValue
+      profile.positionAssessmentProfileMinimumValue ?? null
     currentProfile.positionAssessmentProfileMaximumValue =
-      profile.positionAssessmentProfileMaximumValue
+      profile.positionAssessmentProfileMaximumValue ?? null
+    currentProfile.positionAssessmentProfileExpectedValue =
+      profile.positionAssessmentProfileExpectedValue ?? null
     await currentProfile.save()
     return currentProfile
   }

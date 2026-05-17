@@ -22,6 +22,12 @@ import EmployeeAssessment from './employee_assessment.js'
  *         assessmentTemplateDescription:
  *           type: string
  *           description: Descripción de la plantilla de evaluación
+ *         assessmentTemplateIsActive:
+ *           type: boolean
+ *           description: |
+ *             Estado activo/inactivo. Si es false, la plantilla aparece como
+ *             "Inactiva" y queda excluida del listado por defecto, pero
+ *             conserva su histórico (CAP-02-08-01).
  *         assessmentTemplateCreatedAt:
  *           type: string
  *         assessmentTemplateUpdatedAt:
@@ -38,6 +44,9 @@ export default class AssessmentTemplate extends compose(BaseModel, SoftDeletes) 
 
   @column()
   declare assessmentTemplateDescription: string | null
+
+  @column()
+  declare assessmentTemplateIsActive: boolean
 
   @column.dateTime({ autoCreate: true })
   declare assessmentTemplateCreatedAt: DateTime

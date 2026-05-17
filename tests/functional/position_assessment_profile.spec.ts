@@ -465,3 +465,172 @@ test.group('PositionAssessmentProfile - delete DELETE /:id', (group) => {
     response.assertBodyContains({ type: 'warning' })
   })
 })
+
+/**
+ * CAP-02-08-04 — Coherencia rango/valor esperado con el `dataType` de la dimensión.
+ *
+ * Cubre los criterios de aceptación principales:
+ *  - numeric/percent → admiten min/max y rechazan expectedValue.
+ *  - categorical_amb → admite expectedValue (high/medium/low) y rechaza min/max.
+ *  - mismatch → 422 con key 'rango-no-coherente-con-tipo'.
+ */
+test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
+  let user: User
+  let position: Position
+  let template: AssessmentTemplate
+  let numericDim: AssessmentTemplateDimension
+  let percentDim: AssessmentTemplateDimension
+  let categoricalDim: AssessmentTemplateDimension
+  const createdIds: number[] = []
+
+  group.setup(async () => {
+    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    position = await Position.query().whereNull('position_deleted_at').firstOrFail()
+    template = await AssessmentTemplate.create({
+      assessmentTemplateName: 'PAP Plantilla DataType',
+      assessmentTemplateDescription: null,
+    })
+    numericDim = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'Dim Numeric',
+      assessmentTemplateDimensionAcronym: 'DN',
+      assessmentTemplateDimensionDataType: 'numeric',
+    })
+    percentDim = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'Dim Percent',
+      assessmentTemplateDimensionAcronym: 'DP',
+      assessmentTemplateDimensionDataType: 'percent',
+    })
+    categoricalDim = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'Dim AMB',
+      assessmentTemplateDimensionAcronym: 'DAMB',
+      assessmentTemplateDimensionDataType: 'categorical_amb',
+    })
+  })
+
+  group.teardown(async () => {
+    if (createdIds.length > 0) {
+      await db
+        .from('position_assessment_profiles')
+        .whereIn('position_assessment_profile_id', createdIds)
+        .delete()
+    }
+    await cleanupTestFixture(template.assessmentTemplateId)
+  })
+
+  test('numeric: crea perfil con min/max válidos y persiste', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
+        positionAssessmentProfileMinimumValue: 10,
+        positionAssessmentProfileMaximumValue: 80,
+      })
+
+    response.assertStatus(201)
+    const body = response.body()
+    const id = body.data?.positionAssessmentProfile?.positionAssessmentProfileId
+    assert.exists(id)
+    if (id) createdIds.push(id)
+    assert.isNull(body.data?.positionAssessmentProfile?.positionAssessmentProfileExpectedValue)
+  })
+
+  test('numeric: 422 si min > max', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
+        positionAssessmentProfileMinimumValue: 90,
+        positionAssessmentProfileMaximumValue: 10,
+      })
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'rango-no-coherente-con-tipo')
+  })
+
+  test('percent: 422 si max > 100', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: percentDim.assessmentTemplateDimensionId,
+        positionAssessmentProfileMinimumValue: 0,
+        positionAssessmentProfileMaximumValue: 150,
+      })
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'rango-no-coherente-con-tipo')
+  })
+
+  test('categorical_amb: crea perfil con expectedValue válido', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
+        positionAssessmentProfileExpectedValue: 'high',
+      })
+
+    response.assertStatus(201)
+    const body = response.body()
+    const id = body.data?.positionAssessmentProfile?.positionAssessmentProfileId
+    assert.exists(id)
+    if (id) createdIds.push(id)
+    assert.equal(
+      body.data?.positionAssessmentProfile?.positionAssessmentProfileExpectedValue,
+      'high'
+    )
+  })
+
+  test('categorical_amb: 422 si se envía min/max', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
+        positionAssessmentProfileMinimumValue: 10,
+        positionAssessmentProfileMaximumValue: 80,
+      })
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'rango-no-coherente-con-tipo')
+  })
+
+  test('categorical_amb: 422 si falta expectedValue', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
+      })
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'rango-no-coherente-con-tipo')
+  })
+
+  test('numeric: 422 si se envía expectedValue', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/position-assessment-profiles')
+      .loginAs(user)
+      .json({
+        positionId: position.positionId,
+        assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
+        positionAssessmentProfileMinimumValue: 10,
+        positionAssessmentProfileMaximumValue: 80,
+        positionAssessmentProfileExpectedValue: 'high',
+      })
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'rango-no-coherente-con-tipo')
+  })
+})
