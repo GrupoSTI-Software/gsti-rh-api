@@ -3264,6 +3264,13 @@ export default class EmployeeController {
    *         description: Search
    *         schema:
    *           type: string
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Business Unit Id
+   *         schema:
+   *           type: integer
+   *         description: ID of the business unit to filter
    *       - in: query
    *         name: departmentId
    *         schema:
@@ -3329,12 +3336,6 @@ export default class EmployeeController {
           userResponsibleId = user?.userId
         }
       }
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const search = request.qs().search
       const departmentId = this.parseIdOrIds(request.qs().departmentId)
       const positionId = this.parseIdOrIds(request.qs().positionId)
@@ -3344,6 +3345,7 @@ export default class EmployeeController {
       const employeeTypeId = request.qs().employeeTypeId
       const workSchedule = request.qs().workSchedule
       const onlyInactive = request.qs().onlyInactive
+      const businessUnitId = request.qs().businessUnitId
 
       let queryEmployees = Employee.query()
         .if(search, (query) => {
@@ -3408,7 +3410,7 @@ export default class EmployeeController {
         }
       }
       const employees = await queryEmployees
-        .whereIn('businessUnitId', businessUnitsList)
+        .where('businessUnitId', businessUnitId)
         .if(userResponsibleId &&
           typeof userResponsibleId && userResponsibleId > 0,
           (query) => {
