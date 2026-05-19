@@ -83,15 +83,31 @@ test.group('Marco regulatorio — Regulation', () => {
   })
 
   test('convierte fechas DATE de MySQL a instancias Date', ({ assert }) => {
-    const publicationCol = Regulation.$getColumn('regulationPublicationDate')!
-    const effectiveCol = Regulation.$getColumn('regulationEffectiveDate')!
-    const revisionCol = Regulation.$getColumn('regulationLastRevisionDate')!
+    const publicationCol = Regulation.$getColumn('regulationPublicationDate')
+    const effectiveCol = Regulation.$getColumn('regulationEffectiveDate')
+    const revisionCol = Regulation.$getColumn('regulationLastRevisionDate')
 
-    assert.instanceOf(publicationCol.consume!('2018-10-23'), Date)
-    assert.instanceOf(effectiveCol.consume!('2019-01-01'), Date)
-    assert.instanceOf(revisionCol.consume!('2020-06-15'), Date)
-    assert.isNull(revisionCol.consume!(null as unknown as string))
-    assert.isNull(revisionCol.consume!(''))
+    assert.exists(publicationCol)
+    assert.exists(effectiveCol)
+    assert.exists(revisionCol)
+    if (!publicationCol || !effectiveCol || !revisionCol) {
+      return
+    }
+
+    const consumeDate = (value: string | null) =>
+      (publicationCol.consume as (v: string | null) => Date | null)(value)
+
+    assert.instanceOf(consumeDate('2018-10-23'), Date)
+    assert.instanceOf(
+      (effectiveCol.consume as (v: string | null) => Date | null)('2019-01-01'),
+      Date
+    )
+    assert.instanceOf(
+      (revisionCol.consume as (v: string | null) => Date | null)('2020-06-15'),
+      Date
+    )
+    assert.isNull((revisionCol.consume as (v: string | null) => Date | null)(null))
+    assert.isNull((revisionCol.consume as (v: string | null) => Date | null)(''))
   })
 
   test('define relaciones belongsTo authority y hasMany clauses', ({ assert }) => {
@@ -239,6 +255,9 @@ test.group('Marco regulatorio — SoftDeletes en todos los modelos', () => {
     test(`${model.name} expone columna deletedAt para borrado lógico`, ({ assert }) => {
       const deletedAt = model.$getColumn('deletedAt')
       assert.exists(deletedAt)
+      if (!deletedAt) {
+        return
+      }
       assert.equal(deletedAt.columnName, 'deleted_at')
     })
   }

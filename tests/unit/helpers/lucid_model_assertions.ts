@@ -14,10 +14,17 @@ interface RelationExpectation {
   relatedTable: string
 }
 
-function resolveRelatedModel(relation: {
+/** Metadatos de relación Lucid usados en tests (no expuestos en el contrato público). */
+interface LucidRelationMeta {
+  type: RelationType
   relatedModel: LucidModel
-  options: { relatedModel?: () => LucidModel }
-}): LucidModel {
+  options: {
+    foreignKey: string
+    relatedModel?: () => LucidModel
+  }
+}
+
+function resolveRelatedModel(relation: LucidRelationMeta): LucidModel {
   if (relation.relatedModel?.table) {
     return relation.relatedModel
   }
@@ -38,6 +45,10 @@ export function assertModelColumn(
 ) {
   const column = model.$getColumn(attribute)
   assert.exists(column, `Columna "${attribute}" no definida en ${model.name}`)
+  if (!column) {
+    return
+  }
+
   assert.equal(
     column.columnName,
     expectation.columnName,
@@ -57,8 +68,14 @@ export function assertModelRelation(
   relationName: string,
   expectation: RelationExpectation
 ) {
-  const relation = model.$relationsDefinitions.get(relationName)
+  const relation = model.$relationsDefinitions.get(relationName) as
+    | LucidRelationMeta
+    | undefined
   assert.exists(relation, `Relación "${relationName}" no definida en ${model.name}`)
+  if (!relation) {
+    return
+  }
+
   assert.equal(relation.type, expectation.type)
   assert.equal(relation.options.foreignKey, expectation.foreignKey)
   const relatedModel = resolveRelatedModel(relation)
