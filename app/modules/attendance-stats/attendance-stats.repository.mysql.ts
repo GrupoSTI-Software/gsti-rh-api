@@ -43,13 +43,24 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     // entre llamadas, evitando releer SystemSetting → Tolerance N veces.
     const syncSvc = new SyncAssistsService(this.i18n)
 
-    const bundles: EmployeeCalendarBundle[] = []
-    for (const emp of employees) {
-      const calendar = await this.computeCalendarFor(syncSvc, filters, emp.employee.employeeId)
-      bundles.push({
-        employee: emp.employee,
-        departmentName: emp.departmentName,
-        calendar,
+    // Paralelizamos en lotes de CONCURRENCY para no saturar el pool de conexiones
+    // de Lucid (default max=10). Para 100 empleados con CONCURRENCY=8, son ~13
+    // batches y el throughput vs serial mejora ~6-8x.
+    const CONCURRENCY = 8
+    const bundles: EmployeeCalendarBundle[] = new Array(employees.length)
+    for (let i = 0; i < employees.length; i += CONCURRENCY) {
+      const slice = employees.slice(i, i + CONCURRENCY)
+      // eslint-disable-next-line no-await-in-loop
+      const computed = await Promise.all(
+        slice.map((emp) => this.computeCalendarFor(syncSvc, filters, emp.employee.employeeId))
+      )
+      computed.forEach((calendar, j) => {
+        const emp = slice[j]
+        bundles[i + j] = {
+          employee: emp.employee,
+          departmentName: emp.departmentName,
+          calendar,
+        }
       })
     }
 
