@@ -410,13 +410,18 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     let checkOutStatus = ''
 
     if (hasShift && !isFutureDay && !isRestDay && !isVacation && !isHoliday && !isWorkDisability && !hasNonGeneralExc) {
-      // Compute check_in_status from effective times
+      // ontime/tolerance/delay/fault → solo basado en check-in vs shift_start.
+      // El checkout NO afecta esos buckets, salvo para escalar a fault si nunca
+      // se registró checkout pasados 30 min del fin de turno (regla negocio Willy).
       checkInStatus = this.computeCheckInStatus(
         r.first_punch_utc,
         r.expected_check_in_utc,
         toleranceDelay,
-        toleranceFault
+        toleranceFault,
+        r.last_punch_utc,
+        r.expected_check_out_utc
       )
+      // checkOutStatus se conserva solo para el contador independiente earlyOut.
       checkOutStatus = this.computeCheckOutStatus(
         r.last_punch_utc,
         r.expected_check_out_utc,
@@ -476,8 +481,16 @@ ORDER BY sfd_full.employee_id, sfd_full.day
   }
 
   /**
-   * Replica la lógica de sync_assists_service.checkInStatus (lines 1932-1965).
-   * diffMinutes > 0 = llegó tarde.
+   * Bucketea check-in vs shift_start_efectivo.
+   * - 0 o negativo (o llegó antes del shift): ontime
+   * - 1 a toleranceDelay (10 min default): tolerance
+   * - toleranceDelay+1 a toleranceFault (30 min default): delay
+   * - > toleranceFault (>30 min): fault
+   *
+   * Regla extra (negocio): si pasó >= 30 min del expected_check_out_utc y NO hay
+   * checkout punch, el día se escala a fault aunque el check-in fuera bueno.
+   * Esto es lo que pidió Willy: el checkout solo afecta para determinar fault,
+   * no influye en los buckets de ontime/tolerance/delay.
    */
   private computeCheckInStatus(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -485,17 +498,38 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expectedCheckInUtc: any,
     toleranceDelay: number,
-    toleranceFault: number
+    toleranceFault: number,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lastPunchUtc: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expectedCheckOutUtc: any
   ): string {
-    if (!firstPunchUtc) return 'fault'
     if (!expectedCheckInUtc) return ''
-    const punchTime = new Date(firstPunchUtc).getTime()
-    const expectedTime = new Date(expectedCheckInUtc).getTime()
-    const diffMinutes = (punchTime - expectedTime) / 60000
-    if (diffMinutes > toleranceFault) return 'fault'
-    if (diffMinutes > toleranceDelay) return 'delay'
-    if (diffMinutes <= 0) return 'ontime'
-    return 'tolerance'
+
+    let status: string
+    if (!firstPunchUtc) {
+      status = 'fault'
+    } else {
+      const diffMinutes =
+        (new Date(firstPunchUtc).getTime() - new Date(expectedCheckInUtc).getTime()) / 60000
+      if (diffMinutes > toleranceFault) status = 'fault'
+      else if (diffMinutes > toleranceDelay) status = 'delay'
+      else if (diffMinutes <= 0) status = 'ontime'
+      else status = 'tolerance'
+    }
+
+    // Regla "no checkout pasados 30 min del fin de turno → fault" — solo
+    // escala si el día ya pasó el threshold y no hay punch de salida.
+    if (status !== 'fault' && !lastPunchUtc && expectedCheckOutUtc) {
+      const now = Date.now()
+      const checkoutDeadline =
+        new Date(expectedCheckOutUtc).getTime() + toleranceFault * 60000
+      if (now >= checkoutDeadline) {
+        status = 'fault'
+      }
+    }
+
+    return status
   }
 
   /**
