@@ -181,12 +181,14 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const empIdList = employeeIds.join(',')
     const today = DateTime.now().setZone('UTC-6').toFormat('yyyy-LL-dd')
 
-    // Mexico TZ se aplica con offset fijo -06:00. Para convertir un UTC datetime
-    // a Mexico day: DATE(DATE_SUB(punch_utc, INTERVAL 6 HOUR)).
-    // Para construir el shift start UTC: DATE_ADD(CAST(day AS DATETIME), INTERVAL 6 HOUR) + shift_time_start
-    // pero como shift_time_start es TIME, usamos:
-    //   TIMESTAMP(day, shift_time_start) interpretado como Mexico-local,
-    //   convertido a UTC sumando 6h.
+    // Mexico DST: primer domingo de abril a último domingo de octubre.
+    // Replica sync_assists_service.getMexicoDSTChangeDates (líneas 187-196 de
+    // employee_assist_calendar_service.ts). En DST Mexico es UTC-5 (CDT), fuera
+    // de DST es UTC-6 (CST). Calculamos los bounds para el año del rango y
+    // los pasamos al SQL para que el CASE WHEN use el offset correcto.
+    const dstYear = Number(startDay.slice(0, 4))
+    const { dstStart, dstEnd } = computeMexicoDST(dstYear)
+
     const sql = `
 WITH RECURSIVE date_range AS (
   SELECT DATE(?) AS d
@@ -214,15 +216,20 @@ sfd_full AS (
   LEFT JOIN shifts s ON s.shift_id = sfd.shift_id
 ),
 punches AS (
+  -- DST-aware bucketing: si el día del punch cae en DST Mexico (UTC-5), restamos 5h;
+  -- fuera de DST (UTC-6), restamos 6h. La determinación es por DATE(punch_utc) que es
+  -- aproximación robusta — sólo falla en bordes de DST transition (2 días/año).
   SELECT a.assist_emp_code AS emp_code,
-    DATE(DATE_SUB(a.assist_punch_time_utc, INTERVAL 6 HOUR)) AS day,
+    DATE(DATE_SUB(a.assist_punch_time_utc,
+      INTERVAL (CASE WHEN DATE(a.assist_punch_time_utc) BETWEEN ? AND ? THEN 5 ELSE 6 END) HOUR)) AS day,
     MIN(a.assist_punch_time_utc) AS first_punch_utc,
     MAX(a.assist_punch_time_utc) AS last_punch_utc,
     COUNT(*) AS punch_count
   FROM assists a
   WHERE a.assist_active = 1
-    AND a.assist_punch_time_utc >= DATE_ADD(?, INTERVAL 6 HOUR)
-    AND a.assist_punch_time_utc < DATE_ADD(DATE_ADD(?, INTERVAL 1 DAY), INTERVAL 6 HOUR)
+    -- Window expandido 1h en cada lado para cubrir DST en bordes del período.
+    AND a.assist_punch_time_utc >= DATE_ADD(?, INTERVAL 4 HOUR)
+    AND a.assist_punch_time_utc < DATE_ADD(DATE_ADD(?, INTERVAL 1 DAY), INTERVAL 7 HOUR)
     AND a.assist_emp_code IN (SELECT employee_code FROM emp_day GROUP BY employee_code)
   GROUP BY a.assist_emp_code, day
 ),
@@ -297,22 +304,31 @@ SELECT
   END) AS is_rest_day,
   -- is_future_day: comparado contra hoy en Mexico
   (CASE WHEN sfd_full.day > DATE(?) THEN 1 ELSE 0 END) AS is_future_day,
-  -- effective_check_in_utc = shift_start_mexico + 6h (a UTC), o late_arrival_time si existe
-  -- shift_time_start es TIME; TIMESTAMP(day, shift_time_start) lo combina; sumo 6h para convertir a UTC.
+  -- effective_check_in_utc = shift_start_mexico + offset_horario (a UTC), o late_arrival_time si existe.
+  -- shift_time_start es TIME; TIMESTAMP(day, shift_time_start) lo combina como Mexico-local.
+  -- Offset: 5h en DST (CDT, mar-oct), 6h fuera de DST (CST). CASE WHEN basado en bounds DST.
   (CASE
     WHEN sfd_full.shift_time_start IS NULL THEN NULL
     WHEN lap.check_in_time IS NOT NULL
-      THEN TIMESTAMPADD(HOUR, 6, TIMESTAMP(sfd_full.day, lap.check_in_time))
-    ELSE TIMESTAMPADD(HOUR, 6, TIMESTAMP(sfd_full.day, sfd_full.shift_time_start))
+      THEN TIMESTAMPADD(HOUR,
+        CASE WHEN sfd_full.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+        TIMESTAMP(sfd_full.day, lap.check_in_time))
+    ELSE TIMESTAMPADD(HOUR,
+      CASE WHEN sfd_full.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+      TIMESTAMP(sfd_full.day, sfd_full.shift_time_start))
   END) AS expected_check_in_utc,
-  -- effective_check_out_utc = shift_start + active_hours en Mexico, +6h a UTC, o early_departure_time
+  -- effective_check_out_utc = shift_start + active_hours en Mexico, +offset a UTC, o early_departure_time
   (CASE
     WHEN sfd_full.shift_time_start IS NULL OR sfd_full.shift_active_hours IS NULL THEN NULL
     WHEN edp.check_out_time IS NOT NULL
-      THEN TIMESTAMPADD(HOUR, 6, TIMESTAMP(sfd_full.day, edp.check_out_time))
+      THEN TIMESTAMPADD(HOUR,
+        CASE WHEN sfd_full.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+        TIMESTAMP(sfd_full.day, edp.check_out_time))
     ELSE TIMESTAMPADD(SECOND,
            ROUND(sfd_full.shift_active_hours * 3600),
-           TIMESTAMPADD(HOUR, 6, TIMESTAMP(sfd_full.day, sfd_full.shift_time_start)))
+           TIMESTAMPADD(HOUR,
+             CASE WHEN sfd_full.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+             TIMESTAMP(sfd_full.day, sfd_full.shift_time_start)))
   END) AS expected_check_out_utc
 FROM sfd_full
 LEFT JOIN punches p ON p.emp_code = sfd_full.employee_code AND p.day = sfd_full.day
@@ -326,12 +342,17 @@ ORDER BY sfd_full.employee_id, sfd_full.day
 
     const bindings = [
       startDay, endDay,                  // date_range
+      dstStart, dstEnd,                  // punches DST CASE bucketing
       startDay, endDay,                  // punches window
       startDay, endDay,                  // late_arrival
       startDay, endDay,                  // early_departure
       startDay, endDay,                  // exception_flags
       startDay, endDay,                  // holiday
       today,                             // is_future_day comparison
+      dstStart, dstEnd,                  // expected_check_in (late_arrival branch)
+      dstStart, dstEnd,                  // expected_check_in (shift_time branch)
+      dstStart, dstEnd,                  // expected_check_out (early_departure branch)
+      dstStart, dstEnd,                  // expected_check_out (shift_time + duration branch)
     ]
 
     const result = await db.rawQuery(sql, bindings)
@@ -496,5 +517,31 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     if (diffMinutes > toleranceDelay) return 'delay'
     if (diffMinutes > 0) return 'tolerance'
     return 'ontime'
+  }
+}
+
+/**
+ * Computa los bounds del horario de verano en México para un año dado.
+ * Replica sync_assists_service.getMexicoDSTChangeDates (líneas 187-196).
+ *
+ * - Inicio DST: primer domingo de abril
+ * - Fin DST:    último domingo de octubre
+ *
+ * Durante DST Mexico opera en CDT (UTC-5); fuera de DST en CST (UTC-6).
+ */
+function computeMexicoDST(year: number): { dstStart: string; dstEnd: string } {
+  // Primer domingo de abril.
+  const aprilFirst = new Date(Date.UTC(year, 3, 1))
+  const aprilFirstDow = aprilFirst.getUTCDay() // 0=Sun..6=Sat
+  const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirstDow) % 7)))
+
+  // Último domingo de octubre.
+  const octLast = new Date(Date.UTC(year, 9, 31))
+  const octLastDow = octLast.getUTCDay()
+  const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLastDow))
+
+  return {
+    dstStart: dstStartDate.toISOString().slice(0, 10),
+    dstEnd: dstEndDate.toISOString().slice(0, 10),
   }
 }
