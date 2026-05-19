@@ -200,13 +200,14 @@ WITH RECURSIVE date_range AS (
   SELECT DATE_ADD(d, INTERVAL 1 DAY) FROM date_range WHERE d < DATE(?)
 ),
 emp_day AS (
-  SELECT e.employee_id, e.employee_code, dr.d AS day
+  SELECT e.employee_id, e.employee_code, bu.business_unit_slug, dr.d AS day
   FROM employees e
   CROSS JOIN date_range dr
+  LEFT JOIN business_units bu ON bu.business_unit_id = e.business_unit_id
   WHERE e.employee_id IN (${empIdList})
 ),
 shift_for_day AS (
-  SELECT ed.employee_id, ed.day, ed.employee_code,
+  SELECT ed.employee_id, ed.day, ed.employee_code, ed.business_unit_slug,
     (SELECT es2.employee_shift_id FROM employee_shifts es2
       WHERE es2.employee_id = ed.employee_id
         AND DATE(es2.employe_shifts_apply_since) <= ed.day
@@ -220,7 +221,7 @@ sfd_full AS (
   -- de un turno nocturno cae al día siguiente pero pertenece a este shift_day).
   -- apply_since + shift_calculate_flag se usan para resolver turnos rotativos
   -- (24x48, 12x36, etc.) en el cálculo de is_rest_day.
-  SELECT sfd.employee_id, sfd.day, sfd.employee_code, s.shift_id,
+  SELECT sfd.employee_id, sfd.day, sfd.employee_code, sfd.business_unit_slug, s.shift_id,
     s.shift_time_start, s.shift_active_hours, s.shift_rest_days,
     s.shift_calculate_flag,
     DATE(es.employe_shifts_apply_since) AS apply_since,
@@ -290,10 +291,14 @@ exception_flags AS (
   GROUP BY se.employee_id, day
 ),
 holiday_for_day AS (
-  SELECT DATE(h.holiday_date) AS day, MAX(1) AS is_holiday
+  -- Solo holidays que son DESCANSO OFICIAL (holiday_is_official_rest_day=1).
+  -- Los que no lo son (observancias, eventos) NO excluyen el día — el sync los
+  -- trata como workHoliday (día laborable). Se conserva holiday_business_units
+  -- para filtrar por unidad de negocio del empleado en el SELECT final.
+  SELECT DATE(h.holiday_date) AS day, h.holiday_business_units
   FROM holidays h
   WHERE h.holiday_date BETWEEN ? AND ?
-  GROUP BY day
+    AND h.holiday_is_official_rest_day = 1
 ),
 work_disab_for_day AS (
   SELECT wd.employee_id, dr.d AS day, MAX(1) AS is_work_disability
@@ -314,7 +319,15 @@ SELECT
   COALESCE(ef.has_absence_exc, 0) AS has_absence_exc,
   COALESCE(ef.has_nuevo_ingreso_exc, 0) AS has_nuevo_ingreso_exc,
   COALESCE(ef.has_non_general_exc, 0) AS has_non_general_exc,
-  COALESCE(hfd.is_holiday, 0) AS is_holiday,
+  -- is_holiday: existe un holiday oficial-rest en este día Y aplica a la unidad
+  -- de negocio del empleado (holiday_business_units vacío = aplica a todas).
+  (CASE WHEN EXISTS (
+    SELECT 1 FROM holiday_for_day hfd
+    WHERE hfd.day = sfd_full.day
+      AND (hfd.holiday_business_units IS NULL OR hfd.holiday_business_units = ''
+           OR sfd_full.business_unit_slug IS NULL
+           OR FIND_IN_SET(sfd_full.business_unit_slug, hfd.holiday_business_units) > 0)
+  ) THEN 1 ELSE 0 END) AS is_holiday,
   COALESCE(wd.is_work_disability, 0) AS is_work_disability,
   -- is_rest_day: para turnos rotativos (24x48, 12x36, etc.) el descanso depende
   -- del ciclo desde apply_since; para turnos fijos depende de shift_rest_days (CSV
@@ -361,7 +374,6 @@ LEFT JOIN punches_for_shift p ON p.employee_id = sfd_full.employee_id AND p.day 
 LEFT JOIN late_arrival_perm lap ON lap.employee_id = sfd_full.employee_id AND lap.day = sfd_full.day
 LEFT JOIN early_departure_perm edp ON edp.employee_id = sfd_full.employee_id AND edp.day = sfd_full.day
 LEFT JOIN exception_flags ef ON ef.employee_id = sfd_full.employee_id AND ef.day = sfd_full.day
-LEFT JOIN holiday_for_day hfd ON hfd.day = sfd_full.day
 LEFT JOIN work_disab_for_day wd ON wd.employee_id = sfd_full.employee_id AND wd.day = sfd_full.day
 ORDER BY sfd_full.employee_id, sfd_full.day
 `
