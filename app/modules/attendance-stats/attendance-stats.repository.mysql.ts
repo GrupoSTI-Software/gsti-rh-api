@@ -312,7 +312,7 @@ work_disab_for_day AS (
 SELECT
   sfd_full.employee_id, sfd_full.day, sfd_full.shift_id,
   sfd_full.shift_time_start, sfd_full.shift_active_hours, sfd_full.shift_rest_days,
-  p.first_punch_utc, p.last_punch_utc,
+  p.first_punch_utc, p.last_punch_utc, COALESCE(p.punch_count, 0) AS punch_count,
   lap.check_in_time AS late_arrival_time,
   edp.check_out_time AS early_departure_time,
   COALESCE(ef.has_vacation_exc, 0) AS has_vacation_exc,
@@ -349,6 +349,9 @@ SELECT
   END) AS is_rest_day,
   -- is_future_day: comparado contra hoy en Mexico
   (CASE WHEN sfd_full.day > DATE(?) THEN 1 ELSE 0 END) AS is_future_day,
+  -- is_today: el día en curso. La regla "sin checkout → fault" NO aplica a hoy
+  -- (la jornada no terminó y el sync puede tener lag en traer la salida).
+  (CASE WHEN sfd_full.day = DATE(?) THEN 1 ELSE 0 END) AS is_today,
   -- expected_check_in_utc = shift_start_utc base (de sfd_full), o la hora del
   -- permiso late-arrival convertida a UTC (DST-aware) si existe.
   (CASE
@@ -387,6 +390,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       startDay, endDay,                  // exception_flags
       startDay, endDay,                  // holiday
       today,                             // is_future_day comparison
+      today,                             // is_today comparison
       dstStart, dstEnd,                  // expected_check_in (late_arrival branch)
       dstStart, dstEnd,                  // expected_check_out (early_departure branch)
     ]
@@ -439,6 +443,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     const isWorkDisability = Number(r.is_work_disability) === 1
     const isRestDay = Number(r.is_rest_day) === 1
     const isFutureDay = Number(r.is_future_day) === 1
+    const isToday = Number(r.is_today) === 1
     const hasNonGeneralExc = Number(r.has_non_general_exc) === 1
     const hasShift = r.shift_time_start !== null
 
@@ -446,20 +451,27 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     let checkOutStatus = ''
 
     if (hasShift && !isFutureDay && !isRestDay && !isVacation && !isHoliday && !isWorkDisability && !hasNonGeneralExc) {
+      // El check-out existe SOLO si hay >= 2 punches (first != last). Con 1 punch
+      // ese punch es el check-in y no hubo salida — first_punch_utc === last_punch_utc
+      // por el MIN/MAX, así que distinguimos con punch_count.
+      const punchCount = Number(r.punch_count) || 0
+      const checkOutPunch = punchCount >= 2 ? r.last_punch_utc : null
+
       // ontime/tolerance/delay/fault → solo basado en check-in vs shift_start.
       // El checkout NO afecta esos buckets, salvo para escalar a fault si nunca
       // se registró checkout pasados 30 min del fin de turno (regla negocio Willy).
+      // La escalación NO aplica al día de hoy — la jornada sigue en curso.
       checkInStatus = this.computeCheckInStatus(
         r.first_punch_utc,
         r.expected_check_in_utc,
         toleranceDelay,
         toleranceFault,
-        r.last_punch_utc,
-        r.expected_check_out_utc
+        checkOutPunch,
+        isToday ? null : r.expected_check_out_utc
       )
       // checkOutStatus se conserva solo para el contador independiente earlyOut.
       checkOutStatus = this.computeCheckOutStatus(
-        r.last_punch_utc,
+        checkOutPunch,
         r.expected_check_out_utc,
         toleranceDelay
       )
