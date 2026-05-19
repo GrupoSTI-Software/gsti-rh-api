@@ -262,8 +262,10 @@ export default class AttendanceStatsService {
   }
 
   /**
-   * Cierre 100%: ontime + tolerance + delay + fault === 100 (faults absorbe residuo).
-   * earlyOutPercentage independiente. Si totalAvailable=0, todos los % son 0.
+   * Cierre 100%: ontime + tolerance + delay + fault === 100. El residuo de
+   * redondeo lo absorbe el bucket con MAYOR count (no siempre fault — si faults=0
+   * y el residuo es negativo, daría un porcentaje negativo). earlyOutPercentage
+   * es independiente. Si totalAvailable=0, todos los % son 0.
    */
   private toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
     const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
@@ -283,11 +285,20 @@ export default class AttendanceStatsService {
         ...info,
       }
     }
-    const ontimePercentage = Math.round((c.assists / totalAvailable) * 100)
-    const tolerancePercentage = Math.round((c.tolerances / totalAvailable) * 100)
-    const delayPercentage = Math.round((c.delays / totalAvailable) * 100)
+    let ontimePercentage = Math.round((c.assists / totalAvailable) * 100)
+    let tolerancePercentage = Math.round((c.tolerances / totalAvailable) * 100)
+    let delayPercentage = Math.round((c.delays / totalAvailable) * 100)
+    let faultPercentage = Math.round((c.faults / totalAvailable) * 100)
     const earlyOutPercentage = Math.round((c.earlyOuts / totalAvailable) * 100)
-    const faultPercentage = 100 - ontimePercentage - tolerancePercentage - delayPercentage
+
+    // Cierre: el residuo de redondeo (típicamente ±1-2) lo absorbe el bucket con
+    // mayor count. Garantiza suma === 100 sin producir porcentajes negativos.
+    const residual = 100 - ontimePercentage - tolerancePercentage - delayPercentage - faultPercentage
+    const maxCount = Math.max(c.assists, c.tolerances, c.delays, c.faults)
+    if (c.assists === maxCount) ontimePercentage += residual
+    else if (c.tolerances === maxCount) tolerancePercentage += residual
+    else if (c.delays === maxCount) delayPercentage += residual
+    else faultPercentage += residual
 
     return {
       assists: c.assists,

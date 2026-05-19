@@ -64,24 +64,22 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const employeeIds = employees.map((e) => e.employee.employeeId)
 
     // 2. Tolerancias desde SystemSetting (1 query).
-    // - TardinessTolerance: gracia para ontime (0..N min tarde sigue siendo ontime).
-    // - Delay: límite del bucket tolerance (N..Delay min = tolerance, > Delay = delay).
+    // - Delay: límite del bucket tolerance (1..Delay min tarde = tolerance, > Delay = delay).
     // - Fault: límite del bucket delay (Delay..Fault = delay, > Fault = fault).
+    // El status se computa con granularidad de MINUTO (se truncan los segundos):
+    // llegar 08:00:53 cuenta como 0 min tarde → ontime; 08:01:17 cuenta como 1 → tolerance.
     const tolerances = await db
       .from('tolerances')
       .innerJoin('system_settings', 'system_settings.system_setting_id', 'tolerances.system_setting_id')
       .where('system_settings.system_setting_active', 1)
       .whereNull('tolerances.tolerance_deleted_at')
       .whereNull('system_settings.system_setting_deleted_at')
-      .whereIn('tolerances.tolerance_name', ['TardinessTolerance', 'Delay', 'Fault'])
+      .whereIn('tolerances.tolerance_name', ['Delay', 'Fault'])
       .select('tolerances.tolerance_name', 'tolerances.tolerance_minutes')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tardiness = tolerances.find((t: any) => t.tolerance_name === 'TardinessTolerance')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const delay = tolerances.find((t: any) => t.tolerance_name === 'Delay')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fault = tolerances.find((t: any) => t.tolerance_name === 'Fault')
-    const TOLERANCE_TARDINESS = tardiness?.tolerance_minutes ?? 0
     const TOLERANCE_DELAY = delay?.tolerance_minutes ?? 10
     const TOLERANCE_FAULT = fault?.tolerance_minutes ?? 30
 
@@ -95,12 +93,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     )
 
     // 4. Agrupar por employee y formatear como AssistDayInterface[].
-    const calendarByEmployee = this.groupRowsByEmployee(
-      rows,
-      TOLERANCE_TARDINESS,
-      TOLERANCE_DELAY,
-      TOLERANCE_FAULT
-    )
+    const calendarByEmployee = this.groupRowsByEmployee(rows, TOLERANCE_DELAY, TOLERANCE_FAULT)
 
     // 5. Construir bundles.
     return employees.map((emp) => ({
@@ -401,7 +394,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
   private groupRowsByEmployee(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rows: any[],
-    toleranceTardiness: number,
     toleranceDelay: number,
     toleranceFault: number
   ): Map<number, AssistDayInterface[]> {
@@ -409,13 +401,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     for (const r of rows) {
       const empId = Number(r.employee_id)
       const day = this.formatDay(r.day)
-      const dayInterface = this.buildAssistDayInterface(
-        r,
-        toleranceTardiness,
-        toleranceDelay,
-        toleranceFault,
-        day
-      )
+      const dayInterface = this.buildAssistDayInterface(r, toleranceDelay, toleranceFault, day)
       if (!out.has(empId)) out.set(empId, [])
       out.get(empId)!.push(dayInterface)
     }
@@ -432,7 +418,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
   private buildAssistDayInterface(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     r: any,
-    toleranceTardiness: number,
     toleranceDelay: number,
     toleranceFault: number,
     day: string
@@ -455,7 +440,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       checkInStatus = this.computeCheckInStatus(
         r.first_punch_utc,
         r.expected_check_in_utc,
-        toleranceTardiness,
         toleranceDelay,
         toleranceFault,
         r.last_punch_utc,
@@ -521,11 +505,12 @@ ORDER BY sfd_full.employee_id, sfd_full.day
   }
 
   /**
-   * Bucketea check-in vs shift_start_efectivo, usando 3 thresholds:
-   * - diff <= toleranceTardiness (3 min default): ontime (incluye llegar antes)
-   * - toleranceTardiness < diff <= toleranceDelay (10 min): tolerance
-   * - toleranceDelay < diff <= toleranceFault (30 min): delay
-   * - diff > toleranceFault: fault
+   * Bucketea check-in vs shift_start_efectivo con granularidad de MINUTO.
+   * El diff se trunca con Math.floor — los segundos no cuentan (08:00:53 → 0 min):
+   * - diff <= 0 min: ontime (incluye llegar antes y los primeros 59s tarde)
+   * - 1 min .. toleranceDelay (10 default): tolerance
+   * - toleranceDelay+1 .. toleranceFault (30 default): delay
+   * - > toleranceFault: fault
    *
    * Regla extra (negocio): si pasó >= toleranceFault min del expected_check_out_utc
    * y NO hay checkout punch, el día se escala a fault aunque el check-in fuera bueno.
@@ -536,7 +521,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     firstPunchUtc: any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expectedCheckInUtc: any,
-    toleranceTardiness: number,
     toleranceDelay: number,
     toleranceFault: number,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -550,11 +534,13 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     if (!firstPunchUtc) {
       status = 'fault'
     } else {
-      const diffMinutes =
+      // Math.floor trunca segundos: minuto incompleto no cuenta como tardanza.
+      const diffMinutes = Math.floor(
         (new Date(firstPunchUtc).getTime() - new Date(expectedCheckInUtc).getTime()) / 60000
+      )
       if (diffMinutes > toleranceFault) status = 'fault'
       else if (diffMinutes > toleranceDelay) status = 'delay'
-      else if (diffMinutes <= toleranceTardiness) status = 'ontime'
+      else if (diffMinutes <= 0) status = 'ontime'
       else status = 'tolerance'
     }
 
