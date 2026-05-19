@@ -25,7 +25,7 @@ import Shift from '#models/shift'
 import EmployeeShift from '#models/employee_shift'
 
 export default class UserService {
-  private t: (key: string,params?: { [key: string]: string | number }) => string
+  private t: (key: string, params?: { [key: string]: string | number }) => string
 
   constructor(i18n: I18n) {
     this.t = i18n.formatMessage.bind(i18n)
@@ -38,11 +38,11 @@ export default class UserService {
     const now = DateTime.now()
     const oneYearAgo = now.minus({ years: 1 })
     const fiveYearsAgo = now.minus({ years: 5 })
-    
+
     const startTimestamp = fiveYearsAgo.toMillis()
     const endTimestamp = oneYearAgo.toMillis()
     const randomTimestamp = startTimestamp + Math.random() * (endTimestamp - startTimestamp)
-    
+
     return DateTime.fromMillis(randomTimestamp)
   }
 
@@ -62,7 +62,14 @@ export default class UserService {
       })
     const rolesIds = roles.map((item) => item.roleId)
 
-    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id', 'user_email_type']
+    const selectedColumns = [
+      'user_id',
+      'user_email',
+      'user_active',
+      'role_id',
+      'person_id',
+      'user_email_type',
+    ]
     const users = await User.query()
       .whereNull('user_deleted_at')
       .whereIn('role_id', rolesIds)
@@ -101,16 +108,32 @@ export default class UserService {
     return users
   }
 
-  async create(user: User) {
+  /**
+   * Crea un usuario y, opcionalmente, lo asocia a las unidades de negocio indicadas
+   * a través de la tabla pivote `business_unit_users`.
+   *
+   * La columna legada `users.user_business_access` se conserva nullable y no se
+   * escribe desde este flujo (queda como `NULL` para usuarios nuevos). La fuente
+   * de verdad para el acceso multi-tenant es la pivote.
+   *
+   * @param user Datos base del usuario a crear.
+   * @param businessUnitIds IDs de unidades de negocio ya validados (deben existir y estar activos).
+   */
+  async create(user: User, businessUnitIds: number[] = []) {
     const newUser = new User()
     newUser.userEmail = user.userEmail
     newUser.userPassword = user.userPassword
     newUser.userActive = user.userActive
     newUser.roleId = user.roleId
     newUser.personId = user.personId
-    newUser.userBusinessAccess = user.userBusinessAccess
+    newUser.userBusinessAccess = null
     newUser.userEmailType = user.userEmailType
     await newUser.save()
+
+    if (businessUnitIds.length > 0) {
+      await newUser.related('businessUnits').attach(businessUnitIds)
+    }
+
     return newUser
   }
 
@@ -143,7 +166,14 @@ export default class UserService {
   }
 
   async show(userId: number) {
-    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id', 'user_email_type']
+    const selectedColumns = [
+      'user_id',
+      'user_email',
+      'user_active',
+      'role_id',
+      'person_id',
+      'user_email_type',
+    ]
     const user = await User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)
@@ -170,7 +200,7 @@ export default class UserService {
       return {
         status: 400,
         type: 'warning',
-        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param }),
         message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
         data: { ...user },
       }
@@ -247,33 +277,34 @@ export default class UserService {
       })
 
     const departmentsFromRole = roleDepartments
-      .filter((rd) => rd.department !== null && businessUnitsList.includes(rd.department.businessUnitId))
+      .filter(
+        (rd) => rd.department !== null && businessUnitsList.includes(rd.department.businessUnitId)
+      )
       .map((rd) => rd.department.departmentId)
 
     // Obtener departamentos a través de empleados relacionados con el usuario
     const employees = await Employee.query()
       .whereNull('employee_deleted_at')
       .whereIn('businessUnitId', businessUnitsList)
-      .if(userId &&
-        typeof userId,
-        (query) => {
-          query.where((subQuery) => {
-            subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
-              userResponsibleEmployeeQuery.where('userId', userId!)
-              userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
-            })
-            subQuery.orWhereHas('person', (personQuery) => {
-              personQuery.whereHas('user', (userQuery) => {
-                userQuery.where('userId', userId!)
-              })
+      .if(userId && typeof userId, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+            userResponsibleEmployeeQuery.where('userId', userId!)
+            userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
+          })
+          subQuery.orWhereHas('person', (personQuery) => {
+            personQuery.whereHas('user', (userQuery) => {
+              userQuery.where('userId', userId!)
             })
           })
-        }
-      )
+        })
+      })
       .distinct('departmentId')
       .orderBy('departmentId')
 
-    const departmentsFromEmployees = employees.flatMap(({ departmentId }) => departmentId !== null ? [departmentId] : [])
+    const departmentsFromEmployees = employees.flatMap(({ departmentId }) =>
+      departmentId !== null ? [departmentId] : []
+    )
 
     // Combinar ambos conjuntos de departamentos y eliminar duplicados
     const allDepartments = [...new Set([...departmentsFromRole, ...departmentsFromEmployees])]
@@ -316,10 +347,10 @@ export default class UserService {
     const systemSettingService = new SystemSettingService()
     const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
     if (systemSettingActive) {
-      if ( systemSettingActive.systemSettingLogo) {
+      if (systemSettingActive.systemSettingLogo) {
         backgroundImageLogo = systemSettingActive.systemSettingLogo
       }
-      if ( systemSettingActive.systemSettingTradeName) {
+      if (systemSettingActive.systemSettingTradeName) {
         tradeName = systemSettingActive.systemSettingTradeName
       }
     }
@@ -368,22 +399,19 @@ export default class UserService {
     const employee = await Employee.query()
       .whereNull('employee_deleted_at')
       .where('department_id', department.departmentId)
-      .if(userId &&
-        typeof userId,
-        (query) => {
-          query.where((subQuery) => {
-            subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
-              userResponsibleEmployeeQuery.where('userId', userId!)
-              userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
-            })
-            subQuery.orWhereHas('person', (personQuery) => {
-              personQuery.whereHas('user', (userQuery) => {
-                userQuery.where('userId', userId!)
-              })
+      .if(userId && typeof userId, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+            userResponsibleEmployeeQuery.where('userId', userId!)
+            userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
+          })
+          subQuery.orWhereHas('person', (personQuery) => {
+            personQuery.whereHas('user', (userQuery) => {
+              userQuery.where('userId', userId!)
             })
           })
-        }
-      )
+        })
+      })
       .first()
     if (!employee) {
       return false
@@ -405,13 +433,18 @@ export default class UserService {
       .whereHas('user', (userQuery) => {
         userQuery.whereNull('user_deleted_at')
       })
-      .if(filters.employeeId && typeof filters.employeeId && filters.employeeId > 0, (employeeQuery) => {
-        employeeQuery.where('employee_id', filters.employeeId)
-      })
+      .if(
+        filters.employeeId && typeof filters.employeeId && filters.employeeId > 0,
+        (employeeQuery) => {
+          employeeQuery.where('employee_id', filters.employeeId)
+        }
+      )
       .whereHas('employee', (employeeQuery) => {
         employeeQuery.whereIn('businessUnitId', businessUnitsList)
-        employeeQuery.if(filters.userResponsibleId &&
-          typeof filters.userResponsibleId && filters.userResponsibleId > 0,
+        employeeQuery.if(
+          filters.userResponsibleId &&
+            typeof filters.userResponsibleId &&
+            filters.userResponsibleId > 0,
           (query) => {
             query.where((subQuery) => {
               subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
@@ -507,16 +540,28 @@ export default class UserService {
       // Generar contraseña por defecto (demo)
       const defaultPassword = 'GrupoSTI'
 
-      // Crear usuario
-      const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
+      // Crear usuario y asociarlo a todas las unidades de negocio activas vía pivote.
+      // El CSV legado `user_business_access` queda en NULL; los usuarios demo deben
+      // tener visibilidad total para que las pruebas funcionen sin importar SYSTEM_BUSINESS.
       const user = new User()
       user.userEmail = userEmail
       user.userPassword = defaultPassword
       user.userActive = 1
       user.roleId = roleId
       user.personId = person.personId
-      user.userBusinessAccess = systemBusiness
+      user.userBusinessAccess = null
       await user.save()
+
+      const activeBusinessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+        .select('business_unit_id')
+
+      if (activeBusinessUnits.length > 0) {
+        await user
+          .related('businessUnits')
+          .attach(activeBusinessUnits.map((unit) => unit.businessUnitId))
+      }
 
       return user
     } catch (error) {
@@ -549,7 +594,8 @@ export default class UserService {
           status: 400,
           type: 'error',
           title: 'Roles not found',
-          message: 'One or more required roles were not found. Please ensure the roles "rh-manager", "super-administrador", and "root" exist in the database.',
+          message:
+            'One or more required roles were not found. Please ensure the roles "rh-manager", "super-administrador", and "root" exist in the database.',
           data: null,
         }
       }
@@ -710,7 +756,9 @@ export default class UserService {
         }
       }
 
-      const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
+      // `employee.businessUnitId` sigue siendo una FK directa de la tabla `employees`
+      // (no es parte de la pivote refactorizada). Conservamos el filtro por SYSTEM_BUSINESS
+      // hasta que se aborde la deuda técnica multi-tenant en una historia separada.
       const businessConf = `${env.get('SYSTEM_BUSINESS')}`
       const businessList = businessConf.split(',')
       const businessUnit = await BusinessUnit.query()
@@ -719,6 +767,14 @@ export default class UserService {
         .first()
 
       const businessUnitId = businessUnit?.businessUnitId || 0
+
+      // Pre-cargamos los IDs de todas las unidades activas para asociar a cada usuario
+      // root vía la pivote. Los usuarios root deben tener visibilidad total.
+      const activeBusinessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+        .select('business_unit_id')
+      const activeBusinessUnitIds = activeBusinessUnits.map((unit) => unit.businessUnitId)
 
       const employeeType = await EmployeeType.query()
         .where('employee_type_slug', 'employee')
@@ -731,9 +787,7 @@ export default class UserService {
         .first()
 
       if (!shift) {
-        shift = await Shift.query()
-          .whereNull('shift_deleted_at')
-          .first()
+        shift = await Shift.query().whereNull('shift_deleted_at').first()
       }
 
       if (!shift) {
@@ -786,8 +840,12 @@ export default class UserService {
         user.userActive = 1
         user.roleId = rootRole.roleId
         user.personId = person.personId
-        user.userBusinessAccess = systemBusiness
+        user.userBusinessAccess = null
         await user.save()
+
+        if (activeBusinessUnitIds.length > 0) {
+          await user.related('businessUnits').attach(activeBusinessUnitIds)
+        }
 
         const employeeCode = `ROOT-${prefix}-${index + 1}`
         const employee = new Employee()
