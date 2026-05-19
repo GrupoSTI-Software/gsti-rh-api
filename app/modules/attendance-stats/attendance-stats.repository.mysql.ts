@@ -29,6 +29,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
 
     const query = this.baseQuery(filters, allowedBusinessUnitIds)
 
+    // 'delay' en check_out_status = salida temprana (convención heredada de assist_service.ts:1666).
     const row = await query
       .select(
         db.raw("SUM(CASE WHEN eac.check_in_status = 'ontime' THEN 1 ELSE 0 END) AS assists"),
@@ -178,13 +179,14 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     if (filters.employeeIds && filters.employeeIds.length > 0) {
       q.whereIn('e.employee_id', filters.employeeIds)
     }
-    if (filters.branchOfficeIds && filters.branchOfficeIds.length > 0) {
+    const branchOfficeIds = filters.branchOfficeIds
+    if (branchOfficeIds && branchOfficeIds.length > 0) {
       q.whereExists((sub) => {
         sub
           .from('employee_branch_offices AS ebo')
           .whereRaw('ebo.employee_id = e.employee_id')
           .where('ebo.employee_branch_office_active', 1)
-          .whereIn('ebo.branch_office_id', filters.branchOfficeIds!)
+          .whereIn('ebo.branch_office_id', branchOfficeIds)
       })
     }
 
