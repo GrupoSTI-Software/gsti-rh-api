@@ -126,6 +126,7 @@ export default class AttendanceStatsController {
           type: 'error',
           title: t('unauthenticated'),
           message: t('unauthenticated'),
+          key: 'no-autenticado',
         })
       }
 
