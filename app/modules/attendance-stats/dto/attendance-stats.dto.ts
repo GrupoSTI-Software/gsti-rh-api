@@ -1,8 +1,10 @@
 /**
  * DTOs y tipos del módulo Attendance Stats.
  *
- * Define el contrato de filtros, contadores crudos, scope resuelto
- * y respuestas para los 3 endpoints (overview, by-department, by-employee).
+ * El cómputo se divide en 3 fuentes que el service ensambla:
+ * - clean counters: días sin shift_exception, agregados en SQL contra check_in_status almacenado.
+ * - informational counters: días de vacaciones, festivos o faltas justificadas (no entran al cierre 100%).
+ * - permission days: días con late-arrival/early-departure → el service recomputa status en TS contra la hora autorizada.
  */
 
 export interface AttendanceStatsFilters {
@@ -15,7 +17,8 @@ export interface AttendanceStatsFilters {
   branchOfficeIds?: number[]
 }
 
-export interface RawCounters {
+/** Contadores de asistencia que entran al cierre 100% (+earlyOuts independiente). */
+export interface CleanCounters {
   assists: number
   tolerances: number
   delays: number
@@ -23,7 +26,14 @@ export interface RawCounters {
   faults: number
 }
 
-export interface AttendanceStatistics extends RawCounters {
+/** Contadores informativos. NO entran al cierre 100% ni a totalAvailable. */
+export interface InformationalCounters {
+  justifiedAbsences: number
+  vacations: number
+  holidays: number
+}
+
+export interface AttendanceStatistics extends CleanCounters, InformationalCounters {
   totalAvailable: number
   ontimePercentage: number
   tolerancePercentage: number
@@ -73,28 +83,70 @@ export interface EmployeeRow {
 }
 
 export interface ResolvedScope {
-  /** [] => sin scope (responder 403). */
   allowedBusinessUnitIds: number[]
 }
 
-/** Filas crudas que devuelve el repository para overview (1 fila). */
-export interface OverviewCountersRow extends RawCounters {}
-
-/** Filas crudas que devuelve el repository para by-department (N filas). */
-export interface DepartmentCountersRow extends RawCounters {
-  departmentId: number
-  departmentName: string
-}
-
-/** Filas crudas que devuelve el repository para by-employee (N filas). */
-export interface EmployeeCountersRow extends RawCounters {
+/**
+ * Fila cruda para un día con permiso `late-arrival` o `early-departure` activo.
+ * El service reconstruye el status efectivo contra la hora del permiso.
+ */
+export interface PermissionDayRow {
   employeeId: number
+  departmentId: number | null
+  departmentName: string | null
+  positionId: number | null
+  businessUnitId: number
+  payrollBusinessUnitId: number
   employeeCode: string | null
   employeeFirstName: string | null
   employeeLastName: string | null
   employeeSecondLastName: string | null
-  departmentId: number | null
-  positionId: number | null
-  businessUnitId: number
-  payrollBusinessUnitId: number
+  day: string
+  storedCheckInStatus: string | null
+  storedCheckOutStatus: string | null
+  shiftTimeStart: string | null
+  shiftActiveHours: number | null
+  checkInPunchUtc: string | null
+  checkOutPunchUtc: string | null
+  lateArrivalCheckInTime: string | null
+  earlyDepartureCheckOutTime: string | null
+}
+
+/** Thresholds de tolerancia (cargados desde SystemSetting → Tolerance). */
+export interface ToleranceThresholds {
+  delayMinutes: number
+  faultMinutes: number
+}
+
+/** Bundle que devuelve el repository para el endpoint overview. */
+export interface OverviewBundle {
+  clean: CleanCounters
+  informational: InformationalCounters
+  permissionDays: PermissionDayRow[]
+}
+
+/** Una fila agregada por departamento (clean + informational). */
+export interface DepartmentGroup {
+  department: DepartmentInfo
+  clean: CleanCounters
+  informational: InformationalCounters
+}
+
+/** Bundle que devuelve el repository para by-department. */
+export interface DepartmentBundle {
+  groups: DepartmentGroup[]
+  permissionDays: PermissionDayRow[]
+}
+
+/** Una fila agregada por empleado (clean + informational). */
+export interface EmployeeGroup {
+  employee: EmployeeInfo
+  clean: CleanCounters
+  informational: InformationalCounters
+}
+
+/** Bundle que devuelve el repository para by-employee. */
+export interface EmployeeBundle {
+  groups: EmployeeGroup[]
+  permissionDays: PermissionDayRow[]
 }
