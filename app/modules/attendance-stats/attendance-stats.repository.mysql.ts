@@ -165,6 +165,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     allowedBusinessUnitIds: number[],
     groupBy: GroupBy
   ): Promise<any[]> {
+    const { startDateTime, endDateTime } = dayRangeAsDateTime(filters)
     const q = this.scopedBaseQuery(filters, allowedBusinessUnitIds)
       .where('eac.is_future_day', 0)
       .joinRaw(
@@ -177,7 +178,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
             AND se.shift_exceptions_date BETWEEN ? AND ?
           GROUP BY se.employee_id, DATE(se.shift_exceptions_date)
         ) AS just_abs ON just_abs.employee_id = e.employee_id AND just_abs.day = eac.day`,
-        [filters.startDay, filters.endDay]
+        [startDateTime, endDateTime]
       )
 
     const counters = [
@@ -240,6 +241,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     filters: AttendanceStatsFilters,
     allowedBusinessUnitIds: number[]
   ): Promise<PermissionDayRow[]> {
+    const { startDateTime, endDateTime } = dayRangeAsDateTime(filters)
     const q = this.scopedBaseQuery(filters, allowedBusinessUnitIds)
       .where('eac.is_future_day', 0)
       .where('eac.is_rest_day', 0)
@@ -260,7 +262,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
             AND se.shift_exceptions_date BETWEEN ? AND ?
           GROUP BY se.employee_id, DATE(se.shift_exceptions_date)
         ) AS la ON la.employee_id = e.employee_id AND la.day = eac.day`,
-        [filters.startDay, filters.endDay]
+        [startDateTime, endDateTime]
       )
       .joinRaw(
         `LEFT JOIN (
@@ -272,7 +274,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
             AND se.shift_exceptions_date BETWEEN ? AND ?
           GROUP BY se.employee_id, DATE(se.shift_exceptions_date)
         ) AS ed ON ed.employee_id = e.employee_id AND ed.day = eac.day`,
-        [filters.startDay, filters.endDay]
+        [startDateTime, endDateTime]
       )
       // Solo días que tienen al menos uno de los dos permisos.
       .where((sub) => {
@@ -385,6 +387,19 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       .where('eac.is_vacation_date', 0)
       .where('eac.is_holiday', 0)
       .where('eac.is_work_disability_date', 0)
+  }
+}
+
+/**
+ * Convierte el rango de fechas del filtro (yyyy-MM-dd) en límites DATETIME completos.
+ * - startDateTime: inicio del día (00:00:00) — para no perder excepciones registradas a primera hora.
+ * - endDateTime: cierre del día (23:59:59) — para incluir excepciones registradas al final del día.
+ * Match con el patrón de sync_assists_service.ts:1188-1190 que filtra shift_exceptions del mismo modo.
+ */
+function dayRangeAsDateTime(filters: AttendanceStatsFilters): { startDateTime: string; endDateTime: string } {
+  return {
+    startDateTime: `${filters.startDay} 00:00:00`,
+    endDateTime: `${filters.endDay} 23:59:59`,
   }
 }
 
