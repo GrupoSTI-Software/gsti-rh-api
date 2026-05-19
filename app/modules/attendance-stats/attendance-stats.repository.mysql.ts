@@ -391,10 +391,29 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
 }
 
 /**
- * Convierte el rango de fechas del filtro (yyyy-MM-dd) en límites DATETIME completos.
- * - startDateTime: inicio del día (00:00:00) — para no perder excepciones registradas a primera hora.
- * - endDateTime: cierre del día (23:59:59) — para incluir excepciones registradas al final del día.
- * Match con el patrón de sync_assists_service.ts:1188-1190 que filtra shift_exceptions del mismo modo.
+ * Convierte el rango de fechas del filtro (yyyy-MM-dd) en límites DATETIME para filtrar
+ * `shift_exceptions.shift_exceptions_date` (columna DATETIME).
+ *
+ * Por qué funciona "00:00:00" – "23:59:59" contra una columna DATETIME UTC:
+ * shift_exceptions_date se inserta como medianoche-Mexico convertida a UTC
+ * (ver shift_exceptions_controller.ts:80-90). Es decir, Mexico-day-X se guarda
+ * literalmente como 'X 06:00:00' (porque 00:00 UTC-6 = 06:00 UTC). Ese valor
+ * cae lexicográficamente dentro del rango 'X 00:00:00' – 'X 23:59:59', así
+ * que el filtro acierta el día mexicano correcto sin tener que hacer conversión
+ * explícita de huso en SQL.
+ *
+ * Match exacto con el patrón de sync_assists_service.ts:1188-1190 y
+ * employee_assist_calendar_service.ts:25-31.
+ *
+ * NO se acepta `Timezone` header del cliente — startDay/endDay son días
+ * laborales mexicanos por contrato (igual que los 9 endpoints hermanos de
+ * asistencia). Ver el bloque @swagger del controller para el contrato público.
+ *
+ * Condición de ruptura: si en el futuro `shift_exceptions_date` se almacena
+ * como Mexico-local (sin convertir a UTC) o como UTC de un instante distinto
+ * a medianoche Mexico, este rango deja de capturar el día correcto. Si pasa
+ * eso, cambiar a `'X 06:00:00'` – `'(X+1) 05:59:59'` (Mexico-day-as-UTC
+ * boundary) o introducir conversión explícita de huso aquí.
  */
 function dayRangeAsDateTime(filters: AttendanceStatsFilters): { startDateTime: string; endDateTime: string } {
   return {

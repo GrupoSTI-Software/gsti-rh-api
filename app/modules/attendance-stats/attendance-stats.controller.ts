@@ -16,7 +16,10 @@ export default class AttendanceStatsController {
    * /api/v1/attendance-stats/overview:
    *   get:
    *     summary: Estadísticas agregadas globales del período
-   *     description: Devuelve contadores y porcentajes (ontime, tolerance, delay, fault, early-out) agregados sobre todos los empleados del scope del usuario, filtrados opcionalmente por departamento/empleado/unidad de negocio/sucursal.
+   *     description: |
+   *       Devuelve contadores y porcentajes (ontime, tolerance, delay, fault, early-out) agregados sobre todos los empleados del scope del usuario, filtrados opcionalmente por departamento/empleado/unidad de negocio/sucursal.
+   *
+   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header; el cliente es responsable de enviar la fecha mexicana correcta (no la fecha local del cliente si está fuera de México).
    *     security:
    *       - bearerAuth: []
    *     tags: [AttendanceStats]
@@ -60,6 +63,10 @@ export default class AttendanceStatsController {
    * /api/v1/attendance-stats/by-department:
    *   get:
    *     summary: Estadísticas agregadas por departamento
+   *     description: |
+   *       Array con un objeto por departamento (clean counters + informational + porcentajes).
+   *
+   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header.
    *     security: [{ bearerAuth: [] }]
    *     tags: [AttendanceStats]
    *     parameters:
@@ -86,6 +93,10 @@ export default class AttendanceStatsController {
    * /api/v1/attendance-stats/by-employee:
    *   get:
    *     summary: Estadísticas agregadas por empleado (sin calendario detallado)
+   *     description: |
+   *       Array con un objeto por empleado (clean counters + informational + porcentajes). No incluye el calendar individual — para detalle día por día usar /api/v1/employee-assist-calendars.
+   *
+   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header.
    *     security: [{ bearerAuth: [] }]
    *     tags: [AttendanceStats]
    *     parameters:
