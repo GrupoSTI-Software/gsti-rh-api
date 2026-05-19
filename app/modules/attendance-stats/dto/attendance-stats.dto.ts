@@ -1,11 +1,15 @@
 /**
  * DTOs y tipos del módulo Attendance Stats.
  *
- * El cómputo se divide en 3 fuentes que el service ensambla:
- * - clean counters: días sin shift_exception, agregados en SQL contra check_in_status almacenado.
- * - informational counters: días de vacaciones, festivos o faltas justificadas (no entran al cierre 100%).
- * - permission days: días con late-arrival/early-departure → el service recomputa status en TS contra la hora autorizada.
+ * Fuente de verdad: tabla `assists` (no `employee_assist_calendars`).
+ * Por cada empleado en scope, el repository llama a `syncAssistsService.index`
+ * que computa el calendario fresco contra `assists` + `shifts` + `holidays`
+ * + `shift_exceptions` con la misma lógica de tolerancias y DST del sistema.
+ * El service agrega los días computados aplicando filtros de evaluable,
+ * recomputación para late-arrival/early-departure, y contadores informativos.
  */
+
+import type { AssistDayInterface } from '../../../interfaces/assist_day_interface.js'
 
 export interface AttendanceStatsFilters {
   startDay: string
@@ -17,7 +21,7 @@ export interface AttendanceStatsFilters {
   branchOfficeIds?: number[]
 }
 
-/** Contadores de asistencia que entran al cierre 100% (+earlyOuts independiente). */
+/** Contadores de asistencia que entran al cierre 100% (+ earlyOuts independiente). */
 export interface CleanCounters {
   assists: number
   tolerances: number
@@ -86,67 +90,18 @@ export interface ResolvedScope {
   allowedBusinessUnitIds: number[]
 }
 
-/**
- * Fila cruda para un día con permiso `late-arrival` o `early-departure` activo.
- * El service reconstruye el status efectivo contra la hora del permiso.
- */
-export interface PermissionDayRow {
-  employeeId: number
-  departmentId: number | null
-  departmentName: string | null
-  positionId: number | null
-  businessUnitId: number
-  payrollBusinessUnitId: number
-  employeeCode: string | null
-  employeeFirstName: string | null
-  employeeLastName: string | null
-  employeeSecondLastName: string | null
-  day: string
-  storedCheckInStatus: string | null
-  storedCheckOutStatus: string | null
-  shiftTimeStart: string | null
-  shiftActiveHours: number | null
-  checkInPunchUtc: string | null
-  checkOutPunchUtc: string | null
-  lateArrivalCheckInTime: string | null
-  earlyDepartureCheckOutTime: string | null
-}
-
 /** Thresholds de tolerancia (cargados desde SystemSetting → Tolerance). */
 export interface ToleranceThresholds {
   delayMinutes: number
   faultMinutes: number
 }
 
-/** Bundle que devuelve el repository para el endpoint overview. */
-export interface OverviewBundle {
-  clean: CleanCounters
-  informational: InformationalCounters
-  permissionDays: PermissionDayRow[]
-}
-
-/** Una fila agregada por departamento (clean + informational). */
-export interface DepartmentGroup {
-  department: DepartmentInfo
-  clean: CleanCounters
-  informational: InformationalCounters
-}
-
-/** Bundle que devuelve el repository para by-department. */
-export interface DepartmentBundle {
-  groups: DepartmentGroup[]
-  permissionDays: PermissionDayRow[]
-}
-
-/** Una fila agregada por empleado (clean + informational). */
-export interface EmployeeGroup {
+/**
+ * Bundle por empleado: identidad + calendario computado en memoria
+ * (output crudo de `syncAssistsService.index`).
+ */
+export interface EmployeeCalendarBundle {
   employee: EmployeeInfo
-  clean: CleanCounters
-  informational: InformationalCounters
-}
-
-/** Bundle que devuelve el repository para by-employee. */
-export interface EmployeeBundle {
-  groups: EmployeeGroup[]
-  permissionDays: PermissionDayRow[]
+  departmentName: string | null
+  calendar: AssistDayInterface[]
 }

@@ -5,18 +5,17 @@ import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import User from '#models/user'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
+import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
+import type { ShiftExceptionInterface } from '../../interfaces/shift_exception_interface.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
 import type {
   AttendanceStatistics,
   AttendanceStatsFilters,
   CleanCounters,
-  DepartmentBundle,
   DepartmentRow,
-  EmployeeBundle,
   EmployeeRow,
   InformationalCounters,
   OverviewResponse,
-  PermissionDayRow,
   ResolvedScope,
   ToleranceThresholds,
 } from './dto/attendance-stats.dto.js'
@@ -40,14 +39,15 @@ const DEFAULT_TOLERANCE_FAULT_MINUTES = 30
 /**
  * Lógica de negocio del módulo attendance-stats.
  *
- * Orquesta:
- * - Resolución de scope multitenant (deny-by-default).
- * - Validación de rango temporal.
- * - Agregación delegada al repositorio (clean + informational + permission days).
- * - Recomputación TS del status para días con late-arrival/early-departure
- *   contra la hora autorizada del permiso, reusando la lógica de tolerancia
- *   del sistema de sincronización de asistencias.
- * - Cierre 100% (faults absorbe el residuo de redondeo, earlyOut independiente).
+ * Fuente de verdad: tabla `assists` (vía syncAssistsService.index del repo).
+ * Por empleado-día computado, este servicio:
+ * 1. Aplica el filtro evaluable (rest day, vacation, holiday, work disability,
+ *    excepciones no-generales).
+ * 2. Recompute el check_in_status contra la hora autorizada por permiso
+ *    `late-arrival` cuando aplica.
+ * 3. Decide si earlyOut cuenta considerando permisos `early-departure`.
+ * 4. Suma a counters limpios + counters informativos.
+ * 5. Calcula porcentajes con cierre 100% (faults absorbe residuo de redondeo).
  */
 export default class AttendanceStatsService {
   private t: (key: string, params?: { [k: string]: string | number }) => string
@@ -55,7 +55,7 @@ export default class AttendanceStatsService {
 
   constructor(i18n: I18n, repo?: AttendanceStatsRepository) {
     this.t = i18n.formatMessage.bind(i18n)
-    this.repo = repo ?? new AttendanceStatsRepositoryMysql()
+    this.repo = repo ?? new AttendanceStatsRepositoryMysql(i18n)
   }
 
   /**
@@ -79,8 +79,6 @@ export default class AttendanceStatsService {
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
 
-    // Si SYSTEM_BUSINESS no está configurada, denegamos todo el scope (deny-by-default).
-    // Una env var vacía no debe abrir acceso a tenants ajenos — siempre debe configurarse en deploy.
     const effectiveSlugs = userSlugs.filter((s) => systemBusiness.includes(s))
 
     if (effectiveSlugs.length === 0) {
@@ -127,14 +125,20 @@ export default class AttendanceStatsService {
       return this.forbidden()
     }
 
-    const [bundle, thresholds] = await Promise.all([
-      this.repo.getOverview(filters, scope.allowedBusinessUnitIds),
+    const [bundles, thresholds] = await Promise.all([
+      this.repo.getEmployeeCalendars(filters, scope.allowedBusinessUnitIds),
       this.loadToleranceThresholds(),
     ])
 
-    const permissionCounters = aggregatePermissionDays(bundle.permissionDays, thresholds)
-    const finalClean = sumCleanCounters(bundle.clean, permissionCounters)
-    const statistics = this.toStatistics(finalClean, bundle.informational)
+    const totalClean = emptyClean()
+    const totalInfo = emptyInformational()
+    for (const bundle of bundles) {
+      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
+      addClean(totalClean, clean)
+      addInformational(totalInfo, informational)
+    }
+
+    const statistics = this.toStatistics(totalClean, totalInfo)
 
     return {
       status: 200,
@@ -160,12 +164,39 @@ export default class AttendanceStatsService {
       return this.forbidden()
     }
 
-    const [bundle, thresholds] = await Promise.all([
-      this.repo.getByDepartment(filters, scope.allowedBusinessUnitIds),
+    const [bundles, thresholds] = await Promise.all([
+      this.repo.getEmployeeCalendars(filters, scope.allowedBusinessUnitIds),
       this.loadToleranceThresholds(),
     ])
 
-    const data = this.buildDepartmentResponse(bundle, thresholds)
+    const byDept = new Map<
+      number,
+      { name: string; clean: CleanCounters; informational: InformationalCounters }
+    >()
+
+    for (const bundle of bundles) {
+      const deptId = bundle.employee.departmentId
+      if (deptId === null) continue
+      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
+      const existing = byDept.get(deptId)
+      if (existing) {
+        addClean(existing.clean, clean)
+        addInformational(existing.informational, informational)
+      } else {
+        byDept.set(deptId, {
+          name: bundle.departmentName ?? '',
+          clean,
+          informational,
+        })
+      }
+    }
+
+    const data: DepartmentRow[] = Array.from(byDept.entries())
+      .map(([deptId, agg]) => ({
+        department: { departmentId: deptId, departmentName: agg.name },
+        statistics: this.toStatistics(agg.clean, agg.informational),
+      }))
+      .sort((a, b) => a.department.departmentName.localeCompare(b.department.departmentName))
 
     return {
       status: 200,
@@ -184,12 +215,18 @@ export default class AttendanceStatsService {
       return this.forbidden()
     }
 
-    const [bundle, thresholds] = await Promise.all([
-      this.repo.getByEmployee(filters, scope.allowedBusinessUnitIds),
+    const [bundles, thresholds] = await Promise.all([
+      this.repo.getEmployeeCalendars(filters, scope.allowedBusinessUnitIds),
       this.loadToleranceThresholds(),
     ])
 
-    const data = this.buildEmployeeResponse(bundle, thresholds)
+    const data: EmployeeRow[] = bundles.map((bundle) => {
+      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
+      return {
+        employee: bundle.employee,
+        statistics: this.toStatistics(clean, informational),
+      }
+    })
 
     return {
       status: 200,
@@ -200,109 +237,6 @@ export default class AttendanceStatsService {
     }
   }
 
-  private buildDepartmentResponse(
-    bundle: DepartmentBundle,
-    thresholds: ToleranceThresholds
-  ): DepartmentRow[] {
-    // Agrupar permission days por departmentId.
-    const permByDept = new Map<number, PermissionDayRow[]>()
-    for (const row of bundle.permissionDays) {
-      const id = row.departmentId
-      if (id === null) continue
-      if (!permByDept.has(id)) permByDept.set(id, [])
-      permByDept.get(id)!.push(row)
-    }
-
-    // Asegurar que departamentos que SOLO aparecen en permission days también salgan.
-    const allDeptIds = new Set<number>()
-    for (const g of bundle.groups) allDeptIds.add(g.department.departmentId)
-    for (const id of permByDept.keys()) allDeptIds.add(id)
-
-    const groupsById = new Map(bundle.groups.map((g) => [g.department.departmentId, g]))
-    const rows: DepartmentRow[] = []
-
-    for (const id of allDeptIds) {
-      const group = groupsById.get(id)
-      const permDays = permByDept.get(id) ?? []
-      const permCounters = aggregatePermissionDays(permDays, thresholds)
-      const clean = sumCleanCounters(group?.clean ?? emptyClean(), permCounters)
-      const informational = group?.informational ?? emptyInformational()
-      const department = group?.department ?? this.deriveDepartmentInfoFromPermissionDays(id, permDays)
-      if (!department) continue
-      rows.push({
-        department,
-        statistics: this.toStatistics(clean, informational),
-      })
-    }
-
-    return rows.sort((a, b) => a.department.departmentName.localeCompare(b.department.departmentName))
-  }
-
-  private buildEmployeeResponse(
-    bundle: EmployeeBundle,
-    thresholds: ToleranceThresholds
-  ): EmployeeRow[] {
-    const permByEmp = new Map<number, PermissionDayRow[]>()
-    for (const row of bundle.permissionDays) {
-      if (!permByEmp.has(row.employeeId)) permByEmp.set(row.employeeId, [])
-      permByEmp.get(row.employeeId)!.push(row)
-    }
-
-    const allEmpIds = new Set<number>()
-    for (const g of bundle.groups) allEmpIds.add(g.employee.employeeId)
-    for (const id of permByEmp.keys()) allEmpIds.add(id)
-
-    const groupsById = new Map(bundle.groups.map((g) => [g.employee.employeeId, g]))
-    const rows: EmployeeRow[] = []
-
-    for (const id of allEmpIds) {
-      const group = groupsById.get(id)
-      const permDays = permByEmp.get(id) ?? []
-      const permCounters = aggregatePermissionDays(permDays, thresholds)
-      const clean = sumCleanCounters(group?.clean ?? emptyClean(), permCounters)
-      const informational = group?.informational ?? emptyInformational()
-      const employee = group?.employee ?? this.deriveEmployeeInfoFromPermissionDays(permDays)
-      if (!employee) continue
-      rows.push({
-        employee,
-        statistics: this.toStatistics(clean, informational),
-      })
-    }
-
-    return rows.sort((a, b) => {
-      const fa = a.employee.employeeFirstName ?? ''
-      const fb = b.employee.employeeFirstName ?? ''
-      if (fa !== fb) return fa.localeCompare(fb)
-      return (a.employee.employeeLastName ?? '').localeCompare(b.employee.employeeLastName ?? '')
-    })
-  }
-
-  private deriveDepartmentInfoFromPermissionDays(id: number, rows: PermissionDayRow[]) {
-    const firstWithName = rows.find((r) => r.departmentName !== null)
-    if (!firstWithName) return null
-    return { departmentId: id, departmentName: String(firstWithName.departmentName) }
-  }
-
-  private deriveEmployeeInfoFromPermissionDays(rows: PermissionDayRow[]) {
-    const r = rows[0]
-    if (!r) return null
-    return {
-      employeeId: r.employeeId,
-      employeeCode: r.employeeCode,
-      employeeFirstName: r.employeeFirstName,
-      employeeLastName: r.employeeLastName,
-      employeeSecondLastName: r.employeeSecondLastName,
-      departmentId: r.departmentId,
-      positionId: r.positionId,
-      businessUnitId: r.businessUnitId,
-      payrollBusinessUnitId: r.payrollBusinessUnitId,
-    }
-  }
-
-  /**
-   * Lee los thresholds de tolerancia desde SystemSetting → Tolerance.
-   * Si no se encuentran configuradas, usa los mismos defaults que sync_assists_service.
-   */
   private async loadToleranceThresholds(): Promise<ToleranceThresholds> {
     const setting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
@@ -328,10 +262,8 @@ export default class AttendanceStatsService {
   }
 
   /**
-   * Calcula AttendanceStatistics finales aplicando cierre 100%.
-   * - totalAvailable = assists + tolerances + delays + faults (NO incluye earlyOuts).
-   * - faultPercentage absorbe el residuo: ontime+tolerance+delay+fault === 100.
-   * - earlyOutPercentage es independiente del cierre (se computa sobre check_out_status).
+   * Cierre 100%: ontime + tolerance + delay + fault === 100 (faults absorbe residuo).
+   * earlyOutPercentage independiente. Si totalAvailable=0, todos los % son 0.
    */
   private toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
     const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
@@ -393,131 +325,159 @@ function emptyInformational(): InformationalCounters {
   return { justifiedAbsences: 0, vacations: 0, holidays: 0 }
 }
 
-function sumCleanCounters(a: CleanCounters, b: CleanCounters): CleanCounters {
-  return {
-    assists: a.assists + b.assists,
-    tolerances: a.tolerances + b.tolerances,
-    delays: a.delays + b.delays,
-    earlyOuts: a.earlyOuts + b.earlyOuts,
-    faults: a.faults + b.faults,
-  }
+function addClean(dst: CleanCounters, src: CleanCounters): void {
+  dst.assists += src.assists
+  dst.tolerances += src.tolerances
+  dst.delays += src.delays
+  dst.earlyOuts += src.earlyOuts
+  dst.faults += src.faults
+}
+
+function addInformational(dst: InformationalCounters, src: InformationalCounters): void {
+  dst.justifiedAbsences += src.justifiedAbsences
+  dst.vacations += src.vacations
+  dst.holidays += src.holidays
 }
 
 /**
- * Recomputa los contadores que aportan los días con permiso `late-arrival`/`early-departure`.
- * - Para check-in: usa la hora autorizada del permiso (si existe) como umbral efectivo,
- *   y aplica la misma lógica de tolerancia que sync_assists_service.checkInStatus().
- * - Para check-out: si hay permiso `early-departure`, el earlyOut solo se cuenta cuando
- *   el empleado salió ANTES de la hora autorizada (más allá del threshold de delay).
+ * Recorre el calendario en-memoria de UN empleado y produce sus counters.
+ * - Aplica el filtro evaluable (rest, vacation, holiday, work disability, excepciones no-generales).
+ * - Para días con permiso late-arrival, recompute check_in_status contra la hora autorizada.
+ * - Para días con permiso early-departure, neutraliza el earlyOut si la salida fue posterior a la hora autorizada.
+ * - Suma a contadores informativos (vacaciones, festivos, faltas justificadas) en paralelo.
  */
-export function aggregatePermissionDays(
-  rows: PermissionDayRow[],
+export function aggregateCalendar(
+  calendar: AssistDayInterface[],
   thresholds: ToleranceThresholds
-): CleanCounters {
-  const counters = emptyClean()
-  for (const row of rows) {
-    const status = computeCheckInStatus(row, thresholds)
-    if (status === 'ontime') counters.assists += 1
-    else if (status === 'tolerance') counters.tolerances += 1
-    else if (status === 'delay') counters.delays += 1
-    else if (status === 'fault') counters.faults += 1
+): { clean: CleanCounters; informational: InformationalCounters } {
+  const clean = emptyClean()
+  const info = emptyInformational()
 
-    if (isEarlyOutAfterPermission(row, thresholds)) {
-      counters.earlyOuts += 1
+  for (const day of calendar) {
+    // Contadores informativos (independientes del cierre 100%).
+    if (day.assist.isVacationDate) info.vacations += 1
+    if (day.assist.isHoliday) info.holidays += 1
+    if (hasJustifiedAbsenceException(day.assist.exceptions)) info.justifiedAbsences += 1
+
+    // Filtro evaluable.
+    if (!isEvaluableDay(day)) continue
+
+    const lateArrival = findException(day.assist.exceptions, 'late-arrival')
+    const earlyDeparture = findException(day.assist.exceptions, 'early-departure')
+
+    // Recompute check_in_status si hay permiso de llegada tarde.
+    const effectiveStatus = lateArrival
+      ? computeCheckInStatusWithPermission(day, lateArrival, thresholds)
+      : mapStoredStatus(day.assist.checkInStatus)
+
+    if (effectiveStatus === 'ontime') clean.assists += 1
+    else if (effectiveStatus === 'tolerance') clean.tolerances += 1
+    else if (effectiveStatus === 'delay') clean.delays += 1
+    else if (effectiveStatus === 'fault') clean.faults += 1
+
+    // earlyOut: solo cuenta si check_out_status='delay' Y no hay permiso que lo neutralice.
+    if (day.assist.checkOutStatus === 'delay') {
+      if (!earlyDeparture || isStillEarlyAfterPermission(day, earlyDeparture, thresholds)) {
+        clean.earlyOuts += 1
+      }
     }
   }
-  return counters
+
+  return { clean, informational: info }
+}
+
+function isEvaluableDay(day: AssistDayInterface): boolean {
+  if (day.assist.isFutureDay) return false
+  if (day.assist.isRestDay) return false
+  if (day.assist.isVacationDate) return false
+  if (day.assist.isHoliday) return false
+  if (day.assist.isWorkDisabilityDate) return false
+  if (hasNonGeneralException(day.assist.exceptions)) return false
+  return true
+}
+
+function hasNonGeneralException(exceptions: ShiftExceptionInterface[]): boolean {
+  return exceptions.some(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e) => (e.exceptionType as any)?.exceptionTypeIsGeneral === 0
+  )
+}
+
+function hasJustifiedAbsenceException(exceptions: ShiftExceptionInterface[]): boolean {
+  return exceptions.some((e) => {
+    const slug = e.exceptionType?.exceptionTypeSlug
+    return slug === 'absence-from-work' || slug === 'nuevo-ingreso'
+  })
+}
+
+function findException(
+  exceptions: ShiftExceptionInterface[],
+  slug: 'late-arrival' | 'early-departure'
+): ShiftExceptionInterface | undefined {
+  return exceptions.find((e) => e.exceptionType?.exceptionTypeSlug === slug)
+}
+
+function mapStoredStatus(stored: string | null | undefined): 'ontime' | 'tolerance' | 'delay' | 'fault' | null {
+  if (stored === 'ontime' || stored === 'tolerance' || stored === 'delay' || stored === 'fault') {
+    return stored
+  }
+  return null
 }
 
 /**
- * Recomputa check_in_status para un día con permiso late-arrival.
- * - effectiveTime = late_arrival_check_in_time si existe, sino shift_time_start.
- * - Si no hay punch de entrada → fault (matchea sync_assists_service:1902).
- * - Si no hay shift ni effectiveTime → status almacenado como fallback.
+ * Recomputa check_in_status contra la hora autorizada por el permiso late-arrival.
+ * Replica la lógica de sync_assists_service.ts:1932-1965.
  */
-function computeCheckInStatus(
-  row: PermissionDayRow,
+function computeCheckInStatusWithPermission(
+  day: AssistDayInterface,
+  lateArrival: ShiftExceptionInterface,
   thresholds: ToleranceThresholds
 ): 'ontime' | 'tolerance' | 'delay' | 'fault' | null {
-  const effectiveTime = row.lateArrivalCheckInTime ?? row.shiftTimeStart
-  if (!effectiveTime) {
-    return mapStoredStatus(row.storedCheckInStatus)
-  }
-  if (!row.checkInPunchUtc) {
-    return 'fault'
-  }
-  const minutesLate = minutesLateAgainst(row.day, effectiveTime, row.checkInPunchUtc)
-  if (minutesLate === null) {
-    return mapStoredStatus(row.storedCheckInStatus)
-  }
-  if (minutesLate > thresholds.faultMinutes) return 'fault'
-  if (minutesLate > thresholds.delayMinutes) return 'delay'
-  if (minutesLate <= 0) return 'ontime'
+  const punch = day.assist.checkIn?.assistPunchTimeUtc
+  if (!punch) return 'fault'
+
+  const authorizedTime = lateArrival.shiftExceptionCheckInTime
+  if (!authorizedTime) return mapStoredStatus(day.assist.checkInStatus)
+
+  const minutes = minutesLateAgainst(day.day, String(authorizedTime), String(punch))
+  if (minutes === null) return mapStoredStatus(day.assist.checkInStatus)
+
+  if (minutes > thresholds.faultMinutes) return 'fault'
+  if (minutes > thresholds.delayMinutes) return 'delay'
+  if (minutes <= 0) return 'ontime'
   return 'tolerance'
 }
 
 /**
- * Para días con permiso early-departure: cuenta earlyOut solo si el empleado salió
- * más de `delayMinutes` ANTES de la hora autorizada por el permiso (o del fin de turno).
- * Sin punch de salida o sin shift → cuenta como earlyOut si el status almacenado lo dice
- * (defensivo, para no perder señal).
+ * Cuando hay permiso early-departure: cuenta como earlyOut solo si la salida real
+ * fue ANTES de la hora autorizada por más de `delayMinutes`.
  */
-function isEarlyOutAfterPermission(
-  row: PermissionDayRow,
+function isStillEarlyAfterPermission(
+  day: AssistDayInterface,
+  earlyDeparture: ShiftExceptionInterface,
   thresholds: ToleranceThresholds
 ): boolean {
-  const expectedCheckOut = row.earlyDepartureCheckOutTime ?? deriveShiftEnd(row)
-  if (!expectedCheckOut || !row.checkOutPunchUtc) {
-    return row.storedCheckOutStatus === 'delay' && row.earlyDepartureCheckOutTime === null
-  }
-  const minutesEarly = minutesEarlyAgainst(row.day, expectedCheckOut, row.checkOutPunchUtc)
-  if (minutesEarly === null) {
-    return row.storedCheckOutStatus === 'delay' && row.earlyDepartureCheckOutTime === null
-  }
+  const punch = day.assist.checkOut?.assistPunchTimeUtc
+  if (!punch) return false
+
+  const authorizedTime = earlyDeparture.shiftExceptionCheckOutTime
+  if (!authorizedTime) return true
+
+  const minutesEarly = minutesEarlyAgainst(day.day, String(authorizedTime), String(punch))
+  if (minutesEarly === null) return true
   return minutesEarly > thresholds.delayMinutes
 }
 
-function deriveShiftEnd(row: PermissionDayRow): string | null {
-  if (!row.shiftTimeStart || row.shiftActiveHours === null) return null
-  const start = DateTime.fromISO(`${row.day}T${row.shiftTimeStart}`, { zone: 'UTC-6' })
-  if (!start.isValid) return null
-  const end = start.plus({ hours: row.shiftActiveHours })
-  return end.toFormat('HH:mm:ss')
-}
-
-/**
- * Diferencia en minutos entre el punch real (UTC) y la hora efectiva de entrada (local UTC-6).
- * Positivo = llegó tarde. Negativo o cero = ontime.
- */
-function minutesLateAgainst(
-  day: string,
-  effectiveTime: string,
-  punchUtc: string
-): number | null {
-  const expected = DateTime.fromISO(`${day}T${effectiveTime}`, { zone: 'UTC-6' })
+function minutesLateAgainst(day: string, hhmmss: string, punchUtc: string): number | null {
+  const expected = DateTime.fromISO(`${day}T${hhmmss}`, { zone: 'UTC-6' })
   const actual = DateTime.fromISO(punchUtc, { setZone: true }).setZone('UTC-6')
   if (!expected.isValid || !actual.isValid) return null
   return actual.diff(expected, 'minutes').minutes
 }
 
-/**
- * Diferencia en minutos entre la hora esperada de salida (local UTC-6) y el punch real (UTC).
- * Positivo = salió antes (earlyOut). Negativo o cero = salió a tiempo o tarde.
- */
-function minutesEarlyAgainst(
-  day: string,
-  expectedTime: string,
-  punchUtc: string
-): number | null {
-  const expected = DateTime.fromISO(`${day}T${expectedTime}`, { zone: 'UTC-6' })
+function minutesEarlyAgainst(day: string, hhmmss: string, punchUtc: string): number | null {
+  const expected = DateTime.fromISO(`${day}T${hhmmss}`, { zone: 'UTC-6' })
   const actual = DateTime.fromISO(punchUtc, { setZone: true }).setZone('UTC-6')
   if (!expected.isValid || !actual.isValid) return null
   return expected.diff(actual, 'minutes').minutes
-}
-
-function mapStoredStatus(stored: string | null): 'ontime' | 'tolerance' | 'delay' | 'fault' | null {
-  if (stored === 'ontime' || stored === 'tolerance' || stored === 'delay' || stored === 'fault') {
-    return stored
-  }
-  return null
 }

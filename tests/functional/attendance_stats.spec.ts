@@ -47,9 +47,12 @@ test.group('AttendanceStats - validation & auth', () => {
       .whereNull('user_deleted_at')
       .whereNotNull('user_business_access')
       .firstOrFail()
+    // Limitamos a 1 empleado: la nueva arquitectura llama syncAssistsService.index
+    // per-empleado y para todo el scope tomaría >2 min. Para validar la forma del
+    // response basta con un empleado.
     const response = await client
       .get('/api/v1/attendance-stats/overview')
-      .qs({ startDay: '2026-05-11', endDay: '2026-05-17' })
+      .qs({ startDay: '2026-05-11', endDay: '2026-05-17', employeeIds: '1' })
       .loginAs(user)
 
     response.assertStatus(200)
@@ -77,7 +80,7 @@ test.group('AttendanceStats - validation & auth', () => {
       .firstOrFail()
     const response = await client
       .get('/api/v1/attendance-stats/by-department')
-      .qs({ startDay: '2026-05-11', endDay: '2026-05-17' })
+      .qs({ startDay: '2026-05-11', endDay: '2026-05-17', employeeIds: '1' })
       .loginAs(user)
 
     response.assertStatus(200)
