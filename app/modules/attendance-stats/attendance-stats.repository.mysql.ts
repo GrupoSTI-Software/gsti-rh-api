@@ -203,10 +203,10 @@ emp_day AS (
 ),
 shift_for_day AS (
   SELECT ed.employee_id, ed.day, ed.employee_code,
-    (SELECT es2.shift_id FROM employee_shifts es2
+    (SELECT es2.employee_shift_id FROM employee_shifts es2
       WHERE es2.employee_id = ed.employee_id
         AND DATE(es2.employe_shifts_apply_since) <= ed.day
-      ORDER BY es2.employe_shifts_apply_since DESC LIMIT 1) AS shift_id
+      ORDER BY es2.employe_shifts_apply_since DESC LIMIT 1) AS employee_shift_id
   FROM emp_day ed
 ),
 sfd_full AS (
@@ -214,8 +214,12 @@ sfd_full AS (
   -- shift_start_utc / shift_end_utc son la base SIN permisos — sirven para
   -- correlacionar punches con el turno (clave para turnos cross-day: el check-out
   -- de un turno nocturno cae al día siguiente pero pertenece a este shift_day).
-  SELECT sfd.employee_id, sfd.day, sfd.employee_code, sfd.shift_id,
+  -- apply_since + shift_calculate_flag se usan para resolver turnos rotativos
+  -- (24x48, 12x36, etc.) en el cálculo de is_rest_day.
+  SELECT sfd.employee_id, sfd.day, sfd.employee_code, s.shift_id,
     s.shift_time_start, s.shift_active_hours, s.shift_rest_days,
+    s.shift_calculate_flag,
+    DATE(es.employe_shifts_apply_since) AS apply_since,
     (CASE WHEN s.shift_time_start IS NULL THEN NULL
       ELSE TIMESTAMPADD(HOUR, CASE WHEN sfd.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
         TIMESTAMP(sfd.day, s.shift_time_start))
@@ -226,7 +230,8 @@ sfd_full AS (
           TIMESTAMP(sfd.day, s.shift_time_start)))
     END) AS shift_end_utc
   FROM shift_for_day sfd
-  LEFT JOIN shifts s ON s.shift_id = sfd.shift_id
+  LEFT JOIN employee_shifts es ON es.employee_shift_id = sfd.employee_shift_id
+  LEFT JOIN shifts s ON s.shift_id = es.shift_id
 ),
 punches_for_shift AS (
   -- Correlaciona punches con la VENTANA DEL TURNO (no con el día calendario).
@@ -307,12 +312,23 @@ SELECT
   COALESCE(ef.has_non_general_exc, 0) AS has_non_general_exc,
   COALESCE(hfd.is_holiday, 0) AS is_holiday,
   COALESCE(wd.is_work_disability, 0) AS is_work_disability,
-  -- is_rest_day: el día-de-semana (luxon convention: 1=lun .. 7=dom) está en shift_rest_days CSV.
-  -- MySQL WEEKDAY: 0=lun .. 6=dom. Sumo 1 para alinear con luxon.
+  -- is_rest_day: para turnos rotativos (24x48, 12x36, etc.) el descanso depende
+  -- del ciclo desde apply_since; para turnos fijos depende de shift_rest_days (CSV
+  -- de días de semana, luxon convention 1=lun..7=dom). Replica calendarDayStatus
+  -- de sync_assists_service.ts:2558-2592.
   (CASE
+    WHEN sfd_full.shift_calculate_flag = '24x48'
+      THEN (CASE WHEN MOD(DATEDIFF(sfd_full.day, sfd_full.apply_since), 3) IN (1, 2) THEN 1 ELSE 0 END)
+    WHEN sfd_full.shift_calculate_flag = '12x36'
+      THEN (CASE WHEN MOD(DATEDIFF(sfd_full.day, sfd_full.apply_since), 2) = 1 THEN 1 ELSE 0 END)
+    WHEN sfd_full.shift_calculate_flag = '24x24'
+      THEN (CASE WHEN MOD(DATEDIFF(sfd_full.day, sfd_full.apply_since), 2) = 1 THEN 1 ELSE 0 END)
+    WHEN sfd_full.shift_calculate_flag = 'doble-12x48'
+      THEN (CASE WHEN MOD(DATEDIFF(sfd_full.day, sfd_full.apply_since), 4) IN (2, 3) THEN 1 ELSE 0 END)
     WHEN sfd_full.shift_rest_days IS NOT NULL
       AND FIND_IN_SET(WEEKDAY(sfd_full.day) + 1, sfd_full.shift_rest_days) > 0
-    THEN 1 ELSE 0
+    THEN 1
+    ELSE 0
   END) AS is_rest_day,
   -- is_future_day: comparado contra hoy en Mexico
   (CASE WHEN sfd_full.day > DATE(?) THEN 1 ELSE 0 END) AS is_future_day,
