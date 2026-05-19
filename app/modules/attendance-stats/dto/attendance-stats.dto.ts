@@ -37,6 +37,10 @@ export interface OverviewResponse {
   period: {
     startDay: string
     endDay: string
+    /**
+     * Conteo de registros empleado-día evaluables en el período (no días calendario).
+     * Igual a `statistics.totalAvailable`. Para 50 empleados en 7 días puede llegar a 350.
+     */
     evaluableDays: number
   }
 }

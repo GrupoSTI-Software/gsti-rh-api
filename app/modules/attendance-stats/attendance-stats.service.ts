@@ -42,9 +42,8 @@ export default class AttendanceStatsService {
   /**
    * Resuelve los business unit IDs que el usuario puede consultar.
    * - userBusinessAccess es un CSV de slugs (ej: "sae,cima").
-   * - Si el usuario no tiene ningún slug válido → scope vacío → 403.
-   * - El conjunto se intersecta luego con SYSTEM_BUSINESS para evitar
-   *   leakage entre tenants del entorno.
+   * - El resultado se intersecta SIEMPRE con SYSTEM_BUSINESS (deny-by-default):
+   *   si la env var está vacía o no existe ningún slug compartido, el scope es vacío → 403.
    */
   async resolveScope(user: User): Promise<ResolvedScope> {
     const userSlugs = (user.userBusinessAccess ?? '')
@@ -61,10 +60,9 @@ export default class AttendanceStatsService {
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
 
-    const effectiveSlugs =
-      systemBusiness.length > 0
-        ? userSlugs.filter((s) => systemBusiness.includes(s))
-        : userSlugs
+    // Si SYSTEM_BUSINESS no está configurada, denegamos todo el scope (deny-by-default).
+    // Una env var vacía no debe abrir acceso a tenants ajenos — siempre debe configurarse en deploy.
+    const effectiveSlugs = userSlugs.filter((s) => systemBusiness.includes(s))
 
     if (effectiveSlugs.length === 0) {
       return { allowedBusinessUnitIds: [] }
@@ -92,6 +90,7 @@ export default class AttendanceStatsService {
         data: null,
       }
     }
+    // Comparación lexicográfica segura porque el validador garantiza formato yyyy-MM-dd (ISO).
     if (filters.startDay > filters.endDay) {
       return {
         status: 400,
