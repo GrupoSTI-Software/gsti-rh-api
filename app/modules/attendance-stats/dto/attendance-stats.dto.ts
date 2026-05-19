@@ -74,7 +74,7 @@ export interface ResolvedScope {
 }
 
 /** Filas crudas que devuelve el repository para overview (1 fila). */
-export interface OverviewRow extends RawCounters {}
+export interface OverviewCountersRow extends RawCounters {}
 
 /** Filas crudas que devuelve el repository para by-department (N filas). */
 export interface DepartmentCountersRow extends RawCounters {
