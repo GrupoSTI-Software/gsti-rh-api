@@ -233,16 +233,25 @@ sfd_full AS (
       ELSE TIMESTAMPADD(SECOND, ROUND(s.shift_active_hours * 3600),
         TIMESTAMPADD(HOUR, CASE WHEN sfd.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
           TIMESTAMP(sfd.day, s.shift_time_start)))
-    END) AS shift_end_utc
+    END) AS shift_end_utc,
+    -- day_end_utc = medianoche-23:59:59 del día calendario México convertida a UTC.
+    -- Se usa para ampliar la ventana de captura de punches y así incluir check-outs
+    -- de overtime (ej: turno 08:00-18:00 que sale a las 21:29 — fuera de shift_end+3h
+    -- pero dentro del mismo día calendario).
+    TIMESTAMPADD(HOUR, CASE WHEN sfd.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+      TIMESTAMP(sfd.day, '23:59:59')) AS day_end_utc
   FROM shift_for_day sfd
   LEFT JOIN employee_shifts es ON es.employee_shift_id = sfd.employee_shift_id
   LEFT JOIN shifts s ON s.shift_id = es.shift_id
 ),
 punches_for_shift AS (
   -- Correlaciona punches con la VENTANA DEL TURNO (no con el día calendario).
-  -- Ventana = [shift_start - 3h, shift_end + 3h]. Para turnos cross-day, shift_end
-  -- ya cae al día siguiente, así el check-out se atribuye al shift_day correcto.
-  -- Margen ±3h captura entradas/salidas tempranas o tardías.
+  -- Límite inferior = shift_start - 3h (captura entradas tempranas).
+  -- Límite superior = GREATEST(shift_end + 3h, day_end_utc):
+  --   * Para turnos cross-day (nocturnos) shift_end ya cae al día siguiente, así
+  --     shift_end + 3h domina y el check-out se atribuye al shift_day correcto.
+  --   * Para turnos diurnos con overtime (salida muy tarde dentro del mismo día
+  --     calendario), day_end_utc domina y captura ese check-out tardío.
   SELECT sfd.employee_id, sfd.day,
     MIN(a.assist_punch_time_utc) AS first_punch_utc,
     MAX(a.assist_punch_time_utc) AS last_punch_utc,
@@ -251,7 +260,10 @@ punches_for_shift AS (
   INNER JOIN assists a ON a.assist_emp_code = sfd.employee_code
     AND a.assist_active = 1
     AND a.assist_punch_time_utc >= DATE_SUB(sfd.shift_start_utc, INTERVAL 3 HOUR)
-    AND a.assist_punch_time_utc <= DATE_ADD(sfd.shift_end_utc, INTERVAL 3 HOUR)
+    AND a.assist_punch_time_utc <= GREATEST(
+      DATE_ADD(sfd.shift_end_utc, INTERVAL 3 HOUR),
+      sfd.day_end_utc
+    )
   WHERE sfd.shift_start_utc IS NOT NULL
   GROUP BY sfd.employee_id, sfd.day
 ),
@@ -385,6 +397,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       startDay, endDay,                  // date_range
       dstStart, dstEnd,                  // sfd_full shift_start_utc DST
       dstStart, dstEnd,                  // sfd_full shift_end_utc DST
+      dstStart, dstEnd,                  // sfd_full day_end_utc DST
       startDay, endDay,                  // late_arrival
       startDay, endDay,                  // early_departure
       startDay, endDay,                  // exception_flags
