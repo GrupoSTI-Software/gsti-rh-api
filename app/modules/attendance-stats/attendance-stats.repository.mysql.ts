@@ -27,17 +27,21 @@ import type { AttendanceStatsRepository } from './attendance-stats.repository.js
  *    aggregate este impacto es marginal (los counters totales sobre el período
  *    son los mismos, solo la atribución per-día cambia).
  *
- * 2. DST:
- *    Se usa offset fijo UTC-6 (Mexico CST). En transiciones de DST (primer domingo
- *    de abril, último domingo de octubre) habrá diferencias de 1 hora respecto al
- *    sync. Impacto: 2 días al año por empleado. Aceptable.
+ * 2. Zona horaria / DST:
+ *    assists.assist_punch_time_utc guarda la hora del biométrico, que SÍ aplica
+ *    horario de verano: +5 en verano (DST) y +6 el resto del año. Por eso el
+ *    turno se convierte a UTC con el mismo offset por día (ver utc_offset y
+ *    computeMexicoDST). Aunque México abolió el DST civil en 2022, los relojes
+ *    de los biométricos siguen registrando con DST — verificado contra datos
+ *    reales (check-in de las 08:00 aparece ~14:00 en invierno y ~13:00 en verano).
  *
- * 3. Excepciones especiales (skip-checkin, cover-shift, descanso-laborado,
- *    apply-sunday-bonus, error-de-horario-en-sistema):
- *    Cualquier excepción donde exception_type.is_general=0 hace el día NO-EVALUABLE
- *    (igual que la versión bulk anterior). El sync tiene reglas más sutiles
- *    (ej: skip-checkin convierte fault en ontime si hay ≥1 otro punch) que aquí
- *    se simplifican.
+ * 3. Excepciones especiales:
+ *    Solo una lista explícita de excepciones hace el día NO-EVALUABLE (rest-day,
+ *    vacation, absence-from-work, change-shift, incapacidades — ver
+ *    has_day_excluding_exc). Las demás (skip-checkin, skip-checkout, cover-shift,
+ *    descanso-laborado, overtime, etc.) dejan el día evaluable. El sync tiene
+ *    reglas más sutiles (ej: descanso-laborado fuerza día laboral aunque la
+ *    rotación diga descanso) que aquí se simplifican.
  *
  * 4. Shift changes (employee_shift_changes):
  *    NO se considera por ahora. El día usa el shift asignado en employee_shifts.
@@ -111,6 +115,10 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       .from('employees AS e')
       .leftJoin('departments AS d', 'd.department_id', 'e.department_id')
       .whereNull('e.employee_deleted_at')
+      // Excluir empleados discriminados de asistencia (employee_assist_discriminator=1):
+      // el sistema viejo nunca les asigna status (siempre ''), así que no deben
+      // contar en las estadísticas. NULL/0 sí se evalúan.
+      .whereRaw('COALESCE(e.employee_assist_discriminator, 0) <> 1')
       .whereIn('e.business_unit_id', allowedBusinessUnitIds)
 
     if (filters.businessUnitId !== undefined) q.where('e.business_unit_id', filters.businessUnitId)
@@ -185,13 +193,9 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const empIdList = employeeIds.join(',')
     const today = DateTime.now().setZone('UTC-6').toFormat('yyyy-LL-dd')
 
-    // Mexico DST: primer domingo de abril a último domingo de octubre.
-    // Replica sync_assists_service.getMexicoDSTChangeDates (líneas 187-196 de
-    // employee_assist_calendar_service.ts). En DST Mexico es UTC-5 (CDT), fuera
-    // de DST es UTC-6 (CST). Calculamos los bounds para el año del rango y
-    // los pasamos al SQL para que el CASE WHEN use el offset correcto.
-    const dstYear = Number(startDay.slice(0, 4))
-    const { dstStart, dstEnd } = computeMexicoDST(dstYear)
+    // Bounds del horario de verano para el año del rango. Se pasan al SQL para
+    // que utc_offset use +5 dentro de DST y +6 fuera.
+    const { dstStart, dstEnd } = computeMexicoDST(Number(startDay.slice(0, 4)))
 
     const sql = `
 WITH RECURSIVE date_range AS (
@@ -200,7 +204,11 @@ WITH RECURSIVE date_range AS (
   SELECT DATE_ADD(d, INTERVAL 1 DAY) FROM date_range WHERE d < DATE(?)
 ),
 emp_day AS (
-  SELECT e.employee_id, e.employee_code, bu.business_unit_slug, dr.d AS day
+  -- utc_offset: horas a sumar a la hora local México para obtener el valor que
+  -- guarda assists.assist_punch_time_utc. El biométrico registra hora local CON
+  -- horario de verano: +5 en verano (DST, abr-oct) y +6 el resto del año.
+  SELECT e.employee_id, e.employee_code, bu.business_unit_slug, dr.d AS day,
+    (CASE WHEN dr.d BETWEEN ? AND ? THEN 5 ELSE 6 END) AS utc_offset
   FROM employees e
   CROSS JOIN date_range dr
   LEFT JOIN business_units bu ON bu.business_unit_id = e.business_unit_id
@@ -214,7 +222,7 @@ shift_for_day AS (
   -- (ej: emp con rotación re-asignada — la fila vieja queda soft-deleted).
   -- Desempate por created_at DESC: si dos turnos comparten apply_since, gana el
   -- creado más recientemente (matchea getEmployeeShifts, que ordena por createdAt).
-  SELECT ed.employee_id, ed.day, ed.employee_code, ed.business_unit_slug,
+  SELECT ed.employee_id, ed.day, ed.employee_code, ed.business_unit_slug, ed.utc_offset,
     (SELECT es2.employee_shift_id FROM employee_shifts es2
       WHERE es2.employee_id = ed.employee_id
         AND es2.employe_shifts_deleted_at IS NULL
@@ -224,43 +232,48 @@ shift_for_day AS (
   FROM emp_day ed
 ),
 sfd_full AS (
-  -- Pre-computamos la ventana del turno en UTC (DST-aware) para cada (emp, día).
-  -- shift_start_utc / shift_end_utc son la base SIN permisos — sirven para
-  -- correlacionar punches con el turno (clave para turnos cross-day: el check-out
-  -- de un turno nocturno cae al día siguiente pero pertenece a este shift_day).
-  -- apply_since + shift_calculate_flag se usan para resolver turnos rotativos
-  -- (24x48, 12x36, etc.) en el cálculo de is_rest_day.
+  -- Pre-computamos la ventana del turno en UTC (DST-aware vía utc_offset) para
+  -- cada (emp, día). shift_start_utc / shift_end_utc son la base SIN permisos —
+  -- sirven para correlacionar punches con el turno (clave para turnos cross-day:
+  -- el check-out de un turno nocturno cae al día siguiente pero pertenece a este
+  -- shift_day). apply_since + shift_calculate_flag se usan para resolver turnos
+  -- rotativos (24x48, 12x36, etc.) en el cálculo de is_rest_day.
   SELECT sfd.employee_id, sfd.day, sfd.employee_code, sfd.business_unit_slug, s.shift_id,
+    sfd.utc_offset,
     s.shift_time_start, s.shift_active_hours, s.shift_rest_days,
     s.shift_calculate_flag,
     DATE(es.employe_shifts_apply_since) AS apply_since,
     (CASE WHEN s.shift_time_start IS NULL THEN NULL
-      ELSE TIMESTAMPADD(HOUR, CASE WHEN sfd.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+      ELSE TIMESTAMPADD(HOUR, sfd.utc_offset,
         TIMESTAMP(sfd.day, s.shift_time_start))
     END) AS shift_start_utc,
     (CASE WHEN s.shift_time_start IS NULL OR s.shift_active_hours IS NULL THEN NULL
       ELSE TIMESTAMPADD(SECOND, ROUND(s.shift_active_hours * 3600),
-        TIMESTAMPADD(HOUR, CASE WHEN sfd.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+        TIMESTAMPADD(HOUR, sfd.utc_offset,
           TIMESTAMP(sfd.day, s.shift_time_start)))
     END) AS shift_end_utc,
-    -- day_end_utc = medianoche-23:59:59 del día calendario México convertida a UTC.
-    -- Se usa para ampliar la ventana de captura de punches y así incluir check-outs
-    -- de overtime (ej: turno 08:00-18:00 que sale a las 21:29 — fuera de shift_end+3h
-    -- pero dentro del mismo día calendario).
-    TIMESTAMPADD(HOUR, CASE WHEN sfd.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+    -- day_start_utc / day_end_utc = medianoche 00:00:00 y 23:59:59 del día
+    -- calendario México convertidos a UTC. Definen la ventana "día calendario"
+    -- para correlacionar punches en turnos diurnos (ver punches_for_shift).
+    TIMESTAMPADD(HOUR, sfd.utc_offset,
+      TIMESTAMP(sfd.day, '00:00:00')) AS day_start_utc,
+    TIMESTAMPADD(HOUR, sfd.utc_offset,
       TIMESTAMP(sfd.day, '23:59:59')) AS day_end_utc
   FROM shift_for_day sfd
   LEFT JOIN employee_shifts es ON es.employee_shift_id = sfd.employee_shift_id
   LEFT JOIN shifts s ON s.shift_id = es.shift_id
 ),
 punches_for_shift AS (
-  -- Correlaciona punches con la VENTANA DEL TURNO (no con el día calendario).
-  -- Límite inferior = shift_start - 3h (captura entradas tempranas).
-  -- Límite superior = GREATEST(shift_end + 3h, day_end_utc):
-  --   * Para turnos cross-day (nocturnos) shift_end ya cae al día siguiente, así
-  --     shift_end + 3h domina y el check-out se atribuye al shift_day correcto.
-  --   * Para turnos diurnos con overtime (salida muy tarde dentro del mismo día
-  --     calendario), day_end_utc domina y captura ese check-out tardío.
+  -- Correlaciona punches con un (empleado, día). La ventana depende de si el
+  -- turno cruza la medianoche (TIME_TO_SEC(start) + active_hours*3600 > 86400):
+  --
+  --   * Turno DIURNO (no cruza medianoche): ventana = día calendario completo
+  --     [day_start_utc, day_end_utc]. Replica el agrupamiento por día calendario
+  --     del sistema viejo — captura punches que caen lejos de la hora del turno
+  --     (ej: empleado con turno 13:00 que marca a las 07:00; el sync lo cuenta).
+  --   * Turno CROSS-DAY (nocturno): ventana = [shift_start - 3h, shift_end + 3h].
+  --     No se extiende a day_start porque el check-out cae al día siguiente y
+  --     ampliar el límite inferior duplicaría punches con el turno vecino.
   SELECT sfd.employee_id, sfd.day,
     MIN(a.assist_punch_time_utc) AS first_punch_utc,
     MAX(a.assist_punch_time_utc) AS last_punch_utc,
@@ -268,7 +281,11 @@ punches_for_shift AS (
   FROM sfd_full sfd
   INNER JOIN assists a ON a.assist_emp_code = sfd.employee_code
     AND a.assist_active = 1
-    AND a.assist_punch_time_utc >= DATE_SUB(sfd.shift_start_utc, INTERVAL 3 HOUR)
+    AND a.assist_punch_time_utc >= (CASE
+      WHEN (TIME_TO_SEC(sfd.shift_time_start) + sfd.shift_active_hours * 3600) > 86400
+        THEN DATE_SUB(sfd.shift_start_utc, INTERVAL 3 HOUR)
+      ELSE LEAST(DATE_SUB(sfd.shift_start_utc, INTERVAL 3 HOUR), sfd.day_start_utc)
+    END)
     AND a.assist_punch_time_utc <= GREATEST(
       DATE_ADD(sfd.shift_end_utc, INTERVAL 3 HOUR),
       sfd.day_end_utc
@@ -283,7 +300,7 @@ late_arrival_perm AS (
   INNER JOIN exception_types et ON et.exception_type_id = se.exception_type_id
   WHERE et.exception_type_slug = 'late-arrival'
     AND se.shift_exceptions_deleted_at IS NULL
-    AND se.shift_exceptions_date BETWEEN ? AND ?
+    AND DATE(se.shift_exceptions_date) BETWEEN ? AND ?
     AND se.employee_id IN (${empIdList})
   GROUP BY se.employee_id, day
 ),
@@ -294,20 +311,30 @@ early_departure_perm AS (
   INNER JOIN exception_types et ON et.exception_type_id = se.exception_type_id
   WHERE et.exception_type_slug = 'early-departure'
     AND se.shift_exceptions_deleted_at IS NULL
-    AND se.shift_exceptions_date BETWEEN ? AND ?
+    AND DATE(se.shift_exceptions_date) BETWEEN ? AND ?
     AND se.employee_id IN (${empIdList})
   GROUP BY se.employee_id, day
 ),
 exception_flags AS (
+  -- has_day_excluding_exc: excepciones que hacen el día NO-EVALUABLE para los
+  -- buckets ontime/tolerance/delay/fault. Es una lista EXPLÍCITA — casi todas
+  -- las exception_types tienen is_general=0, así que filtrar por is_general
+  -- excluiría días que el sistema viejo sí evalúa (ej: skip-checkin/skip-checkout,
+  -- overtime, cover-shift — el empleado sí trabajó, su check-in cuenta).
   SELECT se.employee_id, DATE(se.shift_exceptions_date) AS day,
     MAX(CASE WHEN et.exception_type_slug = 'vacation' THEN 1 ELSE 0 END) AS has_vacation_exc,
     MAX(CASE WHEN et.exception_type_slug = 'absence-from-work' THEN 1 ELSE 0 END) AS has_absence_exc,
     MAX(CASE WHEN et.exception_type_slug = 'nuevo-ingreso' THEN 1 ELSE 0 END) AS has_nuevo_ingreso_exc,
-    MAX(CASE WHEN et.exception_type_is_general = 0 THEN 1 ELSE 0 END) AS has_non_general_exc
+    MAX(CASE WHEN et.exception_type_slug = 'skip-checkout' THEN 1 ELSE 0 END) AS has_skip_checkout_exc,
+    MAX(CASE WHEN et.exception_type_slug = 'skip-checkin' THEN 1 ELSE 0 END) AS has_skip_checkin_exc,
+    MAX(CASE WHEN et.exception_type_slug IN (
+      'rest-day', 'vacation', 'absence-from-work', 'change-shift',
+      'falta-por-incapacidad', 'incapacidad-por-maternidad'
+    ) THEN 1 ELSE 0 END) AS has_day_excluding_exc
   FROM shift_exceptions se
   INNER JOIN exception_types et ON et.exception_type_id = se.exception_type_id
   WHERE se.shift_exceptions_deleted_at IS NULL
-    AND se.shift_exceptions_date BETWEEN ? AND ?
+    AND DATE(se.shift_exceptions_date) BETWEEN ? AND ?
     AND se.employee_id IN (${empIdList})
   GROUP BY se.employee_id, day
 ),
@@ -318,7 +345,7 @@ holiday_for_day AS (
   -- para filtrar por unidad de negocio del empleado en el SELECT final.
   SELECT DATE(h.holiday_date) AS day, h.holiday_business_units
   FROM holidays h
-  WHERE h.holiday_date BETWEEN ? AND ?
+  WHERE DATE(h.holiday_date) BETWEEN ? AND ?
     AND h.holiday_is_official_rest_day = 1
 ),
 work_disab_for_day AS (
@@ -339,7 +366,9 @@ SELECT
   COALESCE(ef.has_vacation_exc, 0) AS has_vacation_exc,
   COALESCE(ef.has_absence_exc, 0) AS has_absence_exc,
   COALESCE(ef.has_nuevo_ingreso_exc, 0) AS has_nuevo_ingreso_exc,
-  COALESCE(ef.has_non_general_exc, 0) AS has_non_general_exc,
+  COALESCE(ef.has_skip_checkout_exc, 0) AS has_skip_checkout_exc,
+  COALESCE(ef.has_skip_checkin_exc, 0) AS has_skip_checkin_exc,
+  COALESCE(ef.has_day_excluding_exc, 0) AS has_day_excluding_exc,
   -- is_holiday: existe un holiday oficial-rest en este día Y aplica a la unidad
   -- de negocio del empleado (holiday_business_units vacío = aplica a todas).
   (CASE WHEN EXISTS (
@@ -368,28 +397,34 @@ SELECT
     THEN 1
     ELSE 0
   END) AS is_rest_day,
-  -- is_future_day: comparado contra hoy en Mexico
-  (CASE WHEN sfd_full.day > DATE(?) THEN 1 ELSE 0 END) AS is_future_day,
+  -- is_future_day: el turno del día AÚN NO INICIA (ahora < hora de inicio).
+  -- Replica sync_assists_service.isFutureDay (líneas 2275-2295): un día es
+  -- "futuro" mientras el instante actual sea anterior al shift_start. Esto cubre
+  -- tanto días calendario posteriores como el día en curso cuyo turno todavía
+  -- no comenzó (ej: turno nocturno consultado por la mañana) — esos días NO
+  -- deben contar como falta.
+  (CASE WHEN sfd_full.shift_start_utc IS NOT NULL
+        AND UTC_TIMESTAMP() < sfd_full.shift_start_utc THEN 1 ELSE 0 END) AS is_future_day,
   -- is_today: el día en curso. La regla "sin checkout → fault" NO aplica a hoy
   -- (la jornada no terminó y el sync puede tener lag en traer la salida).
   (CASE WHEN sfd_full.day = DATE(?) THEN 1 ELSE 0 END) AS is_today,
   -- expected_check_in_utc = shift_start_utc base (de sfd_full), o la hora del
-  -- permiso late-arrival convertida a UTC (DST-aware) si existe.
+  -- permiso late-arrival convertida a UTC (offset fijo UTC-6) si existe.
   (CASE
     WHEN sfd_full.shift_start_utc IS NULL THEN NULL
     WHEN lap.check_in_time IS NOT NULL
       THEN TIMESTAMPADD(HOUR,
-        CASE WHEN sfd_full.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+        sfd_full.utc_offset,
         TIMESTAMP(sfd_full.day, lap.check_in_time))
     ELSE sfd_full.shift_start_utc
   END) AS expected_check_in_utc,
   -- expected_check_out_utc = shift_end_utc base (de sfd_full), o la hora del
-  -- permiso early-departure convertida a UTC (DST-aware) si existe.
+  -- permiso early-departure convertida a UTC (offset fijo UTC-6) si existe.
   (CASE
     WHEN sfd_full.shift_end_utc IS NULL THEN NULL
     WHEN edp.check_out_time IS NOT NULL
       THEN TIMESTAMPADD(HOUR,
-        CASE WHEN sfd_full.day BETWEEN ? AND ? THEN 5 ELSE 6 END,
+        sfd_full.utc_offset,
         TIMESTAMP(sfd_full.day, edp.check_out_time))
     ELSE sfd_full.shift_end_utc
   END) AS expected_check_out_utc
@@ -404,17 +439,12 @@ ORDER BY sfd_full.employee_id, sfd_full.day
 
     const bindings = [
       startDay, endDay,                  // date_range
-      dstStart, dstEnd,                  // sfd_full shift_start_utc DST
-      dstStart, dstEnd,                  // sfd_full shift_end_utc DST
-      dstStart, dstEnd,                  // sfd_full day_end_utc DST
+      dstStart, dstEnd,                  // emp_day utc_offset (DST)
       startDay, endDay,                  // late_arrival
       startDay, endDay,                  // early_departure
       startDay, endDay,                  // exception_flags
       startDay, endDay,                  // holiday
-      today,                             // is_future_day comparison
       today,                             // is_today comparison
-      dstStart, dstEnd,                  // expected_check_in (late_arrival branch)
-      dstStart, dstEnd,                  // expected_check_out (early_departure branch)
     ]
 
     const result = await db.rawQuery(sql, bindings)
@@ -466,31 +496,43 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     const isRestDay = Number(r.is_rest_day) === 1
     const isFutureDay = Number(r.is_future_day) === 1
     const isToday = Number(r.is_today) === 1
-    const hasNonGeneralExc = Number(r.has_non_general_exc) === 1
+    const hasDayExcludingExc = Number(r.has_day_excluding_exc) === 1
     const hasShift = r.shift_time_start !== null
 
     let checkInStatus = ''
     let checkOutStatus = ''
 
-    if (hasShift && !isFutureDay && !isRestDay && !isVacation && !isHoliday && !isWorkDisability && !hasNonGeneralExc) {
+    if (hasShift && !isFutureDay && !isRestDay && !isVacation && !isHoliday && !isWorkDisability && !hasDayExcludingExc) {
       // El check-out existe SOLO si hay >= 2 punches (first != last). Con 1 punch
       // ese punch es el check-in y no hubo salida — first_punch_utc === last_punch_utc
       // por el MIN/MAX, así que distinguimos con punch_count.
       const punchCount = Number(r.punch_count) || 0
       const checkOutPunch = punchCount >= 2 ? r.last_punch_utc : null
 
-      // ontime/tolerance/delay/fault → solo basado en check-in vs shift_start.
-      // El checkout NO afecta esos buckets, salvo para escalar a fault si nunca
-      // se registró checkout pasados 30 min del fin de turno (regla negocio Willy).
-      // La escalación NO aplica al día de hoy — la jornada sigue en curso.
-      checkInStatus = this.computeCheckInStatus(
-        r.first_punch_utc,
-        r.expected_check_in_utc,
-        toleranceDelay,
-        toleranceFault,
-        checkOutPunch,
-        isToday ? null : r.expected_check_out_utc
-      )
+      const hasSkipCheckoutExc = Number(r.has_skip_checkout_exc) === 1
+      const hasSkipCheckinExc = Number(r.has_skip_checkin_exc) === 1
+
+      if (hasSkipCheckinExc) {
+        // skip-checkin: el empleado tiene permiso de iniciar turno sin marcar
+        // entrada. Si registró al menos un punch en el día → ontime; si no marcó
+        // nada → fault. Replica sync_assists_service.checkInStatus (1896-1917).
+        checkInStatus = punchCount >= 1 ? 'ontime' : 'fault'
+      } else {
+        // ontime/tolerance/delay/fault → solo basado en check-in vs shift_start.
+        // El checkout NO afecta esos buckets, salvo para escalar a fault si nunca
+        // se registró checkout pasados 30 min del fin de turno (regla negocio Willy).
+        // La escalación NO aplica: (a) al día de hoy — la jornada sigue en curso;
+        // (b) si el día tiene excepción skip-checkout — el empleado tiene permiso
+        // de salir sin marcar, así que la salida ausente no es falta.
+        checkInStatus = this.computeCheckInStatus(
+          r.first_punch_utc,
+          r.expected_check_in_utc,
+          toleranceDelay,
+          toleranceFault,
+          checkOutPunch,
+          isToday || hasSkipCheckoutExc ? null : r.expected_check_out_utc
+        )
+      }
       // checkOutStatus se conserva solo para el contador independiente earlyOut.
       checkOutStatus = this.computeCheckOutStatus(
         checkOutPunch,
@@ -542,7 +584,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
         isHoliday,
         isBirthday: false,
         holiday: null,
-        hasExceptions: hasNonGeneralExc,
+        hasExceptions: hasDayExcludingExc,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         exceptions: exceptions as any,
         assitFlatList: [],
@@ -627,13 +669,13 @@ ORDER BY sfd_full.employee_id, sfd_full.day
 }
 
 /**
- * Computa los bounds del horario de verano en México para un año dado.
- * Replica sync_assists_service.getMexicoDSTChangeDates (líneas 187-196).
+ * Computa los bounds del horario de verano para un año dado.
+ * Replica sync_assists_service.getMexicoDSTChangeDates: inicio = primer domingo
+ * de abril, fin = último domingo de octubre.
  *
- * - Inicio DST: primer domingo de abril
- * - Fin DST:    último domingo de octubre
- *
- * Durante DST Mexico opera en CDT (UTC-5); fuera de DST en CST (UTC-6).
+ * Los relojes de los biométricos registran las marcaciones aplicando DST: dentro
+ * de esta ventana el offset efectivo es UTC-5, fuera de ella UTC-6. Por eso el
+ * turno (hora local) se convierte a UTC con el offset correspondiente al día.
  */
 function computeMexicoDST(year: number): { dstStart: string; dstEnd: string } {
   // Primer domingo de abril.
