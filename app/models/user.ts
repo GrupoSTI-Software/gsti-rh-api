@@ -92,6 +92,14 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column()
   declare userActive: number
 
+  /**
+   * Marca temporal de cuándo el usuario verificó su email mediante el flujo de
+   * signup self-service (OTP a correo). `null` para todos los usuarios creados
+   * antes de habilitar signup; el login legacy NO evalúa esta columna.
+   */
+  @column.dateTime()
+  declare userEmailVerifiedAt: DateTime | null
+
   @column()
   declare pinCode: string
 

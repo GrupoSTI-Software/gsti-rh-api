@@ -371,5 +371,32 @@
   "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
   "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
   "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
-  "competency_descriptor": "Descriptor de competencia"
+  "competency_descriptor": "Descriptor de competencia",
+  "auth": {
+    "signup": {
+      "otp": {
+        "subject": "Tu código de verificación es {pinCode}",
+        "preheader": "Usa este código para confirmar tu correo y continuar con tu registro.",
+        "greeting": "Hola, {firstName}",
+        "intro": "Gracias por iniciar tu registro en {tradeName}. Para confirmar que este correo te pertenece, ingresa el siguiente código en la pantalla de verificación:",
+        "code_label": "Tu código de verificación",
+        "validity": "Este código es válido por {minutes} minutos. Si caduca, podrás solicitar uno nuevo desde la misma pantalla.",
+        "ignore_notice": "Si no iniciaste el registro, ignora este correo. No realices ninguna acción adicional ni reenvíes el código a otras personas.",
+        "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+      },
+      "welcome": {
+        "subject": "¡Bienvenido a {tradeName}, {firstName}!",
+        "preheader": "Tu cuenta y tu empresa quedaron listas. Te dejamos el acceso al sistema.",
+        "greeting": "¡Hola, {firstName}!",
+        "intro": "Tu cuenta en {tradeName} y tu empresa {businessUnitName} quedaron listas. Ya puedes iniciar sesión y comenzar a configurar tu operación.",
+        "cta": "Ir al sistema",
+        "tips_title": "¿Qué sigue?",
+        "tip_one": "Completa los datos de tu perfil para personalizar tu experiencia.",
+        "tip_two": "Invita a tu equipo y define los roles que tendrá cada persona.",
+        "tip_three": "Configura los catálogos básicos que requiere tu operación.",
+        "support": "Si necesitas ayuda durante la puesta en marcha, escríbenos respondiendo al equipo de soporte que te asignaron.",
+        "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+      }
+    }
+  }
 }

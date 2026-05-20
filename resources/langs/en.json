@@ -368,5 +368,32 @@
   "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5",
   "business_unit_competency_level": "Business unit competency level",
   "the_range_min_must_be_less_than_the_range_max": "The range min must be less than the range max",
-  "competency_descriptor": "Competency descriptor"
+  "competency_descriptor": "Competency descriptor",
+  "auth": {
+    "signup": {
+      "otp": {
+        "subject": "Your verification code is {pinCode}",
+        "preheader": "Use this code to confirm your email and continue with your sign-up.",
+        "greeting": "Hi, {firstName}",
+        "intro": "Thanks for starting your sign-up at {tradeName}. To confirm this email is yours, enter the following code on the verification screen:",
+        "code_label": "Your verification code",
+        "validity": "This code is valid for {minutes} minutes. If it expires, you can request a new one from the same screen.",
+        "ignore_notice": "If you did not start this sign-up, please ignore this email. Do not take any action and do not forward the code to anyone.",
+        "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
+      },
+      "welcome": {
+        "subject": "Welcome to {tradeName}, {firstName}!",
+        "preheader": "Your account and your company are ready. Here is the link to the system.",
+        "greeting": "Hi, {firstName}!",
+        "intro": "Your account at {tradeName} and your company {businessUnitName} are ready. You can now sign in and start setting up your operation.",
+        "cta": "Go to the system",
+        "tips_title": "What's next?",
+        "tip_one": "Complete your profile details to personalize your experience.",
+        "tip_two": "Invite your team and define the role each person will have.",
+        "tip_three": "Configure the basic catalogs your operation requires.",
+        "support": "If you need help during onboarding, just reply to the support team assigned to you.",
+        "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
+      }
+    }
+  }
 }
