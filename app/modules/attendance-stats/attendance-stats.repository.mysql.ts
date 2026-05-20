@@ -207,11 +207,20 @@ emp_day AS (
   WHERE e.employee_id IN (${empIdList})
 ),
 shift_for_day AS (
+  -- Turno vigente del día = el employee_shift NO BORRADO con apply_since más
+  -- reciente <= día. El filtro employe_shifts_deleted_at IS NULL es crítico:
+  -- replica whereNull('deletedAt') de ShiftForEmployeeService.getEmployeeShifts.
+  -- Sin él, un turno borrado con apply_since posterior gana sobre el vigente
+  -- (ej: emp con rotación re-asignada — la fila vieja queda soft-deleted).
+  -- Desempate por created_at DESC: si dos turnos comparten apply_since, gana el
+  -- creado más recientemente (matchea getEmployeeShifts, que ordena por createdAt).
   SELECT ed.employee_id, ed.day, ed.employee_code, ed.business_unit_slug,
     (SELECT es2.employee_shift_id FROM employee_shifts es2
       WHERE es2.employee_id = ed.employee_id
+        AND es2.employe_shifts_deleted_at IS NULL
         AND DATE(es2.employe_shifts_apply_since) <= ed.day
-      ORDER BY es2.employe_shifts_apply_since DESC LIMIT 1) AS employee_shift_id
+      ORDER BY es2.employe_shifts_apply_since DESC, es2.employe_shifts_created_at DESC
+      LIMIT 1) AS employee_shift_id
   FROM emp_day ed
 ),
 sfd_full AS (
