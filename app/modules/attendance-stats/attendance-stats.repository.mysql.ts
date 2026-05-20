@@ -329,7 +329,7 @@ exception_flags AS (
     MAX(CASE WHEN et.exception_type_slug = 'skip-checkin' THEN 1 ELSE 0 END) AS has_skip_checkin_exc,
     MAX(CASE WHEN et.exception_type_slug IN (
       'rest-day', 'vacation', 'absence-from-work', 'change-shift',
-      'falta-por-incapacidad', 'incapacidad-por-maternidad'
+      'falta-por-incapacidad', 'incapacidad-por-maternidad', 'nuevo-ingreso'
     ) THEN 1 ELSE 0 END) AS has_day_excluding_exc
   FROM shift_exceptions se
   INNER JOIN exception_types et ON et.exception_type_id = se.exception_type_id
@@ -594,8 +594,9 @@ ORDER BY sfd_full.employee_id, sfd_full.day
 
   /**
    * Bucketea check-in vs shift_start_efectivo con granularidad de MINUTO.
-   * El diff se trunca con Math.floor — los segundos no cuentan (08:00:53 → 0 min):
-   * - diff <= 0 min: ontime (incluye llegar antes y los primeros 59s tarde)
+   * El diff se mide contra shift_start y se trunca con Math.floor — los segundos
+   * no cuentan (08:00:53 → 0 min):
+   * - diff <= 0 min: ontime (llegar antes y el primer minuto, 08:00:00–08:00:59)
    * - 1 min .. toleranceDelay (10 default): tolerance
    * - toleranceDelay+1 .. toleranceFault (30 default): delay
    * - > toleranceFault: fault
@@ -622,7 +623,9 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     if (!firstPunchUtc) {
       status = 'fault'
     } else {
-      // Math.floor trunca segundos: minuto incompleto no cuenta como tardanza.
+      // Math.floor trunca los segundos: el minuto incompleto no cuenta como
+      // tardanza. ontime cubre el primer minuto del turno (08:00:00–08:00:59);
+      // desde 08:01:00 ya es tolerance. Sin gracia adicional.
       const diffMinutes = Math.floor(
         (new Date(firstPunchUtc).getTime() - new Date(expectedCheckInUtc).getTime()) / 60000
       )
