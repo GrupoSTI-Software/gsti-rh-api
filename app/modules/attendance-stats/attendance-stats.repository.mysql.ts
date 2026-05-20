@@ -44,8 +44,9 @@ import type { AttendanceStatsRepository } from './attendance-stats.repository.js
  *    rotación diga descanso) que aquí se simplifican.
  *
  * 4. Shift changes (employee_shift_changes):
- *    NO se considera por ahora. El día usa el shift asignado en employee_shifts.
- *    Para empleados que cambian de turno mid-día, el resultado puede diferir.
+ *    SÍ se consideran (CTE shift_change_for_day). Si un (empleado, día) tiene un
+ *    cambio en el lado "from", ese día usa el shift_id_to y su descanso lo dicta
+ *    date_to_is_rest_day. Replica sync_assists_service.hasOtherShift.
  *
  * Si necesitas paridad 100%, usar la versión anterior bulk-load + getEmployeeCalendar.
  */
@@ -177,6 +178,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
    * Estructura:
    * - date_range: recursive CTE para enumerar los días [startDay, endDay].
    * - emp_day: cross-join empleados × días.
+   * - shift_change_for_day: override de turno/descanso por employee_shift_changes.
    * - shift_for_day: para cada (emp, day), el último employee_shift aplicable.
    * - punches: agregado de punches por (emp_code, mexico_day) con first/last.
    * - exceptions_for_day: agregado de excepciones por (emp_id, day) con flags por tipo.
@@ -214,6 +216,34 @@ emp_day AS (
   LEFT JOIN business_units bu ON bu.business_unit_id = e.business_unit_id
   WHERE e.employee_id IN (${empIdList})
 ),
+shift_change_for_day AS (
+  -- Cambios de turno (employee_shift_changes): para el empleado en el lado
+  -- "from" del cambio, el día date_from se reasigna al shift_id_to y su descanso
+  -- lo dicta date_to_is_rest_day. Cubre swaps entre empleados y cambios self
+  -- (en ambos casos cada lado afectado existe como una fila con su employee_id_from).
+  -- Replica sync_assists_service.hasOtherShift (1418-1457): la búsqueda es por
+  -- employee_id_from + DATE(date_from); ante varias filas el sync toma la primera
+  -- (orden de PK) — aquí se resuelve con MIN(id). El INNER JOIN a shifts replica
+  -- el guard "if (shiftTo)" del sync: si el shift_id_to está borrado o no existe,
+  -- el cambio se ignora y el día conserva su turno regular.
+  SELECT esc.employee_id_from AS employee_id,
+    DATE(esc.employee_shift_change_date_from) AS day,
+    esc.shift_id_to AS change_shift_id,
+    esc.employee_shift_change_date_to_is_rest_day AS change_is_rest_day
+  FROM employee_shift_changes esc
+  INNER JOIN shifts s_to ON s_to.shift_id = esc.shift_id_to
+    AND s_to.shift_deleted_at IS NULL
+  WHERE esc.employee_id_from IN (${empIdList})
+    AND DATE(esc.employee_shift_change_date_from) BETWEEN ? AND ?
+    AND esc.employee_shift_change_deleted_at IS NULL
+    AND esc.employee_shift_change_id = (
+      SELECT MIN(esc2.employee_shift_change_id)
+      FROM employee_shift_changes esc2
+      WHERE esc2.employee_id_from = esc.employee_id_from
+        AND DATE(esc2.employee_shift_change_date_from) = DATE(esc.employee_shift_change_date_from)
+        AND esc2.employee_shift_change_deleted_at IS NULL
+    )
+),
 shift_for_day AS (
   -- Turno vigente del día = el employee_shift NO BORRADO con apply_since más
   -- reciente <= día. El filtro employe_shifts_deleted_at IS NULL es crítico:
@@ -243,6 +273,10 @@ sfd_full AS (
     s.shift_time_start, s.shift_active_hours, s.shift_rest_days,
     s.shift_calculate_flag,
     DATE(es.employe_shifts_apply_since) AS apply_since,
+    -- Override por cambio de turno: has_shift_change marca que el día fue
+    -- reasignado, change_is_rest_day dicta el descanso de ese día.
+    (CASE WHEN scd.change_shift_id IS NOT NULL THEN 1 ELSE 0 END) AS has_shift_change,
+    scd.change_is_rest_day AS change_is_rest_day,
     (CASE WHEN s.shift_time_start IS NULL THEN NULL
       ELSE TIMESTAMPADD(HOUR, sfd.utc_offset,
         TIMESTAMP(sfd.day, s.shift_time_start))
@@ -260,8 +294,11 @@ sfd_full AS (
     TIMESTAMPADD(HOUR, sfd.utc_offset,
       TIMESTAMP(sfd.day, '23:59:59')) AS day_end_utc
   FROM shift_for_day sfd
+  LEFT JOIN shift_change_for_day scd
+    ON scd.employee_id = sfd.employee_id AND scd.day = sfd.day
   LEFT JOIN employee_shifts es ON es.employee_shift_id = sfd.employee_shift_id
-  LEFT JOIN shifts s ON s.shift_id = es.shift_id
+  -- El turno efectivo es el del cambio (change_shift_id) si existe, si no el regular.
+  LEFT JOIN shifts s ON s.shift_id = COALESCE(scd.change_shift_id, es.shift_id)
 ),
 punches_for_shift AS (
   -- Correlaciona punches con un (empleado, día). La ventana depende de si el
@@ -274,7 +311,11 @@ punches_for_shift AS (
   --   * Turno CROSS-DAY (nocturno): ventana = [shift_start - 3h, shift_end + 3h].
   --     No se extiende a day_start porque el check-out cae al día siguiente y
   --     ampliar el límite inferior duplicaría punches con el turno vecino.
-  SELECT sfd.employee_id, sfd.day,
+  -- NO_MERGE(sfd): obliga a materializar sfd_full UNA vez (~4k filas) en lugar de
+  -- re-evaluarla por cada fila de assists. Sin el hint, MySQL fusiona sfd_full
+  -- en este join y resuelve turno/cambio-de-turno millones de veces (la consulta
+  -- pasaba de ~5s a ~25s+). Materializada, los lookups corren ~4k veces.
+  SELECT /*+ NO_MERGE(sfd) */ sfd.employee_id, sfd.day,
     MIN(a.assist_punch_time_utc) AS first_punch_utc,
     MAX(a.assist_punch_time_utc) AS last_punch_utc,
     COUNT(*) AS punch_count
@@ -357,7 +398,7 @@ work_disab_for_day AS (
     AND wdp.work_disability_period_deleted_at IS NULL
   GROUP BY wd.employee_id, dr.d
 )
-SELECT
+SELECT /*+ NO_MERGE(sfd_full) */
   sfd_full.employee_id, sfd_full.day, sfd_full.shift_id,
   sfd_full.shift_time_start, sfd_full.shift_active_hours, sfd_full.shift_rest_days,
   p.first_punch_utc, p.last_punch_utc, COALESCE(p.punch_count, 0) AS punch_count,
@@ -379,11 +420,14 @@ SELECT
            OR FIND_IN_SET(sfd_full.business_unit_slug, hfd.holiday_business_units) > 0)
   ) THEN 1 ELSE 0 END) AS is_holiday,
   COALESCE(wd.is_work_disability, 0) AS is_work_disability,
-  -- is_rest_day: para turnos rotativos (24x48, 12x36, etc.) el descanso depende
-  -- del ciclo desde apply_since; para turnos fijos depende de shift_rest_days (CSV
-  -- de días de semana, luxon convention 1=lun..7=dom). Replica calendarDayStatus
-  -- de sync_assists_service.ts:2558-2592.
+  -- is_rest_day: si el día tiene cambio de turno, el descanso lo dicta el cambio
+  -- (change_is_rest_day) — tiene prioridad sobre la rotación/shift_rest_days.
+  -- Para turnos rotativos (24x48, 12x36, etc.) el descanso depende del ciclo desde
+  -- apply_since; para turnos fijos depende de shift_rest_days (CSV de días de
+  -- semana, luxon convention 1=lun..7=dom). Replica calendarDayStatus +
+  -- hasOtherShift de sync_assists_service.ts:2558-2592 / 1418-1457.
   (CASE
+    WHEN sfd_full.has_shift_change = 1 THEN COALESCE(sfd_full.change_is_rest_day, 0)
     WHEN sfd_full.shift_calculate_flag = '24x48'
       THEN (CASE WHEN MOD(DATEDIFF(sfd_full.day, sfd_full.apply_since), 3) IN (1, 2) THEN 1 ELSE 0 END)
     WHEN sfd_full.shift_calculate_flag = '12x36'
@@ -397,14 +441,22 @@ SELECT
     THEN 1
     ELSE 0
   END) AS is_rest_day,
-  -- is_future_day: el turno del día AÚN NO INICIA (ahora < hora de inicio).
-  -- Replica sync_assists_service.isFutureDay (líneas 2275-2295): un día es
-  -- "futuro" mientras el instante actual sea anterior al shift_start. Esto cubre
-  -- tanto días calendario posteriores como el día en curso cuyo turno todavía
-  -- no comenzó (ej: turno nocturno consultado por la mañana) — esos días NO
-  -- deben contar como falta.
-  (CASE WHEN sfd_full.shift_start_utc IS NOT NULL
-        AND UTC_TIMESTAMP() < sfd_full.shift_start_utc THEN 1 ELSE 0 END) AS is_future_day,
+  -- is_future_day: el turno del día AÚN NO INICIA en tiempo real (ahora < inicio).
+  -- Un día "futuro" no cuenta como falta: cubre días calendario posteriores y el
+  -- día en curso cuyo turno todavía no comenzó (ej: turno nocturno consultado por
+  -- la mañana).
+  --
+  -- OJO — aquí NO se usa shift_start_utc. Ese valor lleva el offset DST del
+  -- biométrico (+5 en verano) para alinearse con assist_punch_time_utc, que vive
+  -- en ese "UTC falso" 1 h atrasado del UTC real. Pero UTC_TIMESTAMP() es UTC
+  -- real, y la hora del turno es hora civil de México (UTC-6 fijo desde que se
+  -- abolió el DST civil en 2022). Comparar UTC real contra shift_start_utc (+5)
+  -- adelantaba el inicio del turno 1 h en verano y marcaba falta a empleados
+  -- cuyo turno aún no empezaba. Por eso el instante real de inicio se calcula
+  -- con +6 (offset civil), no con utc_offset.
+  (CASE WHEN sfd_full.shift_time_start IS NOT NULL
+        AND UTC_TIMESTAMP() < TIMESTAMPADD(HOUR, 6, TIMESTAMP(sfd_full.day, sfd_full.shift_time_start))
+        THEN 1 ELSE 0 END) AS is_future_day,
   -- is_today: el día en curso. La regla "sin checkout → fault" NO aplica a hoy
   -- (la jornada no terminó y el sync puede tener lag en traer la salida).
   (CASE WHEN sfd_full.day = DATE(?) THEN 1 ELSE 0 END) AS is_today,
@@ -438,13 +490,21 @@ ORDER BY sfd_full.employee_id, sfd_full.day
 `
 
     const bindings = [
-      startDay, endDay,                  // date_range
-      dstStart, dstEnd,                  // emp_day utc_offset (DST)
-      startDay, endDay,                  // late_arrival
-      startDay, endDay,                  // early_departure
-      startDay, endDay,                  // exception_flags
-      startDay, endDay,                  // holiday
-      today,                             // is_today comparison
+      `${startDay}`,
+      `${endDay}`,
+      `${dstStart}`,
+      `${dstEnd}`,
+      `${startDay}`,
+      `${endDay}`,
+      `${startDay}`,
+      `${endDay}`,
+      `${startDay}`,
+      `${endDay}`,
+      `${startDay}`,
+      `${endDay}`,
+      `${startDay}`,
+      `${endDay}`,
+      `${today}`,
     ]
 
     const result = await db.rawQuery(sql, bindings)

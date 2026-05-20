@@ -12,6 +12,7 @@ import type {
   AttendanceStatistics,
   AttendanceStatsFilters,
   CleanCounters,
+  DailyStatsRow,
   DepartmentRow,
   EmployeeRow,
   InformationalCounters,
@@ -132,13 +133,37 @@ export default class AttendanceStatsService {
 
     const totalClean = emptyClean()
     const totalInfo = emptyInformational()
+    // Acumuladores por fecha (yyyy-MM-dd) para el desglose diario.
+    const byDay = new Map<string, { clean: CleanCounters; informational: InformationalCounters }>()
+
     for (const bundle of bundles) {
-      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
-      addClean(totalClean, clean)
-      addInformational(totalInfo, informational)
+      for (const day of bundle.calendar) {
+        const { clean, informational } = classifyDay(day, thresholds)
+        addClean(totalClean, clean)
+        addInformational(totalInfo, informational)
+
+        let acc = byDay.get(day.day)
+        if (!acc) {
+          acc = { clean: emptyClean(), informational: emptyInformational() }
+          byDay.set(day.day, acc)
+        }
+        addClean(acc.clean, clean)
+        addInformational(acc.informational, informational)
+      }
     }
 
     const statistics = this.toStatistics(totalClean, totalInfo)
+
+    // Todos los días del rango, incluso los que no tienen registros evaluables.
+    const daily: DailyStatsRow[] = enumerateDays(filters.startDay, filters.endDay).map((d) => {
+      const acc = byDay.get(d)
+      return {
+        day: d,
+        statistics: acc
+          ? this.toStatistics(acc.clean, acc.informational)
+          : this.toStatistics(emptyClean(), emptyInformational()),
+      }
+    })
 
     return {
       status: 200,
@@ -152,6 +177,7 @@ export default class AttendanceStatsService {
           endDay: filters.endDay,
           evaluableDays: statistics.totalAvailable,
         },
+        daily,
       },
     }
   }
@@ -351,11 +377,56 @@ function addInformational(dst: InformationalCounters, src: InformationalCounters
 }
 
 /**
- * Recorre el calendario en-memoria de UN empleado y produce sus counters.
+ * Clasifica UN día-empleado en sus counters (clean + informational). Unidad
+ * atómica de agregación reutilizada por `aggregateCalendar` (suma sobre el
+ * calendario de un empleado) y por `getOverview` (agrupa por fecha para el
+ * desglose diario).
  * - Aplica el filtro evaluable (rest, vacation, holiday, work disability, excepciones no-generales).
  * - Para días con permiso late-arrival, recompute check_in_status contra la hora autorizada.
  * - Para días con permiso early-departure, neutraliza el earlyOut si la salida fue posterior a la hora autorizada.
  * - Suma a contadores informativos (vacaciones, festivos, faltas justificadas) en paralelo.
+ */
+export function classifyDay(
+  day: AssistDayInterface,
+  thresholds: ToleranceThresholds
+): { clean: CleanCounters; informational: InformationalCounters } {
+  const clean = emptyClean()
+  const info = emptyInformational()
+
+  // Contadores informativos (independientes del cierre 100%).
+  if (day.assist.isVacationDate) info.vacations += 1
+  if (day.assist.isHoliday) info.holidays += 1
+  if (hasJustifiedAbsenceException(day.assist.exceptions)) info.justifiedAbsences += 1
+
+  // Filtro evaluable.
+  if (!isEvaluableDay(day)) return { clean, informational: info }
+
+  const lateArrival = findException(day.assist.exceptions, 'late-arrival')
+  const earlyDeparture = findException(day.assist.exceptions, 'early-departure')
+
+  // Recompute check_in_status si hay permiso de llegada tarde.
+  const effectiveStatus = lateArrival
+    ? computeCheckInStatusWithPermission(day, lateArrival, thresholds)
+    : mapStoredStatus(day.assist.checkInStatus)
+
+  if (effectiveStatus === 'ontime') clean.assists += 1
+  else if (effectiveStatus === 'tolerance') clean.tolerances += 1
+  else if (effectiveStatus === 'delay') clean.delays += 1
+  else if (effectiveStatus === 'fault') clean.faults += 1
+
+  // earlyOut: solo cuenta si check_out_status='delay' Y no hay permiso que lo neutralice.
+  if (day.assist.checkOutStatus === 'delay') {
+    if (!earlyDeparture || isStillEarlyAfterPermission(day, earlyDeparture, thresholds)) {
+      clean.earlyOuts += 1
+    }
+  }
+
+  return { clean, informational: info }
+}
+
+/**
+ * Recorre el calendario en-memoria de UN empleado y produce sus counters
+ * sumando `classifyDay` sobre cada día.
  */
 export function aggregateCalendar(
   calendar: AssistDayInterface[],
@@ -363,38 +434,28 @@ export function aggregateCalendar(
 ): { clean: CleanCounters; informational: InformationalCounters } {
   const clean = emptyClean()
   const info = emptyInformational()
-
   for (const day of calendar) {
-    // Contadores informativos (independientes del cierre 100%).
-    if (day.assist.isVacationDate) info.vacations += 1
-    if (day.assist.isHoliday) info.holidays += 1
-    if (hasJustifiedAbsenceException(day.assist.exceptions)) info.justifiedAbsences += 1
-
-    // Filtro evaluable.
-    if (!isEvaluableDay(day)) continue
-
-    const lateArrival = findException(day.assist.exceptions, 'late-arrival')
-    const earlyDeparture = findException(day.assist.exceptions, 'early-departure')
-
-    // Recompute check_in_status si hay permiso de llegada tarde.
-    const effectiveStatus = lateArrival
-      ? computeCheckInStatusWithPermission(day, lateArrival, thresholds)
-      : mapStoredStatus(day.assist.checkInStatus)
-
-    if (effectiveStatus === 'ontime') clean.assists += 1
-    else if (effectiveStatus === 'tolerance') clean.tolerances += 1
-    else if (effectiveStatus === 'delay') clean.delays += 1
-    else if (effectiveStatus === 'fault') clean.faults += 1
-
-    // earlyOut: solo cuenta si check_out_status='delay' Y no hay permiso que lo neutralice.
-    if (day.assist.checkOutStatus === 'delay') {
-      if (!earlyDeparture || isStillEarlyAfterPermission(day, earlyDeparture, thresholds)) {
-        clean.earlyOuts += 1
-      }
-    }
+    const r = classifyDay(day, thresholds)
+    addClean(clean, r.clean)
+    addInformational(info, r.informational)
   }
-
   return { clean, informational: info }
+}
+
+/**
+ * Enumera todos los días [startDay, endDay] inclusive en formato yyyy-MM-dd.
+ * Comparación por fecha pura (sin componente horario): las fechas son días
+ * laborales del huso México y el servidor corre en UTC.
+ */
+function enumerateDays(startDay: string, endDay: string): string[] {
+  const days: string[] = []
+  let cursor = DateTime.fromISO(startDay)
+  const end = DateTime.fromISO(endDay)
+  while (cursor.isValid && cursor <= end) {
+    days.push(cursor.toFormat('yyyy-MM-dd'))
+    cursor = cursor.plus({ days: 1 })
+  }
+  return days
 }
 
 function isEvaluableDay(day: AssistDayInterface): boolean {

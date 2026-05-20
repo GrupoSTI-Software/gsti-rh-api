@@ -46,6 +46,15 @@ export interface AttendanceStatistics extends CleanCounters, InformationalCounte
   faultPercentage: number
 }
 
+/**
+ * Estadísticas de UN día calendario del período, agregadas sobre todos los
+ * empleados del scope. `day` en formato yyyy-MM-dd (día laboral huso México).
+ */
+export interface DailyStatsRow {
+  day: string
+  statistics: AttendanceStatistics
+}
+
 export interface OverviewResponse {
   statistics: AttendanceStatistics
   period: {
@@ -57,6 +66,12 @@ export interface OverviewResponse {
      */
     evaluableDays: number
   }
+  /**
+   * Desglose día por día. Incluye TODOS los días del rango [startDay, endDay]
+   * inclusive, ordenados ascendente. Un día sin registros evaluables aparece con
+   * totalAvailable=0 (puede traer informativos como holidays/vacations > 0).
+   */
+  daily: DailyStatsRow[]
 }
 
 export interface DepartmentInfo {

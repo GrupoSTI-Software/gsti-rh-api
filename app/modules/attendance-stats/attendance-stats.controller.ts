@@ -19,6 +19,8 @@ export default class AttendanceStatsController {
    *     description: |
    *       Devuelve contadores y porcentajes (ontime, tolerance, delay, fault, early-out) agregados sobre todos los empleados del scope del usuario, filtrados opcionalmente por departamento/empleado/unidad de negocio/sucursal.
    *
+   *       Incluye además `daily`: un arreglo con las mismas estadísticas desglosadas por cada día del rango `[startDay, endDay]` inclusive, ordenado ascendente. Los días sin registros evaluables aparecen con `totalAvailable: 0`.
+   *
    *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header; el cliente es responsable de enviar la fecha mexicana correcta (no la fecha local del cliente si está fuera de México).
    *     security:
    *       - bearerAuth: []
