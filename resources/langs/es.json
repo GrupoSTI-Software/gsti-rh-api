@@ -371,5 +371,393 @@
   "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
   "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
   "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
-  "competency_descriptor": "Descriptor de competencia"
+  "competency_descriptor": "Descriptor de competencia",
+  "regulatory": {
+    "authorities": {
+      "stps": {
+        "description": "La Secretaría del Trabajo y Previsión Social (STPS) es la dependencia del gobierno federal mexicano responsable de promover el empleo, regular las relaciones laborales y garantizar condiciones de trabajo dignas y seguras para los trabajadores.",
+        "audit_description": "La STPS emite Normas Oficiales Mexicanas (NOM) de seguridad y salud en el trabajo, realiza inspecciones laborales y sanciona incumplimientos. Sus normas son de observancia obligatoria para todos los centros de trabajo en México."
+      },
+      "imss": {
+        "description": "El Instituto Mexicano del Seguro Social (IMSS) es el organismo de seguridad social más grande de México, responsable de brindar servicios de salud, pensiones y prestaciones sociales a trabajadores y sus familias.",
+        "audit_description": "El IMSS verifica el cumplimiento de las obligaciones patronales en materia de afiliación, pago de cuotas obrero-patronales y prestaciones de seguridad social. Las irregularidades pueden resultar en créditos fiscales, multas y recargos."
+      },
+      "infonavit": {
+        "description": "El Instituto del Fondo Nacional de la Vivienda para los Trabajadores (INFONAVIT) administra el fondo de vivienda de los trabajadores y otorga créditos hipotecarios a los derechohabientes.",
+        "audit_description": "El INFONAVIT fiscaliza el correcto entero de las aportaciones patronales del 5% sobre el salario integrado de los trabajadores. El incumplimiento genera créditos fiscales y puede afectar el acceso de los trabajadores a sus derechos habitacionales."
+      },
+      "repse": {
+        "description": "El Registro de Prestadoras de Servicios Especializados u Obras Especializadas (REPSE) es el padrón obligatorio para empresas que prestan servicios especializados o ejecutan obras especializadas mediante subcontratación.",
+        "audit_description": "La STPS, a través del REPSE, verifica que las empresas contratistas y subcontratistas estén debidamente registradas y que los contratos de servicios especializados cumplan con los requisitos de la reforma en materia de subcontratación (Decreto DOF 23/04/2021)."
+      },
+      "jfca": {
+        "description": "La Junta Federal de Conciliación y Arbitraje (JFCA) es el tribunal laboral federal encargado de resolver conflictos individuales y colectivos de trabajo en industrias de jurisdicción federal.",
+        "audit_description": "La JFCA atiende demandas laborales individuales y colectivas, conflictos sindicales y registros de contratos colectivos. Es esencial llevar un expediente laboral completo y actualizado para defender adecuadamente a la empresa ante esta autoridad."
+      },
+      "sat": {
+        "description": "El Servicio de Administración Tributaria (SAT) es el organismo desconcentrado de la Secretaría de Hacienda encargado de la recaudación y fiscalización de impuestos federales en México.",
+        "audit_description": "El SAT fiscaliza el cumplimiento de obligaciones fiscales relacionadas con nómina: ISR por salarios, IVA en servicios especializados, emisión de CFDI de nómina y correcta deducción de gastos laborales. Las irregularidades pueden resultar en créditos fiscales, multas y posibles sanciones penales."
+      },
+      "inai": {
+        "description": "El Instituto Nacional de Transparencia, Acceso a la Información y Protección de Datos Personales (INAI) es el organismo autónomo que garantiza el derecho de acceso a la información pública y la protección de datos personales.",
+        "audit_description": "El INAI supervisa el cumplimiento de la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP). Los empleadores deben implementar un aviso de privacidad para empleados, obtener consentimiento para tratamiento de datos sensibles y establecer medidas de seguridad adecuadas."
+      },
+      "consar": {
+        "description": "La Comisión Nacional del Sistema de Ahorro para el Retiro (CONSAR) regula y supervisa el Sistema de Ahorro para el Retiro (SAR), incluyendo las AFORES y SIEFORES que administran el ahorro para el retiro de los trabajadores.",
+        "audit_description": "La CONSAR verifica el correcto entero de las aportaciones al SAR (cuotas de retiro, cesantía y vejez), tanto patronales como del gobierno. Los errores en el registro de salarios o en la transmisión de movimientos afiliatorios pueden resultar en descuentos al saldo de retiro del trabajador."
+      }
+    },
+    "regulations": {
+      "nom_035_stps_2018": {
+        "scope": "Aplica a todos los centros de trabajo en México. Centros con hasta 15 trabajadores implementan medidas básicas; los de 16 a 50 aplican la política y los controles mínimos; los de más de 50 trabajadores cumplen con todos los requisitos incluyendo evaluación de factores de riesgo psicosocial.",
+        "audit_description": "Norma de cumplimiento obligatorio que establece elementos para identificar, analizar y prevenir los factores de riesgo psicosocial. La STPS puede sancionar con multas de 50 a 5,000 veces la UMA (aprox. $5,200 a $520,000 MXN) por incumplimiento de sus disposiciones."
+      }
+    },
+    "clauses": {
+      "nom_035_stps_2018": {
+        "5": {
+          "title": "Capítulo 5 — Obligaciones del empleador",
+          "obligation": "El empleador debe cumplir con las obligaciones establecidas en el presente capítulo para identificar, analizar, prevenir y controlar los factores de riesgo psicosocial.",
+          "explanation": "El empleador es el principal responsable de garantizar un entorno organizacional favorable y de implementar todas las acciones requeridas por la NOM-035.",
+          "rationale": "Las obligaciones del empleador son la base de la norma; sin su cumplimiento no es posible proteger la salud mental de los trabajadores.",
+          "audit_criteria": "Verificar que el empleador cuente con política, diagnósticos, planes de acción y registros actualizados conforme a la norma."
+        },
+        "5_1": {
+          "title": "5.1 — Política de prevención de riesgos psicosociales",
+          "obligation": "El empleador debe contar con una política de prevención de riesgos psicosociales que contemple: la prevención de los factores de riesgo psicosocial, la promoción de un entorno organizacional favorable y la prevención de la violencia laboral.",
+          "explanation": "Se requiere redactar, aprobar y difundir un documento de política firmado por la dirección que cubra los tres elementos obligatorios.",
+          "rationale": "La política es la declaración formal del compromiso de la organización con la salud mental laboral.",
+          "audit_criteria": "Revisar el documento de política: existencia, firma de dirección, fecha, contenido de los tres elementos y evidencia de difusión."
+        },
+        "5_1_1": {
+          "title": null,
+          "obligation": "La política debe contemplar la prevención de los factores de riesgo psicosocial.",
+          "explanation": "Incluir explícitamente en la política la intención de identificar y controlar los factores de riesgo psicosocial.",
+          "rationale": "Sin esta declaración explícita la política no cumple el requisito mínimo de la norma.",
+          "audit_criteria": "Confirmar que el texto de la política menciona la prevención de factores de riesgo psicosocial."
+        },
+        "5_1_2": {
+          "title": null,
+          "obligation": "La política debe promover un entorno organizacional favorable.",
+          "explanation": "El documento debe comprometerse a crear condiciones de trabajo que favorezcan el bienestar y la salud mental.",
+          "rationale": "El entorno organizacional favorable es el objetivo central de la NOM-035.",
+          "audit_criteria": "Verificar que la política declara el compromiso de promover un entorno organizacional favorable."
+        },
+        "5_1_3": {
+          "title": null,
+          "obligation": "La política debe incluir la prevención de la violencia laboral.",
+          "explanation": "Declarar expresamente el compromiso de prevenir, atender y sancionar cualquier acto de violencia laboral.",
+          "rationale": "La violencia laboral es uno de los factores de riesgo psicosocial más graves y tiene consecuencias legales directas.",
+          "audit_criteria": "Confirmar que la política aborda la prevención de la violencia laboral con mecanismos de atención definidos."
+        },
+        "5_2": {
+          "title": "5.2 — Identificación y análisis de factores de riesgo psicosocial",
+          "obligation": "El empleador debe identificar y analizar los factores de riesgo psicosocial utilizando las guías de referencia de la norma o instrumentos equivalentes validados.",
+          "explanation": "Aplicar el cuestionario o guía de referencia a todos los trabajadores para detectar las condiciones que generan riesgo psicosocial.",
+          "rationale": "Sin identificación no es posible implementar controles efectivos; este paso es el diagnóstico de la norma.",
+          "audit_criteria": "Solicitar el instrumento de evaluación aplicado, el universo de trabajadores evaluados, la fecha y los resultados obtenidos."
+        },
+        "5_2_1": {
+          "title": null,
+          "obligation": "La identificación debe abarcar todos los factores de riesgo psicosocial definidos en la norma: condiciones del ambiente de trabajo, cargas de trabajo, falta de control sobre el trabajo, jornadas de trabajo superiores a las previstas en la LFT, interferencia trabajo-familia, liderazgo negativo, relaciones negativas en el trabajo y violencia laboral.",
+          "explanation": "El instrumento aplicado debe cubrir sin excepción todos los dominios de riesgo psicosocial listados en la NOM-035.",
+          "rationale": "Omitir algún factor invalida el diagnóstico y deja sin cobertura áreas de riesgo real para los trabajadores.",
+          "audit_criteria": "Revisar que el instrumento y el informe de resultados contengan análisis de todos los factores listados en la norma."
+        },
+        "5_2_2": {
+          "title": null,
+          "obligation": "Cuando el resultado de la identificación revele factores de riesgo psicosocial, el empleador debe realizar el análisis para determinar las medidas de control necesarias.",
+          "explanation": "Los resultados del diagnóstico deben procesarse para priorizar los controles según el nivel de riesgo identificado.",
+          "rationale": "El análisis convierte los datos crudos en información accionable para proteger la salud de los trabajadores.",
+          "audit_criteria": "Verificar que existe un informe de análisis posterior a la evaluación con priorización de riesgos y propuesta de controles."
+        },
+        "5_3": {
+          "title": "5.3 — Adopción de medidas de prevención y control",
+          "obligation": "El empleador debe adoptar las medidas necesarias para prevenir y controlar los factores de riesgo psicosocial identificados.",
+          "explanation": "Con base en el análisis, implementar acciones concretas para eliminar o reducir los factores de riesgo identificados.",
+          "rationale": "La implementación de controles es el corazón de la norma; el diagnóstico sin acción no cumple el objetivo de proteger la salud.",
+          "audit_criteria": "Solicitar el plan de acción con medidas, responsables, fechas y evidencia de implementación."
+        },
+        "5_3_1": {
+          "title": null,
+          "obligation": "Las medidas deben orientarse a eliminar o disminuir los factores de riesgo psicosocial identificados.",
+          "explanation": "Priorizar la eliminación de la fuente del riesgo; cuando no sea posible, reducir su intensidad o duración.",
+          "rationale": "La jerarquía de controles exige actuar primero sobre la fuente antes de recurrir a controles administrativos o EPP.",
+          "audit_criteria": "Verificar que las medidas del plan de acción corresponden directamente a los factores de riesgo identificados en el diagnóstico."
+        },
+        "5_3_2": {
+          "title": null,
+          "obligation": "Las medidas deben promover un entorno organizacional favorable.",
+          "explanation": "Además de eliminar riesgos, implementar acciones proactivas que mejoren el clima organizacional y el bienestar de los trabajadores.",
+          "rationale": "El enfoque de la norma es dual: eliminar lo negativo y fortalecer lo positivo en el entorno de trabajo.",
+          "audit_criteria": "Confirmar que el plan incluye acciones de mejora del entorno organizacional, no solo controles reactivos."
+        },
+        "5_4": {
+          "title": "5.4 — Difusión de la política y los resultados",
+          "obligation": "El empleador debe difundir la política de prevención de riesgos psicosociales entre los trabajadores y hacerles conocer los resultados de la identificación y análisis.",
+          "explanation": "Comunicar formalmente a todos los trabajadores la política vigente y los hallazgos del diagnóstico aplicado.",
+          "rationale": "La participación informada de los trabajadores es un requisito de la norma y un factor clave de éxito del programa.",
+          "audit_criteria": "Revisar registros de difusión: listas de asistencia, constancias de comunicación o publicación visible en instalaciones."
+        },
+        "5_4_1": {
+          "title": null,
+          "obligation": "Difundir la política de prevención de riesgos psicosociales entre todos los trabajadores del centro de trabajo.",
+          "explanation": "Garantizar que el 100% de los trabajadores conocen la política, utilizando los medios de comunicación apropiados para el centro de trabajo.",
+          "rationale": "Una política que los trabajadores desconocen no genera el cambio cultural que la norma persigue.",
+          "audit_criteria": "Solicitar evidencia de difusión con fechas y cobertura: publicaciones, correos, reuniones o carteles."
+        },
+        "5_4_2": {
+          "title": null,
+          "obligation": "Dar a conocer a los trabajadores los resultados de la identificación y análisis de los factores de riesgo psicosocial.",
+          "explanation": "Comunicar los resultados del diagnóstico de manera comprensible, sin comprometer la confidencialidad individual.",
+          "rationale": "La transparencia genera confianza y motiva la participación activa de los trabajadores en las soluciones.",
+          "audit_criteria": "Verificar que los trabajadores recibieron comunicación sobre los resultados generales del diagnóstico."
+        },
+        "5_5": {
+          "title": "5.5 — Promover el entorno organizacional favorable",
+          "obligation": "El empleador debe promover activamente un entorno organizacional favorable mediante acciones que fomenten el buen trato, el trabajo en equipo, la capacitación y el reconocimiento.",
+          "explanation": "Implementar programas y prácticas que fortalezcan los factores protectores del ambiente laboral.",
+          "rationale": "Un entorno organizacional favorable reduce la incidencia de estrés, burnout y violencia laboral.",
+          "audit_criteria": "Revisar evidencia de acciones de mejora del entorno: programas de bienestar, capacitaciones, reconocimientos y encuestas de clima."
+        },
+        "5_6": {
+          "title": "5.6 — Atención a trabajadores expuestos a violencia laboral",
+          "obligation": "El empleador debe disponer de mecanismos para atender a los trabajadores que hayan sido sujetos de violencia laboral o que manifiesten síntomas asociados a factores de riesgo psicosocial.",
+          "explanation": "Establecer canales de reporte, protocolos de atención y derivación a servicios de salud cuando sea necesario.",
+          "rationale": "La atención oportuna reduce el daño en la salud y las responsabilidades legales del empleador.",
+          "audit_criteria": "Verificar la existencia de protocolos de atención, registros de casos atendidos y mecanismos de seguimiento."
+        },
+        "5_7": {
+          "title": "5.7 — Práctica de exámenes médicos",
+          "obligation": "El empleador debe practicar exámenes médicos y evaluaciones psicológicas al personal expuesto a factores de riesgo psicosocial, conforme a la norma NOM-030-STPS-2009.",
+          "explanation": "Realizar, con la periodicidad indicada, exámenes específicos para detectar daños a la salud derivados de la exposición a riesgos psicosociales.",
+          "rationale": "La vigilancia médica permite detectar afectaciones tempranas y actuar preventivamente antes de que escalen.",
+          "audit_criteria": "Solicitar los registros de los exámenes médicos y evaluaciones psicológicas practicados, incluyendo fechas y cobertura del personal expuesto."
+        },
+        "5_8": {
+          "title": "5.8 — Registros y conservación de información",
+          "obligation": "El empleador debe llevar registros sobre la identificación y análisis de los factores de riesgo psicosocial, las medidas adoptadas y los resultados de las evaluaciones, conservándolos al menos 4 años.",
+          "explanation": "Mantener expedientes actualizados con toda la documentación generada en la implementación de la norma, durante el tiempo mínimo establecido.",
+          "rationale": "Los registros son la evidencia del cumplimiento ante una inspección de la STPS y demuestran la trazabilidad del programa.",
+          "audit_criteria": "Solicitar los registros de las evaluaciones, planes de acción, exámenes médicos y cualquier documentación generada en la implementación de la norma."
+        },
+        "5_8_a": {
+          "title": null,
+          "obligation": "Conservar los registros de la identificación y análisis de los factores de riesgo psicosocial durante al menos 4 años.",
+          "explanation": "Archivar los instrumentos aplicados, los resultados crudos y los informes de análisis de cada ciclo de evaluación.",
+          "rationale": "La retención de 4 años permite comparar tendencias entre ciclos y demuestra continuidad del programa ante la autoridad.",
+          "audit_criteria": "Verificar que los registros de identificación y análisis están disponibles para los últimos 4 años de operación."
+        },
+        "5_8_b": {
+          "title": null,
+          "obligation": "Conservar los registros de las medidas adoptadas para prevenir y controlar los factores de riesgo psicosocial durante al menos 4 años.",
+          "explanation": "Documentar y archivar todos los planes de acción, sus avances, modificaciones y resultados obtenidos.",
+          "rationale": "El historial de acciones implementadas es evidencia del esfuerzo de mejora continua y de cumplimiento proactivo.",
+          "audit_criteria": "Solicitar los planes de acción de los últimos 4 años con fechas de implementación y evidencia de seguimiento."
+        },
+        "5_8_c": {
+          "title": null,
+          "obligation": "Conservar los registros de los resultados de los exámenes médicos y evaluaciones psicológicas practicados durante al menos 4 años.",
+          "explanation": "Mantener expedientes médicos individuales y resultados de evaluaciones psicológicas bajo resguardo confidencial durante el periodo mínimo exigido.",
+          "rationale": "Los expedientes médicos son evidencia de vigilancia de la salud y de cumplimiento con las obligaciones de la norma.",
+          "audit_criteria": "Verificar que los expedientes médicos y evaluaciones psicológicas de los últimos 4 años están disponibles y bajo resguardo adecuado."
+        },
+        "8": {
+          "title": "Capítulo 8 — Evaluación de la conformidad",
+          "obligation": "Este capítulo establece los procedimientos para verificar el cumplimiento de la NOM-035-STPS-2018 por parte de las autoridades competentes.",
+          "explanation": "Define cómo la STPS y sus verificadores evalúan si el centro de trabajo cumple con las disposiciones de la norma.",
+          "rationale": "La evaluación de la conformidad es el mecanismo de fiscalización que garantiza la efectividad de la norma.",
+          "audit_criteria": "Conocer el procedimiento de verificación para preparar la documentación y facilitar las inspecciones."
+        },
+        "8_1": {
+          "title": "8.1 — Verificación en los centros de trabajo",
+          "obligation": "La verificación del cumplimiento de la norma en los centros de trabajo se realizará conforme a los procedimientos establecidos en la NOM-019-STPS-2011 y demás disposiciones legales aplicables.",
+          "explanation": "Las inspecciones de la STPS seguirán el protocolo definido, con notificación previa o de manera sorpresiva según la ley.",
+          "rationale": "Conocer el proceso de verificación permite preparar adecuadamente la evidencia documental requerida.",
+          "audit_criteria": "Mantener toda la documentación de la norma actualizada, accesible y ordenada para facilitar cualquier inspección."
+        },
+        "8_1_1": {
+          "title": null,
+          "obligation": "El verificador revisará la existencia y contenido de la política de prevención de riesgos psicosociales.",
+          "explanation": "Durante la inspección, el verificador solicitará el documento de política y evaluará que cumpla con los requisitos del numeral 5.1.",
+          "rationale": "La política es el primer elemento verificado por ser la declaración formal del compromiso del empleador.",
+          "audit_criteria": "Tener disponible el documento de política firmado, con fecha y evidencia de difusión a los trabajadores."
+        },
+        "8_1_2": {
+          "title": null,
+          "obligation": "El verificador revisará los registros de identificación y análisis de factores de riesgo psicosocial.",
+          "explanation": "Se solicitarán los instrumentos de evaluación aplicados, los resultados obtenidos y el análisis correspondiente.",
+          "rationale": "Los registros del diagnóstico son la evidencia central del cumplimiento técnico de la norma.",
+          "audit_criteria": "Preparar expediente con instrumento de evaluación, resultados individuales y consolidados, y el informe de análisis."
+        },
+        "8_1_3": {
+          "title": null,
+          "obligation": "El verificador revisará el plan de acciones para prevenir y controlar los factores de riesgo psicosocial identificados.",
+          "explanation": "Se revisará el plan de acción con las medidas adoptadas, los responsables, las fechas y el avance de implementación.",
+          "rationale": "El plan de acción demuestra que los resultados del diagnóstico se tradujeron en medidas concretas.",
+          "audit_criteria": "Contar con un plan de acción formal con fechas, responsables, indicadores de avance y evidencia de implementación."
+        },
+        "8_1_4": {
+          "title": null,
+          "obligation": "El verificador revisará los registros de los exámenes médicos y evaluaciones psicológicas practicados a los trabajadores expuestos.",
+          "explanation": "Se solicitarán los expedientes médicos y las evaluaciones psicológicas con sus respectivas fechas y cobertura.",
+          "rationale": "La vigilancia médica es la evidencia de que el empleador monitorea el impacto de los riesgos en la salud de sus trabajadores.",
+          "audit_criteria": "Tener disponibles los expedientes médicos y evaluaciones psicológicas de los últimos 4 años, bajo resguardo confidencial."
+        },
+        "8_2": {
+          "title": "8.2 — Criterios de verificación para centros de trabajo con hasta 15 trabajadores",
+          "obligation": "Los centros de trabajo con hasta 15 trabajadores serán verificados conforme a los criterios simplificados establecidos en este numeral.",
+          "explanation": "Los centros de trabajo más pequeños tienen requisitos reducidos: política básica, difusión de medidas de control y registros mínimos.",
+          "rationale": "La norma reconoce que los centros de trabajo pequeños tienen capacidades y recursos limitados para implementar programas complejos.",
+          "audit_criteria": "Para centros de hasta 15 trabajadores, verificar: política, medidas de control básicas y registro de acciones realizadas."
+        },
+        "8_2_1": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: contar con la política de prevención de riesgos psicosociales (5.1).",
+          "explanation": "Aun en los centros más pequeños, la política es obligatoria y debe estar documentada y difundida.",
+          "rationale": "La política es el requisito mínimo universal de la norma, sin importar el tamaño del centro de trabajo.",
+          "audit_criteria": "Revisar la existencia del documento de política y evidencia de que fue comunicado a los trabajadores."
+        },
+        "8_2_2": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: difundir entre los trabajadores las medidas de control adoptadas.",
+          "explanation": "Comunicar a los trabajadores las acciones implementadas para controlar los riesgos psicosociales identificados.",
+          "rationale": "La participación de los trabajadores en el programa depende de que conozcan las medidas adoptadas.",
+          "audit_criteria": "Solicitar evidencia de difusión: registros de comunicación, listas de asistencia o publicaciones internas."
+        },
+        "8_2_3": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: llevar registros de las acciones de prevención y control realizadas.",
+          "explanation": "Documentar, aunque sea de forma sencilla, las acciones implementadas para prevenir y controlar los riesgos.",
+          "rationale": "Los registros, incluso básicos, son evidencia del esfuerzo de cumplimiento ante una inspección.",
+          "audit_criteria": "Revisar que existen registros de las acciones realizadas con fechas y descripción de las medidas implementadas."
+        },
+        "8_2_4": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: atender a los trabajadores que presenten síntomas asociados a factores de riesgo psicosocial.",
+          "explanation": "Contar con un mecanismo básico para que los trabajadores puedan reportar situaciones de riesgo y recibir atención.",
+          "rationale": "La atención oportuna reduce el daño en la salud y es un requisito básico de la norma para todos los tamaños de centro.",
+          "audit_criteria": "Verificar que existe un mecanismo de reporte y atención, y que los trabajadores lo conocen."
+        },
+        "8_3": {
+          "title": "8.3 — Criterios de verificación para centros de trabajo de 16 a 50 trabajadores",
+          "obligation": "Los centros de trabajo de 16 a 50 trabajadores serán verificados conforme a los criterios de la Fase 1 de implementación establecidos en este numeral.",
+          "explanation": "Estos centros deben cumplir con la política, las medidas básicas de control y los registros, sin la obligación de la evaluación completa de la Guía de Referencia III.",
+          "rationale": "La Fase 1 introduce requisitos progresivos para centros medianos, reconociendo su mayor capacidad operativa.",
+          "audit_criteria": "Para centros de 16-50 trabajadores, verificar: política, identificación básica de factores, medidas de control y registros de las acciones."
+        },
+        "8_3_1": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: contar con la política de prevención de riesgos psicosociales y haberla difundido.",
+          "explanation": "La política debe estar documentada, aprobada por la dirección y difundida a todos los trabajadores del centro.",
+          "rationale": "La política formal es el punto de partida para cualquier programa de gestión de riesgos psicosociales.",
+          "audit_criteria": "Solicitar el documento de política con firma de dirección y evidencia de difusión a todos los trabajadores."
+        },
+        "8_3_2": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: haber identificado los factores de riesgo psicosocial utilizando la guía de referencia correspondiente.",
+          "explanation": "Aplicar la Guía de Referencia II u otro instrumento equivalente para identificar los factores de riesgo en el centro.",
+          "rationale": "La identificación formal de riesgos es el requisito técnico central que diferencia a la Fase 1 del nivel básico.",
+          "audit_criteria": "Solicitar el instrumento aplicado, la fecha de aplicación, la cobertura de trabajadores y los resultados obtenidos."
+        },
+        "8_3_3": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: haber adoptado las medidas de control para los factores de riesgo identificados.",
+          "explanation": "Con base en los resultados de la identificación, implementar acciones concretas de prevención y control.",
+          "rationale": "La implementación de controles cierra el ciclo de la norma y es el indicador de cumplimiento efectivo.",
+          "audit_criteria": "Revisar el plan de acción con medidas específicas correspondientes a los factores de riesgo identificados."
+        },
+        "8_3_4": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: llevar registros de la identificación de factores de riesgo y de las medidas de control adoptadas.",
+          "explanation": "Documentar y archivar los resultados del diagnóstico y las acciones implementadas durante el tiempo mínimo requerido.",
+          "rationale": "Los registros son la evidencia primaria del cumplimiento ante una inspección de la STPS.",
+          "audit_criteria": "Verificar la existencia y completitud de los registros durante el periodo de retención mínimo de 4 años."
+        },
+        "8_4": {
+          "title": "8.4 — Criterios de verificación para centros de trabajo con más de 50 trabajadores",
+          "obligation": "Los centros de trabajo con más de 50 trabajadores serán verificados conforme a los criterios completos de la Fase 2 de implementación.",
+          "explanation": "Estos centros deben cumplir con todos los requisitos de la norma: política, evaluación completa con la Guía de Referencia III, plan de acción, medidas de control, seguimiento y exámenes médicos.",
+          "rationale": "Los centros grandes tienen mayor capacidad de recursos y su escala amplifica el impacto de los riesgos psicosociales.",
+          "audit_criteria": "Verificar el cumplimiento integral: política, evaluación con Guía III, análisis, plan de acción, exámenes médicos y registros completos."
+        },
+        "8_4_1": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: contar con la política, haberla difundido y revisarla periódicamente.",
+          "explanation": "La política debe ser revisada al menos una vez al año y actualizada cuando cambien las condiciones de trabajo.",
+          "rationale": "La revisión periódica garantiza que la política refleje la realidad actual del centro de trabajo.",
+          "audit_criteria": "Solicitar el historial de revisiones de la política y evidencia de difusión de la versión vigente."
+        },
+        "8_4_2": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: haber evaluado los factores de riesgo psicosocial con la Guía de Referencia III u otro instrumento equivalente.",
+          "explanation": "Aplicar la evaluación completa a todos los trabajadores y procesar los resultados con la metodología establecida.",
+          "rationale": "La evaluación completa con la Guía III proporciona un diagnóstico detallado y estadísticamente válido.",
+          "audit_criteria": "Revisar que la evaluación se aplicó a la totalidad de los trabajadores, con los resultados analizados por área o departamento."
+        },
+        "8_4_3": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: haber adoptado medidas de control, seguir su efectividad y contar con registros.",
+          "explanation": "Implementar las medidas del plan de acción, monitorear su impacto y documentar los resultados del seguimiento.",
+          "rationale": "El seguimiento cierra el ciclo de mejora continua y demuestra que las medidas implementadas están siendo efectivas.",
+          "audit_criteria": "Solicitar el plan de acción con indicadores, fechas de revisión, resultados del seguimiento y ajustes realizados."
+        },
+        "8_4_4": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: practicar exámenes médicos y evaluaciones psicológicas al personal expuesto y llevar los registros correspondientes.",
+          "explanation": "Realizar los exámenes de entrada, periódicos y de egreso al personal expuesto a factores de riesgo psicosocial.",
+          "rationale": "La vigilancia médica continua es el indicador más preciso del impacto real de los riesgos psicosociales en la salud de los trabajadores.",
+          "audit_criteria": "Verificar que se practican exámenes a todo el personal expuesto con la periodicidad indicada y que los expedientes están actualizados."
+        },
+        "8_5": {
+          "title": "8.5 — Unidades de verificación",
+          "obligation": "La evaluación de la conformidad de la NOM-035-STPS-2018 podrá ser realizada por unidades de verificación acreditadas ante la EMA o por la STPS directamente a través de sus inspectores.",
+          "explanation": "Los centros de trabajo pueden contratar una unidad de verificación acreditada para obtener una constancia de cumplimiento voluntario.",
+          "rationale": "La verificación por terceros acreditados ofrece mayor objetividad y puede ser útil para clientes o inversionistas que exijan evidencia de cumplimiento.",
+          "audit_criteria": "Si se contrató una unidad de verificación, solicitar el informe y la constancia emitidos; verificar la vigencia de la acreditación."
+        },
+        "8_5_1": {
+          "title": null,
+          "obligation": "Las unidades de verificación deben estar acreditadas por la Entidad Mexicana de Acreditación (EMA) para la norma NOM-035-STPS-2018.",
+          "explanation": "Antes de contratar una unidad de verificación, confirmar que está acreditada específicamente para la NOM-035 en la EMA.",
+          "rationale": "Solo las unidades acreditadas por la EMA pueden emitir constancias de cumplimiento con validez oficial.",
+          "audit_criteria": "Verificar el número de acreditación de la unidad de verificación en el directorio público de la EMA."
+        },
+        "8_5_2": {
+          "title": null,
+          "obligation": "La unidad de verificación debe revisar la documentación del centro de trabajo conforme a los criterios de verificación aplicables según el tamaño del centro.",
+          "explanation": "La revisión documental es la primera etapa de la verificación y determina si el centro cumple con los requisitos de su categoría.",
+          "rationale": "La revisión documental sistemática garantiza que no se omitan requisitos en el proceso de evaluación.",
+          "audit_criteria": "El informe de la unidad de verificación debe indicar qué documentos fueron revisados y cuáles presentan conformidad o no conformidad."
+        },
+        "8_5_3": {
+          "title": null,
+          "obligation": "La unidad de verificación debe realizar visita al centro de trabajo para verificar las condiciones de trabajo en sitio.",
+          "explanation": "La visita in situ complementa la revisión documental y permite verificar condiciones físicas y organizacionales reales.",
+          "rationale": "La verificación en sitio detecta situaciones que no quedan documentadas pero que representan riesgos reales para los trabajadores.",
+          "audit_criteria": "El informe debe incluir los hallazgos de la visita en sitio con descripción de las condiciones observadas."
+        },
+        "8_5_4": {
+          "title": null,
+          "obligation": "La unidad de verificación debe emitir un dictamen de conformidad o no conformidad con las disposiciones de la NOM-035-STPS-2018.",
+          "explanation": "Al concluir la verificación, la unidad emite un dictamen formal indicando el grado de cumplimiento del centro de trabajo.",
+          "rationale": "El dictamen formal es el documento que certifica el resultado de la verificación y puede ser presentado ante clientes, autoridades o socios.",
+          "audit_criteria": "Solicitar el dictamen emitido por la unidad de verificación con fecha, alcance, hallazgos y resolución de conformidad."
+        }
+      }
+    },
+    "evidence": {
+      "nom_035_stps_2018": {
+        "5_8_a": {
+          "description": "Registros de la identificación y análisis de los factores de riesgo psicosocial: instrumentos aplicados, resultados individuales consolidados e informes de análisis de cada ciclo de evaluación, conservados durante un mínimo de 4 años."
+        },
+        "5_8_b": {
+          "description": "Registros de las medidas adoptadas para prevenir y controlar los factores de riesgo psicosocial: planes de acción, avances de implementación, modificaciones realizadas y resultados obtenidos, conservados durante un mínimo de 4 años."
+        },
+        "5_8_c": {
+          "description": "Registros de los exámenes médicos y evaluaciones psicológicas practicados al personal expuesto a factores de riesgo psicosocial, conservados bajo resguardo confidencial durante un mínimo de 4 años."
+        }
+      }
+    }
+  }
 }

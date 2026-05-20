@@ -368,5 +368,393 @@
   "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5",
   "business_unit_competency_level": "Business unit competency level",
   "the_range_min_must_be_less_than_the_range_max": "The range min must be less than the range max",
-  "competency_descriptor": "Competency descriptor"
+  "competency_descriptor": "Competency descriptor",
+  "regulatory": {
+    "authorities": {
+      "stps": {
+        "description": "The Secretaría del Trabajo y Previsión Social (STPS) is the Mexican federal government agency responsible for promoting employment, regulating labor relations, and ensuring decent and safe working conditions for workers.",
+        "audit_description": "The STPS issues Official Mexican Standards (NOM) on occupational safety and health, conducts labor inspections, and sanctions non-compliance. Its standards are mandatory for all workplaces in Mexico."
+      },
+      "imss": {
+        "description": "The Instituto Mexicano del Seguro Social (IMSS) is Mexico's largest social security institution, responsible for providing health services, pensions, and social benefits to workers and their families.",
+        "audit_description": "The IMSS verifies compliance with employer obligations regarding worker registration, payment of employer-employee contributions, and social security benefits. Irregularities may result in tax credits, fines, and surcharges."
+      },
+      "infonavit": {
+        "description": "The Instituto del Fondo Nacional de la Vivienda para los Trabajadores (INFONAVIT) manages the workers' housing fund and provides mortgage loans to beneficiaries.",
+        "audit_description": "INFONAVIT audits the correct payment of the 5% employer housing contributions based on workers' integrated salary. Non-compliance generates tax credits and may affect workers' access to their housing rights."
+      },
+      "repse": {
+        "description": "The Registro de Prestadoras de Servicios Especializados u Obras Especializadas (REPSE) is the mandatory registry for companies that provide specialized services or execute specialized works through subcontracting.",
+        "audit_description": "The STPS, through REPSE, verifies that contractor and subcontractor companies are properly registered and that specialized service contracts comply with the subcontracting reform requirements (Decree DOF 23/04/2021)."
+      },
+      "jfca": {
+        "description": "The Junta Federal de Conciliación y Arbitraje (JFCA) is the federal labor tribunal responsible for resolving individual and collective labor disputes in federally-regulated industries.",
+        "audit_description": "The JFCA handles individual and collective labor claims, union disputes, and collective bargaining agreement registrations. Maintaining complete and updated employee records is essential for properly defending the company before this authority."
+      },
+      "sat": {
+        "description": "The Servicio de Administración Tributaria (SAT) is the decentralized agency of the Ministry of Finance responsible for collecting and auditing federal taxes in Mexico.",
+        "audit_description": "The SAT audits compliance with payroll-related tax obligations: income tax on wages, VAT on specialized services, issuance of payroll electronic invoices (CFDI), and proper deduction of labor expenses. Irregularities may result in tax credits, fines, and potential criminal penalties."
+      },
+      "inai": {
+        "description": "The Instituto Nacional de Transparencia, Acceso a la Información y Protección de Datos Personales (INAI) is the autonomous body that guarantees the right of access to public information and the protection of personal data.",
+        "audit_description": "The INAI supervises compliance with the Federal Law on Protection of Personal Data Held by Private Parties (LFPDPPP). Employers must implement a privacy notice for employees, obtain consent for processing sensitive data, and establish adequate security measures."
+      },
+      "consar": {
+        "description": "The Comisión Nacional del Sistema de Ahorro para el Retiro (CONSAR) regulates and supervises the Retirement Savings System (SAR), including the AFOREs and SIEFOREs that manage workers' retirement savings.",
+        "audit_description": "CONSAR verifies the correct payment of SAR contributions (retirement, unemployment, and old-age quotas), both employer and government contributions. Errors in salary records or in the transmission of affiliation movements may reduce workers' retirement account balances."
+      }
+    },
+    "regulations": {
+      "nom_035_stps_2018": {
+        "scope": "Applies to all workplaces in Mexico. Workplaces with up to 15 workers implement basic measures; those with 16 to 50 workers apply the policy and minimum controls; workplaces with more than 50 workers must comply with all requirements including psychosocial risk factor assessment.",
+        "audit_description": "Mandatory compliance standard establishing elements to identify, analyze, and prevent psychosocial risk factors. The STPS may impose fines of 50 to 5,000 times the UMA (approx. $5,200 to $520,000 MXN) for non-compliance with its provisions."
+      }
+    },
+    "clauses": {
+      "nom_035_stps_2018": {
+        "5": {
+          "title": "Chapter 5 — Employer Obligations",
+          "obligation": "The employer must comply with the obligations established in this chapter to identify, analyze, prevent, and control psychosocial risk factors.",
+          "explanation": "The employer is the primary party responsible for ensuring a favorable organizational environment and implementing all actions required by NOM-035.",
+          "rationale": "Employer obligations are the foundation of the standard; without compliance, it is not possible to protect the mental health of workers.",
+          "audit_criteria": "Verify that the employer has a policy, assessments, action plans, and updated records in accordance with the standard."
+        },
+        "5_1": {
+          "title": "5.1 — Psychosocial Risk Prevention Policy",
+          "obligation": "The employer must have a psychosocial risk prevention policy that includes: prevention of psychosocial risk factors, promotion of a favorable organizational environment, and prevention of workplace violence.",
+          "explanation": "A policy document signed by management covering all three mandatory elements must be drafted, approved, and disseminated.",
+          "rationale": "The policy is the formal declaration of the organization's commitment to occupational mental health.",
+          "audit_criteria": "Review the policy document: existence, management signature, date, content of the three elements, and evidence of dissemination."
+        },
+        "5_1_1": {
+          "title": null,
+          "obligation": "The policy must include prevention of psychosocial risk factors.",
+          "explanation": "Explicitly include in the policy the intention to identify and control psychosocial risk factors.",
+          "rationale": "Without this explicit declaration, the policy does not meet the minimum requirement of the standard.",
+          "audit_criteria": "Confirm that the policy text mentions the prevention of psychosocial risk factors."
+        },
+        "5_1_2": {
+          "title": null,
+          "obligation": "The policy must promote a favorable organizational environment.",
+          "explanation": "The document must commit to creating working conditions that foster well-being and mental health.",
+          "rationale": "A favorable organizational environment is the central objective of NOM-035.",
+          "audit_criteria": "Verify that the policy declares commitment to promoting a favorable organizational environment."
+        },
+        "5_1_3": {
+          "title": null,
+          "obligation": "The policy must include prevention of workplace violence.",
+          "explanation": "Expressly declare the commitment to prevent, address, and sanction any act of workplace violence.",
+          "rationale": "Workplace violence is one of the most serious psychosocial risk factors and has direct legal consequences.",
+          "audit_criteria": "Confirm that the policy addresses prevention of workplace violence with defined response mechanisms."
+        },
+        "5_2": {
+          "title": "5.2 — Identification and Analysis of Psychosocial Risk Factors",
+          "obligation": "The employer must identify and analyze psychosocial risk factors using the standard's reference guides or equivalent validated instruments.",
+          "explanation": "Apply the questionnaire or reference guide to all workers to detect conditions that generate psychosocial risk.",
+          "rationale": "Without identification, it is not possible to implement effective controls; this step is the standard's diagnostic phase.",
+          "audit_criteria": "Request the assessment instrument applied, the population of evaluated workers, the date, and the results obtained."
+        },
+        "5_2_1": {
+          "title": null,
+          "obligation": "The identification must cover all psychosocial risk factors defined in the standard: work environment conditions, workloads, lack of control over work, working hours exceeding those provided in the LFT, work-family interference, negative leadership, negative workplace relationships, and workplace violence.",
+          "explanation": "The applied instrument must cover all psychosocial risk domains listed in NOM-035 without exception.",
+          "rationale": "Omitting any factor invalidates the assessment and leaves real risk areas for workers without coverage.",
+          "audit_criteria": "Review that the instrument and results report contain analysis of all factors listed in the standard."
+        },
+        "5_2_2": {
+          "title": null,
+          "obligation": "When the identification reveals psychosocial risk factors, the employer must conduct analysis to determine the necessary control measures.",
+          "explanation": "The diagnostic results must be processed to prioritize controls according to the level of risk identified.",
+          "rationale": "Analysis converts raw data into actionable information to protect workers' health.",
+          "audit_criteria": "Verify that an analysis report exists following the assessment, with risk prioritization and proposed controls."
+        },
+        "5_3": {
+          "title": "5.3 — Adoption of Prevention and Control Measures",
+          "obligation": "The employer must adopt the necessary measures to prevent and control the identified psychosocial risk factors.",
+          "explanation": "Based on the analysis, implement concrete actions to eliminate or reduce the identified risk factors.",
+          "rationale": "Control implementation is the core of the standard; diagnosis without action does not achieve the objective of protecting health.",
+          "audit_criteria": "Request the action plan with measures, responsible parties, dates, and evidence of implementation."
+        },
+        "5_3_1": {
+          "title": null,
+          "obligation": "Measures must aim to eliminate or reduce the identified psychosocial risk factors.",
+          "explanation": "Prioritize elimination of the risk source; when not possible, reduce its intensity or duration.",
+          "rationale": "The hierarchy of controls requires acting on the source before resorting to administrative controls or PPE.",
+          "audit_criteria": "Verify that the action plan measures directly correspond to the risk factors identified in the assessment."
+        },
+        "5_3_2": {
+          "title": null,
+          "obligation": "Measures must promote a favorable organizational environment.",
+          "explanation": "In addition to eliminating risks, implement proactive actions that improve the organizational climate and worker well-being.",
+          "rationale": "The standard's approach is dual: eliminate the negative and strengthen the positive in the work environment.",
+          "audit_criteria": "Confirm that the plan includes organizational environment improvement actions, not just reactive controls."
+        },
+        "5_4": {
+          "title": "5.4 — Policy and Results Dissemination",
+          "obligation": "The employer must disseminate the psychosocial risk prevention policy to workers and inform them of the identification and analysis results.",
+          "explanation": "Formally communicate the current policy and diagnostic findings to all workers.",
+          "rationale": "Informed worker participation is a requirement of the standard and a key success factor of the program.",
+          "audit_criteria": "Review dissemination records: attendance lists, communication records, or visible posting in the facility."
+        },
+        "5_4_1": {
+          "title": null,
+          "obligation": "Disseminate the psychosocial risk prevention policy to all workers at the workplace.",
+          "explanation": "Ensure 100% of workers know the policy, using communication methods appropriate for the workplace.",
+          "rationale": "A policy that workers are unaware of does not generate the cultural change the standard pursues.",
+          "audit_criteria": "Request evidence of dissemination with dates and coverage: publications, emails, meetings, or posters."
+        },
+        "5_4_2": {
+          "title": null,
+          "obligation": "Inform workers of the results of the identification and analysis of psychosocial risk factors.",
+          "explanation": "Communicate the diagnostic results in an understandable manner without compromising individual confidentiality.",
+          "rationale": "Transparency builds trust and motivates active worker participation in solutions.",
+          "audit_criteria": "Verify that workers received communication about the general results of the assessment."
+        },
+        "5_5": {
+          "title": "5.5 — Promote a Favorable Organizational Environment",
+          "obligation": "The employer must actively promote a favorable organizational environment through actions that foster respectful treatment, teamwork, training, and recognition.",
+          "explanation": "Implement programs and practices that strengthen protective factors in the work environment.",
+          "rationale": "A favorable organizational environment reduces the incidence of stress, burnout, and workplace violence.",
+          "audit_criteria": "Review evidence of environment improvement actions: wellness programs, training, recognition initiatives, and climate surveys."
+        },
+        "5_6": {
+          "title": "5.6 — Support for Workers Exposed to Workplace Violence",
+          "obligation": "The employer must provide mechanisms to support workers who have been subjected to workplace violence or who show symptoms associated with psychosocial risk factors.",
+          "explanation": "Establish reporting channels, response protocols, and referral to health services when necessary.",
+          "rationale": "Timely support reduces health damage and the employer's legal liability.",
+          "audit_criteria": "Verify the existence of response protocols, records of cases handled, and follow-up mechanisms."
+        },
+        "5_7": {
+          "title": "5.7 — Medical Examinations",
+          "obligation": "The employer must conduct medical examinations and psychological evaluations for personnel exposed to psychosocial risk factors, in accordance with NOM-030-STPS-2009.",
+          "explanation": "Conduct specific examinations at the indicated frequency to detect health damage resulting from exposure to psychosocial risks.",
+          "rationale": "Medical surveillance enables early detection of health effects and allows preventive action before they escalate.",
+          "audit_criteria": "Request records of medical examinations and psychological evaluations conducted, including dates and coverage of exposed personnel."
+        },
+        "5_8": {
+          "title": "5.8 — Records and Information Retention",
+          "obligation": "The employer must maintain records on the identification and analysis of psychosocial risk factors, measures adopted, and evaluation results, retaining them for at least 4 years.",
+          "explanation": "Maintain updated files with all documentation generated during implementation of the standard for the minimum required period.",
+          "rationale": "Records are the evidence of compliance during a STPS inspection and demonstrate the program's traceability.",
+          "audit_criteria": "Request records of assessments, action plans, medical examinations, and any documentation generated in implementing the standard."
+        },
+        "5_8_a": {
+          "title": null,
+          "obligation": "Retain records of the identification and analysis of psychosocial risk factors for at least 4 years.",
+          "explanation": "Archive the applied instruments, raw results, and analysis reports from each assessment cycle.",
+          "rationale": "4-year retention allows trend comparison between cycles and demonstrates program continuity to the authority.",
+          "audit_criteria": "Verify that identification and analysis records are available for the last 4 years of operation."
+        },
+        "5_8_b": {
+          "title": null,
+          "obligation": "Retain records of measures adopted to prevent and control psychosocial risk factors for at least 4 years.",
+          "explanation": "Document and archive all action plans, their progress, modifications, and results obtained.",
+          "rationale": "The history of implemented actions is evidence of continuous improvement effort and proactive compliance.",
+          "audit_criteria": "Request action plans from the last 4 years with implementation dates and follow-up evidence."
+        },
+        "5_8_c": {
+          "title": null,
+          "obligation": "Retain records of medical examinations and psychological evaluations conducted for at least 4 years.",
+          "explanation": "Maintain individual medical records and psychological evaluation results under confidential custody during the minimum required period.",
+          "rationale": "Medical records are evidence of health surveillance and compliance with the standard's obligations.",
+          "audit_criteria": "Verify that medical records and psychological evaluations from the last 4 years are available and under adequate custody."
+        },
+        "8": {
+          "title": "Chapter 8 — Conformity Assessment",
+          "obligation": "This chapter establishes the procedures for verifying compliance with NOM-035-STPS-2018 by competent authorities.",
+          "explanation": "Defines how the STPS and its inspectors assess whether a workplace complies with the standard's provisions.",
+          "rationale": "Conformity assessment is the enforcement mechanism that ensures the effectiveness of the standard.",
+          "audit_criteria": "Understand the verification procedure to prepare documentation and facilitate inspections."
+        },
+        "8_1": {
+          "title": "8.1 — Verification at Workplaces",
+          "obligation": "Verification of the standard's compliance at workplaces will be conducted in accordance with procedures established in NOM-019-STPS-2011 and other applicable legal provisions.",
+          "explanation": "STPS inspections will follow the defined protocol, with prior notice or unannounced depending on the law.",
+          "rationale": "Understanding the verification process allows proper preparation of the required documentary evidence.",
+          "audit_criteria": "Keep all standard documentation current, accessible, and organized to facilitate any inspection."
+        },
+        "8_1_1": {
+          "title": null,
+          "obligation": "The inspector will review the existence and content of the psychosocial risk prevention policy.",
+          "explanation": "During the inspection, the inspector will request the policy document and evaluate whether it meets the requirements of clause 5.1.",
+          "rationale": "The policy is the first element verified as it is the formal declaration of the employer's commitment.",
+          "audit_criteria": "Have the signed policy document available with date and evidence of dissemination to workers."
+        },
+        "8_1_2": {
+          "title": null,
+          "obligation": "The inspector will review records of identification and analysis of psychosocial risk factors.",
+          "explanation": "Applied assessment instruments, results obtained, and corresponding analysis will be requested.",
+          "rationale": "Assessment records are the central evidence of technical compliance with the standard.",
+          "audit_criteria": "Prepare a file with the assessment instrument, individual and consolidated results, and the analysis report."
+        },
+        "8_1_3": {
+          "title": null,
+          "obligation": "The inspector will review the action plan to prevent and control identified psychosocial risk factors.",
+          "explanation": "The action plan with adopted measures, responsible parties, dates, and implementation progress will be reviewed.",
+          "rationale": "The action plan demonstrates that assessment results were translated into concrete measures.",
+          "audit_criteria": "Have a formal action plan with dates, responsible parties, progress indicators, and implementation evidence."
+        },
+        "8_1_4": {
+          "title": null,
+          "obligation": "The inspector will review records of medical examinations and psychological evaluations conducted on exposed workers.",
+          "explanation": "Medical records and psychological evaluations with their respective dates and coverage will be requested.",
+          "rationale": "Medical surveillance is evidence that the employer monitors the impact of risks on workers' health.",
+          "audit_criteria": "Have medical records and psychological evaluations from the last 4 years available, under confidential custody."
+        },
+        "8_2": {
+          "title": "8.2 — Verification Criteria for Workplaces with Up to 15 Workers",
+          "obligation": "Workplaces with up to 15 workers will be verified according to the simplified criteria established in this clause.",
+          "explanation": "Smaller workplaces have reduced requirements: basic policy, dissemination of control measures, and minimum records.",
+          "rationale": "The standard recognizes that small workplaces have limited capacity and resources to implement complex programs.",
+          "audit_criteria": "For workplaces with up to 15 workers, verify: policy, basic control measures, and record of actions taken."
+        },
+        "8_2_1": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: have the psychosocial risk prevention policy (5.1).",
+          "explanation": "Even in the smallest workplaces, the policy is mandatory and must be documented and disseminated.",
+          "rationale": "The policy is the universal minimum requirement of the standard, regardless of workplace size.",
+          "audit_criteria": "Review the existence of the policy document and evidence that it was communicated to workers."
+        },
+        "8_2_2": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: disseminate the adopted control measures to workers.",
+          "explanation": "Communicate to workers the actions implemented to control identified psychosocial risks.",
+          "rationale": "Worker participation in the program depends on their awareness of the measures adopted.",
+          "audit_criteria": "Request evidence of dissemination: communication records, attendance lists, or internal publications."
+        },
+        "8_2_3": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: keep records of prevention and control actions taken.",
+          "explanation": "Document, even in a simple format, the actions implemented to prevent and control risks.",
+          "rationale": "Records, even basic ones, are evidence of compliance effort during an inspection.",
+          "audit_criteria": "Review that records of actions taken exist with dates and description of implemented measures."
+        },
+        "8_2_4": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: provide support to workers who show symptoms associated with psychosocial risk factors.",
+          "explanation": "Have a basic mechanism for workers to report risk situations and receive attention.",
+          "rationale": "Timely support reduces health damage and is a basic requirement of the standard for all workplace sizes.",
+          "audit_criteria": "Verify that a reporting and support mechanism exists and that workers are aware of it."
+        },
+        "8_3": {
+          "title": "8.3 — Verification Criteria for Workplaces with 16 to 50 Workers",
+          "obligation": "Workplaces with 16 to 50 workers will be verified according to the Phase 1 implementation criteria established in this clause.",
+          "explanation": "These workplaces must comply with the policy, basic control measures, and records, without the obligation of full Reference Guide III assessment.",
+          "rationale": "Phase 1 introduces progressive requirements for mid-size workplaces, recognizing their greater operational capacity.",
+          "audit_criteria": "For workplaces with 16-50 workers, verify: policy, basic factor identification, control measures, and records of actions."
+        },
+        "8_3_1": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: have the psychosocial risk prevention policy and have disseminated it.",
+          "explanation": "The policy must be documented, approved by management, and disseminated to all workplace workers.",
+          "rationale": "The formal policy is the starting point for any psychosocial risk management program.",
+          "audit_criteria": "Request the policy document with management signature and evidence of dissemination to all workers."
+        },
+        "8_3_2": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: have identified psychosocial risk factors using the corresponding reference guide.",
+          "explanation": "Apply Reference Guide II or another equivalent instrument to identify risk factors in the workplace.",
+          "rationale": "Formal risk identification is the key technical requirement that distinguishes Phase 1 from the basic level.",
+          "audit_criteria": "Request the applied instrument, application date, worker coverage, and results obtained."
+        },
+        "8_3_3": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: have adopted control measures for the identified risk factors.",
+          "explanation": "Based on identification results, implement concrete prevention and control actions.",
+          "rationale": "Control implementation closes the standard's cycle and is the indicator of effective compliance.",
+          "audit_criteria": "Review the action plan with specific measures corresponding to the identified risk factors."
+        },
+        "8_3_4": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: keep records of risk factor identification and adopted control measures.",
+          "explanation": "Document and archive assessment results and implemented actions during the minimum required period.",
+          "rationale": "Records are the primary evidence of compliance during a STPS inspection.",
+          "audit_criteria": "Verify the existence and completeness of records during the minimum 4-year retention period."
+        },
+        "8_4": {
+          "title": "8.4 — Verification Criteria for Workplaces with More Than 50 Workers",
+          "obligation": "Workplaces with more than 50 workers will be verified according to the full Phase 2 implementation criteria.",
+          "explanation": "These workplaces must comply with all standard requirements: policy, full assessment with Reference Guide III, action plan, control measures, follow-up, and medical examinations.",
+          "rationale": "Large workplaces have greater resource capacity and their scale amplifies the impact of psychosocial risks.",
+          "audit_criteria": "Verify full compliance: policy, Reference Guide III assessment, analysis, action plan, medical examinations, and complete records."
+        },
+        "8_4_1": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: have the policy, have disseminated it, and review it periodically.",
+          "explanation": "The policy must be reviewed at least once a year and updated when working conditions change.",
+          "rationale": "Periodic review ensures the policy reflects the current reality of the workplace.",
+          "audit_criteria": "Request the policy revision history and evidence of dissemination of the current version."
+        },
+        "8_4_2": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: have assessed psychosocial risk factors using Reference Guide III or an equivalent instrument.",
+          "explanation": "Apply the full assessment to all workers and process results using the established methodology.",
+          "rationale": "Full assessment with Guide III provides a detailed and statistically valid diagnosis.",
+          "audit_criteria": "Review that the assessment was applied to all workers, with results analyzed by area or department."
+        },
+        "8_4_3": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: have adopted control measures, monitor their effectiveness, and maintain records.",
+          "explanation": "Implement action plan measures, monitor their impact, and document follow-up results.",
+          "rationale": "Follow-up closes the continuous improvement cycle and demonstrates that implemented measures are effective.",
+          "audit_criteria": "Request the action plan with indicators, review dates, follow-up results, and adjustments made."
+        },
+        "8_4_4": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: conduct medical examinations and psychological evaluations for exposed personnel and maintain corresponding records.",
+          "explanation": "Conduct entry, periodic, and exit examinations for personnel exposed to psychosocial risk factors.",
+          "rationale": "Continuous medical surveillance is the most precise indicator of the real impact of psychosocial risks on workers' health.",
+          "audit_criteria": "Verify that examinations are conducted for all exposed personnel at the indicated frequency and that records are current."
+        },
+        "8_5": {
+          "title": "8.5 — Verification Units",
+          "obligation": "Conformity assessment of NOM-035-STPS-2018 may be carried out by verification units accredited by EMA or directly by the STPS through its inspectors.",
+          "explanation": "Workplaces may hire an accredited verification unit to obtain a voluntary compliance certificate.",
+          "rationale": "Third-party accredited verification offers greater objectivity and may be useful for clients or investors requiring compliance evidence.",
+          "audit_criteria": "If a verification unit was hired, request the issued report and certificate; verify the validity of the accreditation."
+        },
+        "8_5_1": {
+          "title": null,
+          "obligation": "Verification units must be accredited by the Mexican Accreditation Entity (EMA) for NOM-035-STPS-2018.",
+          "explanation": "Before hiring a verification unit, confirm it is specifically accredited for NOM-035 at EMA.",
+          "rationale": "Only EMA-accredited units can issue compliance certificates with official validity.",
+          "audit_criteria": "Verify the verification unit's accreditation number in EMA's public directory."
+        },
+        "8_5_2": {
+          "title": null,
+          "obligation": "The verification unit must review workplace documentation according to the applicable verification criteria based on workplace size.",
+          "explanation": "Document review is the first stage of verification and determines whether the workplace meets its category's requirements.",
+          "rationale": "Systematic document review ensures no requirements are omitted in the evaluation process.",
+          "audit_criteria": "The verification unit's report must indicate which documents were reviewed and which show conformity or non-conformity."
+        },
+        "8_5_3": {
+          "title": null,
+          "obligation": "The verification unit must visit the workplace to verify working conditions on-site.",
+          "explanation": "The on-site visit complements document review and allows verification of actual physical and organizational conditions.",
+          "rationale": "On-site verification detects situations that are not documented but represent real risks to workers.",
+          "audit_criteria": "The report must include on-site visit findings with description of observed conditions."
+        },
+        "8_5_4": {
+          "title": null,
+          "obligation": "The verification unit must issue a conformity or non-conformity opinion regarding NOM-035-STPS-2018 provisions.",
+          "explanation": "Upon completing verification, the unit issues a formal opinion indicating the workplace's degree of compliance.",
+          "rationale": "The formal opinion is the document certifying the verification result and may be presented to clients, authorities, or partners.",
+          "audit_criteria": "Request the opinion issued by the verification unit with date, scope, findings, and conformity resolution."
+        }
+      }
+    },
+    "evidence": {
+      "nom_035_stps_2018": {
+        "5_8_a": {
+          "description": "Records of the identification and analysis of psychosocial risk factors: applied instruments, consolidated individual results, and analysis reports from each assessment cycle, retained for a minimum of 4 years."
+        },
+        "5_8_b": {
+          "description": "Records of measures adopted to prevent and control psychosocial risk factors: action plans, implementation progress, modifications made, and results obtained, retained for a minimum of 4 years."
+        },
+        "5_8_c": {
+          "description": "Records of medical examinations and psychological evaluations conducted on personnel exposed to psychosocial risk factors, retained under confidential custody for a minimum of 4 years."
+        }
+      }
+    }
+  }
 }
