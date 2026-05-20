@@ -408,6 +408,10 @@
       "nom_035_stps_2018": {
         "scope": "Applies to all workplaces in Mexico. Workplaces with up to 15 workers implement basic measures; those with 16 to 50 workers apply the policy and minimum controls; workplaces with more than 50 workers must comply with all requirements including psychosocial risk factor assessment.",
         "audit_description": "Mandatory compliance standard establishing elements to identify, analyze, and prevent psychosocial risk factors. The STPS may impose fines of 50 to 5,000 times the UMA (approx. $5,200 to $520,000 MXN) for non-compliance with its provisions."
+      },
+      "nom_037_stps_2023": {
+        "scope": "Applies to workplaces with telework arrangements where teleworkers represent 40% or more of the workforce. Employers may opt for its application at lower percentages.",
+        "audit_description": "NOM-037-STPS-2023 establishes occupational safety and health conditions for telework. The STPS may verify compliance through inspections and impose fines of 50 to 5,000 times the UMA for each violation detected."
       }
     },
     "clauses": {
@@ -740,6 +744,351 @@
           "explanation": "Upon completing verification, the unit issues a formal opinion indicating the workplace's degree of compliance.",
           "rationale": "The formal opinion is the document certifying the verification result and may be presented to clients, authorities, or partners.",
           "audit_criteria": "Request the opinion issued by the verification unit with date, scope, findings, and conformity resolution."
+        }
+      },
+      "nom_037_stps_2023": {
+        "5": {
+          "title": "Chapter 5 — Employer Obligations",
+          "obligation": "The employer must comply with the obligations established in this chapter to guarantee safety and health conditions in the telework modality.",
+          "explanation": "The employer is the primary party responsible for ensuring that telework conditions are safe, ergonomic, and respectful of workers' rights.",
+          "rationale": "Employer obligations in telework are the foundation of NOM-037; without compliance, it is not possible to guarantee the physical and mental integrity of the teleworker.",
+          "audit_criteria": "Verify that the employer has a policy, equipment, telework agreements, records, and evidence of training in accordance with the standard."
+        },
+        "5_1": {
+          "title": "5.1 — Safety and Health Conditions at the Telework Location",
+          "obligation": "The employer must verify that the telework location designated by the worker has adequate safety and health conditions, in accordance with the minimum requirements established in the standard.",
+          "explanation": "Before authorizing telework, the employer must confirm that the domestic or external space used by the worker meets minimum safety, lighting, ventilation, and ergonomic conditions.",
+          "rationale": "The employer retains the obligation to protect the safety and health of the worker even when the activity is performed outside the workplace.",
+          "audit_criteria": "Request the telework location verification mechanism (checklist, virtual visit, worker declaration) and records of verifications performed."
+        },
+        "5_1_I": {
+          "title": null,
+          "obligation": "Verify that the telework location has adequate natural or artificial lighting conditions for performing activities.",
+          "explanation": "The space must have sufficient light to avoid visual fatigue; this can be validated through a guided self-assessment or virtual visit.",
+          "rationale": "Inadequate lighting is one of the main causes of eye fatigue and musculoskeletal disorders in office work.",
+          "audit_criteria": "Verify that the location validation process includes lighting criteria and that records of the evaluation exist."
+        },
+        "5_1_II": {
+          "title": null,
+          "obligation": "Verify that the telework location has adequate ventilation and hygiene conditions.",
+          "explanation": "The space must allow sufficient air renewal and hygiene conditions that do not pose a health risk to the teleworker.",
+          "rationale": "Poor environmental conditions can affect the respiratory health and general well-being of the teleworker.",
+          "audit_criteria": "Confirm that the validation protocol includes ventilation and hygiene criteria for the workspace."
+        },
+        "5_1_III": {
+          "title": null,
+          "obligation": "Verify that the telework location has electrical installations in safe condition.",
+          "explanation": "The electrical installations of the telework space must not pose a risk of short circuit, overload, or accidental electrical contact.",
+          "rationale": "Electrical deficiencies are a frequent cause of accidents in the home and can cause everything from burns to fires.",
+          "audit_criteria": "Include verification of electrical installations in the telework space validation protocol."
+        },
+        "5_1_IV": {
+          "title": null,
+          "obligation": "Verify that the telework location has adequate furniture and ergonomic conditions.",
+          "explanation": "The chair, desk, and equipment arrangement must allow a correct posture that prevents musculoskeletal disorders.",
+          "rationale": "Prolonged work in an inadequate posture is one of the main causes of occupational illness in telework.",
+          "audit_criteria": "Review that ergonomic conditions of furniture are evaluated and that records of the evaluation exist."
+        },
+        "5_1_V": {
+          "title": null,
+          "obligation": "Verify that the telework location has adequate internet or telecommunications connectivity for performing activities.",
+          "explanation": "Connectivity must be sufficient for the required digital work tools, without interruptions that generate additional workload.",
+          "rationale": "Poor connectivity generates stress, affects productivity, and can translate into extended working hours.",
+          "audit_criteria": "Confirm that the validation process includes connectivity criteria and that the employer supports workers in resolving connectivity issues."
+        },
+        "5_1_VI": {
+          "title": null,
+          "obligation": "Verify that the telework location is free from risk conditions that could cause occupational accidents.",
+          "explanation": "The space must not have obstacles, slippery surfaces, exposed cables, or other conditions that pose a risk of falling or injury.",
+          "rationale": "Accidents at the telework location are considered occupational accidents and generate employer liability.",
+          "audit_criteria": "Confirm that the validation protocol includes a visual walkthrough or general risk conditions checklist."
+        },
+        "5_2": {
+          "title": "5.2 — Work Equipment and Tools",
+          "obligation": "The employer must provide, install, and maintain in good condition the work equipment and tools necessary for telework performance.",
+          "explanation": "The employer is responsible for providing the necessary technological equipment (computer, phone, software) and keeping it functional.",
+          "rationale": "The teleworker must not bear the cost or responsibility for work equipment; this obligation falls on the employer.",
+          "audit_criteria": "Request the inventory of equipment assigned to teleworkers, loan agreements or custody documents, and maintenance records."
+        },
+        "5_2_I": {
+          "title": null,
+          "obligation": "Provide the teleworker with the computing, telecommunications, and other technological tools necessary for performing their activities.",
+          "explanation": "Before starting telework, the employer must deliver or guarantee access to the necessary equipment, with documented custody.",
+          "rationale": "Workers cannot be held responsible for acquiring work equipment; the standard is clear that this is an employer obligation.",
+          "audit_criteria": "Review loan agreements, equipment delivery-reception records, or any document certifying the provision of equipment."
+        },
+        "5_2_II": {
+          "title": null,
+          "obligation": "Install and maintain in safe and good condition the equipment and tools provided to the teleworker.",
+          "explanation": "The employer must ensure that equipment reaches the worker in operational condition and that a preventive and corrective maintenance process exists.",
+          "rationale": "Defective equipment generates interruptions, stress, and IT security risks that negatively impact the teleworker.",
+          "audit_criteria": "Request maintenance records for equipment assigned to teleworkers and response times for reported failures."
+        },
+        "5_2_III": {
+          "title": null,
+          "obligation": "Assume the costs derived from telework, including the payment of telecommunications services and the proportional share of electricity.",
+          "explanation": "The employer must cover the additional internet and electricity expenses incurred by the worker due to telework, as agreed.",
+          "rationale": "Telework costs must not be transferred to the worker; the standard defines these as an employer obligation.",
+          "audit_criteria": "Verify that a documented mechanism exists for reimbursement or payment of telecommunications and energy services to the teleworker."
+        },
+        "5_2_IV": {
+          "title": null,
+          "obligation": "Keep a record of the equipment and tools provided to each teleworker.",
+          "explanation": "Maintain an updated inventory of assets assigned in telework modality, with worker data, equipment description, and dates.",
+          "rationale": "The record enables equipment traceability, facilitates recovery at the end of the modality, and certifies compliance to the authority.",
+          "audit_criteria": "Request the record or inventory of equipment assigned to teleworkers; verify that it is up to date."
+        },
+        "5_3": {
+          "title": "5.3 — Ergonomics",
+          "obligation": "The employer must provide information, training, and guidance to the teleworker on ergonomics, in order to prevent musculoskeletal disorders and visual fatigue.",
+          "explanation": "Instruct the worker on the correct configuration of their workstation, posture, and active breaks to prevent injuries.",
+          "rationale": "Poor ergonomics is the main cause of occupational diseases in office work; its prevention requires specific training.",
+          "audit_criteria": "Request the ergonomics training program or materials and records of workers who received it."
+        },
+        "5_3_I": {
+          "title": null,
+          "obligation": "Provide the teleworker with information on ergonomic risks associated with telework and applicable prevention measures.",
+          "explanation": "Deliver guides, manuals, or infographics with criteria for workstation configuration, correct posture, and warning signs of musculoskeletal disorders.",
+          "rationale": "A worker who understands ergonomic risks can take preventive measures autonomously in their workspace.",
+          "audit_criteria": "Review the informational materials delivered and the worker's receipt records."
+        },
+        "5_3_II": {
+          "title": null,
+          "obligation": "Train the teleworker in the correct configuration of their workstation to minimize ergonomic risks.",
+          "explanation": "Include in the training program criteria for monitor height, keyboard position, lumbar support, and visual distance.",
+          "rationale": "Incorrect workstation configuration is correctable with training; training is the most cost-effective preventive measure.",
+          "audit_criteria": "Request the content of the ergonomic training and the attendance records or certificates of teleworkers."
+        },
+        "5_3_III": {
+          "title": null,
+          "obligation": "Promote the practice of active breaks and stretching exercises during the telework workday.",
+          "explanation": "Implement mechanisms that remind teleworkers to take brief breaks and stretches to counteract the effects of prolonged posture.",
+          "rationale": "Active breaks reduce muscle tension, improve circulation, and contribute to the general well-being of the teleworker.",
+          "audit_criteria": "Verify that a formal active breaks program exists and that teleworkers are informed of its implementation."
+        },
+        "5_4": {
+          "title": "5.4 — Training and Development",
+          "obligation": "The employer must provide training to the teleworker on the safe use of information technologies, prevention of occupational risks in telework, and the rights and obligations derived from the standard.",
+          "explanation": "Design and deliver a specific training program for telework covering technological tools, information security, ergonomics, and NOM-037 provisions.",
+          "rationale": "Adequate training is a necessary condition for telework to be safe, productive, and legally compliant.",
+          "audit_criteria": "Request the training program for teleworkers, attendance certificates, and evidence that it covers the topics required by the standard."
+        },
+        "5_4_I": {
+          "title": null,
+          "obligation": "Train the teleworker in the adequate and safe use of the equipment and work tools provided.",
+          "explanation": "Instruct the worker in the correct handling of the assigned equipment, including basic IT security measures.",
+          "rationale": "Lack of knowledge in equipment use can lead to security incidents or hardware damage that affect operations.",
+          "audit_criteria": "Review equipment use training certificates for teleworkers."
+        },
+        "5_4_II": {
+          "title": null,
+          "obligation": "Train the teleworker on the occupational risks specific to the telework modality and the applicable prevention measures.",
+          "explanation": "Include in the training the ergonomic, isolation, workplace violence, and psychosocial risks associated with telework.",
+          "rationale": "A teleworker exposed to unknown risks cannot protect themselves; preventive training is the employer's obligation.",
+          "audit_criteria": "Verify that the training covers the specific risks of telework and includes the corresponding prevention measures."
+        },
+        "5_4_III": {
+          "title": null,
+          "obligation": "Inform the teleworker of their rights and obligations under NOM-037-STPS-2023 and other applicable labor provisions.",
+          "explanation": "Communicate in an accessible manner the teleworker's rights (right to disconnect, privacy, reversibility) and their obligations.",
+          "rationale": "An informed worker can exercise their rights; an informed worker can fulfill their obligations.",
+          "audit_criteria": "Review whether informational material on teleworker rights and obligations exists and delivery records."
+        },
+        "5_4_IV": {
+          "title": null,
+          "obligation": "Keep training and development programs up to date in accordance with technological, regulatory, and working conditions changes.",
+          "explanation": "Periodically review and update training content to reflect changes in tools, processes, and applicable regulations.",
+          "rationale": "Obsolete training programs create knowledge gaps that can lead to unaddressed risks.",
+          "audit_criteria": "Verify the date of the last training program update and its correspondence with organizational changes."
+        },
+        "5_5": {
+          "title": "5.5 — Risk Factors Specific to Telework",
+          "obligation": "The employer must identify, assess, and control the risk factors specific to the telework modality, including social isolation, work-family interference, and excessive workload.",
+          "explanation": "Implement mechanisms for detecting and addressing the specific risks of telework that do not exist or are different in on-site work.",
+          "rationale": "Telework introduces specific risks — isolation, hyperconnectivity, difficulty disconnecting — that require active management.",
+          "audit_criteria": "Request the telework risk analysis, control plan, and follow-up records."
+        },
+        "5_5_I": {
+          "title": null,
+          "obligation": "Identify and control the risks of social isolation that teleworkers may experience.",
+          "explanation": "Implement communication and social contact mechanisms that prevent isolation, such as virtual meetings, exchange spaces, and periodic visits to the workplace.",
+          "rationale": "Social isolation is a psychosocial risk of telework that can lead to anxiety, depression, and reduced work engagement.",
+          "audit_criteria": "Review the mechanisms implemented to foster social integration of teleworkers."
+        },
+        "5_5_II": {
+          "title": null,
+          "obligation": "Implement mechanisms to prevent interference between work and the personal and family life of the teleworker.",
+          "explanation": "Establish disconnection policies, clear schedules, and communication channels that respect rest and family time.",
+          "rationale": "Work-family interference is one of the most frequent risk factors in telework and affects both worker health and productivity.",
+          "audit_criteria": "Verify that a digital disconnection policy exists and mechanisms to ensure it is respected."
+        },
+        "5_5_III": {
+          "title": null,
+          "obligation": "Control the teleworker's workload to avoid excessive working hours and guarantee respect for rest times established in the LFT.",
+          "explanation": "Monitor the workload assigned to teleworkers and adjust it to avoid systematic overtime or work outside working hours.",
+          "rationale": "The invisibility of the teleworker can allow workload to expand beyond legal limits without timely detection.",
+          "audit_criteria": "Review workday control mechanisms for teleworkers and verify that rest times are respected."
+        },
+        "5_6": {
+          "title": "5.6 — Telework Agreement",
+          "obligation": "The employer must enter into a telework agreement with the worker covering the conditions, obligations, and rights of both parties in accordance with the standard.",
+          "explanation": "Formalize in writing the telework conditions: location, schedule, equipment, costs, right to disconnect, and reversibility.",
+          "rationale": "The agreement formalizes the conditions of telework and protects both the worker and the employer from potential disputes.",
+          "audit_criteria": "Request the signed telework agreements and verify that they contain all elements required by the standard."
+        },
+        "5_6_I": {
+          "title": null,
+          "obligation": "The telework agreement must specify the location or locations from which the worker will perform their activities in telework modality.",
+          "explanation": "Document in the agreement the address or description of the space from which the worker will perform their functions.",
+          "rationale": "Defining the telework location is essential for the employer to be able to verify safety and health conditions.",
+          "audit_criteria": "Review that the agreement includes the authorized telework location and any procedure for location changes."
+        },
+        "5_6_II": {
+          "title": null,
+          "obligation": "The telework agreement must establish the work schedule, supervision mechanisms, and the worker's right to disconnect.",
+          "explanation": "Specify in the agreement the ordinary schedule, channels and frequency of contact, and the hours when the worker will not be required to respond to communications.",
+          "rationale": "Without a clear agreement on schedules and disconnection, the teleworker is exposed to permanent availability that violates their rights.",
+          "audit_criteria": "Confirm that the agreement includes schedule, supervision mechanisms, and explicit provisions on the right to disconnect."
+        },
+        "5_6_III": {
+          "title": null,
+          "obligation": "The telework agreement must contemplate the conditions for reversibility, the equipment provided, and the costs assumed by the employer.",
+          "explanation": "Document the process for returning to on-site work, the inventory of equipment delivered, and the cost reimbursement mechanism.",
+          "rationale": "Reversibility and the management of equipment and costs, if not agreed upon, generate conflicts at the end of the modality.",
+          "audit_criteria": "Verify that the agreement includes reversibility clauses, equipment description, and the cost compensation mechanism."
+        },
+        "5_7": {
+          "title": "5.7 — Telework Records and Control",
+          "obligation": "The employer must keep an updated record of teleworkers and the conditions under which the service is provided, including the agreements made and the safety condition verifications performed.",
+          "explanation": "Maintain a file per teleworker with the signed agreement, the result of the workplace verification, and training and equipment records.",
+          "rationale": "Records are evidence of compliance during a STPS inspection and facilitate the management and monitoring of the telework program.",
+          "audit_criteria": "Request the teleworker record and individual files; verify that they are complete and up to date."
+        },
+        "5_7_I": {
+          "title": null,
+          "obligation": "Keep an updated record of all workers performing in telework modality, including their data, telework location, and start date.",
+          "explanation": "Maintain a teleworker registry with basic information that allows identifying the universe of workers subject to the standard.",
+          "rationale": "The record is the starting point for managing any obligation under the standard; without it, it is not possible to demonstrate the scope of application.",
+          "audit_criteria": "Verify that the record exists, is up to date, and contains the minimum required data for all teleworkers."
+        },
+        "5_7_II": {
+          "title": null,
+          "obligation": "Retain telework agreements and records of safety and health condition verifications at the telework location.",
+          "explanation": "Archive signed agreements and evidence of each teleworker's workspace verification for the duration of the modality.",
+          "rationale": "Document retention certifies compliance before any labor authority or in the event of an occupational accident.",
+          "audit_criteria": "Request archived agreements and verifications; review that they are available and correspond to active teleworkers."
+        },
+        "5_7_III": {
+          "title": null,
+          "obligation": "Keep records of training delivered to teleworkers in accordance with the standard's requirements.",
+          "explanation": "Document the training sessions conducted, topics covered, and workers who received them, with corresponding dates.",
+          "rationale": "Training records are evidence that the employer has fulfilled their training obligations under NOM-037.",
+          "audit_criteria": "Request attendance lists, training certificates, or any record certifying the training of teleworkers."
+        },
+        "5_8": {
+          "title": "5.8 — Telework Reversibility",
+          "obligation": "The employer must guarantee the worker's right to revert to on-site work and return to in-person work, in accordance with the agreements established and the provisions of the Federal Labor Law.",
+          "explanation": "When the worker requests a return to on-site work, the employer must facilitate the transition within the agreed timeframe.",
+          "rationale": "Reversibility is a fundamental right of the teleworker recognized in the LFT; its violation generates labor liability.",
+          "audit_criteria": "Verify that the telework agreement contemplates the reversibility process and that documented cases of return to on-site work exist when requested."
+        },
+        "5_8_I": {
+          "title": null,
+          "obligation": "Agree with the worker on the timeframe and conditions for reverting to the on-site modality when requested.",
+          "explanation": "The return process must be documented in the telework agreement, with reasonable timeframes and clear conditions.",
+          "rationale": "Without a formal reversibility process, the worker may face practical obstacles that limit the exercise of their right.",
+          "audit_criteria": "Review that the agreement establishes the reversibility process and timeframe, and that it has been respected in cases where requested."
+        },
+        "5_8_II": {
+          "title": null,
+          "obligation": "Guarantee that the worker who reverts to the on-site modality retains the same rights and working conditions they had before adopting telework.",
+          "explanation": "The return to on-site work must not imply loss of salary, category, benefits, or acquired labor rights.",
+          "rationale": "The inviolability of rights is a labor principle protected by the LFT; any harm to the worker for reverting telework is illegal.",
+          "audit_criteria": "Verify that in reversion cases, the worker's working conditions were maintained without prejudicial modifications."
+        },
+        "5_8_III": {
+          "title": null,
+          "obligation": "Facilitate the return of equipment and tools when reverting from telework modality, and document the delivery-reception process.",
+          "explanation": "When telework ends, formalize the return of all assigned equipment through a formal record or equivalent document.",
+          "rationale": "Documentation of the return protects the employer from equipment claims and the worker from undue liability.",
+          "audit_criteria": "Request equipment return records in cases of reversion to on-site work."
+        },
+        "5_9": {
+          "title": "5.9 — Gender Perspective and Non-Discrimination",
+          "obligation": "The employer must ensure that the implementation of telework does not generate discrimination or reproduce gender stereotypes, ensuring equal conditions for women and men.",
+          "explanation": "Telework policies and practices must be designed with a gender perspective to prevent the modality from disproportionately affecting women or reproducing caregiving roles.",
+          "rationale": "Telework can reinforce gender inequalities if not managed with an equity perspective; the standard requires active management of this risk.",
+          "audit_criteria": "Review whether the telework policy includes a gender perspective and whether the employer monitors the equitable distribution of the modality between men and women."
+        },
+        "5_9_I": {
+          "title": null,
+          "obligation": "Ensure that telework policies promote equal treatment and opportunities for male and female workers.",
+          "explanation": "The conditions, access criteria, training, and benefits of telework must be applied equally without gender distinction.",
+          "rationale": "A telework policy without a gender perspective can become an unintentional labor segregation mechanism.",
+          "audit_criteria": "Verify that the telework policy establishes objective and non-discriminatory criteria for access to and conditions of the modality."
+        },
+        "5_9_II": {
+          "title": null,
+          "obligation": "Prevent telework from generating a greater unpaid domestic workload for female workers.",
+          "explanation": "Implement mechanisms that clearly separate paid work time from household responsibilities during the workday.",
+          "rationale": "Female teleworkers frequently face double presence (work and caregiving) that the standard explicitly seeks to prevent.",
+          "audit_criteria": "Review whether concrete measures exist to prevent double presence and how their effectiveness is verified."
+        },
+        "5_9_III": {
+          "title": null,
+          "obligation": "Ensure that telework is not used as a mechanism to exclude or marginalize female workers from professional development and decision-making processes.",
+          "explanation": "Female teleworkers must have the same training, promotion, and participation opportunities as their on-site colleagues.",
+          "rationale": "The invisibility of the teleworker can translate into exclusion from development opportunities; the standard requires equal access.",
+          "audit_criteria": "Verify that the distribution of promotions, training, and strategic projects is equitable between on-site and remote teleworkers."
+        },
+        "5_10": {
+          "title": "5.10 — Privacy and Data Protection",
+          "obligation": "The employer must respect the privacy of the teleworker in their home and ensure the protection of personal data and confidential company information during telework.",
+          "explanation": "Implement information security policies for telework and respect the boundaries of the worker's home in supervision mechanisms.",
+          "rationale": "Telework at the worker's home creates a tension between legitimate work supervision and the right to privacy in the home.",
+          "audit_criteria": "Review information security policies for teleworkers and the supervision mechanisms implemented."
+        },
+        "5_10_I": {
+          "title": null,
+          "obligation": "Respect the teleworker's right to privacy and intimacy in their home; supervision mechanisms must not violate that right.",
+          "explanation": "Remote work monitoring tools must be limited to verifying work performance without invading the privacy of the domestic space.",
+          "rationale": "Invasive supervision of the home violates fundamental rights of the worker and may constitute a discriminatory act.",
+          "audit_criteria": "Review the supervision tools in use and confirm they are limited to work performance without access to private environments."
+        },
+        "5_10_II": {
+          "title": null,
+          "obligation": "Implement information security measures to protect company and teleworker data during remote work.",
+          "explanation": "Establish policies for using secure networks, handling confidential information, using VPN, and password management for telework.",
+          "rationale": "Working from home or public networks exposes the company to IT security risks that must be proactively managed.",
+          "audit_criteria": "Request the information security policy for teleworkers and the technical controls implemented."
+        },
+        "5_11": {
+          "title": "5.11 — Right to Disconnect",
+          "obligation": "The employer must guarantee the teleworker's right to digital disconnection outside their working hours, on rest days, vacations, and leaves.",
+          "explanation": "Establish a digital disconnection policy that prohibits requiring the teleworker's attention outside their ordinary working hours and during their rest periods.",
+          "rationale": "The right to disconnect is a recognized labor right that protects the health and personal time of the worker.",
+          "audit_criteria": "Verify the existence of the disconnection policy and the mechanisms to ensure its effective compliance."
+        },
+        "5_12": {
+          "title": "5.12 — Emergency and Accident Response",
+          "obligation": "The employer must establish mechanisms to handle emergencies and accidents occurring during the telework workday, including incident communication and worker assistance.",
+          "explanation": "Define the reporting and response protocol for occupational accidents in the telework modality, including communication channels with the employer.",
+          "rationale": "Accidents occurring during the telework workday are occupational accidents; the employer has the same obligations as in on-site work.",
+          "audit_criteria": "Request the emergency and accident response protocol for teleworkers and records of reported incidents."
+        },
+        "5_13": {
+          "title": "5.13 — Health and Social Security Services",
+          "obligation": "The employer must ensure that teleworkers have the same social security coverage, health services, and benefits as on-site workers.",
+          "explanation": "Teleworkers must be registered with the IMSS or the corresponding social security system under the same conditions as any other worker.",
+          "rationale": "The telework modality does not modify the worker's social security rights; any difference constitutes a discriminatory act.",
+          "audit_criteria": "Verify that teleworkers are registered with IMSS with correct salaries and have access to all legally required benefits."
+        },
+        "5_14": {
+          "title": "5.14 — Health Surveillance",
+          "obligation": "The employer must conduct medical and health examinations for teleworkers based on the identified risk conditions, in order to detect and prevent health damage derived from the telework modality.",
+          "explanation": "Include teleworkers in the company's medical surveillance program, with emphasis on telework-specific risks: musculoskeletal disorders, visual fatigue, and psychosocial risks.",
+          "rationale": "Health surveillance enables early detection of health effects and allows preventive action; the teleworker has the same right to this service as the on-site worker.",
+          "audit_criteria": "Request records of medical examinations conducted for teleworkers and verify that the surveillance program includes them."
         }
       }
     },

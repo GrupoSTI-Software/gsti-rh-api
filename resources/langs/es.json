@@ -411,6 +411,10 @@
       "nom_035_stps_2018": {
         "scope": "Aplica a todos los centros de trabajo en México. Centros con hasta 15 trabajadores implementan medidas básicas; los de 16 a 50 aplican la política y los controles mínimos; los de más de 50 trabajadores cumplen con todos los requisitos incluyendo evaluación de factores de riesgo psicosocial.",
         "audit_description": "Norma de cumplimiento obligatorio que establece elementos para identificar, analizar y prevenir los factores de riesgo psicosocial. La STPS puede sancionar con multas de 50 a 5,000 veces la UMA (aprox. $5,200 a $520,000 MXN) por incumplimiento de sus disposiciones."
+      },
+      "nom_037_stps_2023": {
+        "scope": "Aplica a los centros de trabajo con modalidad de teletrabajo cuando el número de teletrabajadores represente el 40% o más de la plantilla laboral del centro de trabajo. El patrón puede optar por su aplicación con porcentajes menores.",
+        "audit_description": "La NOM-037-STPS-2023 establece las condiciones de seguridad y salud en el teletrabajo. La STPS puede verificar su cumplimiento mediante inspecciones y sancionar incumplimientos con multas de 50 a 5,000 veces la UMA por cada violación detectada."
       }
     },
     "clauses": {
@@ -743,6 +747,351 @@
           "explanation": "Al concluir la verificación, la unidad emite un dictamen formal indicando el grado de cumplimiento del centro de trabajo.",
           "rationale": "El dictamen formal es el documento que certifica el resultado de la verificación y puede ser presentado ante clientes, autoridades o socios.",
           "audit_criteria": "Solicitar el dictamen emitido por la unidad de verificación con fecha, alcance, hallazgos y resolución de conformidad."
+        }
+      },
+      "nom_037_stps_2023": {
+        "5": {
+          "title": "Capítulo 5 — Obligaciones del Patrón",
+          "obligation": "El patrón debe cumplir con las obligaciones establecidas en este capítulo para garantizar condiciones de seguridad y salud en la modalidad de teletrabajo.",
+          "explanation": "El patrón es el responsable principal de asegurar que las condiciones de teletrabajo sean seguras, ergonómicas y respetuosas de los derechos de los trabajadores.",
+          "rationale": "Las obligaciones patronales en teletrabajo son la base de la NOM-037; sin su cumplimiento no es posible garantizar la integridad física y mental del teletrabajador.",
+          "audit_criteria": "Verificar que el patrón cuente con política, equipos, acuerdos de teletrabajo, registros y evidencias de capacitación conforme a la norma."
+        },
+        "5_1": {
+          "title": "5.1 — Condiciones de seguridad y salud en el lugar de teletrabajo",
+          "obligation": "El patrón debe verificar que el lugar de teletrabajo designado por el trabajador cuente con las condiciones de seguridad y salud adecuadas, conforme a los requerimientos mínimos establecidos en la norma.",
+          "explanation": "Antes de autorizar el teletrabajo, el patrón debe confirmar que el espacio doméstico o externo que usará el trabajador cumple con condiciones mínimas de seguridad, iluminación, ventilación y ergonomía.",
+          "rationale": "El patrón conserva la obligación de proteger la seguridad y salud del trabajador aun cuando la actividad se realice fuera del centro de trabajo.",
+          "audit_criteria": "Solicitar el mecanismo de verificación del lugar de teletrabajo (checklist, visita virtual, declaración del trabajador) y los registros de las verificaciones realizadas."
+        },
+        "5_1_I": {
+          "title": null,
+          "obligation": "Verificar que el lugar de teletrabajo cuente con condiciones de iluminación natural o artificial adecuadas para el desempeño de las actividades.",
+          "explanation": "El espacio debe tener suficiente luz para evitar fatiga visual; se puede validar mediante autoevaluación guiada o visita virtual.",
+          "rationale": "La iluminación inadecuada es una de las principales causas de fatiga ocular y trastornos musculoesqueléticos en el trabajo de oficina.",
+          "audit_criteria": "Verificar que el proceso de validación del lugar incluye criterios de iluminación y que existen registros de la evaluación realizada."
+        },
+        "5_1_II": {
+          "title": null,
+          "obligation": "Verificar que el lugar de teletrabajo cuente con condiciones de ventilación e higiene adecuadas.",
+          "explanation": "El espacio debe permitir renovación de aire suficiente y condiciones de higiene que no representen riesgo para la salud del teletrabajador.",
+          "rationale": "Las condiciones ambientales deficientes pueden afectar la salud respiratoria y el bienestar general del teletrabajador.",
+          "audit_criteria": "Confirmar que el protocolo de validación incluye criterios de ventilación e higiene del espacio de trabajo."
+        },
+        "5_1_III": {
+          "title": null,
+          "obligation": "Verificar que el lugar de teletrabajo cuente con instalaciones eléctricas en condiciones seguras.",
+          "explanation": "Las instalaciones eléctricas del espacio de teletrabajo no deben representar riesgo de corto circuito, sobrecarga ni contacto eléctrico accidental.",
+          "rationale": "Las deficiencias eléctricas son una causa frecuente de accidentes en el hogar y pueden provocar desde quemaduras hasta incendios.",
+          "audit_criteria": "Incluir verificación de instalaciones eléctricas en el protocolo de validación del espacio de teletrabajo."
+        },
+        "5_1_IV": {
+          "title": null,
+          "obligation": "Verificar que el lugar de teletrabajo cuente con mobiliario y condiciones ergonómicas adecuadas.",
+          "explanation": "La silla, escritorio y disposición del equipo deben permitir una postura correcta que prevenga trastornos musculoesqueléticos.",
+          "rationale": "El trabajo prolongado en postura inadecuada es una de las principales causas de enfermedad laboral en el teletrabajo.",
+          "audit_criteria": "Revisar que se evalúen las condiciones ergonómicas del mobiliario y que existan registros de la evaluación."
+        },
+        "5_1_V": {
+          "title": null,
+          "obligation": "Verificar que el lugar de teletrabajo cuente con conexión a internet o telecomunicaciones adecuada para el desempeño de las actividades.",
+          "explanation": "La conectividad debe ser suficiente para las herramientas de trabajo digitales requeridas, sin interrupciones que generen carga adicional.",
+          "rationale": "Una conectividad deficiente genera estrés, afecta la productividad y puede traducirse en jornadas extendidas.",
+          "audit_criteria": "Confirmar que el proceso de validación incluye criterios de conectividad y que el patrón apoya al trabajador en resolverlos."
+        },
+        "5_1_VI": {
+          "title": null,
+          "obligation": "Verificar que el lugar de teletrabajo esté libre de condiciones de riesgo que puedan causar accidentes de trabajo.",
+          "explanation": "El espacio no debe tener obstáculos, superficies resbaladizas, cables expuestos u otras condiciones que representen riesgo de caída o lesión.",
+          "rationale": "Los accidentes en el lugar de teletrabajo son considerados accidentes de trabajo y generan responsabilidad patronal.",
+          "audit_criteria": "Confirmar que el protocolo de validación incluye un recorrido visual o checklist de condiciones de riesgo general."
+        },
+        "5_2": {
+          "title": "5.2 — Equipos y herramientas de trabajo",
+          "obligation": "El patrón debe proporcionar, instalar y mantener en buen estado los equipos y herramientas de trabajo necesarios para el desempeño del teletrabajo.",
+          "explanation": "El patrón es responsable de proveer el equipo tecnológico necesario (computadora, teléfono, software) y de mantenerlo funcional.",
+          "rationale": "El teletrabajador no debe asumir el costo ni la responsabilidad del equipo de trabajo; esta obligación recae en el patrón.",
+          "audit_criteria": "Solicitar el inventario de equipos asignados a teletrabajadores, contratos de comodato o resguardo, y registros de mantenimiento."
+        },
+        "5_2_I": {
+          "title": null,
+          "obligation": "Proporcionar al teletrabajador los equipos de cómputo, telecomunicaciones y demás herramientas tecnológicas necesarias para el desempeño de sus actividades.",
+          "explanation": "Antes del inicio del teletrabajo, el patrón debe entregar o garantizar acceso a los equipos necesarios, con documentación del resguardo.",
+          "rationale": "El trabajador no puede ser responsabilizado de adquirir equipo de trabajo; la norma es clara en que esta es una obligación patronal.",
+          "audit_criteria": "Revisar contratos de comodato, actas de entrega-recepción de equipo o cualquier documento que acredite la provisión del equipo."
+        },
+        "5_2_II": {
+          "title": null,
+          "obligation": "Instalar y mantener en condiciones seguras y en buen estado los equipos y herramientas proporcionados al teletrabajador.",
+          "explanation": "El patrón debe asegurarse de que el equipo llega en condiciones operativas al trabajador y que existe un proceso de mantenimiento preventivo y correctivo.",
+          "rationale": "El equipo deficiente genera interrupciones, estrés y riesgos de seguridad informática que impactan negativamente al teletrabajador.",
+          "audit_criteria": "Solicitar registros de mantenimiento de equipos asignados a teletrabajadores y los tiempos de respuesta ante fallas reportadas."
+        },
+        "5_2_III": {
+          "title": null,
+          "obligation": "Asumir los costos derivados del teletrabajo, incluyendo el pago de servicios de telecomunicaciones y la parte proporcional de energía eléctrica.",
+          "explanation": "El patrón debe cubrir los gastos adicionales de internet y electricidad en que incurra el trabajador por el teletrabajo, conforme a lo acordado.",
+          "rationale": "Los costos del teletrabajo no deben trasladarse al trabajador; la norma los define como una obligación patronal.",
+          "audit_criteria": "Verificar que existe un mecanismo documentado de reembolso o pago de servicios de telecomunicaciones y energía al teletrabajador."
+        },
+        "5_2_IV": {
+          "title": null,
+          "obligation": "Llevar un registro de los equipos y herramientas proporcionados a cada teletrabajador.",
+          "explanation": "Mantener un inventario actualizado de los bienes asignados en modalidad de teletrabajo, con datos del trabajador, descripción del equipo y fechas.",
+          "rationale": "El registro permite trazabilidad del equipo, facilita la recuperación al término de la modalidad y acredita el cumplimiento ante la autoridad.",
+          "audit_criteria": "Solicitar el registro o inventario de equipos asignados a teletrabajadores, verificar que esté actualizado."
+        },
+        "5_3": {
+          "title": "5.3 — Ergonomía",
+          "obligation": "El patrón debe proporcionar información, capacitación y orientación al teletrabajador sobre ergonomía, con el fin de prevenir trastornos musculoesqueléticos y fatiga visual.",
+          "explanation": "Instruir al trabajador sobre la correcta configuración de su estación de trabajo, postura y pausas activas para prevenir lesiones.",
+          "rationale": "La ergonomía deficiente es la principal causa de enfermedades laborales en trabajo de oficina; su prevención requiere formación específica.",
+          "audit_criteria": "Solicitar el programa o materiales de capacitación en ergonomía y los registros de los trabajadores que la recibieron."
+        },
+        "5_3_I": {
+          "title": null,
+          "obligation": "Proporcionar al teletrabajador información sobre los riesgos ergonómicos asociados al teletrabajo y las medidas de prevención aplicables.",
+          "explanation": "Entregar guías, manuales o infografías con criterios de configuración del puesto, postura correcta y señales de alerta de trastornos musculoesqueléticos.",
+          "rationale": "El trabajador que comprende los riesgos ergonómicos puede adoptar medidas preventivas de forma autónoma en su espacio de trabajo.",
+          "audit_criteria": "Revisar los materiales informativos entregados y los registros de recepción del trabajador."
+        },
+        "5_3_II": {
+          "title": null,
+          "obligation": "Capacitar al teletrabajador en la correcta configuración de su estación de trabajo para minimizar los riesgos ergonómicos.",
+          "explanation": "Incluir en el programa de capacitación criterios de altura de monitor, posición de teclado, soporte lumbar y distancia visual.",
+          "rationale": "La configuración incorrecta del puesto es corregible con formación; la capacitación es la medida preventiva más costo-efectiva.",
+          "audit_criteria": "Solicitar el contenido de la capacitación ergonómica y los registros de asistencia o constancias de los teletrabajadores."
+        },
+        "5_3_III": {
+          "title": null,
+          "obligation": "Promover la realización de pausas activas y ejercicios de estiramiento durante la jornada de teletrabajo.",
+          "explanation": "Implementar mecanismos que recuerden al teletrabajador realizar descansos breves y estiramientos para contrarrestar los efectos de la postura prolongada.",
+          "rationale": "Las pausas activas reducen la tensión muscular, mejoran la circulación y contribuyen al bienestar general del teletrabajador.",
+          "audit_criteria": "Verificar que existe un programa formal de pausas activas y que los teletrabajadores están informados de su implementación."
+        },
+        "5_4": {
+          "title": "5.4 — Capacitación y formación",
+          "obligation": "El patrón debe proporcionar capacitación y adiestramiento al teletrabajador sobre el uso seguro de las tecnologías de la información, prevención de riesgos laborales en el teletrabajo y los derechos y obligaciones derivados de la norma.",
+          "explanation": "Diseñar e impartir un programa de capacitación específico para el teletrabajo que cubra herramientas tecnológicas, seguridad de la información, ergonomía y disposiciones de la NOM-037.",
+          "rationale": "La capacitación adecuada es condición necesaria para que el teletrabajo sea seguro, productivo y conforme a derecho.",
+          "audit_criteria": "Solicitar el programa de capacitación para teletrabajadores, constancias de asistencia y evidencia de que cubre los temas requeridos por la norma."
+        },
+        "5_4_I": {
+          "title": null,
+          "obligation": "Capacitar al teletrabajador en el uso adecuado y seguro de los equipos y herramientas de trabajo proporcionados.",
+          "explanation": "Instruir al trabajador en el manejo correcto del equipo asignado, incluyendo medidas de seguridad informática básica.",
+          "rationale": "El desconocimiento en el uso del equipo puede derivar en incidentes de seguridad o daños al hardware que afecten la operación.",
+          "audit_criteria": "Revisar las constancias de capacitación en uso de equipo de los teletrabajadores."
+        },
+        "5_4_II": {
+          "title": null,
+          "obligation": "Capacitar al teletrabajador sobre los riesgos laborales propios de la modalidad de teletrabajo y las medidas de prevención aplicables.",
+          "explanation": "Incluir en la capacitación los riesgos ergonómicos, de aislamiento, de violencia laboral y psicosociales asociados al teletrabajo.",
+          "rationale": "El teletrabajador expuesto a riesgos que desconoce no puede protegerse; la capacitación preventiva es obligación del patrón.",
+          "audit_criteria": "Verificar que la capacitación cubre los riesgos específicos del teletrabajo y que incluye las medidas de prevención correspondientes."
+        },
+        "5_4_III": {
+          "title": null,
+          "obligation": "Informar al teletrabajador sobre sus derechos y obligaciones conforme a la NOM-037-STPS-2023 y demás disposiciones laborales aplicables.",
+          "explanation": "Comunicar de forma accesible los derechos del teletrabajador (derecho a la desconexión, privacidad, reversibilidad) y sus obligaciones.",
+          "rationale": "Un trabajador informado de sus derechos puede ejercerlos; un trabajador informado de sus obligaciones puede cumplirlas.",
+          "audit_criteria": "Revisar si existe material informativo sobre derechos y obligaciones de teletrabajadores y los registros de su entrega."
+        },
+        "5_4_IV": {
+          "title": null,
+          "obligation": "Mantener actualizados los programas de capacitación y adiestramiento conforme a los cambios tecnológicos, normativos y de las condiciones de trabajo.",
+          "explanation": "Revisar y actualizar periódicamente los contenidos de capacitación para reflejar cambios en herramientas, procesos y regulación aplicable.",
+          "rationale": "La obsolescencia de los programas de capacitación genera brechas de conocimiento que pueden derivar en riesgos no atendidos.",
+          "audit_criteria": "Verificar la fecha de la última actualización del programa de capacitación y su correspondencia con los cambios en la organización."
+        },
+        "5_5": {
+          "title": "5.5 — Factores de riesgo propios del teletrabajo",
+          "obligation": "El patrón debe identificar, evaluar y controlar los factores de riesgo propios de la modalidad de teletrabajo, incluyendo el aislamiento social, la interferencia trabajo-familia y la carga de trabajo excesiva.",
+          "explanation": "Implementar mecanismos de detección y atención de los riesgos específicos del teletrabajo que no existen o son diferentes en el trabajo presencial.",
+          "rationale": "El teletrabajo introduce riesgos específicos —aislamiento, hiperconectividad, dificultad para desconectarse— que requieren gestión activa.",
+          "audit_criteria": "Solicitar el análisis de riesgos del teletrabajo, el plan de control y los registros de seguimiento."
+        },
+        "5_5_I": {
+          "title": null,
+          "obligation": "Identificar y controlar los riesgos de aislamiento social que pueden experimentar los teletrabajadores.",
+          "explanation": "Implementar mecanismos de comunicación y contacto social que prevengan el aislamiento, como reuniones virtuales, espacios de intercambio y visitas periódicas al centro de trabajo.",
+          "rationale": "El aislamiento social es un riesgo psicosocial del teletrabajo que puede derivar en ansiedad, depresión y reducción del compromiso laboral.",
+          "audit_criteria": "Revisar los mecanismos implementados para fomentar la integración social de los teletrabajadores."
+        },
+        "5_5_II": {
+          "title": null,
+          "obligation": "Implementar mecanismos para prevenir la interferencia entre el trabajo y la vida personal y familiar del teletrabajador.",
+          "explanation": "Establecer políticas de desconexión, horarios claros y canales de comunicación que respeten los tiempos de descanso y vida familiar.",
+          "rationale": "La interferencia trabajo-familia es uno de los factores de riesgo más frecuentes en el teletrabajo y afecta tanto la salud del trabajador como su productividad.",
+          "audit_criteria": "Verificar que existe una política de desconexión digital y mecanismos para garantizar que se respete."
+        },
+        "5_5_III": {
+          "title": null,
+          "obligation": "Controlar la carga de trabajo del teletrabajador para evitar jornadas excesivas y garantizar el respeto a los tiempos de descanso establecidos en la LFT.",
+          "explanation": "Monitorear la carga de trabajo asignada a los teletrabajadores y ajustarla para evitar horas extraordinarias sistemáticas o trabajo fuera de jornada.",
+          "rationale": "La invisibilidad del teletrabajador puede facilitar que la carga de trabajo se expanda más allá de los límites legales sin detección oportuna.",
+          "audit_criteria": "Revisar los mecanismos de control de jornada para teletrabajadores y verificar que se respetan los tiempos de descanso."
+        },
+        "5_6": {
+          "title": "5.6 — Acuerdo de teletrabajo",
+          "obligation": "El patrón debe celebrar con el trabajador un acuerdo de teletrabajo que contemple las condiciones, obligaciones y derechos de ambas partes conforme a la norma.",
+          "explanation": "Formalizar por escrito las condiciones del teletrabajo: lugar, horario, equipos, costos, derecho a la desconexión y reversibilidad.",
+          "rationale": "El acuerdo formaliza las condiciones del teletrabajo y protege tanto al trabajador como al patrón ante posibles controversias.",
+          "audit_criteria": "Solicitar los acuerdos de teletrabajo firmados y verificar que contengan todos los elementos requeridos por la norma."
+        },
+        "5_6_I": {
+          "title": null,
+          "obligation": "El acuerdo de teletrabajo debe especificar el lugar o lugares desde los que el trabajador realizará sus actividades en modalidad de teletrabajo.",
+          "explanation": "Documentar en el acuerdo la dirección o descripción del espacio desde el cual el trabajador desempeñará sus funciones.",
+          "rationale": "La definición del lugar de teletrabajo es indispensable para que el patrón pueda verificar las condiciones de seguridad y salud.",
+          "audit_criteria": "Revisar que el acuerdo incluye el lugar de teletrabajo autorizado y cualquier procedimiento para cambios de lugar."
+        },
+        "5_6_II": {
+          "title": null,
+          "obligation": "El acuerdo de teletrabajo debe establecer el horario de trabajo, los mecanismos de supervisión y el derecho a la desconexión del trabajador.",
+          "explanation": "Especificar en el acuerdo el horario ordinario, los canales y frecuencia de contacto, y los horarios en los que el trabajador no estará obligado a responder comunicaciones.",
+          "rationale": "Sin un acuerdo claro de horarios y desconexión, el teletrabajador queda expuesto a disponibilidad permanente que viola sus derechos.",
+          "audit_criteria": "Confirmar que el acuerdo incluye horario, mecanismos de supervisión y disposiciones explícitas sobre el derecho a la desconexión."
+        },
+        "5_6_III": {
+          "title": null,
+          "obligation": "El acuerdo de teletrabajo debe contemplar las condiciones para la reversibilidad, los equipos proporcionados y los costos asumidos por el patrón.",
+          "explanation": "Documentar el proceso de retorno al trabajo presencial, el inventario de equipos entregados y el mecanismo de reembolso de costos.",
+          "rationale": "La reversibilidad y la gestión de equipos y costos son elementos que, de no estar acordados, generan conflictos al término de la modalidad.",
+          "audit_criteria": "Verificar que el acuerdo incluye cláusulas de reversibilidad, descripción de equipos y el mecanismo de compensación de costos."
+        },
+        "5_7": {
+          "title": "5.7 — Registro y control del teletrabajo",
+          "obligation": "El patrón debe llevar un registro actualizado de los teletrabajadores y las condiciones en que se presta el servicio, incluyendo los acuerdos celebrados y las verificaciones de condiciones de seguridad realizadas.",
+          "explanation": "Mantener un expediente por teletrabajador con el acuerdo firmado, el resultado de la verificación del lugar de trabajo y los registros de capacitación y equipo.",
+          "rationale": "Los registros son la evidencia de cumplimiento ante una inspección de la STPS y facilitan la gestión y el seguimiento del programa de teletrabajo.",
+          "audit_criteria": "Solicitar el registro de teletrabajadores y los expedientes individuales; verificar que están completos y actualizados."
+        },
+        "5_7_I": {
+          "title": null,
+          "obligation": "Llevar un registro actualizado de todos los trabajadores que se desempeñan en modalidad de teletrabajo, incluyendo sus datos, lugar de teletrabajo y fecha de inicio.",
+          "explanation": "Mantener un padrón de teletrabajadores con información básica que permita identificar el universo de trabajadores sujetos a la norma.",
+          "rationale": "El registro es el punto de partida para gestionar cualquier obligación de la norma; sin él no es posible demostrar el universo de aplicación.",
+          "audit_criteria": "Verificar que el registro existe, está actualizado y contiene los datos mínimos requeridos para todos los teletrabajadores."
+        },
+        "5_7_II": {
+          "title": null,
+          "obligation": "Conservar los acuerdos de teletrabajo y los registros de verificación de condiciones de seguridad y salud en el lugar de teletrabajo.",
+          "explanation": "Archivar los acuerdos firmados y las evidencias de la verificación del espacio de trabajo de cada teletrabajador durante el tiempo que dure la modalidad.",
+          "rationale": "La conservación de documentos acredita el cumplimiento ante cualquier autoridad laboral o en caso de un accidente de trabajo.",
+          "audit_criteria": "Solicitar los acuerdos y verificaciones archivados; revisar que están disponibles y que corresponden a los teletrabajadores activos."
+        },
+        "5_7_III": {
+          "title": null,
+          "obligation": "Llevar registros de las capacitaciones impartidas a los teletrabajadores conforme a los requisitos de la norma.",
+          "explanation": "Documentar las sesiones de capacitación realizadas, los temas cubiertos y los trabajadores que las recibieron, con las fechas correspondientes.",
+          "rationale": "Los registros de capacitación son la evidencia de que el patrón ha cumplido con sus obligaciones formativas conforme a la NOM-037.",
+          "audit_criteria": "Solicitar listas de asistencia, constancias de capacitación o cualquier registro que acredite la formación de los teletrabajadores."
+        },
+        "5_8": {
+          "title": "5.8 — Reversibilidad del teletrabajo",
+          "obligation": "El patrón debe garantizar el derecho del trabajador a revertir la modalidad de teletrabajo y regresar al trabajo presencial, conforme a los acuerdos establecidos y las disposiciones de la Ley Federal del Trabajo.",
+          "explanation": "Cuando el trabajador solicite regresar al trabajo presencial, el patrón debe facilitar la transición dentro del plazo acordado.",
+          "rationale": "La reversibilidad es un derecho fundamental del teletrabajador reconocido en la LFT; su vulneración genera responsabilidad laboral.",
+          "audit_criteria": "Verificar que el acuerdo de teletrabajo contempla el proceso de reversibilidad y que existen casos documentados de retorno al presencial cuando fue solicitado."
+        },
+        "5_8_I": {
+          "title": null,
+          "obligation": "Acordar con el trabajador el plazo y las condiciones para la reversión a la modalidad presencial cuando éste lo solicite.",
+          "explanation": "El proceso de retorno debe estar documentado en el acuerdo de teletrabajo, con plazos razonables y condiciones claras.",
+          "rationale": "Sin un proceso formal de reversibilidad, el trabajador puede enfrentar obstáculos prácticos que limiten el ejercicio de su derecho.",
+          "audit_criteria": "Revisar que el acuerdo establece el proceso y plazo de reversibilidad y que se ha respetado en los casos en que fue solicitada."
+        },
+        "5_8_II": {
+          "title": null,
+          "obligation": "Garantizar que el trabajador que revierte a la modalidad presencial conserva los mismos derechos y condiciones laborales que tenía antes de adoptar el teletrabajo.",
+          "explanation": "El retorno al trabajo presencial no debe implicar pérdida de salario, categoría, beneficios ni derechos laborales adquiridos.",
+          "rationale": "La intangibilidad de los derechos es un principio laboral protegido por la LFT; cualquier perjuicio al trabajador por revertir el teletrabajo es ilegal.",
+          "audit_criteria": "Verificar que en los casos de reversión se conservaron las condiciones laborales del trabajador sin modificaciones perjudiciales."
+        },
+        "5_8_III": {
+          "title": null,
+          "obligation": "Facilitar la devolución de equipos y herramientas al revertir la modalidad de teletrabajo, y documentar el proceso de entrega-recepción.",
+          "explanation": "Al terminar el teletrabajo, formalizar la devolución de todos los equipos asignados mediante acta o documento equivalente.",
+          "rationale": "La documentación de la devolución protege al patrón de reclamaciones por equipos y al trabajador de responsabilidades indebidas.",
+          "audit_criteria": "Solicitar las actas de devolución de equipo en los casos de reversión al trabajo presencial."
+        },
+        "5_9": {
+          "title": "5.9 — Perspectiva de género y no discriminación",
+          "obligation": "El patrón debe garantizar que la implementación del teletrabajo no genere discriminación ni reproduzca estereotipos de género, asegurando igualdad de condiciones para mujeres y hombres.",
+          "explanation": "Las políticas y prácticas de teletrabajo deben diseñarse con perspectiva de género para evitar que la modalidad recaiga desproporcionadamente en las mujeres o reproduzca roles de cuidado.",
+          "rationale": "El teletrabajo puede reforzar desigualdades de género si no se gestiona con perspectiva de equidad; la norma exige una gestión activa de este riesgo.",
+          "audit_criteria": "Revisar si la política de teletrabajo incluye perspectiva de género y si el patrón monitorea la distribución equitativa de la modalidad entre hombres y mujeres."
+        },
+        "5_9_I": {
+          "title": null,
+          "obligation": "Garantizar que las políticas de teletrabajo promuevan la igualdad de trato y oportunidades entre trabajadoras y trabajadores.",
+          "explanation": "Las condiciones, criterios de acceso, capacitación y beneficios del teletrabajo deben aplicarse de manera igualitaria sin distinción de género.",
+          "rationale": "Una política de teletrabajo sin perspectiva de género puede convertirse en un mecanismo de segregación laboral involuntario.",
+          "audit_criteria": "Verificar que la política de teletrabajo establece criterios objetivos y no discriminatorios para el acceso y las condiciones de la modalidad."
+        },
+        "5_9_II": {
+          "title": null,
+          "obligation": "Prevenir que el teletrabajo genere una mayor carga de trabajo doméstico no remunerado en las trabajadoras.",
+          "explanation": "Implementar mecanismos que separen claramente el tiempo de trabajo remunerado de las responsabilidades del hogar durante la jornada laboral.",
+          "rationale": "Las trabajadoras en teletrabajo enfrentan frecuentemente la doble presencia (trabajo y cuidados), que la norma busca prevenir explícitamente.",
+          "audit_criteria": "Revisar si existen medidas concretas para prevenir la doble presencia y cómo se verifica su efectividad."
+        },
+        "5_9_III": {
+          "title": null,
+          "obligation": "Garantizar que el teletrabajo no sea utilizado como mecanismo de exclusión o marginación de trabajadoras del desarrollo profesional y de los procesos de toma de decisiones.",
+          "explanation": "Las trabajadoras en teletrabajo deben tener las mismas oportunidades de capacitación, promoción y participación que sus colegas presenciales.",
+          "rationale": "La invisibilidad del teletrabajador puede traducirse en exclusión de oportunidades de desarrollo; la norma exige igualdad de acceso.",
+          "audit_criteria": "Verificar que la distribución de promociones, capacitaciones y proyectos estratégicos es equitativa entre teletrabajadores presenciales y remotos."
+        },
+        "5_10": {
+          "title": "5.10 — Privacidad y protección de datos",
+          "obligation": "El patrón debe respetar la privacidad del teletrabajador en su domicilio y garantizar la protección de los datos personales y la información confidencial de la empresa durante el teletrabajo.",
+          "explanation": "Implementar políticas de seguridad de la información para el teletrabajo y respetar los límites del domicilio del trabajador en los mecanismos de supervisión.",
+          "rationale": "El teletrabajo en el domicilio del trabajador crea una tensión entre la supervisión legítima del trabajo y el derecho a la privacidad en el hogar.",
+          "audit_criteria": "Revisar las políticas de seguridad de la información para teletrabajadores y los mecanismos de supervisión implementados."
+        },
+        "5_10_I": {
+          "title": null,
+          "obligation": "Respetar el derecho a la intimidad y privacidad del teletrabajador en su domicilio; los mecanismos de supervisión no deben vulnerar dicho derecho.",
+          "explanation": "Las herramientas de monitoreo del trabajo remoto deben limitarse a verificar el desempeño laboral sin invadir la privacidad del espacio doméstico.",
+          "rationale": "La supervisión invasiva del domicilio viola derechos fundamentales del trabajador y puede constituir un acto discriminatorio.",
+          "audit_criteria": "Revisar las herramientas de supervisión en uso y confirmar que están limitadas al desempeño laboral sin acceso a entornos privados."
+        },
+        "5_10_II": {
+          "title": null,
+          "obligation": "Implementar medidas de seguridad de la información para proteger los datos de la empresa y del teletrabajador durante el trabajo remoto.",
+          "explanation": "Establecer políticas de uso de redes seguras, manejo de información confidencial, uso de VPN y gestión de contraseñas para el teletrabajo.",
+          "rationale": "El trabajo desde redes domésticas o públicas expone a la empresa a riesgos de seguridad informática que deben gestionarse proactivamente.",
+          "audit_criteria": "Solicitar la política de seguridad de la información para teletrabajadores y los controles técnicos implementados."
+        },
+        "5_11": {
+          "title": "5.11 — Derecho a la desconexión",
+          "obligation": "El patrón debe garantizar el derecho del teletrabajador a la desconexión digital fuera de su jornada laboral, en días de descanso, vacaciones y licencias.",
+          "explanation": "Establecer una política de desconexión digital que prohíba requerir atención del teletrabajador fuera de su jornada ordinaria y durante sus periodos de descanso.",
+          "rationale": "El derecho a la desconexión es un derecho laboral reconocido que protege la salud y el tiempo personal del trabajador.",
+          "audit_criteria": "Verificar la existencia de la política de desconexión y los mecanismos para garantizar su cumplimiento efectivo."
+        },
+        "5_12": {
+          "title": "5.12 — Atención a emergencias y accidentes",
+          "obligation": "El patrón debe establecer mecanismos para atender emergencias y accidentes que ocurran durante la jornada de teletrabajo, incluyendo la comunicación de incidentes y la asistencia al trabajador.",
+          "explanation": "Definir el protocolo de reporte y atención de accidentes de trabajo en la modalidad de teletrabajo, incluyendo los canales de comunicación con el patrón.",
+          "rationale": "Los accidentes ocurridos durante la jornada de teletrabajo son accidentes de trabajo; el patrón tiene las mismas obligaciones que en el trabajo presencial.",
+          "audit_criteria": "Solicitar el protocolo de atención de emergencias y accidentes para teletrabajadores y los registros de incidentes reportados."
+        },
+        "5_13": {
+          "title": "5.13 — Servicios de salud y seguridad social",
+          "obligation": "El patrón debe garantizar que los teletrabajadores cuenten con la misma cobertura de seguridad social, servicios de salud y prestaciones que los trabajadores presenciales.",
+          "explanation": "Los teletrabajadores deben estar afiliados al IMSS o el sistema de seguridad social correspondiente en las mismas condiciones que cualquier otro trabajador.",
+          "rationale": "La modalidad de teletrabajo no modifica los derechos de seguridad social del trabajador; cualquier diferencia constituye un acto discriminatorio.",
+          "audit_criteria": "Verificar que los teletrabajadores están registrados ante el IMSS con salarios correctos y que tienen acceso a todas las prestaciones de ley."
+        },
+        "5_14": {
+          "title": "5.14 — Vigilancia de la salud",
+          "obligation": "El patrón debe practicar exámenes médicos y de salud a los teletrabajadores conforme a las condiciones de riesgo identificadas, con el fin de detectar y prevenir daños a la salud derivados de la modalidad de teletrabajo.",
+          "explanation": "Incluir a los teletrabajadores en el programa de vigilancia médica de la empresa, con énfasis en los riesgos específicos del teletrabajo: trastornos musculoesqueléticos, fatiga visual y riesgos psicosociales.",
+          "rationale": "La vigilancia de la salud permite detectar afectaciones tempranas y actuar preventivamente; el teletrabajador tiene el mismo derecho a este servicio que el presencial.",
+          "audit_criteria": "Solicitar los registros de exámenes médicos practicados a teletrabajadores y verificar que el programa de vigilancia los incluye."
         }
       }
     },
