@@ -373,5 +373,11 @@
   "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
   "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
   "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
-  "competency_descriptor": "Descriptor de competencia"
+  "competency_descriptor": "Descriptor de competencia",
+  "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
+  "attendance_stats_invalid_range": "El rango de fechas es inválido: startDay no puede ser posterior a endDay",
+  "attendance_stats_invalid_input": "Los parámetros enviados no son válidos",
+  "attendance_stats_scope_required": "El usuario no tiene unidades de negocio asignadas para consultar estadísticas de asistencia",
+  "forbidden": "Acceso denegado",
+  "unauthenticated": "No autenticado"
 }
