@@ -2,7 +2,22 @@ import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension, {
   type AssessmentTemplateDimensionDataType,
 } from '#models/assessment_template_dimension'
+import db from '@adonisjs/lucid/services/db'
 import { AssessmentTemplateFilterSearchInterface } from '../interfaces/assessment_template_filter_search_interface.js'
+
+/**
+ * Resultado del método `reorderDimensions`.
+ * `ok: true` indica reorden exitoso (200); `ok: false` reporta una violación
+ * de regla de negocio que el controlador traduce a 422 con la `key` indicada.
+ */
+export type ReorderDimensionsResult =
+  | { ok: true; dimensions: AssessmentTemplateDimension[] }
+  | {
+      ok: false
+      key: 'dimension-fuera-de-template' | 'indices-duplicados'
+      offendingDimensionIds?: number[]
+      duplicatedIndexes?: number[]
+    }
 
 /**
  * Forma esperada de cada dimensión cuando se envía como parte del payload
@@ -14,6 +29,11 @@ type DimensionPayload = {
   assessmentTemplateDimensionName: string
   assessmentTemplateDimensionAcronym: string
   assessmentTemplateDimensionDataType?: AssessmentTemplateDimensionDataType
+  /**
+   * Orden explícito (0-based) que el cliente puede enviar al crear/sincronizar
+   * dimensiones. Si se omite, el servicio usa la posición del array.
+   */
+  assessmentTemplateDimensionOrderIndex?: number
 }
 
 /**
@@ -61,7 +81,10 @@ export default class AssessmentTemplateService {
         query.where('assessment_template_is_active', false)
       })
       .preload('dimensions', (dimQuery) => {
-        dimQuery.whereNull('assessment_template_dimension_deleted_at')
+        dimQuery
+          .whereNull('assessment_template_dimension_deleted_at')
+          .orderBy('assessment_template_dimension_order_index', 'asc')
+          .orderBy('assessment_template_dimension_id', 'asc')
       })
       .select(selectedColumns)
       .orderBy('assessment_template_created_at', 'desc')
@@ -105,6 +128,7 @@ export default class AssessmentTemplateService {
     await newTemplate.save()
 
     if (dimensions && dimensions.length > 0) {
+      let position = 0
       for (const dim of dimensions) {
         const newDim = new AssessmentTemplateDimension()
         newDim.assessmentTemplateId = newTemplate.assessmentTemplateId
@@ -113,12 +137,18 @@ export default class AssessmentTemplateService {
         if (dim.assessmentTemplateDimensionDataType) {
           newDim.assessmentTemplateDimensionDataType = dim.assessmentTemplateDimensionDataType
         }
+        newDim.assessmentTemplateDimensionOrderIndex =
+          dim.assessmentTemplateDimensionOrderIndex ?? position
         await newDim.save()
+        position += 1
       }
     }
 
     await newTemplate.load('dimensions', (dimQuery) => {
-      dimQuery.whereNull('assessment_template_dimension_deleted_at')
+      dimQuery
+        .whereNull('assessment_template_dimension_deleted_at')
+        .orderBy('assessment_template_dimension_order_index', 'asc')
+        .orderBy('assessment_template_dimension_id', 'asc')
     })
 
     return newTemplate
@@ -150,14 +180,20 @@ export default class AssessmentTemplateService {
     }
 
     await currentTemplate.load('dimensions', (dimQuery) => {
-      dimQuery.whereNull('assessment_template_dimension_deleted_at')
+      dimQuery
+        .whereNull('assessment_template_dimension_deleted_at')
+        .orderBy('assessment_template_dimension_order_index', 'asc')
+        .orderBy('assessment_template_dimension_id', 'asc')
     })
 
     return currentTemplate
   }
 
   /**
-   * Sincroniza las dimensiones de una plantilla: crea nuevas, actualiza existentes y elimina las ausentes.
+   * Sincroniza las dimensiones de una plantilla: crea nuevas, actualiza
+   * existentes y elimina las ausentes. La posición en el array recibido se
+   * traduce a `assessment_template_dimension_order_index` (0-based) cuando
+   * el cliente no envía explícitamente `assessmentTemplateDimensionOrderIndex`.
    */
   private async syncDimensions(assessmentTemplateId: number, dimensions: DimensionPayload[]) {
     const existingDimensions = await AssessmentTemplateDimension.query()
@@ -168,14 +204,15 @@ export default class AssessmentTemplateService {
       .filter((d) => d.assessmentTemplateDimensionId)
       .map((d) => d.assessmentTemplateDimensionId!)
 
-    // Soft-delete de las dimensiones que ya no están en el array
     for (const existing of existingDimensions) {
       if (!incomingIds.includes(existing.assessmentTemplateDimensionId)) {
         await existing.delete()
       }
     }
 
+    let position = 0
     for (const dim of dimensions) {
+      const orderIndex = dim.assessmentTemplateDimensionOrderIndex ?? position
       if (dim.assessmentTemplateDimensionId) {
         const existing = existingDimensions.find(
           (e) => e.assessmentTemplateDimensionId === dim.assessmentTemplateDimensionId
@@ -186,6 +223,7 @@ export default class AssessmentTemplateService {
           if (dim.assessmentTemplateDimensionDataType) {
             existing.assessmentTemplateDimensionDataType = dim.assessmentTemplateDimensionDataType
           }
+          existing.assessmentTemplateDimensionOrderIndex = orderIndex
           await existing.save()
         }
       } else {
@@ -196,9 +234,77 @@ export default class AssessmentTemplateService {
         if (dim.assessmentTemplateDimensionDataType) {
           newDim.assessmentTemplateDimensionDataType = dim.assessmentTemplateDimensionDataType
         }
+        newDim.assessmentTemplateDimensionOrderIndex = orderIndex
         await newDim.save()
       }
+      position += 1
     }
+  }
+
+  /**
+   * Reordena de forma atómica las dimensiones de una plantilla
+   * (CAP-02-08-XX). Verifica que:
+   *  1. Todos los `dimensionId` recibidos pertenezcan a la plantilla y
+   *     estén activos. En caso contrario, devuelve
+   *     `{ ok: false, key: 'dimension-fuera-de-template' }`.
+   *  2. Los `orderIndex` no estén repetidos. En caso contrario, devuelve
+   *     `{ ok: false, key: 'indices-duplicados' }`.
+   *
+   * Si las verificaciones pasan, los nuevos `orderIndex` se persisten en una
+   * sola transacción para evitar estados intermedios inconsistentes.
+   *
+   * @param assessmentTemplateId Plantilla cuyas dimensiones se reordenan.
+   * @param ordering Lista de tuplas { dimensionId, orderIndex }.
+   * @returns Resultado tipado (ok=true con dimensiones recargadas, o
+   *          ok=false con la `key` de error y los IDs/indices ofensores).
+   */
+  async reorderDimensions(
+    assessmentTemplateId: number,
+    ordering: { dimensionId: number; orderIndex: number }[]
+  ): Promise<ReorderDimensionsResult> {
+    const indexCounts = new Map<number, number>()
+    for (const item of ordering) {
+      indexCounts.set(item.orderIndex, (indexCounts.get(item.orderIndex) ?? 0) + 1)
+    }
+    const duplicatedIndexes = Array.from(indexCounts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([idx]) => idx)
+    if (duplicatedIndexes.length > 0) {
+      return { ok: false, key: 'indices-duplicados', duplicatedIndexes }
+    }
+
+    const incomingIds = ordering.map((o) => o.dimensionId)
+    const existingDimensions = await AssessmentTemplateDimension.query()
+      .where('assessment_template_id', assessmentTemplateId)
+      .whereNull('assessment_template_dimension_deleted_at')
+      .whereIn('assessment_template_dimension_id', incomingIds)
+
+    const validIds = new Set(
+      existingDimensions.map((d) => d.assessmentTemplateDimensionId)
+    )
+    const offendingDimensionIds = incomingIds.filter((id) => !validIds.has(id))
+    if (offendingDimensionIds.length > 0) {
+      return { ok: false, key: 'dimension-fuera-de-template', offendingDimensionIds }
+    }
+
+    await db.transaction(async (trx) => {
+      for (const item of ordering) {
+        const dim = existingDimensions.find(
+          (d) => d.assessmentTemplateDimensionId === item.dimensionId
+        )!
+        dim.useTransaction(trx)
+        dim.assessmentTemplateDimensionOrderIndex = item.orderIndex
+        await dim.save()
+      }
+    })
+
+    const refreshed = await AssessmentTemplateDimension.query()
+      .where('assessment_template_id', assessmentTemplateId)
+      .whereNull('assessment_template_dimension_deleted_at')
+      .orderBy('assessment_template_dimension_order_index', 'asc')
+      .orderBy('assessment_template_dimension_id', 'asc')
+
+    return { ok: true, dimensions: refreshed }
   }
 
   /**
@@ -233,7 +339,10 @@ export default class AssessmentTemplateService {
       .whereNull('assessment_template_deleted_at')
       .where('assessment_template_id', assessmentTemplateId)
       .preload('dimensions', (dimQuery) => {
-        dimQuery.whereNull('assessment_template_dimension_deleted_at')
+        dimQuery
+          .whereNull('assessment_template_dimension_deleted_at')
+          .orderBy('assessment_template_dimension_order_index', 'asc')
+          .orderBy('assessment_template_dimension_id', 'asc')
       })
       .first()
     return template ?? null

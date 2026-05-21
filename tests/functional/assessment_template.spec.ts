@@ -3,6 +3,7 @@ import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
 import AssessmentTemplate from '#models/assessment_template'
+import AssessmentTemplateDimension from '#models/assessment_template_dimension'
 
 /**
  * Helper compartido por los tests de toggle-status.
@@ -630,5 +631,169 @@ test.group('AssessmentTemplate - index filtro ?status=', (group) => {
     const ids = items.map((i) => i.assessmentTemplateId)
     assert.include(ids, activeTemplate.assessmentTemplateId)
     assert.include(ids, inactiveTemplate.assessmentTemplateId)
+  })
+})
+
+/**
+ * CAP-02-08-XX — Reordenar dimensiones (PATCH /:id/dimensions/reorder).
+ * Cubre los criterios de aceptación:
+ *  - Reorden válido: el GET siguiente devuelve las dimensiones en el
+ *    nuevo orden con `orderIndex` 0..N-1.
+ *  - 422 `key: 'dimension-fuera-de-template'` cuando un dimensionId no
+ *    pertenece a la plantilla.
+ *  - 422 `key: 'indices-duplicados'` cuando hay orderIndex repetidos.
+ */
+test.group('AssessmentTemplate - reorder PATCH /:id/dimensions/reorder', (group) => {
+  let user: User
+  let template: AssessmentTemplate
+  let dimA: number
+  let dimB: number
+  let dimC: number
+  let foreignTemplate: AssessmentTemplate
+  let foreignDim: number
+
+  group.setup(async () => {
+    user = await loadRootUser()
+    template = await AssessmentTemplate.create({
+      assessmentTemplateName: 'Plantilla Reorder ABC',
+      assessmentTemplateDescription: null,
+    })
+    // Usamos el modelo (no db.table().insert) para que Lucid setee
+    // automáticamente `assessment_template_dimension_created_at/_updated_at`
+    // gracias a los decoradores `autoCreate`/`autoUpdate`.
+    const a = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'A',
+      assessmentTemplateDimensionAcronym: 'A',
+      assessmentTemplateDimensionDataType: 'numeric',
+      assessmentTemplateDimensionOrderIndex: 0,
+    })
+    const b = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'B',
+      assessmentTemplateDimensionAcronym: 'B',
+      assessmentTemplateDimensionDataType: 'numeric',
+      assessmentTemplateDimensionOrderIndex: 1,
+    })
+    const c = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: template.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'C',
+      assessmentTemplateDimensionAcronym: 'C',
+      assessmentTemplateDimensionDataType: 'numeric',
+      assessmentTemplateDimensionOrderIndex: 2,
+    })
+    dimA = a.assessmentTemplateDimensionId
+    dimB = b.assessmentTemplateDimensionId
+    dimC = c.assessmentTemplateDimensionId
+
+    foreignTemplate = await AssessmentTemplate.create({
+      assessmentTemplateName: 'Plantilla Foránea',
+      assessmentTemplateDescription: null,
+    })
+    const f = await AssessmentTemplateDimension.create({
+      assessmentTemplateId: foreignTemplate.assessmentTemplateId,
+      assessmentTemplateDimensionName: 'X',
+      assessmentTemplateDimensionAcronym: 'X',
+      assessmentTemplateDimensionDataType: 'numeric',
+      assessmentTemplateDimensionOrderIndex: 0,
+    })
+    foreignDim = f.assessmentTemplateDimensionId
+  })
+
+  group.teardown(async () => {
+    await db
+      .from('assessment_template_dimensions')
+      .whereIn('assessment_template_id', [
+        template.assessmentTemplateId,
+        foreignTemplate.assessmentTemplateId,
+      ])
+      .delete()
+    await db
+      .from('assessment_templates')
+      .whereIn('assessment_template_id', [
+        template.assessmentTemplateId,
+        foreignTemplate.assessmentTemplateId,
+      ])
+      .delete()
+  })
+
+  test('reorden válido: C, A, B aplica orderIndex 0,1,2 y el GET respeta el nuevo orden', async ({
+    client,
+    assert,
+  }) => {
+    const reorderResponse = await client
+      .patch(
+        `/api/assessment-templates/${template.assessmentTemplateId}/dimensions/reorder`
+      )
+      .loginAs(user)
+      .json({
+        dimensions: [
+          { dimensionId: dimC, orderIndex: 0 },
+          { dimensionId: dimA, orderIndex: 1 },
+          { dimensionId: dimB, orderIndex: 2 },
+        ],
+      })
+
+    reorderResponse.assertStatus(200)
+    reorderResponse.assertBodyContains({ type: 'success' })
+
+    const showResponse = await client
+      .get(`/api/assessment-templates/${template.assessmentTemplateId}`)
+      .loginAs(user)
+    showResponse.assertStatus(200)
+    const dimensions = showResponse.body().data?.assessmentTemplate?.dimensions ?? []
+    const ids = dimensions.map((d: any) => d.assessmentTemplateDimensionId)
+    assert.deepEqual(ids, [dimC, dimA, dimB])
+    assert.equal(dimensions[0].assessmentTemplateDimensionOrderIndex, 0)
+    assert.equal(dimensions[1].assessmentTemplateDimensionOrderIndex, 1)
+    assert.equal(dimensions[2].assessmentTemplateDimensionOrderIndex, 2)
+  })
+
+  test("dimension fuera del template responde 422 con key 'dimension-fuera-de-template'", async ({
+    client,
+  }) => {
+    const response = await client
+      .patch(
+        `/api/assessment-templates/${template.assessmentTemplateId}/dimensions/reorder`
+      )
+      .loginAs(user)
+      .json({
+        dimensions: [
+          { dimensionId: dimA, orderIndex: 0 },
+          { dimensionId: foreignDim, orderIndex: 1 },
+        ],
+      })
+
+    response.assertStatus(422)
+    response.assertBodyContains({ key: 'dimension-fuera-de-template' })
+  })
+
+  test("indices duplicados responden 422 con key 'indices-duplicados'", async ({
+    client,
+  }) => {
+    const response = await client
+      .patch(
+        `/api/assessment-templates/${template.assessmentTemplateId}/dimensions/reorder`
+      )
+      .loginAs(user)
+      .json({
+        dimensions: [
+          { dimensionId: dimA, orderIndex: 0 },
+          { dimensionId: dimB, orderIndex: 0 },
+        ],
+      })
+
+    response.assertStatus(422)
+    response.assertBodyContains({ key: 'indices-duplicados' })
+  })
+
+  test('responde 404 si la plantilla no existe', async ({ client }) => {
+    const response = await client
+      .patch('/api/assessment-templates/999999999/dimensions/reorder')
+      .loginAs(user)
+      .json({
+        dimensions: [{ dimensionId: dimA, orderIndex: 0 }],
+      })
+    response.assertStatus(404)
   })
 })

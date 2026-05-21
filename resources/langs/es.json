@@ -191,6 +191,8 @@
   "assessment_template_dimension": "Dimensión de plantilla",
   "assessment_template_dimensions": "Dimensiones de plantilla",
   "assessment_template_dimension_data_type_invalid": "El tipo de dato de la dimensión es inválido",
+  "assessment_template_dimension_reorder_out_of_template": "Una o más dimensiones del payload no pertenecen a esta plantilla",
+  "assessment_template_dimension_reorder_duplicated_indexes": "El payload de reordenamiento contiene índices de orden duplicados",
   "position_assessment_profile_coherence_range_required_for_numeric": "Debes definir mínimo y máximo para una dimensión de tipo numérico",
   "position_assessment_profile_coherence_range_required_for_percent": "Debes definir mínimo y máximo para una dimensión de tipo porcentual",
   "position_assessment_profile_coherence_range_min_greater_than_max": "El valor mínimo no puede ser mayor que el máximo",
