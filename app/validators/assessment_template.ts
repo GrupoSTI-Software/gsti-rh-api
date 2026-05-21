@@ -126,3 +126,29 @@ export const toggleStatusAssessmentTemplateValidator = vine.compile(
     isActive: vine.boolean(),
   })
 )
+
+/**
+ * Validador para el endpoint PATCH /assessment-templates/:id/dimensions/reorder.
+ *
+ * Acepta un array no vacío `dimensions` con tuplas { dimensionId, orderIndex }.
+ * El controlador y/o servicio validan reglas de negocio adicionales:
+ *  - Todos los `dimensionId` deben pertenecer a la plantilla del path
+ *    (de lo contrario, 422 `key: 'dimension-fuera-de-template'`).
+ *  - Los `orderIndex` deben ser únicos dentro del payload
+ *    (de lo contrario, 422 `key: 'indices-duplicados'`).
+ *
+ * @field dimensions[].dimensionId  número entero positivo, requerido.
+ * @field dimensions[].orderIndex   número entero ≥ 0, requerido.
+ */
+export const reorderAssessmentTemplateDimensionsValidator = vine.compile(
+  vine.object({
+    dimensions: vine
+      .array(
+        vine.object({
+          dimensionId: vine.number().positive(),
+          orderIndex: vine.number().min(0),
+        })
+      )
+      .minLength(1),
+  })
+)
