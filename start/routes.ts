@@ -10,6 +10,7 @@
 import router from '@adonisjs/core/services/router'
 import Ws from '#services/ws'
 import { middleware } from './kernel.js'
+import env from '#start/env'
 
 import './routes/login_routes.js'
 import './routes/passkey_routes.js'
@@ -118,14 +119,19 @@ import './routes/employee_annotation_routes.js'
 import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
-import './routes/generate_info_demo.js'
+if (env.get('APP_MODE') === 'demo') {
+  try {
+    await import('#modules/demo/routes')
+  } catch {
+    console.warn('Módulo demo no disponible en este bundle')
+  }
+}
 import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'
 import './routes/employee_bonus_routes.js'
 import './routes/position_approval_history_routes.js'
 import './routes/position_specific_function_routes.js'
-import './routes/position_competency_routes.js'
 import './routes/weight_routes.js'
 import './routes/assessment_template_routes.js'
 import './routes/assessment_template_dimension_routes.js'
@@ -137,13 +143,19 @@ import './routes/employee_kpi_evaluation.js'
 import './routes/employee_assessment_routes.js'
 import './routes/position_work_tool_routes.js'
 import './routes/competency_routes.js'
-import './routes/competency_level_routes.js'
-import './routes/position_competency_level_routes.js'
+import './routes/position_business_unit_competency_level_routes.js'
 import './routes/position_salary_range_routes.js'
 import './routes/career_path_override_reason_routes.js'
 import './routes/career_path_template_routes.js'
 import './routes/career_path_candidate_routes.js'
 import './routes/business_unit_competency_level_routes.js'
+import './routes/certifications_routes.js'
+import './routes/position_certification_requirement_routes.js'
+import './routes/employee_certification_routes.js'
+import './routes/employee_certification_upload_routes.js'
+import './routes/employee_certification_expiration_routes.js'
+import './routes/competency_descriptor_routes.js'
+import './routes/competency_bracket_routes.js'
 
 router
   .get('/', async ({ view }) => {
