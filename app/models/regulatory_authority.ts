@@ -4,6 +4,7 @@ import type { HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Regulation from './regulation.js'
+import RegulationQuestionnaire from './regulation_questionnaire.js'
 
 /**
  * @swagger
@@ -132,4 +133,10 @@ export default class RegulatoryAuthority extends compose(BaseModel, SoftDeletes)
     foreignKey: 'regulatoryAuthorityId',
   })
   declare regulations: HasMany<typeof Regulation>
+
+  /** Cuestionarios e instrumentos de evaluación emitidos por esta autoridad. */
+  @hasMany(() => RegulationQuestionnaire, {
+    foreignKey: 'regulatoryAuthorityId',
+  })
+  declare questionnaires: HasMany<typeof RegulationQuestionnaire>
 }
