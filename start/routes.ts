@@ -156,6 +156,7 @@ import './routes/employee_certification_upload_routes.js'
 import './routes/employee_certification_expiration_routes.js'
 import './routes/competency_descriptor_routes.js'
 import './routes/competency_bracket_routes.js'
+import './routes/auth_signup_routes.js'
 
 router
   .get('/', async ({ view }) => {
