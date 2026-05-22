@@ -90,6 +90,8 @@ export class StandardResponseFormatter {
       'Certifications': 'certifications',
       'Certification': 'certification',
       'Certification Categories': 'certificationCategories',
+      'Employee Lactation Periods': 'employeeLactationPeriods',
+      'Employee Lactation Period': 'employeeLactationPeriod',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

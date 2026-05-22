@@ -371,5 +371,15 @@
   "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
   "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
   "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
-  "competency_descriptor": "Descriptor de competencia"
+  "competency_descriptor": "Descriptor de competencia",
+  "employee_lactation_period": "Periodo de lactancia",
+  "employee_lactation_periods": "Periodos de lactancia",
+  "employee_lactation_period_no_permission": "No tienes permiso para gestionar periodos de lactancia",
+  "employee_lactation_period_employee_not_found": "La empleada no existe o no pertenece a la empresa actual",
+  "employee_lactation_period_period_not_found": "El periodo de lactancia no existe o no pertenece a la empresa actual",
+  "employee_lactation_period_date_range_invalid": "La fecha de fin debe ser posterior a la fecha de inicio",
+  "employee_lactation_period_unreasonable_range_title": "Rango de lactancia inverosímil",
+  "employee_lactation_period_unreasonable_range_detail": "El rango total no puede superar 24 meses",
+  "employee_lactation_period_overlap_title": "Periodo de lactancia traslapado",
+  "employee_lactation_period_overlap_detail": "La empleada ya tiene un periodo de lactancia activo en ese rango"
 }

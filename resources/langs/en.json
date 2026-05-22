@@ -368,5 +368,15 @@
   "the_number_of_levels_must_be_between_3_and_5": "The number of levels must be between 3 and 5",
   "business_unit_competency_level": "Business unit competency level",
   "the_range_min_must_be_less_than_the_range_max": "The range min must be less than the range max",
-  "competency_descriptor": "Competency descriptor"
+  "competency_descriptor": "Competency descriptor",
+  "employee_lactation_period": "Lactation period",
+  "employee_lactation_periods": "Lactation periods",
+  "employee_lactation_period_no_permission": "You don't have permission to manage lactation periods",
+  "employee_lactation_period_employee_not_found": "The employee does not exist or does not belong to the current company",
+  "employee_lactation_period_period_not_found": "The lactation period does not exist or does not belong to the current company",
+  "employee_lactation_period_date_range_invalid": "End date must be after start date",
+  "employee_lactation_period_unreasonable_range_title": "Unreasonable lactation range",
+  "employee_lactation_period_unreasonable_range_detail": "The total range cannot exceed 24 months",
+  "employee_lactation_period_overlap_title": "Overlapping lactation period",
+  "employee_lactation_period_overlap_detail": "The employee already has an active lactation period in that range"
 }
