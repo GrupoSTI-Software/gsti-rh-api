@@ -50,6 +50,12 @@ export default class EmployeeVacationController {
    *         schema:
    *           type: number
    *         description: Position id
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: number
+   *         description: Business Unit id
    *       - name: onlyInactive
    *         in: query
    *         required: false
@@ -94,6 +100,7 @@ export default class EmployeeVacationController {
       const employeeId = request.input('employeeId')
       const departmentId = request.input('departmentId')
       const positionId = request.input('positionId')
+      const businessUnitId = request.input('businessUnitId')
       const filterStartDate = request.input('startDate')
       const filterEndDate = request.input('endDate')
       const onlyInactive = request.input('onlyInactive')
@@ -103,6 +110,7 @@ export default class EmployeeVacationController {
         employeeId: employeeId,
         departmentId: departmentId,
         positionId: positionId,
+        businessUnitId: businessUnitId,
         filterStartDate: filterStartDate,
         filterEndDate: filterEndDate,
         onlyInactive: onlyInactive,
@@ -186,6 +194,12 @@ export default class EmployeeVacationController {
    *         schema:
    *           type: number
    *         description: Position id
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: number
+   *         description: Business Unit id
    *       - name: onlyInactive
    *         in: query
    *         required: false
@@ -223,6 +237,7 @@ export default class EmployeeVacationController {
       const employeeId = request.input('employeeId')
       const departmentId = request.input('departmentId')
       const positionId = request.input('positionId')
+      const businessUnitId = request.input('businessUnitId')
       const filterStartDate = request.input('startDate')
       const filterEndDate = request.input('endDate')
       const onlyInactive = request.input('onlyInactive')
@@ -231,6 +246,7 @@ export default class EmployeeVacationController {
         employeeId: employeeId,
         departmentId: departmentId,
         positionId: positionId,
+        businessUnitId: businessUnitId,
         filterStartDate: filterStartDate,
         filterEndDate: filterEndDate,
         onlyInactive: onlyInactive,
@@ -313,6 +329,12 @@ export default class EmployeeVacationController {
    *         schema:
    *           type: number
    *         description: Position id
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         schema:
+   *           type: number
+   *         description: Business Unit id
    *       - name: onlyInactive
    *         in: query
    *         required: false
@@ -357,6 +379,7 @@ export default class EmployeeVacationController {
       const employeeId = request.input('employeeId')
       const departmentId = request.input('departmentId')
       const positionId = request.input('positionId')
+      const businessUnitId = request.input('businessUnitId')
       const filterStartDate = request.input('startDate')
       const filterEndDate = request.input('endDate')
       const onlyInactive = request.input('onlyInactive')
@@ -366,6 +389,7 @@ export default class EmployeeVacationController {
         employeeId: employeeId,
         departmentId: departmentId,
         positionId: positionId,
+        businessUnitId: businessUnitId,
         filterStartDate: filterStartDate,
         filterEndDate: filterEndDate,
         onlyInactive: onlyInactive,

@@ -93,23 +93,15 @@ export default class DepartmentService {
     return departments
   }
 
-  async buildOrganization(/* departmentList: number[] */) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async buildOrganization(businessUnitId: number) {
 
     const departmentsQuery = Department.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .where('businessUnitId', businessUnitId)
       .where('departmentId', '<>', 999)
       .whereNull('parentDepartmentId')
       .orderBy('departmentName', 'asc')
     this.preloadDepartmentHierarchy(departmentsQuery)
     const departments = await departmentsQuery
-
     // const departments = await Department.query()
     //   .whereIn('businessUnitId', businessUnitsList)
     //   .whereIn('departmentId', departmentList)
@@ -181,13 +173,6 @@ export default class DepartmentService {
   }
 
   async create(department: Department) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
-
     const newDepartment = new Department()
     newDepartment.departmentCode = department.departmentCode
     newDepartment.departmentName = department.departmentName
@@ -196,7 +181,7 @@ export default class DepartmentService {
     newDepartment.departmentActive = department.departmentActive
     newDepartment.parentDepartmentId = department.parentDepartmentId
     newDepartment.companyId = department.companyId
-    newDepartment.businessUnitId = businessUnits?.businessUnitId || 0
+    newDepartment.businessUnitId = department.businessUnitId
 
     const prepared = prepareAliasesForPersistence(department.aliases ?? null)
     newDepartment.aliases = prepared.display

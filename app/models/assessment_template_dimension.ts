@@ -42,6 +42,12 @@ export const ASSESSMENT_TEMPLATE_DIMENSION_DATA_TYPES: readonly AssessmentTempla
  *           type: string
  *           enum: [numeric, percent, categorical_amb]
  *           description: Tipo de dato de la dimensión (numérico, porcentual o categórico Alto-Medio-Bajo)
+ *         assessmentTemplateDimensionOrderIndex:
+ *           type: number
+ *           description: |
+ *             Índice de orden (0-based) que define cómo se renderizan las
+ *             dimensiones dentro de la plantilla. Se administra mediante
+ *             el endpoint PATCH /:id/dimensions/reorder.
  *         assessmentTemplateDimensionCreatedAt:
  *           type: string
  *         assessmentTemplateDimensionUpdatedAt:
@@ -64,6 +70,9 @@ export default class AssessmentTemplateDimension extends compose(BaseModel, Soft
 
   @column()
   declare assessmentTemplateDimensionDataType: AssessmentTemplateDimensionDataType
+
+  @column()
+  declare assessmentTemplateDimensionOrderIndex: number
 
   @column.dateTime({ autoCreate: true })
   declare assessmentTemplateDimensionCreatedAt: DateTime

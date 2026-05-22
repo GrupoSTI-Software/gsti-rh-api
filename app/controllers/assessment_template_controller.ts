@@ -6,6 +6,7 @@ import {
   createAssessmentTemplateValidator,
   updateAssessmentTemplateValidator,
   toggleStatusAssessmentTemplateValidator,
+  reorderAssessmentTemplateDimensionsValidator,
 } from '#validators/assessment_template'
 
 /**
@@ -492,6 +493,139 @@ export default class AssessmentTemplateController {
             assessmentTemplateId: updatedTemplate.assessmentTemplateId,
             assessmentTemplateIsActive: updatedTemplate.assessmentTemplateIsActive,
           },
+        },
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/assessment-templates/{assessmentTemplateId}/dimensions/reorder:
+   *   patch:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Assessment Templates
+   *     summary: reorder assessment template dimensions (bulk, atomic)
+   *     description: |
+   *       Reordena las dimensiones de la plantilla de forma atómica.
+   *       El payload es un array `dimensions` con tuplas
+   *       `{ dimensionId, orderIndex }`. El servicio valida que todos los
+   *       `dimensionId` pertenezcan a la plantilla y que los `orderIndex`
+   *       no estén duplicados.
+   *     parameters:
+   *       - in: path
+   *         name: assessmentTemplateId
+   *         schema:
+   *           type: number
+   *         required: true
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [dimensions]
+   *             properties:
+   *               dimensions:
+   *                 type: array
+   *                 minItems: 1
+   *                 items:
+   *                   type: object
+   *                   required: [dimensionId, orderIndex]
+   *                   properties:
+   *                     dimensionId:
+   *                       type: number
+   *                     orderIndex:
+   *                       type: number
+   *     responses:
+   *       '200':
+   *         description: Reordenamiento aplicado
+   *       '404':
+   *         description: Plantilla no encontrada
+   *       '422':
+   *         description: |
+   *           Reglas de negocio:
+   *             - `key: 'dimension-fuera-de-template'` cuando un
+   *               `dimensionId` no pertenece a la plantilla.
+   *             - `key: 'indices-duplicados'` cuando hay `orderIndex`
+   *               repetidos en el payload.
+   *       default:
+   *         description: Unexpected error
+   */
+  async reorderDimensions({ request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const assessmentTemplateId = Number(request.param('assessmentTemplateId'))
+      if (!assessmentTemplateId || Number.isNaN(assessmentTemplateId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('entity_id_was_not_found', { entity: t('assessment_template') }),
+          message: t('missing_data_to_process'),
+          data: {},
+        }
+      }
+
+      const service = new AssessmentTemplateService()
+      const currentTemplate = await service.show(assessmentTemplateId)
+      if (!currentTemplate) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity: t('assessment_template') }),
+          message: t('entity_was_not_found_with_entered_id', {
+            entity: t('assessment_template'),
+          }),
+          data: { assessmentTemplateId },
+        }
+      }
+
+      const payload = await request.validateUsing(
+        reorderAssessmentTemplateDimensionsValidator
+      )
+      const result = await service.reorderDimensions(
+        assessmentTemplateId,
+        payload.dimensions
+      )
+
+      if (!result.ok) {
+        response.status(422)
+        if (result.key === 'dimension-fuera-de-template') {
+          return {
+            type: 'error',
+            title: t('assessment_template_dimension'),
+            detail: t('assessment_template_dimension_reorder_out_of_template'),
+            key: 'dimension-fuera-de-template',
+            data: { offendingDimensionIds: result.offendingDimensionIds },
+          }
+        }
+        return {
+          type: 'error',
+          title: t('assessment_template_dimension'),
+          detail: t('assessment_template_dimension_reorder_duplicated_indexes'),
+          key: 'indices-duplicados',
+          data: { duplicatedIndexes: result.duplicatedIndexes },
+        }
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: t('assessment_template_dimension'),
+        message: t('resource_was_updated_successfully'),
+        data: {
+          assessmentTemplateId,
+          dimensions: result.dimensions,
         },
       }
     } catch (error) {

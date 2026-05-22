@@ -188,6 +188,8 @@
   "assessment_template_dimension": "Assessment template dimension",
   "assessment_template_dimensions": "Assessment template dimensions",
   "assessment_template_dimension_data_type_invalid": "The dimension data type is invalid",
+  "assessment_template_dimension_reorder_out_of_template": "One or more dimensions in the payload do not belong to this template",
+  "assessment_template_dimension_reorder_duplicated_indexes": "The reorder payload contains duplicated order indexes",
   "position_assessment_profile_coherence_range_required_for_numeric": "Minimum and maximum values are required for a numeric dimension",
   "position_assessment_profile_coherence_range_required_for_percent": "Minimum and maximum values are required for a percent dimension",
   "position_assessment_profile_coherence_range_min_greater_than_max": "Minimum value cannot be greater than maximum",
@@ -395,5 +397,11 @@
         "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
       }
     }
-  }
+  },
+  "attendance_stats_dates_required": "startDay and endDay are required",
+  "attendance_stats_invalid_range": "Invalid date range: startDay must be before or equal to endDay",
+  "attendance_stats_invalid_input": "Invalid request parameters",
+  "attendance_stats_scope_required": "User has no business units assigned to query attendance statistics",
+  "forbidden": "Forbidden",
+  "unauthenticated": "Unauthenticated"
 }

@@ -64,12 +64,6 @@ export default class PositionService {
   }
 
   async create(position: Position) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnit = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
 
     const newPosition = new Position()
     newPosition.positionCode = position.positionCode
@@ -84,7 +78,7 @@ export default class PositionService {
     newPosition.positionIsDefault = position.positionIsDefault
     newPosition.positionActive = position.positionActive
     newPosition.parentPositionId = position.parentPositionId
-    newPosition.businessUnitId = businessUnit?.businessUnitId || 0
+    newPosition.businessUnitId = position.businessUnitId
     newPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
     newPosition.positionMinStaff = position.positionMinStaff ?? null
     newPosition.positionIdealStaff = position.positionIdealStaff ?? null
