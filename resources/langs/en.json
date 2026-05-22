@@ -403,5 +403,20 @@
   "attendance_stats_invalid_input": "Invalid request parameters",
   "attendance_stats_scope_required": "User has no business units assigned to query attendance statistics",
   "forbidden": "Forbidden",
-  "unauthenticated": "Unauthenticated"
+  "unauthenticated": "Unauthenticated",
+  "signup_invalid_data": "The provided data is not valid",
+  "signup_draft_not_found": "Signup draft was not found",
+  "signup_email_not_verified": "Email address has not been verified yet",
+  "signup_token_invalid": "Signup token is invalid",
+  "signup_email_already_registered": "The email address is already registered",
+  "signup_account_created": "Account created successfully",
+  "signup_otp_sent": "A verification code has been sent to the provided email",
+  "signup_otp_expired": "The OTP code has expired",
+  "signup_otp_incorrect": "The OTP code is incorrect",
+  "signup_otp_verified": "Email verified successfully",
+  "signup_password_min_length": "Password must be at least 12 characters long",
+  "signup_password_requires_uppercase": "Password must contain at least one uppercase letter",
+  "signup_password_requires_number": "Password must contain at least one number",
+  "signup_password_requires_symbol": "Password must contain at least one symbol",
+  "signup_passwords_do_not_match": "Passwords do not match"
 }

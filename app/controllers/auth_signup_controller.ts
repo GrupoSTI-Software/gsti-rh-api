@@ -12,8 +12,8 @@ export default class AuthSignupController {
    *     security: []
    *     tags:
    *       - Auth Signup
-   *     summary: Iniciar flujo de signup self-service
-   *     description: Inicia el flujo de signup self-service. Valida el correo, crea o sobreescribe el borrador de signup, genera un código OTP de 6 dígitos con vigencia de 10 minutos y lo envía al email indicado. Permite reintentos mientras el draft no esté eliminado.
+   *     summary: Start signup self-service flow
+   *     description: Start the signup self-service flow. Validate the email, create or overwrite the signup draft, generate an OTP code of 6 digits with a validity of 10 minutes and send it to the indicated email. Allows retries while the draft is not deleted.
    *     produces:
    *       - application/json
    *     requestBody:
@@ -21,31 +21,31 @@ export default class AuthSignupController {
    *         application/json:
    *           schema:
    *             type: object
+   *             required:
+   *               - firstName
+   *               - lastName
+   *               - businessUnitName
+   *               - email
    *             properties:
    *               firstName:
    *                 type: string
-   *                 description: Nombre del prospecto
+   *                 description: Prospect's first name (1-100 chars)
    *                 default: ''
    *               lastName:
    *                 type: string
-   *                 description: Apellido paterno del prospecto
+   *                 description: Prospect's last name (1-100 chars)
    *                 default: ''
    *               secondLastName:
    *                 type: string
-   *                 description: Apellido materno del prospecto
+   *                 description: Prospect's second last name (1-100 chars, optional)
    *                 default: ''
-   *                 required: false
    *               businessUnitName:
    *                 type: string
-   *                 description: Nombre de la empresa
+   *                 description: Business unit name (1-200 chars)
    *                 default: ''
    *               email:
    *                 type: string
-   *                 description: Correo electrónico
-   *                 default: ''
-   *               password:
-   *                 type: string
-   *                 description: Contraseña (mín. 12 chars, 1 mayúscula, 1 número, 1 símbolo)
+   *                 description: Valid email
    *                 default: ''
    *     responses:
    *       '200':
@@ -66,7 +66,56 @@ export default class AuthSignupController {
    *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   properties:
+   *                     signupDraftId:
+   *                       type: number
+   *                       description: Signup draft ID
+   *                     expiresAt:
+   *                       type: string
+   *                       format: date-time
+   *                       description: OTP expiration date in ISO 8601 format
+   *       '400':
+   *         description: Bad request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '409':
+   *         description: Resource already exists
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *                   properties:
+   *                     email:
+   *                       type: string
+   *                       description: Email of the prospect
    *       '422':
    *         description: The parameters entered are invalid or essential data is missing to process the request
    *         content:
@@ -86,6 +135,56 @@ export default class AuthSignupController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *                   properties:
+   *                     error:
+   *                       type: string
+   *                       description: Error message obtained
+   *       '429':
+   *         description: Too many requests
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *                   properties:
+   *                     error:
+   *                       type: string
+   *                       description: Error message obtained
+   *       '500':
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   *                       description: Error message obtained
    *       default:
    *         description: Unexpected error
    *         content:
@@ -109,29 +208,29 @@ export default class AuthSignupController {
    *                     error:
    *                       type: string
    */
-  async start({ request, response }: HttpContext) {
+  async start({ request, response, i18n }: HttpContext) {
     try {
       const payload = await request.validateUsing(startSignupValidator)
-      const signupDraftService = new SignupDraftService()
+      const signupDraftService = new SignupDraftService(i18n)
 
       const result = await signupDraftService.start(payload)
       response.status(result.status)
       return result
     } catch (error) {
       if (error.code === 'E_VALIDATION_ERROR') {
-        response.status(422)
+        response.status(400)
         return {
           type: 'warning',
           title: 'Signup',
-          message: 'Los datos proporcionados no son válidos',
+          message: i18n.formatMessage('signup_invalid_data'),
           data: error.messages,
         }
       }
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -144,27 +243,33 @@ export default class AuthSignupController {
    *     security: []
    *     tags:
    *       - Auth Signup
-   *     summary: Verificar código OTP del signup
-   *     description: Valida el código OTP enviado al correo del prospecto. Si es correcto y no ha expirado, marca el email como verificado y genera un token de sesión temporal para autorizar el paso de completar el signup.
+   *     summary: Verify OTP code of signup
+   *     description: Validate the OTP code sent to the prospect's email. If it is correct and has not expired, mark the email as verified and generate a temporary session token to authorize the completion of the signup.
    *     produces:
    *       - application/json
    *     requestBody:
+   *       required: true
    *       content:
    *         application/json:
    *           schema:
    *             type: object
+   *             required:
+   *               - signupDraftId
+   *               - pinCode
    *             properties:
    *               signupDraftId:
    *                 type: number
-   *                 description: ID del borrador de signup
+   *                 description: Signup draft ID
    *                 default: 0
    *               pinCode:
    *                 type: string
-   *                 description: Código OTP de 6 dígitos
+   *                 description: OTP code of 6 digits
+   *                 minLength: 6
+   *                 maxLength: 6
    *                 default: ''
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Email verified successfully
    *         content:
    *           application/json:
    *             schema:
@@ -181,9 +286,17 @@ export default class AuthSignupController {
    *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
+   *                   properties:
+   *                     signupToken:
+   *                       type: string
+   *                       format: uuid
+   *                       description: Token temporal para autorizar el paso complete
+   *                     email:
+   *                       type: string
+   *                       format: email
+   *                       description: Correo electrónico verificado
+   *       '400':
+   *         description: Validation error in the parameters sent
    *         content:
    *           application/json:
    *             schema:
@@ -201,8 +314,65 @@ export default class AuthSignupController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
-   *       '422':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *       '401':
+   *         description: Incorrect OTP code
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '404':
+   *         description: Signup draft not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '410':
+   *         description: expired OTP code
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '429':
+   *         description: Too many requests, try again later
    *         content:
    *           application/json:
    *             schema:
@@ -243,28 +413,28 @@ export default class AuthSignupController {
    *                     error:
    *                       type: string
    */
-  async verifyOtp({ request, response }: HttpContext) {
+  async verifyOtp({ request, response, i18n }: HttpContext) {
     try {
       const payload = await request.validateUsing(verifyOtpValidator)
-      const signupDraftService = new SignupDraftService()
+      const signupDraftService = new SignupDraftService(i18n)
       const result = await signupDraftService.verifyOtp(payload.signupDraftId, payload.pinCode)
       response.status(result.status)
       return result
     } catch (error) {
       if (error.code === 'E_VALIDATION_ERROR') {
-        response.status(422)
+        response.status(400)
         return {
           type: 'warning',
           title: 'Signup',
-          message: 'Los datos proporcionados no son válidos',
+          message: i18n.formatMessage('signup_invalid_data'),
           data: error.messages,
         }
       }
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -277,35 +447,43 @@ export default class AuthSignupController {
    *     security: []
    *     tags:
    *       - Auth Signup
-   *     summary: Completar registro de signup self-service
-   *     description: Finaliza el flujo de signup. Valida el token de sesión, crea los registros de Person, BusinessUnit y User dentro de una transacción, asocia el usuario a la unidad de negocio, elimina el borrador y retorna un token de acceso listo para login automático en el frontend. 
+   *     summary: Complete signup self-service registration
+   *     description: Complete the signup self-service flow. Validate the temporary session token, create the Person, BusinessUnit and User records, delete the draft and return a Bearer token ready for automatic login in the frontend.
    *     produces:
    *       - application/json
    *     requestBody:
+   *       required: true
    *       content:
    *         application/json:
    *           schema:
    *             type: object
+   *             required:
+   *               - signupDraftId
+   *               - signupToken
+   *               - password
+   *               - passwordConfirm
    *             properties:
    *               signupDraftId:
    *                 type: number
-   *                 description: ID del borrador de signup
+   *                 description: Signup draft ID
    *                 default: 0
    *               signupToken:
    *                 type: string
-   *                 description: Token obtenido en el paso verify-otp
+   *                 format: uuid
+   *                 description: Token obtained in the verify-otp step
    *                 default: ''
    *               password:
    *                 type: string
-   *                 description: Contraseña (mín. 12 chars, 1 mayúscula, 1 número, 1 símbolo)
+   *                 description: Password (min. 12 chars, at least 1 uppercase letter, 1 number, 1 symbol)
+   *                 minLength: 12
    *                 default: ''
    *               passwordConfirm:
    *                 type: string
-   *                 description: Confirmación de contraseña
+   *                 description: Password confirmation, must match password
    *                 default: ''
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Account created successfully
    *         content:
    *           application/json:
    *             schema:
@@ -322,9 +500,113 @@ export default class AuthSignupController {
    *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   properties:
+   *                     token:
+   *                       type: string
+   *                       description: Token Bearer for immediate authentication
+   *                     user:
+   *                       type: object
+   *                       properties:
+   *                         userId:
+   *                           type: number
+   *                           description: User ID created
+   *                         userEmail:
+   *                           type: string
+   *                           format: email
+   *                           description: User email
+   *                         roleId:
+   *                           type: number
+   *                           description: Assigned role ID
+   *                     businessUnit:
+   *                       type: object
+   *                       properties:
+   *                         businessUnitId:
+   *                           type: number
+   *                           description: Created business unit ID
+   *                         businessUnitName:
+   *                           type: string
+   *                           description: Business unit name
+   *                         businessUnitSlug:
+   *                           type: string
+   *                           description: Unique business unit slug
+   *       '400':
+   *         description: Validation error in the parameters sent
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '401':
+   *         description: Invalid signup token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Email not verified
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
    *       '404':
-   *         description: Resource not found
+   *         description: Signup draft not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '409':
+   *         description: Email already registered by another parallel request
    *         content:
    *           application/json:
    *             schema:
@@ -343,7 +625,26 @@ export default class AuthSignupController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '422':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: Weak password, does not meet security requirements
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '429':
+   *         description: Too many requests, try again later
    *         content:
    *           application/json:
    *             schema:
@@ -384,28 +685,28 @@ export default class AuthSignupController {
    *                     error:
    *                       type: string
    */
-  async completeSignup({ request, response }: HttpContext) {
+  async completeSignup({ request, response, i18n }: HttpContext) {
     try {
       const payload = await request.validateUsing(completeSignupValidator)
-      const signupDraftService = new SignupDraftService()
+      const signupDraftService = new SignupDraftService(i18n)
       const result = await signupDraftService.complete(payload)
       response.status(result.status)
       return result
     } catch (error) {
       if (error.code === 'E_VALIDATION_ERROR') {
-        response.status(422)
+        response.status(400)
         return {
           type: 'warning',
           title: 'Signup',
-          message: 'Los datos proporcionados no son válidos',
+          message: i18n.formatMessage('signup_invalid_data'),
           data: error.messages,
         }
       }
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

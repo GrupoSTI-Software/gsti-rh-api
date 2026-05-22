@@ -406,5 +406,20 @@
   "attendance_stats_invalid_input": "Los parámetros enviados no son válidos",
   "attendance_stats_scope_required": "El usuario no tiene unidades de negocio asignadas para consultar estadísticas de asistencia",
   "forbidden": "Acceso denegado",
-  "unauthenticated": "No autenticado"
+  "unauthenticated": "No autenticado",
+  "signup_invalid_data": "Los datos proporcionados no son válidos",
+  "signup_draft_not_found": "El borrador de signup no fue encontrado",
+  "signup_email_not_verified": "El correo electrónico aún no ha sido verificado",
+  "signup_token_invalid": "El token de signup es inválido",
+  "signup_email_already_registered": "El correo electrónico ya se encuentra registrado",
+  "signup_account_created": "Cuenta creada exitosamente",
+  "signup_otp_sent": "Se ha enviado un código de verificación al correo indicado",
+  "signup_otp_expired": "El código OTP ha expirado",
+  "signup_otp_incorrect": "El código OTP es incorrecto",
+  "signup_otp_verified": "Correo verificado correctamente",
+  "signup_password_min_length": "La contraseña debe tener al menos 12 caracteres",
+  "signup_password_requires_uppercase": "La contraseña debe contener al menos una letra mayúscula",
+  "signup_password_requires_number": "La contraseña debe contener al menos un número",
+  "signup_password_requires_symbol": "La contraseña debe contener al menos un símbolo",
+  "signup_passwords_do_not_match": "Las contraseñas no coinciden"
 }

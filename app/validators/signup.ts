@@ -21,14 +21,10 @@ export const completeSignupValidator = vine.compile(
 
 export const startSignupValidator = vine.compile(
   vine.object({
-    firstName: vine.string().trim().minLength(1).maxLength(150),
-    lastName: vine.string().trim().minLength(1).maxLength(150),
-    secondLastName: vine.string().trim().maxLength(150).optional(),
-    businessUnitName: vine.string().trim().minLength(1).maxLength(250),
-    email: vine.string().trim().email().maxLength(200),
-    password: vine
-      .string()
-      .minLength(12)
-      .regex(/^(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).+$/),
+    firstName: vine.string().trim().minLength(1).maxLength(100),
+    lastName: vine.string().trim().minLength(1).maxLength(100),
+    secondLastName: vine.string().trim().minLength(1).maxLength(100).optional(),
+    businessUnitName: vine.string().trim().minLength(1).maxLength(200),
+    email: vine.string().trim().email(),
   })
 )

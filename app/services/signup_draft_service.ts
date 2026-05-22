@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import logger from '@adonisjs/core/services/logger'
+import { I18n } from '@adonisjs/i18n'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
@@ -17,7 +18,6 @@ export interface StartSignupData {
   secondLastName?: string
   businessUnitName: string
   email: string
-  password: string
 }
 
 interface ServiceResult {
@@ -29,6 +29,23 @@ interface ServiceResult {
 }
 
 export default class SignupDraftService {
+  private i18n: I18n
+  private t: (key: string) => string
+
+  constructor(i18n: I18n) {
+    this.t = i18n.formatMessage.bind(i18n)
+    this.i18n = i18n
+  }
+
+  private validatePassword(password: string, confirm: string): string | null {
+    if (password.length < 12) return this.t('signup_password_min_length')
+    if (!/[A-Z]/.test(password)) return this.t('signup_password_requires_uppercase')
+    if (!/[0-9]/.test(password)) return this.t('signup_password_requires_number')
+    if (!/[^A-Za-z0-9]/.test(password)) return this.t('signup_password_requires_symbol')
+    if (password !== confirm) return this.t('signup_passwords_do_not_match')
+    return null
+  }
+
   async emailAlreadyRegistered(email: string): Promise<boolean> {
     const user = await User.query()
       .where('user_email', email)
@@ -88,27 +105,27 @@ export default class SignupDraftService {
         status: 404,
         type: 'warning',
         title: 'Verify OTP',
-        message: 'El borrador de signup no fue encontrado',
+        message: this.t('signup_draft_not_found'),
         data: {},
       }
     }
 
     if (!draft.signupDraftPinExpiresAt || draft.signupDraftPinExpiresAt < DateTime.now()) {
       return {
-        status: 422,
+        status: 410,
         type: 'warning',
         title: 'Verify OTP',
-        message: 'El código OTP ha expirado',
+        message: this.t('signup_otp_expired'),
         data: {},
       }
     }
 
     if (draft.signupDraftPinCode !== pinCode) {
       return {
-        status: 422,
+        status: 401,
         type: 'warning',
         title: 'Verify OTP',
-        message: 'El código OTP es incorrecto',
+        message: this.t('signup_otp_incorrect'),
         data: {},
       }
     }
@@ -122,7 +139,7 @@ export default class SignupDraftService {
       status: 200,
       type: 'success',
       title: 'Verify OTP',
-      message: 'Correo verificado correctamente',
+      message: this.t('signup_otp_verified'),
       data: {
         signupToken,
         email: draft.signupDraftEmail,
@@ -145,37 +162,38 @@ export default class SignupDraftService {
         status: 404,
         type: 'warning',
         title: 'Signup',
-        message: 'El borrador de signup no fue encontrado',
+        message: this.t('signup_draft_not_found'),
         data: {},
       }
     }
 
     if (!draft.signupDraftEmailVerifiedAt) {
       return {
-        status: 422,
+        status: 403,
         type: 'warning',
         title: 'Signup',
-        message: 'El correo electrónico aún no ha sido verificado',
+        message: this.t('signup_email_not_verified'),
         data: {},
       }
     }
 
     if (draft.signupDraftToken !== data.signupToken) {
       return {
-        status: 422,
+        status: 401,
         type: 'warning',
         title: 'Signup',
-        message: 'El token de signup es inválido',
+        message: this.t('signup_token_invalid'),
         data: {},
       }
     }
 
-    if (data.password !== data.passwordConfirm) {
+    const passwordError = this.validatePassword(data.password, data.passwordConfirm)
+    if (passwordError) {
       return {
         status: 422,
         type: 'warning',
         title: 'Signup',
-        message: 'Las contraseñas no coinciden',
+        message: passwordError,
         data: {},
       }
     }
@@ -183,20 +201,17 @@ export default class SignupDraftService {
     const taken = await this.emailAlreadyRegistered(draft.signupDraftEmail)
     if (taken) {
       return {
-        status: 422,
+        status: 409,
         type: 'warning',
         title: 'Signup',
-        message: 'El correo electrónico ya se encuentra registrado',
+        message: this.t('signup_email_already_registered'),
         data: { email: draft.signupDraftEmail },
       }
     }
 
-    // PersonService y UserService no aceptan cliente de transacción,
-    // igual que el patrón mayoritario del repositorio.
-    // Los métodos create no invocan this.i18n / this.t en la ruta de signup.
-    const personService = new PersonService(null as any)
-    const userService = new UserService(null as any)
-    const businessUnitService = new BusinessUnitService(null as any)
+    const personService = new PersonService(this.i18n as any)
+    const userService = new UserService(this.i18n as any)
+    const businessUnitService = new BusinessUnitService(this.i18n as any)
 
     const personData = new Person()
     personData.personFirstname = draft.signupDraftFirstName
@@ -232,7 +247,7 @@ export default class SignupDraftService {
     userData.personId = person.personId
     userData.userToken = ''
     userData.pinCode = ''
-    userData.userEmailType = ''
+    userData.userEmailType = 'personal'
     const user = await userService.create(userData, [businessUnit.businessUnitId])
 
     // userEmailVerifiedAt no lo copia UserService.create; se persiste en un update separado.
@@ -263,7 +278,7 @@ export default class SignupDraftService {
       status: 200,
       type: 'success',
       title: 'Signup',
-      message: 'Cuenta creada exitosamente',
+      message: this.t('signup_account_created'),
       data: {
         token: token.value!.release(),
         user,
@@ -276,10 +291,10 @@ export default class SignupDraftService {
     const taken = await this.emailAlreadyRegistered(data.email)
     if (taken) {
       return {
-        status: 422,
+        status: 409,
         type: 'warning',
         title: 'Signup',
-        message: 'El correo electrónico ya se encuentra registrado',
+        message: this.t('signup_email_already_registered'),
         data: { email: data.email },
       }
     }
@@ -299,7 +314,7 @@ export default class SignupDraftService {
       status: 200,
       type: 'success',
       title: 'Signup',
-      message: 'Se ha enviado un código de verificación al correo indicado',
+      message: this.t('signup_otp_sent'),
       data: {
         signupDraftId: draft.signupDraftId,
         expiresAt: pinExpiresAt.toISO(),
