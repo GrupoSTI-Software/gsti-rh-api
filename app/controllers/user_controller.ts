@@ -706,66 +706,68 @@ export default class UserController {
     try {
       const url = request.header('origin')
       const isApp = request.all().isApp
-      if (url) {
-        const hostData = this.getUrlInfo(url)
-        const user = await User.query()
-          .where('user_email', request.all().userEmail)
-          .whereNull('user_deleted_at')
-          .preload('person')
-          .first()
-        const encrypted = uuid()
-        if (!user) {
-          response.status(404)
-          return {
-            type: 'warning',
-            title: 'Password recovery',
-            message: 'Email not found',
-            data: {},
-          }
-        }
-        user.userToken = encrypted
-        if (isApp) {
-          const pinCode = Math.floor(100000 + Math.random() * 900000)
-          user.pinCode = pinCode.toString()
-        }
-        user.save()
-        let tradeName = 'BO'
-        let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-        const systemSettingService = new SystemSettingService()
-        const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-        if (systemSettingActive) {
-          if ( systemSettingActive.systemSettingLogo) {
-            backgroundImageLogo = systemSettingActive.systemSettingLogo
-          }
-          if ( systemSettingActive.systemSettingTradeName) {
-            tradeName = systemSettingActive.systemSettingTradeName
-          }
-        }
-        const emailData = {
-          user,
-          token: user.userToken,
-          host_data: hostData,
-          backgroundImageLogo,
-          isApp,
-          pinCode: user.pinCode,
-        }
-        const userEmail = env.get('SMTP_USERNAME')
-        if (userEmail) {
-          await mail.send((message) => {
-            message
-              .to(request.all().userEmail)
-              .from(userEmail, tradeName)
-              .subject('Recover password')
-              .htmlView('emails/request_password', emailData)
-          })
-        }
-        response.status(200)
+
+      // if (!url) {
+      // }
+
+      const hostData = this.getUrlInfo(url ?? '')
+      const user = await User.query()
+        .where('user_email', request.all().userEmail)
+        .whereNull('user_deleted_at')
+        .preload('person')
+        .first()
+      const encrypted = uuid()
+      if (!user) {
+        response.status(404)
         return {
-          type: 'success',
+          type: 'warning',
           title: 'Password recovery',
-          message: 'A link has been sent to your email successfully',
-          data: { user: user },
+          message: 'Email not found',
+          data: {},
         }
+      }
+      user.userToken = encrypted
+      if (isApp) {
+        const pinCode = Math.floor(100000 + Math.random() * 900000)
+        user.pinCode = pinCode.toString()
+      }
+      user.save()
+      let tradeName = 'BO'
+      let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+      const systemSettingService = new SystemSettingService()
+      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      if (systemSettingActive) {
+        if ( systemSettingActive.systemSettingLogo) {
+          backgroundImageLogo = systemSettingActive.systemSettingLogo
+        }
+        if ( systemSettingActive.systemSettingTradeName) {
+          tradeName = systemSettingActive.systemSettingTradeName
+        }
+      }
+      const emailData = {
+        user,
+        token: user.userToken,
+        host_data: hostData,
+        backgroundImageLogo,
+        isApp,
+        pinCode: user.pinCode,
+      }
+      const userEmail = env.get('SMTP_USERNAME')
+      if (userEmail) {
+        await mail.send((message) => {
+          message
+            .to(request.all().userEmail)
+            .from(userEmail, tradeName)
+            .subject('Recover password')
+            .htmlView('emails/request_password', emailData)
+        })
+      }
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Password recovery',
+        message: 'A link has been sent to your email successfully',
+        data: { user: user },
       }
     } catch (error) {
       response.status(500)

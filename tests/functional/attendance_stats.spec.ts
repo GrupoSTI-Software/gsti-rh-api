@@ -71,6 +71,7 @@ test.group('AttendanceStats - validation & auth', () => {
     assert.equal(typeof stats.delays, 'number')
     assert.equal(typeof stats.faults, 'number')
     assert.equal(typeof stats.earlyOuts, 'number')
+    assert.equal(typeof stats.employeesQty, 'number')
 
     // Desglose diario: un objeto por cada día del rango [startDay, endDay] inclusive.
     assert.isArray(body.data?.daily)
@@ -78,6 +79,7 @@ test.group('AttendanceStats - validation & auth', () => {
     assert.equal(body.data.daily[0].day, '2026-05-11')
     assert.equal(body.data.daily[6].day, '2026-05-17')
     assert.exists(body.data.daily[0].statistics?.totalAvailable)
+    assert.equal(typeof body.data.daily[0].statistics.employeesQty, 'number')
   })
 
   test('200 by-department devuelve array', async ({ client, assert }) => {
