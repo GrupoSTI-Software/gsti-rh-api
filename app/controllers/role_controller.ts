@@ -2,7 +2,33 @@ import { HttpContext } from '@adonisjs/core/http'
 import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 import Role from '#models/role'
+import User from '#models/user'
 import { createRoleValidator, updateRoleValidator } from '#validators/role'
+
+/**
+ * Construye el CSV legado de `roleBusinessAccess` a partir de la tabla pivote
+ * `business_unit_users` del usuario autenticado.
+ *
+ * Conservamos `roleBusinessAccess` como CSV de IDs por compatibilidad con código
+ * heredado que lo lee. La pivote `role_business_units` y la eliminación de la
+ * columna están fuera del alcance de esta historia.
+ *
+ * @returns CSV de IDs (ej. `"1,3"`) o cadena vacía si el usuario no tiene acceso.
+ */
+async function buildRoleBusinessAccessFromPivot(userId: number): Promise<string> {
+  const businessUnits = await User.query()
+    .where('user_id', userId)
+    .preload('businessUnits', (query) => {
+      query.whereNull('business_unit_deleted_at').select('business_unit_id')
+    })
+    .first()
+
+  if (!businessUnits || businessUnits.businessUnits.length === 0) {
+    return ''
+  }
+
+  return businessUnits.businessUnits.map((unit) => unit.businessUnitId).join(',')
+}
 
 export default class RoleController {
   /**
@@ -148,7 +174,6 @@ export default class RoleController {
     }
   }
 
-
   /**
    * @swagger
    * /api/roles:
@@ -268,7 +293,7 @@ export default class RoleController {
       const user = auth.user
       let roleBusinessAccess = ''
       if (user) {
-          roleBusinessAccess = user?.userBusinessAccess
+        roleBusinessAccess = await buildRoleBusinessAccessFromPivot(user.userId)
       }
 
       const roleService = new RoleService()
@@ -285,7 +310,6 @@ export default class RoleController {
         roleBusinessAccess: roleBusinessAccess,
       } as Role
 
-    
       const data = await request.validateUsing(createRoleValidator)
       const valid = await roleService.verifyInfo(role)
       if (valid.status !== 200) {
@@ -321,7 +345,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger
@@ -451,7 +474,7 @@ export default class RoleController {
       const user = auth.user
       let roleBusinessAccess = ''
       if (user) {
-          roleBusinessAccess = user?.userBusinessAccess
+        roleBusinessAccess = await buildRoleBusinessAccessFromPivot(user.userId)
       }
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
@@ -522,7 +545,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger

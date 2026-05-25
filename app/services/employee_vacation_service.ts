@@ -31,12 +31,6 @@ export default class EmployeeVacationService {
   }
   async getExcelAll(filters: EmployeeVacationExcelFilterInterface) {
     try {
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const employees = await Employee.query()
         .if(filters.search, (query) => {
           query.where((subQuery) => {
@@ -75,7 +69,7 @@ export default class EmployeeVacationService {
             query.withTrashed()
           }
         )
-        .whereIn('business_unit_id', businessUnitsList)
+        .where('business_unit_id', filters.businessUnitId)
         .if(filters.userResponsibleId &&
           typeof filters.userResponsibleId && filters.userResponsibleId > 0,
           (query) => {
@@ -307,12 +301,6 @@ export default class EmployeeVacationService {
 
   async getVacationUsedExcel(filters: EmployeeVacationExcelFilterInterface) {
     try {
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const employees = await Employee.query()
         .if(filters.search, (query) => {
           query.where((subQuery) => {
@@ -351,7 +339,7 @@ export default class EmployeeVacationService {
             query.withTrashed()
           }
         )
-        .whereIn('business_unit_id', businessUnitsList)
+        .where('business_unit_id', filters.businessUnitId)
         .if(filters.userResponsibleId &&
           typeof filters.userResponsibleId && filters.userResponsibleId > 0,
           (query) => {
@@ -596,12 +584,6 @@ export default class EmployeeVacationService {
 
   async getVacationsSummaryExcel(filters: EmployeeVacationExcelFilterInterface) {
     try {
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const employees = await Employee.query()
         .if(filters.search, (query) => {
           query.where((subQuery) => {
@@ -640,7 +622,7 @@ export default class EmployeeVacationService {
             query.withTrashed()
           }
         )
-        .whereIn('business_unit_id', businessUnitsList)
+        .where('business_unit_id', filters.businessUnitId)
         .if(filters.userResponsibleId &&
           typeof filters.userResponsibleId && filters.userResponsibleId > 0,
           (query) => {

@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 import hash from '@adonisjs/core/services/hash'
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, manyToMany } from '@adonisjs/lucid/orm'
 import { withAuthFinder } from '@adonisjs/auth/mixins/lucid'
 import { DbAccessTokensProvider } from '@adonisjs/auth/access_tokens'
 import Person from './person.js'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Role from './role.js'
+import BusinessUnit from './business_unit.js'
 
 /**
  * @swagger
@@ -45,7 +46,11 @@ import Role from './role.js'
  *            description: Person id
  *          userBusinessAccess:
  *            type: string
- *            description: Business access
+ *            deprecated: true
+ *            description: |
+ *              [Deprecado] CSV legado con los slugs de las unidades de negocio asignadas al usuario.
+ *              La nueva fuente de verdad es la tabla pivote `business_unit_users` (relación `businessUnits`).
+ *              Esta columna se conserva por compatibilidad con código heredado que aún la lee.
  *          userEmailType:
  *            type: string
  *            description: Email type
@@ -87,14 +92,32 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column()
   declare userActive: number
 
+  /**
+   * Marca temporal de cuándo el usuario verificó su email mediante el flujo de
+   * signup self-service (OTP a correo). `null` para todos los usuarios creados
+   * antes de habilitar signup; el login legacy NO evalúa esta columna.
+   */
+  @column.dateTime()
+  declare userEmailVerifiedAt: DateTime | null
+
   @column()
   declare pinCode: string
 
   @column()
   declare userPinCodeExpiresAt: DateTime | null
 
+  /**
+   * @deprecated CSV legado con los slugs de las unidades de negocio asignadas al usuario.
+   *
+   * La nueva fuente de verdad es la tabla pivote `business_unit_users`, expuesta a través
+   * de la relación `businessUnits`. Esta columna permanece nullable en la base de datos por
+   * compatibilidad con código heredado que aún la lee (~27 archivos del repositorio).
+   *
+   * Su eliminación física se programará en una historia posterior, una vez confirmado en
+   * producción que la pivote es la única fuente consultada.
+   */
   @column()
-  declare userBusinessAccess: string
+  declare userBusinessAccess: string | null
 
   @column()
   declare roleId: number
@@ -123,4 +146,21 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
     foreignKey: 'roleId',
   })
   declare role: BelongsTo<typeof Role>
+
+  /**
+   * Unidades de negocio a las que el usuario tiene acceso.
+   * Fuente de verdad para el aislamiento multi-tenant a nivel de usuario.
+   */
+  @manyToMany(() => BusinessUnit, {
+    pivotTable: 'business_unit_users',
+    localKey: 'userId',
+    pivotForeignKey: 'user_id',
+    relatedKey: 'businessUnitId',
+    pivotRelatedForeignKey: 'business_unit_id',
+    pivotTimestamps: {
+      createdAt: 'business_unit_user_created_at',
+      updatedAt: 'business_unit_user_updated_at',
+    },
+  })
+  declare businessUnits: ManyToMany<typeof BusinessUnit>
 }

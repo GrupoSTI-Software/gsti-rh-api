@@ -201,6 +201,11 @@ export default class PositionController {
    *           schema:
    *             type: object
    *             properties:
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business Unit id
+   *                 required: false
+   *                 default: ''
    *               positionCode:
    *                 type: string
    *                 description: Position code
@@ -370,6 +375,7 @@ export default class PositionController {
    */
   async store({ request, response, i18n }: HttpContext) {
     try {
+      const businessUnitId = request.input('businessUnitId')
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
       const positionAlias = request.input('positionAlias')
@@ -390,6 +396,7 @@ export default class PositionController {
       const aliasesInput = request.input('aliases')
 
       const position = {
+        businessUnitId: businessUnitId,
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
