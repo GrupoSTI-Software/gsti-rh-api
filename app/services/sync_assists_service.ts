@@ -1144,7 +1144,15 @@ export default class SyncAssistsService {
    * )
    * ```
    */
-  private async getEmployeeCalendar(
+  /**
+   * Variante pública para callers que pre-cargaron shiftChanges/exceptions en bulk
+   * (ej. attendance-stats module que itera muchos empleados con datos compartidos).
+   *
+   * Si `preloadedShiftChangesMap` y `preloadedExceptionsMap` se pasan, se usan
+   * directamente y se evitan las dos `employee.load(...)` internas. Esto reduce
+   * 2 queries por empleado, crítico para flujos bulk con cientos de empleados.
+   */
+  async getEmployeeCalendar(
     dateStart: Date | DateTime,
     dateEnd: Date | DateTime,
     employeeAssist: AssistDayInterface[],
@@ -1152,7 +1160,11 @@ export default class SyncAssistsService {
     employeeID: number | undefined,
     TOLERANCE_DELAY_MINUTES: number,
     TOLERANCE_FAULT_MINUTES: number,
-    employee: Employee | null
+    employee: Employee | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    preloadedShiftChangesMap?: Map<string, any[]>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    preloadedExceptionsMap?: Map<string, any[]>
   ) {
     if (employee) {
       await employee.load('person')
@@ -1164,11 +1176,14 @@ export default class SyncAssistsService {
     const assistList = employeeAssist
     const dailyAssistList: AssistDayInterface[] = []
 
-    // OPTIMIZACIÓN: Precargar todas las relaciones del empleado para el rango completo
-    const shiftChangesMap = new Map<string, any[]>()
-    const exceptionsMap = new Map<string, any[]>()
+    // OPTIMIZACIÓN: Si el caller pasó maps pre-loaded (caso bulk), úsalos; sino,
+    // hacer el load per-empleado como antes (compatibilidad con index()).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const shiftChangesMap: Map<string, any[]> = preloadedShiftChangesMap ?? new Map()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exceptionsMap: Map<string, any[]> = preloadedExceptionsMap ?? new Map()
 
-    if (employee && employeeID) {
+    if (!preloadedShiftChangesMap && employee && employeeID) {
       // Cargar todos los shift changes del rango de una sola vez
       await employee.load('shiftChanges', (query) => {
         query.where('employeeShiftChangeDateFrom', '>=', `${dateTimeStart.toFormat('yyyy-LL-dd')} 00:00:00`)
@@ -1183,7 +1198,9 @@ export default class SyncAssistsService {
         }
         shiftChangesMap.get(changeDate)!.push(shiftChange)
       })
+    }
 
+    if (!preloadedExceptionsMap && employee && employeeID) {
       // Cargar todas las excepciones del rango de una sola vez
       await employee.load('shift_exceptions', (query) => {
         query.where('shiftExceptionsDate', '>=', `${dateTimeStart.toFormat('yyyy-LL-dd')} 00:00:00`)

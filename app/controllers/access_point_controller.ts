@@ -37,6 +37,12 @@ export default class AccessPointController {
    *         default: 100
    *         schema:
    *           type: integer
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Business Unit id
+   *         schema:
+   *           type: integer
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -49,6 +55,7 @@ export default class AccessPointController {
       const search = request.input('search')
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
+      const businessUnitId = Number(request.input('businessUnitId'))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
       const accessPointService = new AccessPointService(i18n)
@@ -56,6 +63,7 @@ export default class AccessPointController {
         search,
         page,
         limit,
+        businessUnitId,
       })
 
       const CONNECTION_TIMEOUT_MS = 15000

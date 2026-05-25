@@ -1023,6 +1023,17 @@ export default class DepartmentController {
    *     tags:
    *       - Departments
    *     summary: get all departments with family structure (childrens and parents and position levels)
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business Unit id
+   *                 required: false
+   *                 default: ''
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -1089,11 +1100,11 @@ export default class DepartmentController {
    *                   type: string
    *                   description: Response message
    */
-  async getOrganization({ auth, response, i18n }: HttpContext) {
+  async getOrganization({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
-
+      const businessUnitId = request.input('businessUnitId')
       // const user = auth.user
       // const userService = new UserService()
       // let departmentsList = [] as Array<number>
@@ -1101,8 +1112,7 @@ export default class DepartmentController {
       // if (user) {
       //   departmentsList = await userService.getRoleDepartments(user.userId)
       // }
-
-      const departments = await new DepartmentService(i18n).buildOrganization(/* departmentsList */)
+      const departments = await new DepartmentService(i18n).buildOrganization(businessUnitId)
 
       response.status(200)
 
@@ -1172,7 +1182,7 @@ export default class DepartmentController {
    *                 description: Department parent id
    *                 required: false
    *                 default: ''
-   *               business_unit_id:
+   *               businessUnitId:
    *                 type: number
    *                 description: Business to assign
    *                 required: false
@@ -1261,6 +1271,7 @@ export default class DepartmentController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
+      const businessUnitId = request.input('businessUnitId')
       const departmentName = request.input('departmentName')
       const departmentAlias = request.input('departmentAlias')
       const aliasesInput = request.input('aliases')
@@ -1281,6 +1292,7 @@ export default class DepartmentController {
         departmentIsDefault: departmentIsDefault || 0,
         departmentActive: departmentActive || 1,
         parentDepartmentId: parentDepartmentId,
+        businessUnitId: businessUnitId,
       } as Department
 
       const departmentService = new DepartmentService(i18n)

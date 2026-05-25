@@ -1,0 +1,117 @@
+{{--
+  Correo OTP del flujo de signup self-service.
+
+  Convenciones de diseño:
+  - Estilos 100% inline: sin bloque <style>. Cumple el DoD y maximiza
+    compatibilidad con Gmail, Outlook, Apple Mail (clientes que recortan o
+    ignoran <style>).
+  - Layout basado en tablas: requisito para Outlook 2007-2019.
+  - Responsive sin @media: ancho máximo 600px combinado con width="100%" hace
+    que el contenedor escale a cualquier ancho de viewport entre 320 y 600px.
+  - Áreas tappables nunca por debajo de 44px de alto (criterio mobile WCAG).
+  - Sin links externos clickeables: el OTP se copia/pega para reducir el
+    vector de phishing (criterio de seguridad del ticket).
+--}}<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="supported-color-schemes" content="light dark" />
+  <title>{{ subject }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f5f5fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #303e67;">
+  {{-- Preheader oculto: aparece como preview en la bandeja de entrada. --}}
+  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+    {{ preheader }}
+  </div>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f5f5fa;">
+    <tr>
+      <td align="center" style="padding: 24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 600px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);">
+          <tr>
+            <td align="center" style="padding: 32px 24px 24px 24px;">
+              @if (backgroundImageLogo)
+                <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" width="160" style="width: 100%; max-width: 160px; height: auto; display: block; border: 0;" />
+              @else
+                <p style="margin: 0; font-size: 18px; font-weight: 700; color: #1f2937;">{{ tradeName }}</p>
+              @end
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 0 24px 16px 24px;">
+              <h1 style="margin: 0; font-size: 22px; line-height: 1.3; color: #1f2937; font-weight: 700;">
+                {{ greeting }}
+              </h1>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 0 24px 24px 24px;">
+              <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #475569;">
+                {{ intro }}
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding: 0 24px 8px 24px;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.4; color: #6b7280; text-transform: uppercase; letter-spacing: 1px;">
+                {{ codeLabel }}
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding: 0 24px 24px 24px;">
+              {{-- Bloque grande del OTP. Tabla por bordes para Outlook. --}}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="background-color: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 20px 28px; min-width: 220px;">
+                    <p style="margin: 0; font-family: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace; font-size: 36px; line-height: 1.1; letter-spacing: 8px; font-weight: 700; color: #111827;">
+                      {{ pinCode }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 0 24px 20px 24px;">
+              <p style="margin: 0; font-size: 14px; line-height: 1.55; color: #475569;">
+                {{ validity }}
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 0 24px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top: 1px solid #e2e8f0;">
+                <tr>
+                  <td style="padding-top: 20px;">
+                    <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #64748b;">
+                      {{ ignoreNotice }}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding: 24px 24px 32px 24px;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #94a3b8;">
+                {{ footer }}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

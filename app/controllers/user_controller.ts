@@ -19,6 +19,8 @@ import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
 import Person from '#models/person'
 import Employee from '#models/employee'
+import logger from '@adonisjs/core/services/logger'
+import { parseBusinessUnitAccessInput, resolveBusinessUnitIds } from '#utils/business_unit_access'
 
 export default class UserController {
   /**
@@ -30,6 +32,11 @@ export default class UserController {
    *     tags:
    *       - Users
    *     summary: login
+   *     description: |
+   *       Autentica al usuario validando email, contraseña, `user_active = 1` y `user_deleted_at IS NULL`.
+   *       Desde la introducción de la tabla pivote `business_unit_users`, este endpoint ya no realiza
+   *       intersección con `env.SYSTEM_BUSINESS`: el alcance multi-tenant se evalúa en cada operación
+   *       posterior a través de las unidades de negocio asociadas al usuario.
    *     produces:
    *       - application/json
    *     requestBody:
@@ -173,7 +180,7 @@ export default class UserController {
           type: 'warning',
           title: 'Login',
           message: 'Incorrect email or password',
-          data: { user: {} }
+          data: { user: {} },
         }
       }
 
@@ -191,7 +198,7 @@ export default class UserController {
             type: 'warning',
             title: 'Login',
             message: 'Employee not found',
-            data: { user: {} }
+            data: { user: {} },
           }
         }
 
@@ -206,24 +213,26 @@ export default class UserController {
             type: 'warning',
             title: 'Login',
             message: 'This device is already associated with another employee.',
-            data: { user: {} }
+            data: { user: {} },
           }
         }
 
-        if (employeeDevice && employeeDevice.employeeDeviceActive !== 1 && employeeDevice.employeeId === currentEmployee.employeeId) {
+        if (
+          employeeDevice &&
+          employeeDevice.employeeDeviceActive !== 1 &&
+          employeeDevice.employeeId === currentEmployee.employeeId
+        ) {
           response.status(400)
           return {
             type: 'warning',
             title: 'Login',
             message: 'This device is not active.',
-            data: { user: {} }
+            data: { user: {} },
           }
         }
 
         // Crear o verificar dispositivo si no existe
         if (!employeeDevice) {
-
-
           // const employeeDeviceActive = await EmployeeDevice.query()
           //   .where('employee_id', currentEmployee.employeeId)
           //   .where('employeeDeviceActive', 1)
@@ -246,7 +255,7 @@ export default class UserController {
             employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
             employeeDeviceType: request.input('deviceType') || 'Unknown',
             employeeDeviceOs: request.input('deviceOs') || 'Unknown',
-            employeeId: currentEmployee.employeeId
+            employeeId: currentEmployee.employeeId,
           } as EmployeeDevice
 
           const employeeDeviceService = new EmployeeDeviceService(i18n)
@@ -258,19 +267,15 @@ export default class UserController {
               type: verifyInfo.type,
               title: verifyInfo.title,
               message: verifyInfo.message,
-              data: { user: {} }
+              data: { user: {} },
             }
           }
 
           await employeeDeviceService.create(deviceData)
         }
-       }
+      }
 
-
-      await ApiToken.query()
-        .where('tokenable_id', user.userId)
-        .where('origin', origin)
-        .delete()
+      await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       if (Ws.io) {
         try {
@@ -281,35 +286,9 @@ export default class UserController {
       const userVerify = await User.verifyCredentials(userEmail, userPassword)
       const token = await User.accessTokens.create(user)
 
-      await ApiToken.query()
-        .where('id', String(token.identifier))
-        .update({ origin })
+      await ApiToken.query().where('id', String(token.identifier)).update({ origin })
 
-      if (userVerify && token && user.userBusinessAccess) {
-        const userBusinessAccessArray = user.userBusinessAccess.split(',')
-        const systemBussines = env.get('SYSTEM_BUSINESS')
-        const systemBussinesArray = systemBussines?.toString().split(',')
-        if (!systemBussinesArray) {
-          response.status(404)
-          return {
-            type: 'warning',
-            title: 'Login',
-            message: 'Incorrect email or password',
-            data: { user: {} },
-          }
-        }
-        const systemBussinesMatches = systemBussinesArray.filter((value) =>
-          userBusinessAccessArray.includes(value)
-        )
-        if (systemBussinesMatches.length === 0) {
-          response.status(404)
-          return {
-            type: 'warning',
-            title: 'Login',
-            message: 'Incorrect email or password',
-            data: { user: {} },
-          }
-        }
+      if (userVerify && token) {
         const date = DateTime.local().setZone('utc').toISO()
         try {
           const rawHeaders = request.request.rawHeaders
@@ -572,10 +551,7 @@ export default class UserController {
       const deviceOrigin = request.input('deviceOrigin')
       const origin = deviceOrigin === 'app' ? 'app' : 'web'
 
-      await ApiToken.query()
-        .where('tokenable_id', user.userId)
-        .where('origin', origin)
-        .delete()
+      await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       response.status(200)
       return {
@@ -706,8 +682,8 @@ export default class UserController {
     try {
       const url = request.header('origin')
       const isApp = request.all().isApp
-      if (url) {
-        const hostData = this.getUrlInfo(url)
+      // if (url) {
+        const hostData = this.getUrlInfo(url ?? 'no_url_host_data_provided')
         const user = await User.query()
           .where('user_email', request.all().userEmail)
           .whereNull('user_deleted_at')
@@ -732,12 +708,13 @@ export default class UserController {
         let tradeName = 'BO'
         let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
         const systemSettingService = new SystemSettingService()
-        const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+        const systemSettingActive =
+          (await systemSettingService.getActive()) as unknown as SystemSetting
         if (systemSettingActive) {
-          if ( systemSettingActive.systemSettingLogo) {
+          if (systemSettingActive.systemSettingLogo) {
             backgroundImageLogo = systemSettingActive.systemSettingLogo
           }
-          if ( systemSettingActive.systemSettingTradeName) {
+          if (systemSettingActive.systemSettingTradeName) {
             tradeName = systemSettingActive.systemSettingTradeName
           }
         }
@@ -766,7 +743,7 @@ export default class UserController {
           message: 'A link has been sent to your email successfully',
           data: { user: user },
         }
-      }
+      // }
     } catch (error) {
       response.status(500)
       return {
@@ -1263,6 +1240,24 @@ export default class UserController {
    *                 description: User type email
    *                 required: true
    *                 default: 'institutional'
+   *               userBusinessAccess:
+   *                 description: |
+   *                   Unidades de negocio a las que el usuario tendrá acceso.
+   *                   - **Formato recomendado**: arreglo de IDs numéricos de `business_units` (`[1, 3, 5]`).
+   *                   - **Formato legado (deprecado)**: cadena CSV con slugs o IDs (`"gsti-rh,sae"`).
+   *                     Aceptado solo por compatibilidad; genera una advertencia en logs.
+   *                   Las asociaciones se persisten en la tabla pivote `business_unit_users`.
+   *                   La columna legada `users.user_business_access` permanece en `NULL`.
+   *                 oneOf:
+   *                   - type: array
+   *                     items:
+   *                       type: integer
+   *                       minimum: 1
+   *                     example: [1, 3, 5]
+   *                   - type: string
+   *                     deprecated: true
+   *                     example: "gsti-rh,sae"
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1355,16 +1350,25 @@ export default class UserController {
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
-      const systemBussines = env.get('SYSTEM_BUSINESS')
       const userEmailType = request.input('userEmailType')
+
+      const businessAccessRaw = request.input('userBusinessAccess')
+      const businessAccessInput = parseBusinessUnitAccessInput(businessAccessRaw)
+      if (businessAccessInput.legacyCsv && businessAccessInput.slugs.length > 0) {
+        logger.warn(
+          { userEmail, legacyCsv: businessAccessInput.legacyCsv },
+          'POST /api/users recibió userBusinessAccess en formato CSV de slugs (formato deprecado). Migrar el cliente para enviar un arreglo de IDs.'
+        )
+      }
+
       const user = {
         userEmail: userEmail,
         userPassword: userPassword,
         userActive: userActive,
         roleId: roleId,
         personId: personId,
-        userBusinessAccess: systemBussines,
-        userEmailType: userEmailType
+        userBusinessAccess: null,
+        userEmailType: userEmailType,
       } as User
       const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
@@ -1378,7 +1382,8 @@ export default class UserController {
           data: { ...data },
         }
       }
-      const newUser = await userService.create(user)
+      const businessUnitIds = await resolveBusinessUnitIds(businessAccessInput)
+      const newUser = await userService.create(user, businessUnitIds)
       if (newUser) {
         if (newUser.userEmailType === 'personal') {
           const person = await Person.query()
@@ -2136,7 +2141,6 @@ export default class UserController {
       primary_color: '#0a3459',
     }
   }
-
 
   /**
    * @swagger

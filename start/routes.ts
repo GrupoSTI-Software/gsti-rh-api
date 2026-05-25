@@ -99,6 +99,7 @@ import './routes/employee_shift_change_routes.js'
 import './routes/user_responsible_employee_routes.js'
 import './routes/shift_exception_evidence_routes.js'
 import './routes/employee_assist_calendar_routes.js'
+import './routes/attendance_stats_routes.js'
 import './routes/supply_type.js'
 import './routes/supplie_caracteristics.js'
 import './routes/supplie_caracteristic_values.js'
@@ -156,6 +157,7 @@ import './routes/employee_certification_upload_routes.js'
 import './routes/employee_certification_expiration_routes.js'
 import './routes/competency_descriptor_routes.js'
 import './routes/competency_bracket_routes.js'
+import './routes/auth_signup_routes.js'
 
 router
   .get('/', async ({ view }) => {
