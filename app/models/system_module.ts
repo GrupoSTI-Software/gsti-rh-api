@@ -3,6 +3,7 @@ import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import SystemPermission from './system_permission.js'
+import SystemFeature from './system_feature.js'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 
 /**
@@ -89,4 +90,10 @@ export default class SystemModule extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'systemModuleId',
   })
   declare systemPermissions: HasMany<typeof SystemPermission>
+
+  /** Funcionalidades del producto que pertenecen a este módulo. */
+  @hasMany(() => SystemFeature, {
+    foreignKey: 'systemModuleId',
+  })
+  declare features: HasMany<typeof SystemFeature>
 }
