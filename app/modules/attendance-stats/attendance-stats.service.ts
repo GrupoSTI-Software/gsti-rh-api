@@ -17,6 +17,7 @@ import type {
   EmployeeRow,
   InformationalCounters,
   OverviewResponse,
+  OverviewStatistics,
   ResolvedScope,
   ToleranceThresholds,
 } from './dto/attendance-stats.dto.js'
@@ -133,10 +134,18 @@ export default class AttendanceStatsService {
 
     const totalClean = emptyClean()
     const totalInfo = emptyInformational()
-    // Acumuladores por fecha (yyyy-MM-dd) para el desglose diario.
-    const byDay = new Map<string, { clean: CleanCounters; informational: InformationalCounters }>()
+    // Empleados con al menos un día evaluable en todo el período (conteo global).
+    let evaluatedEmployees = 0
+    // Acumuladores por fecha (yyyy-MM-dd) para el desglose diario. `employeesQty`
+    // cuenta los empleados con día evaluable en esa fecha.
+    const byDay = new Map<
+      string,
+      { clean: CleanCounters; informational: InformationalCounters; employeesQty: number }
+    >()
 
     for (const bundle of bundles) {
+      // Cada bundle es un empleado distinto, con a lo más una fila por fecha.
+      let hasEvaluableDay = false
       for (const day of bundle.calendar) {
         const { clean, informational } = classifyDay(day, thresholds)
         addClean(totalClean, clean)
@@ -144,15 +153,21 @@ export default class AttendanceStatsService {
 
         let acc = byDay.get(day.day)
         if (!acc) {
-          acc = { clean: emptyClean(), informational: emptyInformational() }
+          acc = { clean: emptyClean(), informational: emptyInformational(), employeesQty: 0 }
           byDay.set(day.day, acc)
         }
         addClean(acc.clean, clean)
         addInformational(acc.informational, informational)
+
+        if (isEvaluableDay(day)) {
+          hasEvaluableDay = true
+          acc.employeesQty += 1
+        }
       }
+      if (hasEvaluableDay) evaluatedEmployees += 1
     }
 
-    const statistics = this.toStatistics(totalClean, totalInfo)
+    const statistics = this.toOverviewStatistics(totalClean, totalInfo, evaluatedEmployees)
 
     // Todos los días del rango, incluso los que no tienen registros evaluables.
     const daily: DailyStatsRow[] = enumerateDays(filters.startDay, filters.endDay).map((d) => {
@@ -160,8 +175,8 @@ export default class AttendanceStatsService {
       return {
         day: d,
         statistics: acc
-          ? this.toStatistics(acc.clean, acc.informational)
-          : this.toStatistics(emptyClean(), emptyInformational()),
+          ? this.toOverviewStatistics(acc.clean, acc.informational, acc.employeesQty)
+          : this.toOverviewStatistics(emptyClean(), emptyInformational(), 0),
       }
     })
 
@@ -340,6 +355,19 @@ export default class AttendanceStatsService {
       faultPercentage,
       ...info,
     }
+  }
+
+  /**
+   * Variante del overview: añade `employeesQty` (empleados evaluados) a las
+   * estadísticas base. `toStatistics` se mantiene intacto para by-department
+   * y by-employee, que no exponen este conteo.
+   */
+  private toOverviewStatistics(
+    c: CleanCounters,
+    info: InformationalCounters,
+    employeesQty: number
+  ): OverviewStatistics {
+    return { ...this.toStatistics(c, info), employeesQty }
   }
 
   private forbidden<T = null>(): ServiceResult<T> {

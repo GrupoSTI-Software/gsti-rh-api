@@ -682,8 +682,8 @@ export default class UserController {
     try {
       const url = request.header('origin')
       const isApp = request.all().isApp
-      if (url) {
-        const hostData = this.getUrlInfo(url)
+      // if (url) {
+        const hostData = this.getUrlInfo(url ?? 'no_url_host_data_provided')
         const user = await User.query()
           .where('user_email', request.all().userEmail)
           .whereNull('user_deleted_at')
@@ -743,7 +743,7 @@ export default class UserController {
           message: 'A link has been sent to your email successfully',
           data: { user: user },
         }
-      }
+      // }
     } catch (error) {
       response.status(500)
       return {

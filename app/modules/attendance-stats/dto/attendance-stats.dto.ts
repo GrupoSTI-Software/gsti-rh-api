@@ -47,16 +47,32 @@ export interface AttendanceStatistics extends CleanCounters, InformationalCounte
 }
 
 /**
+ * Estadísticas del overview. Extiende AttendanceStatistics con el conteo de
+ * empleados evaluados — exclusivo de este endpoint. by-department y by-employee
+ * conservan AttendanceStatistics sin este campo.
+ */
+export interface OverviewStatistics extends AttendanceStatistics {
+  /**
+   * Cantidad de empleados evaluados: los que tienen al menos un día evaluable
+   * (excluye descanso, vacaciones, festivos, incapacidad, día futuro y
+   * excepciones no-generales). En `statistics` global se cuenta sobre todo el
+   * período; en `daily[].statistics` solo los empleados con día evaluable en
+   * esa fecha.
+   */
+  employeesQty: number
+}
+
+/**
  * Estadísticas de UN día calendario del período, agregadas sobre todos los
  * empleados del scope. `day` en formato yyyy-MM-dd (día laboral huso México).
  */
 export interface DailyStatsRow {
   day: string
-  statistics: AttendanceStatistics
+  statistics: OverviewStatistics
 }
 
 export interface OverviewResponse {
-  statistics: AttendanceStatistics
+  statistics: OverviewStatistics
   period: {
     startDay: string
     endDay: string
