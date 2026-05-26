@@ -9,3 +9,4 @@ router
   })
   .prefix('/api/v1/attendance-stats')
   .use(middleware.auth())
+  .use(middleware.businessScope())
