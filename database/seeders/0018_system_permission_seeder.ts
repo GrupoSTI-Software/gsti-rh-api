@@ -633,30 +633,6 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Eliminar',
         systemPermissionSlug: 'delete',
         systemModuleId: 36
-      },
-      {
-        systemPermissionId: 152,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 153,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 154,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 155,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 37
       }
     ]
 

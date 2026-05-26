@@ -27,6 +27,11 @@ export const employeeLactationPeriodListValidator = vine.compile(
 
 /**
  * Alta de un periodo de lactancia.
+ *
+ * Los nombres de los campos espejan exactamente las columnas del modelo
+ * `EmployeeLactationPeriod` (prefijo `employeeLactationPeriod*`) para mantener
+ * un único contrato entre frontend, validator, service y persistencia.
+ *
  * - Coherencia estricta de fechas: end > start (`afterField`).
  * - El sanity check de 24 meses se aplica en el service para devolver 422 con
  *   key `lactation-period-unreasonable-range` (Vine sólo valida formato).
@@ -34,13 +39,14 @@ export const employeeLactationPeriodListValidator = vine.compile(
 export const createEmployeeLactationPeriodValidator = vine.compile(
   vine.object({
     employeeId: vine.number().positive(),
-    lactationPeriodStartDate: vine.date({ formats: ['YYYY-MM-DD'] }),
-    lactationPeriodEndDate: vine
+    employeeLactationPeriodStartDate: vine.date({ formats: ['YYYY-MM-DD'] }),
+    employeeLactationPeriodEndDate: vine
       .date({ formats: ['YYYY-MM-DD'] })
-      .afterField('lactationPeriodStartDate'),
-    lactationPeriodType: lactationPeriodTypeField,
-    lactationReductionApplication: lactationReductionApplicationField.optional(),
-    lactationPeriodNotes: lactationPeriodNotesField.optional(),
+      .afterField('employeeLactationPeriodStartDate'),
+    employeeLactationPeriodType: lactationPeriodTypeField,
+    employeeLactationPeriodReductionApplication:
+      lactationReductionApplicationField.optional(),
+    employeeLactationPeriodNotes: lactationPeriodNotesField.optional(),
   })
 )
 
@@ -52,10 +58,15 @@ export const createEmployeeLactationPeriodValidator = vine.compile(
 export const updateEmployeeLactationPeriodValidator = vine.compile(
   vine.object({
     employeeId: vine.number().positive().optional(),
-    lactationPeriodStartDate: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
-    lactationPeriodEndDate: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
-    lactationPeriodType: lactationPeriodTypeField.optional(),
-    lactationReductionApplication: lactationReductionApplicationField.optional(),
-    lactationPeriodNotes: lactationPeriodNotesField.optional(),
+    employeeLactationPeriodStartDate: vine
+      .date({ formats: ['YYYY-MM-DD'] })
+      .optional(),
+    employeeLactationPeriodEndDate: vine
+      .date({ formats: ['YYYY-MM-DD'] })
+      .optional(),
+    employeeLactationPeriodType: lactationPeriodTypeField.optional(),
+    employeeLactationPeriodReductionApplication:
+      lactationReductionApplicationField.optional(),
+    employeeLactationPeriodNotes: lactationPeriodNotesField.optional(),
   })
 )

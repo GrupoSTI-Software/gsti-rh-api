@@ -11,15 +11,28 @@ import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_p
 
 const MAX_LACTATION_RANGE_MONTHS = 24
 
+/**
+ * Mínimo legal de lactancia según LFT artículo 170, fracción IV.
+ * La empleada tiene derecho a "dos reposos extraordinarios por día, de
+ * media hora cada uno" o equivalente, durante el periodo de lactancia
+ * de seis meses como mínimo. El sistema bloquea capturas por debajo
+ * de este mínimo para evitar violaciones inadvertidas al derecho.
+ *
+ * Tolerancia: aceptamos hasta 3 días por debajo del límite teórico
+ * (≈6 meses = 182.5 días) para absorber redondeos por meses con
+ * distinta cantidad de días (febrero, meses de 30 vs 31).
+ */
+const MIN_LACTATION_RANGE_MONTHS = 6
+
 const DEFAULT_REDUCTION_APPLICATION: EmployeeLactationPeriodReductionApplication = 'end'
 
 export interface EmployeeLactationPeriodCreatePayload {
   employeeId: number
-  lactationPeriodStartDate: string
-  lactationPeriodEndDate: string
-  lactationPeriodType: EmployeeLactationPeriodType
-  lactationReductionApplication?: EmployeeLactationPeriodReductionApplication
-  lactationPeriodNotes?: string | null
+  employeeLactationPeriodStartDate: string
+  employeeLactationPeriodEndDate: string
+  employeeLactationPeriodType: EmployeeLactationPeriodType
+  employeeLactationPeriodReductionApplication?: EmployeeLactationPeriodReductionApplication
+  employeeLactationPeriodNotes?: string | null
 }
 
 export type EmployeeLactationPeriodUpdatePayload = Partial<EmployeeLactationPeriodCreatePayload>
@@ -149,8 +162,8 @@ export default class EmployeeLactationPeriodService {
   async create(payload: EmployeeLactationPeriodCreatePayload) {
     await this.ensureEmployeeBelongsToCompany(payload.employeeId)
 
-    const startDate = this.parseDate(payload.lactationPeriodStartDate)
-    const endDate = this.parseDate(payload.lactationPeriodEndDate)
+    const startDate = this.parseDate(payload.employeeLactationPeriodStartDate)
+    const endDate = this.parseDate(payload.employeeLactationPeriodEndDate)
 
     this.assertDateCoherence(startDate, endDate)
     this.assertWithinReasonableRange(startDate, endDate)
@@ -160,10 +173,12 @@ export default class EmployeeLactationPeriodService {
     period.employeeId = payload.employeeId
     period.employeeLactationPeriodStartDate = startDate
     period.employeeLactationPeriodEndDate = endDate
-    period.employeeLactationPeriodType = payload.lactationPeriodType
+    period.employeeLactationPeriodType = payload.employeeLactationPeriodType
     period.employeeLactationPeriodReductionApplication =
-      payload.lactationReductionApplication ?? DEFAULT_REDUCTION_APPLICATION
-    period.employeeLactationPeriodNotes = this.normalizeNotes(payload.lactationPeriodNotes)
+      payload.employeeLactationPeriodReductionApplication ?? DEFAULT_REDUCTION_APPLICATION
+    period.employeeLactationPeriodNotes = this.normalizeNotes(
+      payload.employeeLactationPeriodNotes
+    )
     await period.save()
 
     return serializeLactationPeriod(period)
@@ -183,18 +198,18 @@ export default class EmployeeLactationPeriodService {
     }
 
     const nextStartDate =
-      payload.lactationPeriodStartDate !== undefined
-        ? this.parseDate(payload.lactationPeriodStartDate)
+      payload.employeeLactationPeriodStartDate !== undefined
+        ? this.parseDate(payload.employeeLactationPeriodStartDate)
         : period.employeeLactationPeriodStartDate
 
     const nextEndDate =
-      payload.lactationPeriodEndDate !== undefined
-        ? this.parseDate(payload.lactationPeriodEndDate)
+      payload.employeeLactationPeriodEndDate !== undefined
+        ? this.parseDate(payload.employeeLactationPeriodEndDate)
         : period.employeeLactationPeriodEndDate
 
     const datesChanged =
-      payload.lactationPeriodStartDate !== undefined ||
-      payload.lactationPeriodEndDate !== undefined
+      payload.employeeLactationPeriodStartDate !== undefined ||
+      payload.employeeLactationPeriodEndDate !== undefined
 
     const employeeChanged = nextEmployeeId !== period.employeeId
 
@@ -215,16 +230,16 @@ export default class EmployeeLactationPeriodService {
     period.employeeId = nextEmployeeId
     period.employeeLactationPeriodStartDate = nextStartDate
     period.employeeLactationPeriodEndDate = nextEndDate
-    if (payload.lactationPeriodType !== undefined) {
-      period.employeeLactationPeriodType = payload.lactationPeriodType
+    if (payload.employeeLactationPeriodType !== undefined) {
+      period.employeeLactationPeriodType = payload.employeeLactationPeriodType
     }
-    if (payload.lactationReductionApplication !== undefined) {
+    if (payload.employeeLactationPeriodReductionApplication !== undefined) {
       period.employeeLactationPeriodReductionApplication =
-        payload.lactationReductionApplication
+        payload.employeeLactationPeriodReductionApplication
     }
-    if (payload.lactationPeriodNotes !== undefined) {
+    if (payload.employeeLactationPeriodNotes !== undefined) {
       period.employeeLactationPeriodNotes = this.normalizeNotes(
-        payload.lactationPeriodNotes
+        payload.employeeLactationPeriodNotes
       )
     }
 
@@ -321,12 +336,26 @@ export default class EmployeeLactationPeriodService {
   }
 
   /**
-   * Sanity check: rechaza rangos absurdos (>24 meses) con 422 y key estable
-   * `lactation-period-unreasonable-range`.
-   * El derecho de 6 meses (LFT 170 IV) NO se aplica como hard reject.
+   * Valida el rango contra los dos extremos legales/operativos:
+   *  - Mínimo legal LFT 170 IV: 6 meses. Captura por debajo se rechaza
+   *    con 422 y key estable `lactation-period-below-legal-minimum`.
+   *  - Máximo operativo (sanity check): 24 meses. Captura por encima se
+   *    rechaza con 422 y key estable `lactation-period-unreasonable-range`.
+   *
+   * Las empresas pueden EXTENDER el periodo voluntariamente por encima
+   * del mínimo legal hasta el tope de 24 meses; el warning suave de
+   * "supera 6 meses" lo gestiona el cliente.
    */
   private assertWithinReasonableRange(startDate: DateTime, endDate: DateTime) {
     const diffMonths = endDate.diff(startDate, 'months').months
+    if (diffMonths < MIN_LACTATION_RANGE_MONTHS) {
+      throw new EmployeeLactationPeriodError(
+        'El rango de lactancia es menor al mínimo legal de 6 meses (LFT artículo 170).',
+        ELP_ERROR_CODES.RANGE_BELOW_LEGAL_MINIMUM,
+        422,
+        'lactation-period-below-legal-minimum'
+      )
+    }
     if (diffMonths > MAX_LACTATION_RANGE_MONTHS) {
       throw new EmployeeLactationPeriodError(
         'El rango de lactancia supera el máximo de 24 meses permitido por captura.',

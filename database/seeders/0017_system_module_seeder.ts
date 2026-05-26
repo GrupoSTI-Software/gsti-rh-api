@@ -668,32 +668,6 @@ export default class extends BaseSeeder {
           <path d="M9 13h7" />
         </svg>`,
       },
-      {
-        systemModuleId: 37,
-        systemModuleName: 'Periodos de lactancia',
-        systemModuleSlug: 'employee-lactation-periods',
-        systemModuleDescription:
-          'Registro de periodos de lactancia (NOM-037-STPS-2023 / LFT artículo 170)',
-        systemModules: 1,
-        systemModulePath: '/employee-lactation-periods',
-        systemModuleGroup: '2. Empresa',
-        systemModuleActive: 1,
-        systemModuleIcon: `<svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="48"
-          height="48"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#88a4bf"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
-          <path d="M17.5 7a5.5 5.5 0 1 0 -11 0" />
-          <path d="M7 11v8a3 3 0 0 0 3 3h4a3 3 0 0 0 3 -3v-8" />
-        </svg>`,
-      },
     ]
     for (const systemModule of systemModules) {
       const { systemModuleId, ...systemModuleData } = systemModule

@@ -6,10 +6,12 @@
 export const ELP_ERROR_CODES = {
   /** Error de validación VineJS o input fuera de rango */
   VAL_INPUT: 'ELP.VAL.001',
-  /** lactationPeriodEndDate <= lactationPeriodStartDate */
+  /** employeeLactationPeriodEndDate <= employeeLactationPeriodStartDate */
   DATE_RANGE_INVALID: 'ELP.VAL.DATE.001',
   /** El rango total supera el sanity check de 24 meses */
   RANGE_UNREASONABLE: 'ELP.VAL.RANGE.001',
+  /** El rango total es menor al mínimo legal LFT 170 IV (6 meses) */
+  RANGE_BELOW_LEGAL_MINIMUM: 'ELP.VAL.RANGE.002',
   /** Empleada inexistente o ajena a la empresa del usuario autenticado */
   EMPLOYEE_NOT_FOUND: 'ELP.NF.EMP.001',
   /** Periodo no encontrado o ajeno a la empresa */
