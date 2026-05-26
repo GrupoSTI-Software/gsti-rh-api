@@ -94,6 +94,8 @@ export class StandardResponseFormatter {
       'Employee Lactation Period': 'employeeLactationPeriod',
       'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
+      'Repse Specialized Services': 'repseSpecializedServices',
+      'Repse Specialized Service': 'repseSpecializedService',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

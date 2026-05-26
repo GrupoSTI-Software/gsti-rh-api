@@ -1,9 +1,10 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from '#models/business_unit'
+import RepseSpecializedService from '#models/repse_specialized_service'
 
 /**
  * Estados permitidos para un registro REPSE.
@@ -89,4 +90,10 @@ export default class RepseRegistration extends compose(BaseModel, SoftDeletes) {
     localKey: 'businessUnitId',
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @hasMany(() => RepseSpecializedService, {
+    foreignKey: 'repseRegistrationId',
+    localKey: 'repseRegistrationId',
+  })
+  declare specializedServices: HasMany<typeof RepseSpecializedService>
 }

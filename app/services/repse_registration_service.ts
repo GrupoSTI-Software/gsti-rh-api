@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
-import env from '#start/env'
 import RepseRegistration, { type RepseRegistrationStatus } from '#models/repse_registration'
-import BusinessUnit from '#models/business_unit'
 import { REPSE_ERROR_CODES } from '../constants/repse_registration_error_codes.js'
 import { RepseRegistrationError } from '../exceptions/repse_registration_error.js'
+import {
+  assertBusinessUnitInTenant,
+  findRegistrationInTenantOrFail,
+} from '../helpers/repse_tenant_scope.js'
 
 export interface RepseRegistrationCreatePayload {
   businessUnitId: number
@@ -87,7 +89,7 @@ export default class RepseRegistrationService {
     const safeLimit = Math.min(Math.max(limit, 1), 500)
     const safePage = Math.max(page, 1)
 
-    await this.assertBusinessUnitInTenant(businessUnitId)
+    await assertBusinessUnitInTenant(businessUnitId)
 
     const paginator = await RepseRegistration.query()
       .whereNull('repse_registration_deleted_at')
@@ -107,7 +109,7 @@ export default class RepseRegistrationService {
    * actual. Lanza 404 cuando no existe o vive en otra empresa.
    */
   async findById(repseRegistrationId: number) {
-    const row = await this.findRegistrationInTenantOrFail(repseRegistrationId)
+    const row = await findRegistrationInTenantOrFail(repseRegistrationId)
     return serializeRepseRegistration(row)
   }
 
@@ -116,7 +118,7 @@ export default class RepseRegistrationService {
    * Valida tenant, coherencia de fechas y unicidad del folio.
    */
   async create(payload: RepseRegistrationCreatePayload) {
-    await this.assertBusinessUnitInTenant(payload.businessUnitId)
+    await assertBusinessUnitInTenant(payload.businessUnitId)
 
     const registeredAt = this.parseDate(payload.registeredAt)
     const expiresAt = this.parseDate(payload.expiresAt)
@@ -147,11 +149,11 @@ export default class RepseRegistrationService {
    * la unicidad del folio se evalúan sobre el estado fusionado.
    */
   async update(repseRegistrationId: number, payload: RepseRegistrationUpdatePayload) {
-    const current = await this.findRegistrationInTenantOrFail(repseRegistrationId)
+    const current = await findRegistrationInTenantOrFail(repseRegistrationId)
 
     const targetBusinessUnitId = payload.businessUnitId ?? current.businessUnitId
     if (payload.businessUnitId !== undefined && payload.businessUnitId !== current.businessUnitId) {
-      await this.assertBusinessUnitInTenant(targetBusinessUnitId)
+      await assertBusinessUnitInTenant(targetBusinessUnitId)
     }
 
     const registeredAt =
@@ -187,7 +189,7 @@ export default class RepseRegistrationService {
 
   /** Soft delete del registro REPSE. */
   async destroy(repseRegistrationId: number) {
-    const row = await this.findRegistrationInTenantOrFail(repseRegistrationId)
+    const row = await findRegistrationInTenantOrFail(repseRegistrationId)
     await row.delete()
     return serializeRepseRegistration(row)
   }
@@ -195,54 +197,6 @@ export default class RepseRegistrationService {
   // ---------------------------------------------------------------------------
   // Helpers privados
   // ---------------------------------------------------------------------------
-
-  /**
-   * Valida que el `businessUnitId` pertenezca al tenant del usuario
-   * autenticado. Lanza 404 con key `empresa-no-encontrada` cuando no.
-   */
-  private async assertBusinessUnitInTenant(businessUnitId: number) {
-    const allowed = await this.getAllowedBusinessUnitIds()
-    if (!allowed.includes(businessUnitId)) {
-      throw new RepseRegistrationError(
-        'La empresa no existe o no pertenece al tenant actual.',
-        REPSE_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
-        404,
-        'empresa-no-encontrada'
-      )
-    }
-  }
-
-  /**
-   * Recupera un registro no borrado lógicamente cuya empresa pertenezca al
-   * tenant actual. Lanza 404 cuando no existe o vive en otra empresa.
-   */
-  private async findRegistrationInTenantOrFail(repseRegistrationId: number) {
-    const allowed = await this.getAllowedBusinessUnitIds()
-    if (allowed.length === 0) {
-      throw new RepseRegistrationError(
-        'El registro REPSE no existe o no pertenece al tenant actual.',
-        REPSE_ERROR_CODES.REPSE_NOT_FOUND,
-        404,
-        'repse-no-encontrado'
-      )
-    }
-
-    const row = await RepseRegistration.query()
-      .where('repse_registration_id', repseRegistrationId)
-      .whereNull('repse_registration_deleted_at')
-      .whereIn('business_unit_id', allowed)
-      .first()
-
-    if (!row) {
-      throw new RepseRegistrationError(
-        'El registro REPSE no existe o no pertenece al tenant actual.',
-        REPSE_ERROR_CODES.REPSE_NOT_FOUND,
-        404,
-        'repse-no-encontrado'
-      )
-    }
-    return row
-  }
 
   /**
    * Verifica que no exista otro registro activo con el mismo folio para la
@@ -309,31 +263,6 @@ export default class RepseRegistrationService {
       )
     }
     return parsed
-  }
-
-  /**
-   * Devuelve los IDs de unidades de negocio activas a las que el usuario
-   * autenticado puede llegar (alineado a `SYSTEM_BUSINESS`, patrón vigente
-   * del repositorio).
-   */
-  private async getAllowedBusinessUnitIds(): Promise<number[]> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS') ?? ''}`
-    const businessSlugs = businessConf
-      .split(',')
-      .map((slug) => slug.trim())
-      .filter((slug) => slug.length > 0)
-
-    if (businessSlugs.length === 0) {
-      return []
-    }
-
-    const businessUnits = await BusinessUnit.query()
-      .whereNull('business_unit_deleted_at')
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessSlugs)
-      .select('business_unit_id')
-
-    return businessUnits.map((bu) => bu.businessUnitId)
   }
 }
 
