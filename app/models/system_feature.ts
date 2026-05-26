@@ -3,8 +3,8 @@ import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
-import SystemModule from './system_module.js'
-import type RegulationClauseFeature from './regulation_clause_feature.js'
+import SystemModule from '#models/system_module'
+import RegulationClauseFeature from '#models/regulation_clause_feature'
 
 /**
  * @swagger
@@ -105,11 +105,8 @@ export default class SystemFeature extends compose(BaseModel, SoftDeletes) {
   declare systemModule: BelongsTo<typeof SystemModule>
 
   /** Vínculos de cobertura de esta funcionalidad con numerales regulatorios. */
-  @hasMany(
-    () =>
-      // Importación dinámica para evitar dependencia circular con regulation_clause.ts
-      import('./regulation_clause_feature.js').then((m) => m.default) as any,
-    { foreignKey: 'systemFeatureId' }
-  )
+  @hasMany(() => RegulationClauseFeature, {
+    foreignKey: 'systemFeatureId',
+  })
   declare regulationClauseFeatures: HasMany<typeof RegulationClauseFeature>
 }

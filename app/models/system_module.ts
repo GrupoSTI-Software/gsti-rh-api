@@ -3,7 +3,7 @@ import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import SystemPermission from './system_permission.js'
-import SystemFeature from './system_feature.js'
+import SystemFeature from '#models/system_feature'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 
 /**

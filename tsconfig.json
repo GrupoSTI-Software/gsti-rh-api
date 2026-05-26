@@ -5,6 +5,7 @@
     "outDir": "./build",
     "baseUrl": "./",
     "paths": {
+      "#models/*": ["./app/models/*"],
       "#constants/*": ["./app/constants/*"],
       "#utils/*": ["./app/utils/*"],
       "#modules/*": ["./app/modules/*"]

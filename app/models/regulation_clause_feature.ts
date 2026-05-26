@@ -3,8 +3,8 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
-import RegulationClause from './regulation_clause.js'
-import SystemFeature from './system_feature.js'
+import RegulationClause from '#models/regulation_clause'
+import SystemFeature from '#models/system_feature'
 
 /**
  * @swagger
