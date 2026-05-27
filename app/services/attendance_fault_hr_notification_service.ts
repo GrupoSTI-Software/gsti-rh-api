@@ -1,5 +1,6 @@
 import Employee from '#models/employee'
 import SystemSetting from '#models/system_setting'
+import BusinessUnit from '#models/business_unit'
 import Tolerance from '#models/tolerance'
 import {
   ATTENDANCE_FAULT_HR_ROLE_SLUGS,
@@ -33,19 +34,18 @@ export interface AttendanceFaultHrRunOptions {
  */
 export default class AttendanceFaultHrNotificationService {
   /**
-   * Resuelve system setting activo según SYSTEM_BUSINESS (mismo criterio que otros comandos).
+   * Resuelve el system setting activo cuyas unidades de negocio tengan al menos
+   * una coincidencia con los slugs permitidos (resolvedor central, sin SYSTEM_BUSINESS).
    */
-  resolveActiveSystemSetting(systemSettings: SystemSetting[]): SystemSetting | null {
-    const systemBusinessEnv = env.get('SYSTEM_BUSINESS', '')
-    if (!systemBusinessEnv) {
+  resolveActiveSystemSetting(systemSettings: SystemSetting[], allowedBusinessUnitSlugs: string[]): SystemSetting | null {
+    if (allowedBusinessUnitSlugs.length === 0) {
       return null
     }
-    const businessList = systemBusinessEnv.split(',').map((u: string) => u.trim())
     for (const setting of systemSettings) {
       const units = setting.systemSettingBusinessUnits
         ? setting.systemSettingBusinessUnits.split(',').map((u: string) => u.trim())
         : []
-      const hasMatch = units.some((u) => businessList.includes(u))
+      const hasMatch = units.some((u) => allowedBusinessUnitSlugs.includes(u))
       if (hasMatch && setting.systemSettingActive === 1) {
         return setting
       }
@@ -455,9 +455,15 @@ export default class AttendanceFaultHrNotificationService {
         'system_setting_attendance_fault_hr_emails'
       )
 
-    const systemSetting = this.resolveActiveSystemSetting(systemSettings as SystemSetting[])
+    const activeUnits = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .where('business_unit_active', 1)
+      .select('business_unit_slug')
+    const allowedBusinessUnitSlugs = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
+
+    const systemSetting = this.resolveActiveSystemSetting(systemSettings as SystemSetting[], allowedBusinessUnitSlugs)
     if (!systemSetting) {
-      log.warning('No hay system setting activo que coincida con SYSTEM_BUSINESS')
+      log.warning('No hay system setting activo que coincida con las unidades de negocio activas')
       return { sent: false, reason: 'no_system_setting' as const }
     }
 
