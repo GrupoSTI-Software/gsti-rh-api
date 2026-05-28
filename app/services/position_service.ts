@@ -552,9 +552,7 @@ export default class PositionService {
   async createPositionDemo(allowedBusinessUnitIds: number[] = []) {
     try {
       const query = BusinessUnit.query().where('business_unit_active', 1)
-      if (allowedBusinessUnitIds.length > 0) {
-        query.whereIn('business_unit_id', allowedBusinessUnitIds)
-      }
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
       const firstActiveUnit = await query.first()
       const businessUnitId = firstActiveUnit?.businessUnitId || 0
       const createdPositions: { [key: string]: Position } = {}

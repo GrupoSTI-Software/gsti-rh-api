@@ -59,7 +59,6 @@ export default class RoleService {
     currentRole.roleDescription = role.roleDescription
     currentRole.roleSlug = role.roleSlug
     currentRole.roleActive = role.roleActive
-    currentRole.roleBusinessAccess = role.roleBusinessAccess
     await currentRole.save()
     return currentRole
   }

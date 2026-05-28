@@ -9,17 +9,17 @@ import { createRoleValidator, updateRoleValidator } from '#validators/role'
  * Construye el CSV legado de `roleBusinessAccess` a partir de la tabla pivote
  * `business_unit_users` del usuario autenticado.
  *
- * Conservamos `roleBusinessAccess` como CSV de IDs por compatibilidad con código
+ * Conservamos `roleBusinessAccess` como CSV de slugs por compatibilidad con código
  * heredado que lo lee. La pivote `role_business_units` y la eliminación de la
  * columna están fuera del alcance de esta historia.
  *
- * @returns CSV de IDs (ej. `"1,3"`) o cadena vacía si el usuario no tiene acceso.
+ * @returns CSV de Slugs (ej. `"sae,demo"`) o cadena vacía si el usuario no tiene acceso.
  */
 async function buildRoleBusinessAccessFromPivot(userId: number): Promise<string> {
   const businessUnits = await User.query()
     .where('user_id', userId)
     .preload('businessUnits', (query) => {
-      query.whereNull('business_unit_deleted_at').select('business_unit_id')
+      query.whereNull('business_unit_deleted_at').select('business_unit_slug')
     })
     .first()
 
@@ -27,7 +27,7 @@ async function buildRoleBusinessAccessFromPivot(userId: number): Promise<string>
     return ''
   }
 
-  return businessUnits.businessUnits.map((unit) => unit.businessUnitId).join(',')
+  return businessUnits.businessUnits.map((unit) => unit.businessUnitSlug).join(',')
 }
 
 export default class RoleController {
@@ -466,16 +466,10 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response }: HttpContext) {
+  async update({ request, response }: HttpContext) {
     try {
       const roleId = request.param('roleId')
       const roleService = new RoleService()
-      await auth.check()
-      const user = auth.user
-      let roleBusinessAccess = ''
-      if (user) {
-        roleBusinessAccess = await buildRoleBusinessAccessFromPivot(user.userId)
-      }
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
       const roleSlug = roleService.generateSlug(roleName)
@@ -486,8 +480,7 @@ export default class RoleController {
         roleName: roleName,
         roleDescription: roleDescription,
         roleSlug: roleSlug,
-        roleActive: roleActive,
-        roleBusinessAccess: roleBusinessAccess,
+        roleActive: roleActive
       } as Role
 
       if (!roleId) {

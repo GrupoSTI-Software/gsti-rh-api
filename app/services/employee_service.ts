@@ -315,10 +315,10 @@ export default class EmployeeService {
     const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
-
+    
     const employees = await Employee.query()
-      .if(businessUnitsList.length > 0, (q) => q.whereIn('businessUnitId', businessUnitsList))
-      .if(filters.onlyPayroll && businessUnitsList.length > 0, (query) => {
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.onlyPayroll, (query) => {
         query.whereIn('payrollBusinessUnitId', businessUnitsList)
       })
       .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
