@@ -694,6 +694,37 @@ export default class extends BaseSeeder {
           <path d="M7 11v8a3 3 0 0 0 3 3h4a3 3 0 0 0 3 -3v-8" />
         </svg>`,
       },
+      {
+        systemModuleId: 38,
+        systemModuleName: 'Empresas contratantes REPSE',
+        systemModuleSlug: 'compliance-contratantes',
+        systemModuleDescription:
+          'Catálogo de empresas contratantes (clientes corporativos del prestador REPSE)',
+        systemModules: 1,
+        systemModulePath: '/compliance/contratantes',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 21h18" />
+          <path d="M9 8h1" />
+          <path d="M9 12h1" />
+          <path d="M9 16h1" />
+          <path d="M14 8h1" />
+          <path d="M14 12h1" />
+          <path d="M14 16h1" />
+          <path d="M5 21v-14a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14" />
+        </svg>`,
+      },
     ]
     for (const systemModule of systemModules) {
       const { systemModuleId, ...systemModuleData } = systemModule

@@ -96,6 +96,8 @@ export class StandardResponseFormatter {
       'Repse Registration': 'repseRegistration',
       'Repse Specialized Services': 'repseSpecializedServices',
       'Repse Specialized Service': 'repseSpecializedService',
+      'Empresas Contratantes': 'empresasContratantes',
+      'Empresa Contratante': 'empresaContratante',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

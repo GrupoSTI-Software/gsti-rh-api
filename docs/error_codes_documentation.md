@@ -482,6 +482,22 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 
 ---
 
+## Empresas contratantes REPSE (`ECNT.*`)
+
+Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. Permiso: `compliance-contratantes` / `gestion`.
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| ECNT.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| ECNT.VAL.RFC.001 | RFC formato o dígito verificador SAT inválido | 400 | `rfc-invalido` |
+| ECNT.CONFLICT.RFC.001 | RFC duplicado en catálogo del tenant | 409 | `rfc-duplicado` |
+| ECNT.NF.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
+| ECNT.NF.BU.001 | Business unit ajena al tenant | 404 | `empresa-no-encontrada` |
+| ECNT.FORBID.001 | Sin permiso `gestion` | 403 | `sin-permiso` |
+| ECNT.SYS.001 | Error no clasificado | 5xx | — |
+
+---
+
 ## Error Code Summary Table
 
 | Code | Error Type | HTTP Status | User Action | System Action |

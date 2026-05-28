@@ -1,7 +1,10 @@
 import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
+import EmpresaContratante from '#models/empresa_contratante'
 import RepseRegistration from '#models/repse_registration'
+import { EMPRESA_CONTRATANTE_ERROR_CODES } from '../constants/empresa_contratante_error_codes.js'
 import { REPSE_ERROR_CODES } from '../constants/repse_registration_error_codes.js'
+import { EmpresaContratanteError } from '../exceptions/empresa_contratante_error.js'
 import { RepseRegistrationError } from '../exceptions/repse_registration_error.js'
 
 /**
@@ -92,5 +95,43 @@ export async function findRegistrationInTenantOrFail(
       notFoundKey
     )
   }
+  return row
+}
+
+/**
+ * Recupera una empresa contratante no borrada cuya BU pertenezca al tenant
+ * actual. Lanza 404 cuando no existe o vive en otra instancia (cross-tenant).
+ */
+export async function findEmpresaContratanteInTenantOrFail(
+  empresaContratanteId: number,
+  notFoundKey: string = 'empresa-contratante-no-encontrada'
+): Promise<EmpresaContratante> {
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new EmpresaContratanteError(
+      'La empresa contratante no existe o no pertenece al tenant actual.',
+      EMPRESA_CONTRATANTE_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'La empresa contratante no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  const row = await EmpresaContratante.query()
+    .where('empresa_contratante_id', empresaContratanteId)
+    .whereNull('empresa_contratante_deleted_at')
+    .whereIn('business_unit_id', allowed)
+    .first()
+
+  if (!row) {
+    throw new EmpresaContratanteError(
+      'La empresa contratante no existe o no pertenece al tenant actual.',
+      EMPRESA_CONTRATANTE_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'La empresa contratante no existe o no pertenece al tenant actual.'
+    )
+  }
+
   return row
 }

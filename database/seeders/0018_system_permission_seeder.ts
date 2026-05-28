@@ -657,6 +657,12 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Eliminar',
         systemPermissionSlug: 'delete',
         systemModuleId: 37
+      },
+      {
+        systemPermissionId: 156,
+        systemPermissionName: 'Gestionar empresas contratantes',
+        systemPermissionSlug: 'gestion',
+        systemModuleId: 38
       }
     ]
 
