@@ -1,3 +1,4 @@
+import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import Role from '#models/role'
 import RoleDepartment from '#models/role_department'
@@ -5,19 +6,28 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
-import env from '#start/env'
 
 export default class RoleService {
-  async index(filters: RoleFilterSearchInterface) {
-    const systemBussines = env.get('SYSTEM_BUSINESS')
-    const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
+  async index(filters: RoleFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
+    let slugs: string[] = []
+    if (allowedBusinessUnitIds.length > 0) {
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+        .select('business_unit_slug')
+      slugs = units.map((bu) => bu.businessUnitSlug)
+    }
+
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        if (slugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
         query.whereNotNull('role_business_access')
         query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+          slugs.forEach((slug) => {
+            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
           })
         })
       })
@@ -322,9 +332,21 @@ export default class RoleService {
    * @param roleSlug - Slug del rol a buscar
    * @returns Rol encontrado o null
    */
-  async findRoleBySlug(roleSlug: string): Promise<Role | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
+  async findRoleBySlug(roleSlug: string, allowedBusinessUnitIds: number[] = []): Promise<Role | null> {
+    let slugs: string[]
+    if (allowedBusinessUnitIds.length === 0) {
+      const allUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .select('business_unit_slug')
+      slugs = allUnits.map((bu) => bu.businessUnitSlug)
+    } else {
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+        .select('business_unit_slug')
+      slugs = units.map((bu) => bu.businessUnitSlug)
+    }
+
+    if (slugs.length === 0) return null
 
     const role = await Role.query()
       .where('role_slug', roleSlug)
@@ -332,8 +354,8 @@ export default class RoleService {
       .andWhere((query) => {
         query.whereNotNull('role_business_access')
         query.andWhere((subQuery) => {
-          businessList.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+          slugs.forEach((slug) => {
+            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
           })
         })
       })

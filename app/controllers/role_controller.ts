@@ -142,7 +142,7 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -153,7 +153,7 @@ export default class RoleController {
         limit: limit,
       } as RoleFilterSearchInterface
       const roleService = new RoleService()
-      const roles = await roleService.index(filters)
+      const roles = await roleService.index(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',

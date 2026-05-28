@@ -6,7 +6,6 @@ import EmployeeContract from '#models/employee_contract'
 import EmployeeShift from '#models/employee_shift'
 import Position from '#models/position'
 import Shift from '#models/shift'
-import env from '#start/env'
 import { I18n } from '@adonisjs/i18n'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
 import { PositionShiftEmployeeWarningInterface } from '../interfaces/position_shift_employee_warning_interface.js'
@@ -224,17 +223,11 @@ export default class PositionService {
     }
   }
 
-  async show(positionId: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async show(positionId: number, allowedBusinessUnitIds: number[] = []) {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('parentPosition')
@@ -556,16 +549,14 @@ export default class PositionService {
    *
    * @returns Objeto con el resultado de la operación y las posiciones creadas
    */
-  async createPositionDemo() {
+  async createPositionDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
-
-      const businessUnitId = businessUnits?.businessUnitId || 0
+      const query = BusinessUnit.query().where('business_unit_active', 1)
+      if (allowedBusinessUnitIds.length > 0) {
+        query.whereIn('business_unit_id', allowedBusinessUnitIds)
+      }
+      const firstActiveUnit = await query.first()
+      const businessUnitId = firstActiveUnit?.businessUnitId || 0
       const createdPositions: { [key: string]: Position } = {}
       const createdRelations: Array<{ department: string; position: string }> = []
 
@@ -921,16 +912,11 @@ export default class PositionService {
    * @returns Promesa con el `Buffer` del PDF generado, o `null` si el puesto
    *          no existe o no pertenece a una unidad de negocio permitida.
    */
-  async getPdf(positionId: number): Promise<Buffer | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+  async getPdf(positionId: number, allowedBusinessUnitIds: number[] = []): Promise<Buffer | null> {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('specificFunctions', (q) => q.whereNull('position_specific_function_deleted_at'))
@@ -1659,17 +1645,11 @@ export default class PositionService {
    * @returns Promesa con el `Buffer` del archivo XLSX generado, o `null` si el
    *          puesto no existe o no pertenece a una unidad de negocio permitida.
    */
-  async getExcel(positionId: number): Promise<Buffer | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+  async getExcel(positionId: number, allowedBusinessUnitIds: number[] = []): Promise<Buffer | null> {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('specificFunctions', (query) => query.whereNull('position_specific_function_deleted_at'))
