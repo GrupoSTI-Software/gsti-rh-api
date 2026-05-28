@@ -25,6 +25,8 @@ yarn-error.log
 .DS_Store
 
 docs/swagger.json
+docs/hus/
+docs/empresas-contratantes-api-contract.md
 .qodo
 .claude/settings.local.json
 
