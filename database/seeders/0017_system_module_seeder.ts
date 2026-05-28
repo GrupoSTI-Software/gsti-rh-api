@@ -695,7 +695,7 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 38,
+        systemModuleId: 39,
         systemModuleName: 'Empresas contratantes REPSE',
         systemModuleSlug: 'compliance-contratantes',
         systemModuleDescription:
