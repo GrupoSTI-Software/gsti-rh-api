@@ -8,7 +8,6 @@ import ExceptionType from '#models/exception_type'
 import { ShiftExceptionErrorInterface } from '../interfaces/shift_exception_error_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
 import ExceptionRequest from '#models/exception_request'
-import Env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import { ShiftExceptionGeneralErrorInterface } from '../interfaces/shift_exception_general_error_interface.js'
@@ -73,7 +72,7 @@ export default class ShiftExceptionController {
    *       400:
    *         description: Validation error
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const employeeId = request.input('employeeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -108,11 +107,19 @@ export default class ShiftExceptionController {
         .first()
       const isVacation = exceptionType?.exceptionTypeSlug === 'vacation'
 
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query()
+            .whereIn('business_unit_id', businessUnitScope)
+            .where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+
       const datesToCreate: string[] = isVacation && daysToApply > 0
         ? await new ShiftExceptionService(i18n).getVacationBusinessDays(
             employeeId,
             shiftExceptionsDate,
-            daysToApply
+            daysToApply,
+            businessSlugs
           )
         : Array.from({ length: daysToApply }, (_, i) =>
             shiftExceptionsDate.plus({ days: i }).toISODate()
@@ -877,7 +884,7 @@ export default class ShiftExceptionController {
    *                     error:
    *                       type: string
    */
-   async applyExceptionGeneral({ auth, request, response, i18n }: HttpContext) {
+   async applyExceptionGeneral({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const exceptionTypeId = request.input('exceptionTypeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -947,17 +954,12 @@ export default class ShiftExceptionController {
       const shiftExceptionsSaved = [] as Array<ShiftException>
       const shiftExceptionsError = [] as Array<ShiftExceptionGeneralErrorInterface>
 
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
       const employeesQuery = Employee.query()
-        .whereIn('businessUnitId', businessUnitsList)
+        .if(
+          businessUnitScope.length > 0,
+          (q) => q.whereIn('businessUnitId', businessUnitScope),
+          (q) => q.whereRaw('1 = 0')
+        )
         .preload('person')
         .orderBy('employee_id')
 
