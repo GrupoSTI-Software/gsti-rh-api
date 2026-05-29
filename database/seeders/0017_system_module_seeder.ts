@@ -695,13 +695,13 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 39,
-        systemModuleName: 'Empresas contratantes REPSE',
-        systemModuleSlug: 'compliance-contratantes',
+        systemModuleId: 38,
+        systemModuleName: 'Registros REPSE',
+        systemModuleSlug: 'repse-registrations',
         systemModuleDescription:
-          'Catálogo de empresas contratantes (clientes corporativos del prestador REPSE)',
+          'Registro REPSE de la empresa ante la STPS (folio, fecha de registro y vencimiento)',
         systemModules: 1,
-        systemModulePath: '/compliance/contratantes',
+        systemModulePath: '/repse',
         systemModuleGroup: '2. Empresa',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
@@ -715,14 +715,10 @@ export default class extends BaseSeeder {
           stroke-linecap="round"
           stroke-linejoin="round"
         >
-          <path d="M3 21h18" />
-          <path d="M9 8h1" />
-          <path d="M9 12h1" />
-          <path d="M9 16h1" />
-          <path d="M14 8h1" />
-          <path d="M14 12h1" />
-          <path d="M14 16h1" />
-          <path d="M5 21v-14a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v14" />
+          <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+          <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+          <path d="M9 12h6" />
+          <path d="M9 16h6" />
         </svg>`,
       },
     ]
