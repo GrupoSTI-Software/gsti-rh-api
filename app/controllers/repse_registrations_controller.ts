@@ -15,7 +15,7 @@ import { resolveRepseRegistrationApiError } from '../helpers/repse_registration_
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
 /**
- * Controlador REST del catálogo de registros REPSE de cada empresa.
+ * Controlador REST del catálogo Repse de cada empresa.
  *
  * Expone CRUD completo bajo /api/repse-registrations.
  * Aísla por empresa via `RepseRegistrationService` y usa el guard estándar
@@ -26,7 +26,7 @@ export default class RepseRegistrationsController {
    * @swagger
    * /api/repse-registrations:
    *   get:
-   *     summary: Lista paginada de registros REPSE filtrada por empresa
+   *     summary: Lista paginada de Repse filtrada por empresa
    *     tags: [RepseRegistrations]
    *     security:
    *       - bearerAuth: []
@@ -66,11 +66,11 @@ export default class RepseRegistrationsController {
       return StandardResponseFormatter.success(
         response,
         bundle,
-        i18n.t('repse_registrations_title', undefined, 'Repse Registrations'),
+        i18n.t('repse_registrations_title', undefined, 'Repse'),
         i18n.t(
           'repse_registrations_listed_successfully',
           undefined,
-          'Registros REPSE obtenidos correctamente'
+          'Repse obtenidos correctamente'
         )
       )
     } catch (error) {

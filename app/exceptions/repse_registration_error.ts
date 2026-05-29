@@ -1,7 +1,7 @@
 import type { RepseErrorCode } from '../constants/repse_registration_error_codes.js'
 
 /**
- * Excepción de dominio del módulo de registros REPSE.
+ * Excepción de dominio del módulo Repse.
  *
  * Lleva consigo el código estable, el HTTP status sugerido y, opcionalmente,
  * la `key` que el frontend usa para mostrar mensajes específicos

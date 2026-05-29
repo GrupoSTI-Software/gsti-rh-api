@@ -1,5 +1,5 @@
 /**
- * Catálogo estable de códigos de error del módulo de registros REPSE.
+ * Catálogo estable de códigos de error del módulo Repse.
  *
  * Los códigos se incluyen en cada respuesta HTTP para que los clientes
  * reaccionen de forma programática sin parsear el mensaje localizado.

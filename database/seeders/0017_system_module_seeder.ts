@@ -696,7 +696,7 @@ export default class extends BaseSeeder {
       },
       {
         systemModuleId: 38,
-        systemModuleName: 'Registros REPSE',
+        systemModuleName: 'Repse',
         systemModuleSlug: 'repse-registrations',
         systemModuleDescription:
           'Registro REPSE de la empresa ante la STPS (folio, fecha de registro y vencimiento)',

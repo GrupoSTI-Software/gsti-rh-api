@@ -72,7 +72,7 @@ function serializeRepseRegistration(row: RepseRegistration) {
 }
 
 /**
- * Servicio de dominio del catálogo de registros REPSE.
+ * Servicio de dominio del catálogo Repse.
  *
  * - Aísla por empresa multitenant: cada operación valida que el
  *   `business_unit_id` solicitado pertenezca al conjunto activo del tenant
@@ -82,7 +82,7 @@ function serializeRepseRegistration(row: RepseRegistration) {
  */
 export default class RepseRegistrationService {
   /**
-   * Lista paginada de registros REPSE de una empresa específica.
+   * Lista paginada de Repse de una empresa específica.
    * Orden: `repse_registration_registered_at DESC`.
    */
   async listByBusinessUnit(page: number, limit: number, businessUnitId: number) {

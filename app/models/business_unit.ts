@@ -78,7 +78,7 @@ export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
   declare users: ManyToMany<typeof User>
 
   /**
-   * Registros REPSE asociados a la empresa (catálogo del módulo REPSE).
+   * Repse asociado a la empresa (catálogo del módulo Repse).
    */
   @hasMany(() => RepseRegistration, {
     foreignKey: 'businessUnitId',
