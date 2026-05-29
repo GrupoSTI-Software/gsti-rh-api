@@ -93,6 +93,7 @@ export class StandardResponseFormatter {
       'Employee Lactation Periods': 'employeeLactationPeriods',
       'Employee Lactation Period': 'employeeLactationPeriod',
       'Repse': 'repseRegistrations',
+      'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
       'Repse Specialized Services': 'repseSpecializedServices',
       'Repse Specialized Service': 'repseSpecializedService',
