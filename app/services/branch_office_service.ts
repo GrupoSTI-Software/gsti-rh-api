@@ -1,37 +1,9 @@
 import BranchOffice from '#models/branch_office'
-import BusinessUnit from '#models/business_unit'
-import env from '#start/env'
 import { BRANCH_OFFICE_ERROR_CODES } from '../constants/branch_office_error_codes.js'
 import { BranchOfficeServiceError } from '../exceptions/branch_office_service_error.js'
 import { BranchOfficeFilterSearchInterface } from '../interfaces/branch_office_filter_search_interface.js'
 
 export default class BranchOfficeService {
-  /**
-   * Slugs de unidades de negocio permitidas en esta instancia (variable SYSTEM_BUSINESS, separada por comas).
-   */
-  static getSystemBusinessSlugs(): string[] {
-    const businessConf = env.get('SYSTEM_BUSINESS', '') || ''
-    return businessConf
-      .split(',')
-      .map((slug: string) => slug.trim())
-      .filter((slug: string) => slug.length > 0)
-  }
-
-  /**
-   * IDs de unidades de negocio activas cuyo slug está en SYSTEM_BUSINESS.
-   */
-  static async getAllowedBusinessUnitIds(): Promise<number[]> {
-    const slugs = this.getSystemBusinessSlugs()
-    if (slugs.length === 0) {
-      return []
-    }
-    const units = await BusinessUnit.query()
-      .whereNull('business_unit_deleted_at')
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', slugs)
-    return units.map((u) => u.businessUnitId)
-  }
-
   /**
    * Genera un slug URL a partir del nombre (sin acentos, minúsculas, guiones).
    */
@@ -73,41 +45,26 @@ export default class BranchOfficeService {
     }
   }
 
-  static async assertBusinessUnitExists(businessUnitId: number) {
-    const slugs = this.getSystemBusinessSlugs()
-    if (slugs.length === 0) {
+  static assertBusinessUnitAllowed(businessUnitId: number, allowedBusinessUnitIds: number[]) {
+    if (allowedBusinessUnitIds.length === 0 || !allowedBusinessUnitIds.includes(businessUnitId)) {
       throw new BranchOfficeServiceError(
-        'No hay unidades de negocio configuradas para este sistema (SYSTEM_BUSINESS)',
-        BRANCH_OFFICE_ERROR_CODES.CFG_SYSTEM_BUSINESS,
-        400
-      )
-    }
-    const unit = await BusinessUnit.query()
-      .whereNull('business_unit_deleted_at')
-      .where('businessUnitId', businessUnitId)
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', slugs)
-      .first()
-    if (!unit) {
-      throw new BranchOfficeServiceError(
-        'Unidad de negocio no encontrada o no permitida en el sistema',
+        'Unidad de negocio no encontrada o no permitida',
         BRANCH_OFFICE_ERROR_CODES.BU_NOT_ALLOWED,
         400
       )
     }
   }
 
-  static async getAll(filters: BranchOfficeFilterSearchInterface) {
+  static async getAll(filters: BranchOfficeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const page = filters.page || 1
     const limit = filters.limit || 10
     const sortOrder = filters.sortOrder === 'desc' ? 'desc' : 'asc'
 
-    const allowedIds = await this.getAllowedBusinessUnitIds()
-    if (allowedIds.length === 0) {
-      return await BranchOffice.query().whereRaw('1 = 0').preload('businessUnit').paginate(page, limit)
+    if (allowedBusinessUnitIds.length === 0) {
+      return BranchOffice.query().whereRaw('1 = 0').preload('businessUnit').paginate(page, limit)
     }
 
-    const query = BranchOffice.query().whereIn('businessUnitId', allowedIds).preload('businessUnit')
+    const query = BranchOffice.query().whereIn('businessUnitId', allowedBusinessUnitIds).preload('businessUnit')
 
     if (filters.includeDeleted) {
       // @ts-ignore proporcionado por adonis-lucid-soft-deletes
@@ -115,8 +72,8 @@ export default class BranchOfficeService {
     }
 
     if (filters.businessUnitId) {
-      if (!allowedIds.includes(filters.businessUnitId)) {
-        return await BranchOffice.query().whereRaw('1 = 0').preload('businessUnit').paginate(page, limit)
+      if (!allowedBusinessUnitIds.includes(filters.businessUnitId)) {
+        return BranchOffice.query().whereRaw('1 = 0').preload('businessUnit').paginate(page, limit)
       }
       query.where('businessUnitId', filters.businessUnitId)
     }
@@ -127,29 +84,31 @@ export default class BranchOfficeService {
 
     query.orderBy('branchOfficeName', sortOrder)
 
-    return await query.paginate(page, limit)
+    return query.paginate(page, limit)
   }
 
-  static async getById(id: number) {
-    const allowedIds = await this.getAllowedBusinessUnitIds()
-    if (allowedIds.length === 0) {
-      return await BranchOffice.query().where('branchOfficeId', id).whereRaw('1 = 0').preload('businessUnit').firstOrFail()
+  static async getById(id: number, allowedBusinessUnitIds: number[]) {
+    if (allowedBusinessUnitIds.length === 0) {
+      return BranchOffice.query().where('branchOfficeId', id).whereRaw('1 = 0').preload('businessUnit').firstOrFail()
     }
-    return await BranchOffice.query()
+    return BranchOffice.query()
       .where('branchOfficeId', id)
-      .whereIn('businessUnitId', allowedIds)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .preload('businessUnit')
       .firstOrFail()
   }
 
-  static async create(data: {
-    businessUnitId: number
-    branchOfficeName: string
-    branchOfficeLocationAddress?: string | null
-    branchOfficeIdealTemplateCount?: number | null
-    branchOfficeMinActiveEmployeesPerShift?: number | null
-  }) {
-    await this.assertBusinessUnitExists(data.businessUnitId)
+  static async create(
+    data: {
+      businessUnitId: number
+      branchOfficeName: string
+      branchOfficeLocationAddress?: string | null
+      branchOfficeIdealTemplateCount?: number | null
+      branchOfficeMinActiveEmployeesPerShift?: number | null
+    },
+    allowedBusinessUnitIds: number[]
+  ) {
+    this.assertBusinessUnitAllowed(data.businessUnitId, allowedBusinessUnitIds)
     const baseSlug = this.slugify(data.branchOfficeName)
     const slug = await this.resolveUniqueSlug(data.businessUnitId, baseSlug)
 
@@ -173,12 +132,13 @@ export default class BranchOfficeService {
       branchOfficeLocationAddress?: string | null
       branchOfficeIdealTemplateCount?: number | null
       branchOfficeMinActiveEmployeesPerShift?: number | null
-    }
+    },
+    allowedBusinessUnitIds: number[]
   ) {
-    const branch = await this.getById(id)
+    const branch = await this.getById(id, allowedBusinessUnitIds)
 
     if (data.businessUnitId !== undefined && data.businessUnitId !== branch.businessUnitId) {
-      await this.assertBusinessUnitExists(data.businessUnitId)
+      this.assertBusinessUnitAllowed(data.businessUnitId, allowedBusinessUnitIds)
     }
 
     const targetBusinessUnitId = data.businessUnitId ?? branch.businessUnitId
@@ -191,29 +151,20 @@ export default class BranchOfficeService {
       nextSlug = await this.resolveUniqueSlug(targetBusinessUnitId, branch.branchOfficeSlug, branch.branchOfficeId)
     }
 
-    if (data.businessUnitId !== undefined) {
-      branch.businessUnitId = data.businessUnitId
-    }
-    if (data.branchOfficeName !== undefined) {
-      branch.branchOfficeName = data.branchOfficeName
-    }
-    if (data.branchOfficeLocationAddress !== undefined) {
-      branch.branchOfficeLocationAddress = data.branchOfficeLocationAddress
-    }
-    if (data.branchOfficeIdealTemplateCount !== undefined) {
-      branch.branchOfficeIdealTemplateCount = data.branchOfficeIdealTemplateCount
-    }
-    if (data.branchOfficeMinActiveEmployeesPerShift !== undefined) {
-      branch.branchOfficeMinActiveEmployeesPerShift = data.branchOfficeMinActiveEmployeesPerShift
-    }
+    if (data.businessUnitId !== undefined) branch.businessUnitId = data.businessUnitId
+    if (data.branchOfficeName !== undefined) branch.branchOfficeName = data.branchOfficeName
+    if (data.branchOfficeLocationAddress !== undefined) branch.branchOfficeLocationAddress = data.branchOfficeLocationAddress
+    if (data.branchOfficeIdealTemplateCount !== undefined) branch.branchOfficeIdealTemplateCount = data.branchOfficeIdealTemplateCount
+    if (data.branchOfficeMinActiveEmployeesPerShift !== undefined) branch.branchOfficeMinActiveEmployeesPerShift = data.branchOfficeMinActiveEmployeesPerShift
+
     branch.branchOfficeSlug = nextSlug
     await branch.save()
     await branch.load('businessUnit')
     return branch
   }
 
-  static async delete(id: number) {
-    const branch = await this.getById(id)
+  static async delete(id: number, allowedBusinessUnitIds: number[]) {
+    const branch = await this.getById(id, allowedBusinessUnitIds)
     await branch.delete()
     return branch
   }

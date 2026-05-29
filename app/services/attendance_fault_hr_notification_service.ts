@@ -7,7 +7,6 @@ import {
   ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG,
 } from '#constants/attendance_fault_hr_notification'
 import AssistsService from '#services/assist_service'
-import BranchOfficeService from '#services/branch_office_service'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import Database from '@adonisjs/lucid/services/db'
@@ -533,7 +532,11 @@ export default class AttendanceFaultHrNotificationService {
 
     const employees = await this.loadEmployeesForEmail(pending.map((p) => p.employeeId))
     const employeeById = new Map(employees.map((e) => [e.employeeId, e]))
-    const allowedBranchBusinessUnitIds = await BranchOfficeService.getAllowedBusinessUnitIds()
+    const activeBusinessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereNull('business_unit_deleted_at')
+      .select('business_unit_id')
+    const allowedBranchBusinessUnitIds = activeBusinessUnits.map((u) => u.businessUnitId)
     const hasBranchOfficesInSystem =
       await this.hasAtLeastOneBranchOfficeInAllowedBusinessUnits(allowedBranchBusinessUnitIds)
     const branchNameByEmployeeId = hasBranchOfficesInSystem
