@@ -20,6 +20,20 @@ export const ELP_ERROR_CODES = {
   PERIOD_OVERLAP: 'ELP.CONFLICT.OVERLAP.001',
   /** Sin permisos sobre el módulo */
   FORBIDDEN: 'ELP.FORBID.001',
+  /**
+   * El tipo de excepción 'lactancia' no existe en `exception_types`.
+   * Indica que el seeder `0028_lactation_exception_type_seeder.ts` no
+   * se ejecutó en el ambiente. Genera 500 con key estable
+   * `lactation-exception-type-missing` y rollback de la transacción.
+   */
+  EXCEPTION_TYPE_MISSING: 'ELP.SYS.EXC_TYPE.001',
+  /**
+   * La empleada no tiene NINGÚN `EmployeeShift` activo en todo el rango
+   * del periodo. Sólo aplica al endpoint manual de regeneración
+   * (`POST /api/employee-lactation-periods/:id/regenerate-shift-exceptions`)
+   * porque al crear/editar se prefiere registrar warning y continuar.
+   */
+  NO_ACTIVE_SHIFT: 'ELP.CONFLICT.NO_SHIFT.001',
   /** Error no clasificado del dominio */
   SYS_UNHANDLED: 'ELP.SYS.001',
 } as const

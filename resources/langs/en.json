@@ -378,5 +378,12 @@
   "employee_lactation_period_unreasonable_range_title": "Unreasonable lactation range",
   "employee_lactation_period_unreasonable_range_detail": "The total range cannot exceed 24 months",
   "employee_lactation_period_overlap_title": "Overlapping lactation period",
-  "employee_lactation_period_overlap_detail": "The employee already has an active lactation period in that range"
+  "employee_lactation_period_overlap_detail": "The employee already has an active lactation period in that range",
+  "employee_lactation_period_below_legal_minimum_title": "Lactation period below legal minimum",
+  "employee_lactation_period_below_legal_minimum_detail": "The range must be at least 6 months according to LFT article 170 section IV",
+  "employee_lactation_period_exception_type_missing_title": "Lactation exception type is not configured",
+  "employee_lactation_period_exception_type_missing_detail": "The 'lactation' exception type is not configured. Run the corresponding seeder to enable shift exception generation.",
+  "employee_lactation_period_no_active_shift_title": "Employee has no active shift in the period range",
+  "employee_lactation_period_no_active_shift_detail": "The employee does not have any active shift in the lactation period range. Assign a shift before regenerating the exceptions.",
+  "employee_lactation_period_shift_exceptions_regenerated": "Shift exceptions regenerated successfully"
 }

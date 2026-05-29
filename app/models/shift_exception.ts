@@ -8,6 +8,7 @@ import { compose } from '@adonisjs/core/helpers'
 import VacationSetting from './vacation_setting.js'
 import VacationAuthorizationSignature from './vacation_authorization_signature.js'
 import EmployeeVacationArchiveContent from './employee_vacation_archive_content.js'
+import EmployeeLactationPeriod from './employee_lactation_period.js'
 /**
  * @swagger
  * components:
@@ -58,6 +59,10 @@ import EmployeeVacationArchiveContent from './employee_vacation_archive_content.
  *         workDisabilityPeriodId:
  *           type: number
  *           description: Reference to work disability period id
+ *           nullable: true
+ *         lactationPeriodId:
+ *           type: number
+ *           description: Referencia al periodo de lactancia origen, cuando la excepción se generó automáticamente desde `employee_lactation_periods`.
  *           nullable: true
  *         shiftExceptionCreatedAt:
  *           type: string
@@ -141,6 +146,15 @@ export default class ShiftException extends compose(BaseModel, SoftDeletes) {
   @column()
   declare vacationSettingId: number | null
 
+  /**
+   * FK al periodo de lactancia que originó la excepción. `null` cuando la
+   * excepción no proviene del flujo de lactancia (la inmensa mayoría).
+   * Permite borrar/regenerar excepciones por periodo en bloque desde
+   * `ShiftExceptionService.{generate,regenerate,destroy}ForLactationPeriod`.
+   */
+  @column()
+  declare lactationPeriodId: number | null
+
   @column.dateTime({ columnName: 'shift_exceptions_deleted_at' })
   declare deletedAt: DateTime | null
 
@@ -161,6 +175,11 @@ export default class ShiftException extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'vacationSettingId',
   })
   declare vacationSetting: BelongsTo<typeof VacationSetting>
+
+  @belongsTo(() => EmployeeLactationPeriod, {
+    foreignKey: 'lactationPeriodId',
+  })
+  declare lactationPeriod: BelongsTo<typeof EmployeeLactationPeriod>
 
   @manyToMany(() => EmployeeVacationArchiveContent, {
     pivotTable: 'employee_vacation_archive_content_shift_exceptions',

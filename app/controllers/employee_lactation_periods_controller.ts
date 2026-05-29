@@ -72,7 +72,7 @@ export default class EmployeeLactationPeriodsController {
       if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(employeeLactationPeriodListValidator)
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const bundle = await service.listPaginated(
         filters.page,
         filters.limit,
@@ -146,7 +146,7 @@ export default class EmployeeLactationPeriodsController {
 
       const body = await request.validateUsing(createEmployeeLactationPeriodValidator)
       const payload = this.toCreatePayload(body)
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const created = await service.create(payload)
 
       return StandardResponseFormatter.success(
@@ -218,7 +218,7 @@ export default class EmployeeLactationPeriodsController {
       const body = await request.validateUsing(updateEmployeeLactationPeriodValidator)
       const payload = this.toUpdatePayload(body)
 
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const updated = await service.update(id, payload)
 
       return StandardResponseFormatter.success(
@@ -258,7 +258,7 @@ export default class EmployeeLactationPeriodsController {
       if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const deleted = await service.destroy(id)
 
       return StandardResponseFormatter.success(
@@ -269,6 +269,74 @@ export default class EmployeeLactationPeriodsController {
       )
     } catch (error) {
       return this.respondError(error, response, 404)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/{id}/regenerate-shift-exceptions:
+   *   post:
+   *     summary: Regenera las excepciones de turno asociadas al periodo
+   *     description: |
+   *       Borra (soft-delete) TODAS las excepciones vinculadas al periodo de
+   *       lactancia (pasadas y futuras) y vuelve a generarlas leyendo el
+   *       `EmployeeShift` vigente para cada día del rango completo. Útil
+   *       después de asignar un turno retroactivo, para reparar periodos
+   *       desincronizados, o tras corregir errores en la captura.
+   *
+   *       - Diferente al hook automático de `update`, que sólo regenera
+   *         excepciones futuras (fecha >= hoy) para preservar histórico.
+   *       - Los días sin shift activo se reportan en `omittedDaysWithoutShift` (warning).
+   *       - Si la empleada no tiene NINGÚN shift activo en todo el rango, responde 422.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Regeneración exitosa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 lactationPeriodId: { type: integer }
+   *                 regeneratedExceptionsCount: { type: integer }
+   *                 omittedDaysWithoutShift:
+   *                   type: array
+   *                   items: { type: string, format: date }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'update' }
+   *       '404': { description: Periodo inexistente o ajeno a la empresa }
+   *       '422':
+   *         description: La empleada no tiene shift activo en el rango (key `lactation-period-no-active-shift`)
+   *       '500':
+   *         description: |
+   *           El tipo de excepción 'lactancia' no está configurado en la BD
+   *           (key `lactation-exception-type-missing`). Ejecutar el seeder correspondiente.
+   */
+  async regenerateShiftExceptions(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseResourceId(params.id)
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
+      const result = await service.regenerateShiftExceptions(id)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period',
+        'Excepciones de turno regeneradas correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
     }
   }
 
@@ -414,6 +482,10 @@ export default class EmployeeLactationPeriodsController {
         [ELP_ERROR_CODES.RANGE_UNREASONABLE]: 'Rango de lactancia inverosímil',
         [ELP_ERROR_CODES.RANGE_BELOW_LEGAL_MINIMUM]:
           'Periodo de lactancia por debajo del mínimo legal',
+        [ELP_ERROR_CODES.EXCEPTION_TYPE_MISSING]:
+          'Tipo de excepción de lactancia no configurado',
+        [ELP_ERROR_CODES.NO_ACTIVE_SHIFT]:
+          'Empleada sin turno activo en el rango del periodo',
       }
       return response.status(resolved.status).json({
         type: 'error',
