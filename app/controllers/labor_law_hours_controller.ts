@@ -2,6 +2,12 @@ import { HttpContext } from '@adonisjs/core/http'
 import LaborLawHour from '#models/labor_law_hour'
 import LaborLawHoursService from '#services/labor_law_hours_service'
 
+/**
+ * @deprecated DEPRECADO (EPIC-08-12). Endpoints `/api/labor-law-hours` reemplazados por el
+ * marco legal centralizado en `working_time_rules` (modelo `WorkingTimeRule`). No exponer
+ * estos endpoints en nuevos clientes ni construir lógica encima.
+ * Pendiente de eliminación (responsable: Wilvardo Ramírez Colunga).
+ */
 export default class LaborLawHoursController {
   /**
    * @swagger

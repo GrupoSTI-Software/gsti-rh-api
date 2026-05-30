@@ -1,6 +1,11 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
+/**
+ * @deprecated DEPRECADO (EPIC-08-12). Rutas `/api/labor-law-hours` reemplazadas por el marco
+ * legal centralizado en `working_time_rules`. Se mantienen por compatibilidad temporal.
+ * Pendiente de eliminación (responsable: Wilvardo Ramírez Colunga).
+ */
 router
   .group(() => {
     router.get('/', '#controllers/labor_law_hours_controller.index').use(middleware.auth())
