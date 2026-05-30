@@ -46,16 +46,17 @@ export default class UserService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async index(filters: UserFilterSearchInterface) {
-    const systemBussines = env.get('SYSTEM_BUSINESS')
-    const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
-
+  async index(filters: UserFilterSearchInterface, allowedBusinessUnitSlugs: string[] = []) {
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        if (allowedBusinessUnitSlugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
         query.whereNotNull('role_business_access')
         query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
+          allowedBusinessUnitSlugs.forEach((business) => {
             subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
           })
         })
@@ -74,9 +75,13 @@ export default class UserService {
       .whereNull('user_deleted_at')
       .whereIn('role_id', rolesIds)
       .andWhere((query) => {
+        if (allowedBusinessUnitSlugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
         query.whereNotNull('user_business_access')
         query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
+          allowedBusinessUnitSlugs.forEach((business) => {
             subQuery.orWhereRaw('FIND_IN_SET(?, user_business_access)', [business.trim()])
           })
         })
@@ -241,7 +246,7 @@ export default class UserService {
     }
   }
 
-  async getRoleDepartments(userId: number, hasAccessToFullEmployes: boolean = false) {
+  async getRoleDepartments(userId: number, hasAccessToFullEmployes: boolean = false, allowedBusinessUnitIds: number[] = []) {
     const user = await User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)
@@ -260,13 +265,15 @@ export default class UserService {
       const departments = departmentsList.map((department) => department.departmentId)
       return departments
     }
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    let businessUnitsList: number[]
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsList = allowedBusinessUnitIds
+    } else {
+      const allBus = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+      businessUnitsList = allBus.map((bu) => bu.businessUnitId)
+    }
 
     // Obtener departamentos asignados directamente al rol del usuario
     const roleDepartments = await RoleDepartment.query()
@@ -419,14 +426,7 @@ export default class UserService {
     return true
   }
 
-  async getEmployeesAssigned(filters: EmployeeAssignedFilterSearchInterface) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async getEmployeesAssigned(filters: EmployeeAssignedFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
     const employeesAssigned = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
       .where('user_id', filters.userId)
@@ -440,7 +440,11 @@ export default class UserService {
         }
       )
       .whereHas('employee', (employeeQuery) => {
-        employeeQuery.whereIn('businessUnitId', businessUnitsList)
+        if (allowedBusinessUnitIds.length === 0) {
+          employeeQuery.whereRaw('1 = 0')
+        } else {
+          employeeQuery.whereIn('businessUnitId', allowedBusinessUnitIds)
+        }
         employeeQuery.if(
           filters.userResponsibleId &&
             typeof filters.userResponsibleId &&
@@ -542,7 +546,7 @@ export default class UserService {
 
       // Crear usuario y asociarlo a todas las unidades de negocio activas vía pivote.
       // El CSV legado `user_business_access` queda en NULL; los usuarios demo deben
-      // tener visibilidad total para que las pruebas funcionen sin importar SYSTEM_BUSINESS.
+      // tener visibilidad total para que las pruebas funcionen en cualquier unidad de negocio activa.
       const user = new User()
       user.userEmail = userEmail
       user.userPassword = defaultPassword
@@ -756,14 +760,11 @@ export default class UserService {
         }
       }
 
-      // `employee.businessUnitId` sigue siendo una FK directa de la tabla `employees`
-      // (no es parte de la pivote refactorizada). Conservamos el filtro por SYSTEM_BUSINESS
-      // hasta que se aborde la deuda técnica multi-tenant en una historia separada.
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      // `employee.businessUnitId` sigue siendo una FK directa de la tabla `employees`.
+      // Se obtiene la primera unidad de negocio activa disponible para el usuario demo root.
       const businessUnit = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereNull('business_unit_deleted_at')
         .first()
 
       const businessUnitId = businessUnit?.businessUnitId || 0

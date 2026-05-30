@@ -21,6 +21,7 @@ import Person from '#models/person'
 import Employee from '#models/employee'
 import logger from '@adonisjs/core/services/logger'
 import { parseBusinessUnitAccessInput, resolveBusinessUnitIds } from '#utils/business_unit_access'
+import BusinessUnit from '#models/business_unit'
 
 export default class UserController {
   /**
@@ -1175,7 +1176,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const roleId = request.input('roleId')
@@ -1187,8 +1188,12 @@ export default class UserController {
         page: page,
         limit: limit,
       } as UserFilterSearchInterface
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const userService = new UserService(i18n)
-      const users = await userService.index(filters)
+      const users = await userService.index(filters, businessSlugs)
       response.status(200)
       return {
         type: 'success',
@@ -2279,7 +2284,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async getEmployeesAssigned({ auth, request, response, i18n }: HttpContext) {
+  async getEmployeesAssigned({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -2325,7 +2330,7 @@ export default class UserController {
         employeeId: employeeId,
         userResponsibleId: userResponsibleId,
       } as EmployeeAssignedFilterSearchInterface
-      const employeesAssigned = await userService.getEmployeesAssigned(filters)
+      const employeesAssigned = await userService.getEmployeesAssigned(filters, businessUnitScope)
 
       response.status(200)
       return {
