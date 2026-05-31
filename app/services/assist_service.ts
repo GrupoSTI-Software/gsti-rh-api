@@ -40,6 +40,7 @@ import ToleranceService from './tolerance_service.js'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -2148,7 +2149,7 @@ export default class AssistsService {
     return index !== -1 ? headers[index + 1] : null
   }
 
-  async getFormatPayRoll(date: string) {
+  async getFormatPayRoll(date: string, allowedBusinessUnitIds: number[] = []) {
     try {
       const monthPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('LL'))
       const yearPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('yyyy'))
@@ -2166,12 +2167,7 @@ export default class AssistsService {
       const year = dateNew.getFullYear()
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Inc SA2 p01')
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const businessUnitsList = allowedBusinessUnitIds
       worksheet.columns = [
         { key: 'inc' },
         { key: 'sa2' },
@@ -3076,7 +3072,7 @@ export default class AssistsService {
     return date.toISOString().split('T')[0]
   }
 
-  async getExcelPermissionsByDates(filters: PermissionsDatesExcelFilterInterface, departmentsList: Array<number>) {
+  async getExcelPermissionsByDates(filters: PermissionsDatesExcelFilterInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
     try {
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
@@ -3098,7 +3094,8 @@ export default class AssistsService {
           businessUnitId: filters.businessUnitId,
           payrollBusinessUnitId: filters.payrollBusinessUnitId,
         },
-        departmentsList
+        departmentsList,
+        allowedBusinessUnitIds
       )
 
       // Crear workbook
@@ -3414,9 +3411,8 @@ export default class AssistsService {
           data: null,
         }
       }
-      // Obtener unidades de negocio activas
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+      const activeUnits = await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+      const businessList = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
       const holidays = await Holiday.query()
         .whereNull('holiday_deleted_at')
@@ -3929,15 +3925,9 @@ export default class AssistsService {
         backgroundImageLogo,
         message: newMessage,
       }
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(user)
       const departments = await Department.query()
-        .whereIn('businessUnitId', businessUnitsList)
+        .whereIn('businessUnitId', allowedIds)
         .whereRaw('UPPER(department_name) LIKE ?', ['%CAPITAL HUMANO%'])
         .orderBy('department_name', 'asc')
 

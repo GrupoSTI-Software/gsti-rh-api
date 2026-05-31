@@ -25,3 +25,4 @@ router
   })
   .prefix('/api/roles')
   .use(middleware.auth())
+  .use(middleware.businessScope())

@@ -62,7 +62,8 @@ export default class EmployeeLactationPeriodsController {
       const bundle = await service.listPaginated(
         filters.page,
         filters.limit,
-        filters.employeeId
+        filters.employeeId,
+        ctx.businessUnitScope
       )
 
       return StandardResponseFormatter.success(
@@ -129,7 +130,7 @@ export default class EmployeeLactationPeriodsController {
       const body = await request.validateUsing(createEmployeeLactationPeriodValidator)
       const payload = this.toCreatePayload(body)
       const service = new EmployeeLactationPeriodService()
-      const created = await service.create(payload)
+      const created = await service.create(payload, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -197,7 +198,7 @@ export default class EmployeeLactationPeriodsController {
       const payload = this.toUpdatePayload(body)
 
       const service = new EmployeeLactationPeriodService()
-      const updated = await service.update(id, payload)
+      const updated = await service.update(id, payload, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -237,7 +238,7 @@ export default class EmployeeLactationPeriodsController {
 
       const id = this.parseResourceId(params.id)
       const service = new EmployeeLactationPeriodService()
-      const deleted = await service.destroy(id)
+      const deleted = await service.destroy(id, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,

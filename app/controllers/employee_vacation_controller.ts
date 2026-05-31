@@ -475,7 +475,7 @@ export default class EmployeeVacationController {
    *       500:
    *         description: Error al generar el template
    */
-  async getVacationImportTemplate({ auth, request, response, i18n }: HttpContext) {
+  async getVacationImportTemplate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -520,7 +520,7 @@ export default class EmployeeVacationController {
       } as EmployeeVacationExcelFilterInterface
 
       const service = new EmployeeVacationService(i18n)
-      const result = await service.generateVacationImportTemplate(filters)
+      const result = await service.generateVacationImportTemplate(filters, businessUnitScope)
 
       if (result.status === 201) {
         response.header(
