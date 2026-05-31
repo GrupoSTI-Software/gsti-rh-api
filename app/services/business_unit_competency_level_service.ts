@@ -13,9 +13,7 @@ export default class BusinessUnitCompetencyLevelService {
   async index(filters: BusinessUnitCompetencyLevelFilterInterface) {
     const businessUnitCompetencyLevels = await BusinessUnitCompetencyLevel.query()
       .whereNull('business_unit_competency_level_deleted_at')
-      .if(filters.businessUnitId, (query) => {
-        query.where('business_unit_id', filters.businessUnitId)
-      })
+      .where('business_unit_id', filters.businessUnitId)
       .orderBy('business_unit_competency_level_position', 'asc')
     return businessUnitCompetencyLevels
   }

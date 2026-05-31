@@ -161,6 +161,9 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
       createdAt: 'business_unit_user_created_at',
       updatedAt: 'business_unit_user_updated_at',
     },
+    onQuery(query) {
+      query.whereNull('business_unit_user_deleted_at')
+    },
   })
   declare businessUnits: ManyToMany<typeof BusinessUnit>
 }
