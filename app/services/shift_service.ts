@@ -5,7 +5,6 @@ import EmployeeShiftChange from '#models/employee_shift_changes'
 import Shift from '#models/shift'
 import ShiftException from '#models/shift_exception'
 import ShiftExceptionEvidence from '#models/shift_exception_evidence'
-import env from '#start/env'
 
 export default class ShiftService {
   async create(shift: Shift) {
@@ -30,9 +29,16 @@ export default class ShiftService {
     return newShift
   }
 
-  async verifyInfo(shift: Shift, shiftId?: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
+  async verifyInfo(shift: Shift, shiftId?: number, allowedBusinessUnitSlugs: string[] = []) {
+    if (allowedBusinessUnitSlugs.length === 0) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'No business units assigned',
+        message: 'No business units assigned',
+        data: { ...shift },
+      }
+    }
     const action = shiftId ? 'updated' : 'created'
     const existCode = await Shift.query()
       .if(shiftId, (query) => {
@@ -42,11 +48,8 @@ export default class ShiftService {
       .whereNull('shift_deleted_at')
       .where('shift_name', shift.shiftName)
       .andWhere((subQuery) => {
-        businessList.forEach((business) => {
-          subQuery.orWhereRaw(
-            'FIND_IN_SET(?, shift_business_units)',
-            [business.trim()]
-          )
+        allowedBusinessUnitSlugs.forEach((slug) => {
+          subQuery.orWhereRaw('FIND_IN_SET(?, shift_business_units)', [slug.trim()])
         })
       })
       .first()
@@ -70,7 +73,7 @@ export default class ShiftService {
         .whereNull('shift_deleted_at')
         .where('shift_alias', shift.shiftAlias.trim())
         .andWhere((subQuery) => {
-          businessList.forEach((business) => {
+          allowedBusinessUnitSlugs.forEach((business) => {
             subQuery.orWhereRaw(
               'FIND_IN_SET(?, shift_business_units)',
               [business.trim()]
@@ -199,8 +202,9 @@ export default class ShiftService {
       shiftDayStart: number
       shiftTemp: number
       shiftColor: string
-    }): Promise<Shift> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    },
+    allowedBusinessUnitSlugs: string[] = []
+  ): Promise<Shift> {
     const shift = new Shift()
     shift.shiftName = shiftData.shiftName
     shift.shiftTimeStart = shiftData.shiftTimeStart
@@ -208,7 +212,7 @@ export default class ShiftService {
     shift.shiftRestDays = shiftData.shiftRestDays
     shift.shiftAccumulatedFault = shiftData.shiftAccumulatedFault
     shift.shiftCalculateFlag = shiftData.shiftCalculateFlag
-    shift.shiftBusinessUnits = businessConf
+    shift.shiftBusinessUnits = allowedBusinessUnitSlugs.join(',')
     shift.shiftTemp = shiftData.shiftTemp
     shift.shiftColor = shiftData.shiftColor
     shift.shiftDayStart = shiftData.shiftDayStart
@@ -227,7 +231,7 @@ export default class ShiftService {
    * - 08:00 to 20:00 - Rest (12x36)
    * @returns Objeto con el resultado de la operación y los turnos creados
    */
-  async createShiftDemo() {
+  async createShiftDemo(allowedBusinessUnitSlugs: string[] = []) {
     try {
       const createdShifts: { [key: string]: Shift } = {}
 
@@ -292,7 +296,7 @@ export default class ShiftService {
 
       // Crear todos los turnos
       for await(const shiftData of shiftsData) {
-        const shift = await this.createShift(shiftData)
+        const shift = await this.createShift(shiftData, allowedBusinessUnitSlugs)
         createdShifts[shiftData.shiftName] = shift
       }
 

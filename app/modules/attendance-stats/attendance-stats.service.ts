@@ -1,9 +1,6 @@
 import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
-import env from '#start/env'
-import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
-import User from '#models/user'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
 import type { ShiftExceptionInterface } from '../../interfaces/shift_exception_interface.js'
@@ -58,40 +55,6 @@ export default class AttendanceStatsService {
   constructor(i18n: I18n, repo?: AttendanceStatsRepository) {
     this.t = i18n.formatMessage.bind(i18n)
     this.repo = repo ?? new AttendanceStatsRepositoryMysql(i18n)
-  }
-
-  /**
-   * Resuelve los business unit IDs que el usuario puede consultar.
-   * - userBusinessAccess es un CSV de slugs (ej: "sae,cima").
-   * - El resultado se intersecta SIEMPRE con SYSTEM_BUSINESS (deny-by-default):
-   *   si la env var está vacía o no existe ningún slug compartido, el scope es vacío → 403.
-   */
-  async resolveScope(user: User): Promise<ResolvedScope> {
-    const userSlugs = (user.userBusinessAccess ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-
-    if (userSlugs.length === 0) {
-      return { allowedBusinessUnitIds: [] }
-    }
-
-    const systemBusiness = `${env.get('SYSTEM_BUSINESS') ?? ''}`
-      .split(',')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-
-    const effectiveSlugs = userSlugs.filter((s) => systemBusiness.includes(s))
-
-    if (effectiveSlugs.length === 0) {
-      return { allowedBusinessUnitIds: [] }
-    }
-
-    const units = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', effectiveSlugs)
-
-    return { allowedBusinessUnitIds: units.map((u) => u.businessUnitId) }
   }
 
   validateRange(filters: AttendanceStatsFilters): ServiceResult<null> | null {

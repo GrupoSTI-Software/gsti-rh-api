@@ -98,7 +98,13 @@ export default class AuthMailService {
         return
       }
 
+      const isWhiteLabel = false
       const branding = await this.resolveBranding()
+
+      if (!isWhiteLabel) {
+        branding.tradeName = 'Valanserh'
+        branding.backgroundImageLogo = 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+      }
 
       await mail.send(
         new SignupOtpMail({

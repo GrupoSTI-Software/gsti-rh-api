@@ -1,7 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
-import type { AttendanceStatsFilters } from './dto/attendance-stats.dto.js'
+import type { AttendanceStatsFilters, ResolvedScope } from './dto/attendance-stats.dto.js'
 
 /**
  * Controller del módulo attendance-stats.
@@ -129,20 +129,9 @@ export default class AttendanceStatsController {
     ctx: HttpContext,
     op: 'overview' | 'byDepartment' | 'byEmployee'
   ) {
-    const { request, response, auth, i18n } = ctx
+    const { request, response, i18n, businessUnitScope } = ctx
     const t = i18n.formatMessage.bind(i18n)
-
     try {
-      const user = auth.user
-      if (!user) {
-        return response.status(401).json({
-          type: 'error',
-          title: t('unauthenticated'),
-          message: t('unauthenticated'),
-          key: 'no-autenticado',
-        })
-      }
-
       const raw = {
         startDay: request.input('startDay'),
         endDay: request.input('endDay'),
@@ -183,7 +172,7 @@ export default class AttendanceStatsController {
         })
       }
 
-      const scope = await service.resolveScope(user)
+      const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
 
       let result
       if (op === 'overview') result = await service.getOverview(filters, scope)
