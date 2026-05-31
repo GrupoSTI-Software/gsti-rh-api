@@ -499,6 +499,13 @@
   "repse_registration_business_unit_not_found": "The company does not exist or does not belong to the current tenant",
   "repse_registration_dates_invalid": "Expiration date must be after the registration date",
   "repse_registration_not_found": "The REPSE registration does not exist or does not belong to the current tenant",
+  "employee_lactation_period_below_legal_minimum_title": "Lactation period below legal minimum",
+  "employee_lactation_period_below_legal_minimum_detail": "The range must be at least 6 months according to LFT article 170 section IV",
+  "employee_lactation_period_exception_type_missing_title": "Lactation exception type is not configured",
+  "employee_lactation_period_exception_type_missing_detail": "The 'lactation' exception type is not configured. Run the corresponding seeder to enable shift exception generation.",
+  "employee_lactation_period_no_active_shift_title": "Employee has no active shift in the period range",
+  "employee_lactation_period_no_active_shift_detail": "The employee does not have any active shift in the lactation period range. Assign a shift before regenerating the exceptions.",
+  "employee_lactation_period_shift_exceptions_regenerated": "Shift exceptions regenerated successfully",
   "auth": {
     "signup": {
       "otp": {

@@ -502,6 +502,13 @@
   "repse_registration_business_unit_not_found": "La empresa no existe o no pertenece al tenant actual",
   "repse_registration_dates_invalid": "La fecha de vencimiento debe ser posterior a la de registro",
   "repse_registration_not_found": "El registro REPSE no existe o no pertenece al tenant actual",
+  "employee_lactation_period_below_legal_minimum_title": "Periodo de lactancia por debajo del mínimo legal",
+  "employee_lactation_period_below_legal_minimum_detail": "El rango debe ser de al menos 6 meses según LFT artículo 170 fracción IV",
+  "employee_lactation_period_exception_type_missing_title": "Tipo de excepción de lactancia no configurado",
+  "employee_lactation_period_exception_type_missing_detail": "El tipo de excepción 'lactancia' no está configurado. Ejecuta el seeder correspondiente para habilitar la generación de excepciones de turno.",
+  "employee_lactation_period_no_active_shift_title": "Empleada sin turno activo en el rango del periodo",
+  "employee_lactation_period_no_active_shift_detail": "La empleada no tiene ningún turno activo en el rango del periodo de lactancia. Asigna un turno antes de regenerar las excepciones.",
+  "employee_lactation_period_shift_exceptions_regenerated": "Excepciones de turno regeneradas correctamente",
   "auth": {
     "signup": {
       "otp": {

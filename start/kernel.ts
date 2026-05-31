@@ -47,6 +47,7 @@ router.use([
 export const middleware = router.named({
   auth: () => import('#middleware/auth_middleware'),
   basicAuth: () => import('#middleware/basic_auth_middleware'),
+  businessScope: () => import('#middleware/business_unit_scope_middleware'),
   ...(env.get('APP_MODE') === 'demo'
     ? { demoGuard: () => import('../app/modules/demo/middleware/demo_guard_middleware.js') }
     : {}),

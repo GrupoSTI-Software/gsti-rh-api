@@ -13,3 +13,4 @@ router
   })
   .prefix('/api')
   .use(middleware.auth())
+  .use(middleware.businessScope())

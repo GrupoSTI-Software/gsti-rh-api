@@ -1,5 +1,4 @@
 import BusinessUnit from '#models/business_unit'
-import env from '#start/env'
 import { I18n } from '@adonisjs/i18n'
 import { BusinessUnitInterface } from '../interfaces/business_unit_interface.js'
 import { ResponseDataInterface } from '../interfaces/response_data_interface.js'
@@ -48,19 +47,15 @@ export default class BusinessUnitService {
     return newBusinessUnit
   }
 
-  async index(): Promise<ResponseDataInterface> {
+  async index(scopeIds: number[]): Promise<ResponseDataInterface> {
     try {
-      const businessConf = env.get('SYSTEM_BUSINESS', '')
-      const businessList = businessConf
-        .split(',')
-        .map((slug: string) => slug.trim())
-        .filter((slug: string) => slug.length > 0)
-
       const businessUnitsQuery =
-        businessList.length > 0
+        scopeIds.length > 0
           ? await BusinessUnit.query()
               .where('business_unit_active', 1)
-              .whereIn('business_unit_slug', businessList)
+              .whereNull('business_unit_deleted_at')
+              .whereIn('business_unit_id', scopeIds)
+              .orderBy('business_unit_name', 'asc')
           : []
 
       const businessUnitsRes: BusinessUnitInterface[] = [

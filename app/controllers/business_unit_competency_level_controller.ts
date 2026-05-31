@@ -3,8 +3,6 @@ import { createBusinessUnitCompetencyLevelValidator, updateBusinessUnitCompetenc
 import { BusinessUnitCompetencyLevelFilterInterface } from 'app/interfaces/business_unit_competency_level_filter_interface.js'
 import BusinessUnitCompetencyLevelService from '#services/business_unit_competency_level_service'
 import BusinessUnitCompetencyLevel from '#models/business_unit_competency_level'
-import BusinessUnit from '#models/business_unit'
-import env from '#start/env'
 
 export default class BusinessUnitCompetencyLevelController {
   /**
@@ -16,6 +14,13 @@ export default class BusinessUnitCompetencyLevelController {
    *     tags:
    *       - Business Unit Competency Levels
    *     summary: get all
+   *     parameters:
+   *       - name: businessUnitId
+   *         in: query
+   *         required: true
+   *         description: Business unit id
+   *         schema:
+   *           type: number
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -97,17 +102,10 @@ export default class BusinessUnitCompetencyLevelController {
    *                     error:
    *                       type: string
    */
-  async index({ response, i18n }: HttpContext) {
+  async index({ response, i18n, request }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
+    const businessUnitId = request.input('businessUnitId')
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
-
-      const businessUnitId = businessUnits?.businessUnitId || 1
       const filters = {
         businessUnitId: businessUnitId,
       } as BusinessUnitCompetencyLevelFilterInterface
@@ -160,6 +158,10 @@ export default class BusinessUnitCompetencyLevelController {
    *                 description: Business unit competency level position
    *                 required: true
    *                 default: ''
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business unit id
+   *                 required: true
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -244,17 +246,9 @@ export default class BusinessUnitCompetencyLevelController {
  async store({ request, response, i18n }: HttpContext) {
   const t = i18n.formatMessage.bind(i18n)
   try {
-
     await request.validateUsing(createBusinessUnitCompetencyLevelValidator)
     const businessUnitCompetencyLevelService = new BusinessUnitCompetencyLevelService(i18n)
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
-
-    const businessUnitId = businessUnits?.businessUnitId || 1
+    const businessUnitId = request.input('businessUnitId')
     const businessUnitCompetencyLevelLabel = request.input('businessUnitCompetencyLevelLabel')
     const businessUnitCompetencyLevelPosition = request.input('businessUnitCompetencyLevelPosition')
     const businessUnitCompetencyLevel = {
@@ -336,6 +330,10 @@ export default class BusinessUnitCompetencyLevelController {
    *               businessUnitCompetencyLevelPosition:
    *                 type: number
    *                 description: Business unit competency level position
+   *                 required: true
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business unit id
    *                 required: true
    *     responses:
    *       '200':
@@ -423,14 +421,7 @@ export default class BusinessUnitCompetencyLevelController {
     try {
       await request.validateUsing(updateBusinessUnitCompetencyLevelValidator)
       const businessUnitCompetencyLevelId = request.param('businessUnitCompetencyLevelId')
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
-
-      const businessUnitId = businessUnits?.businessUnitId || 1
+      const businessUnitId = request.input('businessUnitId')
       const businessUnitCompetencyLevelLabel = request.input('businessUnitCompetencyLevelLabel')
       const businessUnitCompetencyLevelPosition = request.input('businessUnitCompetencyLevelPosition')
       const businessUnitCompetencyLevel = {

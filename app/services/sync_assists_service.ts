@@ -2735,13 +2735,12 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  async syncronizeAssistAllEmployeesCalendar(dateStart: string, dateEnd: string) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
+  async syncronizeAssistAllEmployeesCalendar(dateStart: string, dateEnd: string, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
     const departmentService = new DepartmentService(this.i18n as I18n)
     const employeeService = new EmployeeService(this.i18n as I18n)
@@ -2768,7 +2767,8 @@ export default class SyncAssistsService {
             onlyPayroll: false,
             userResponsibleId: 0,
           },
-          [departmentId]
+          [departmentId],
+          allowedBusinessUnitIds
         )
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {

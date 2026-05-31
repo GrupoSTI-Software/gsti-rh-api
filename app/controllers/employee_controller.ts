@@ -37,6 +37,7 @@ import {
   isValidEmployeeTerminationModality,
 } from '../constants/employee_termination.js'
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -273,7 +274,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async synchronization({ request, response, i18n }: HttpContext) {
+  async synchronization({ request, response, i18n, auth }: HttpContext) {
     try {
       const page = request.input('page', 1)
       const limit = request.input('limit', 1000)
@@ -288,11 +289,10 @@ export default class EmployeeController {
       const positionId = request.input('positionId')
       const hireDate = request.input('hireDate')
 
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereIn('business_unit_id', allowedIds)
 
       const businessUnitsList = businessUnits.map((business) => business.businessUnitName)
 
@@ -601,7 +601,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async index({ auth, request, response, i18n }: HttpContext) {
+  async index({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -677,7 +677,7 @@ export default class EmployeeController {
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.index(filters, departmentsList)
+      const employees = await employeeService.index(filters, departmentsList, businessUnitScope)
 
       response.status(200)
 
@@ -3584,7 +3584,7 @@ export default class EmployeeController {
    *       500:
    *         description: Error al generar la plantilla
    */
-  async getTemplateExcel({ request, response, i18n }: HttpContext) {
+  async getTemplateExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const fillWithExisting = request.input('fillWithExisting') === true ||
         request.input('fillWithExisting') === '1' ||
@@ -3639,6 +3639,7 @@ export default class EmployeeController {
         branchNameIds,
         orderBy,
         orderDirection: orderDirection !== undefined && orderDirection !== '' ? String(orderDirection) : undefined,
+        allowedBusinessUnitIds: businessUnitScope,
       })
 
       response.header(
@@ -4645,7 +4646,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getBirthday({ auth, request, response, i18n }: HttpContext) {
+  async getBirthday({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -4668,7 +4669,7 @@ export default class EmployeeController {
         userResponsibleId: userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getBirthday(filters)
+      const employees = await employeeService.getBirthday(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -4804,7 +4805,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getAnniversary({ auth, request, response, i18n }: HttpContext) {
+  async getAnniversary({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -4827,7 +4828,7 @@ export default class EmployeeController {
         userResponsibleId: userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getAnniversary(filters)
+      const employees = await employeeService.getAnniversary(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -4977,7 +4978,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getVacations({ auth, request, response, i18n }: HttpContext) {
+  async getVacations({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -5012,7 +5013,7 @@ export default class EmployeeController {
         payrollBusinessUnitId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getVacations(filters)
+      const employees = await employeeService.getVacations(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -5154,7 +5155,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getAllVacationsByPeriod({ auth, request, response, i18n }: HttpContext) {
+  async getAllVacationsByPeriod({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -5184,7 +5185,7 @@ export default class EmployeeController {
         userResponsibleId: userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getAllVacationsByPeriod(filters, departmentsList)
+      const employees = await employeeService.getAllVacationsByPeriod(filters, departmentsList, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -5894,7 +5895,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getUserResponsible({ request, response, i18n }: HttpContext) {
+  async getUserResponsible({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       const userId = request.param('userId')
@@ -5921,7 +5922,7 @@ export default class EmployeeController {
         }
       }
 
-      const userResponsibles = await employeeService.getUserResponsible(employeeId, userId)
+      const userResponsibles = await employeeService.getUserResponsible(employeeId, userId, businessUnitScope)
 
       response.status(200)
       return {
@@ -6176,11 +6177,11 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getBiometrics({ response, i18n }: HttpContext) {
+  async getBiometrics({ response, i18n, businessUnitScope }: HttpContext) {
     try {
       const employeeService = new EmployeeService(i18n)
       let employeesSync = [] as EmployeeSyncInterface[]
-      employeesSync = await employeeService.getEmployeesToSyncFromBiometrics()
+      employeesSync = await employeeService.getEmployeesToSyncFromBiometrics(businessUnitScope)
       response.status(200)
 
       return {
@@ -6305,14 +6306,13 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async synchronizationBySelection({ request, response, i18n }: HttpContext) {
+  async synchronizationBySelection({ request, response, i18n, auth }: HttpContext) {
     try {
       const employees = request.input('employees')
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereIn('business_unit_id', allowedIds)
 
       const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
       const params = new URLSearchParams()
@@ -6521,7 +6521,7 @@ export default class EmployeeController {
    *                   type: string
    *                   description: Detailed error information
    */
-  async importFromExcel({ request, response, i18n }: HttpContext) {
+  async importFromExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const file = request.file('file')
 
@@ -6573,7 +6573,7 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const result = await employeeService.importFromExcel(file)
+      const result = await employeeService.importFromExcel(file, businessUnitScope)
 
       // Determinar el tipo de respuesta basado en los resultados
       let responseType = 'success'
@@ -6873,7 +6873,7 @@ export default class EmployeeController {
    *                   type: string
    *                   example: Error details
    */
-  async getShiftAssignmentTemplate({ auth, request, response, i18n }: HttpContext) {
+  async getShiftAssignmentTemplate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
 
@@ -6974,7 +6974,8 @@ export default class EmployeeController {
         isReport,
         businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
         payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
-        branchNameIds
+        branchNameIds,
+        businessUnitScope
       )
 
       // Configurar headers para la descarga del archivo
@@ -7175,7 +7176,7 @@ export default class EmployeeController {
    *       '500':
    *         description: Error del servidor
    */
-  async getAttendanceReport({ auth, request, response, i18n }: HttpContext) {
+  async getAttendanceReport({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
 
@@ -7331,7 +7332,8 @@ export default class EmployeeController {
         employeeIds,
         businessUnitId,
         payrollBusinessUnitId,
-        branchNameIds
+        branchNameIds,
+        businessUnitScope
       )
 
       // Configurar headers para la descarga del archivo

@@ -42,6 +42,13 @@ export default class WelcomeMail extends BaseMail {
   prepare() {
     const { to, from, firstName, businessUnitName, language, branding, backofficeUrl } = this.params
 
+    const isWhiteLabel = false
+
+    if (!isWhiteLabel) {
+      branding.tradeName = 'Valanserh'
+      branding.backgroundImageLogo = 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+    }
+
     const i18n = i18nManager.locale(language)
     const subject = i18n.formatMessage('auth.signup.welcome.subject', {
       tradeName: branding.tradeName,
@@ -70,6 +77,7 @@ export default class WelcomeMail extends BaseMail {
       firstName,
       businessUnitName,
       backofficeUrl,
+      email: to,
       subject,
       preheader,
       greeting,

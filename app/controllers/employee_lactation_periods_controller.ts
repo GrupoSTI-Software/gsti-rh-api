@@ -14,14 +14,28 @@ import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_p
 import { resolveEmployeeLactationPeriodApiError } from '../helpers/employee_lactation_period_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
-const MODULE_SLUG = 'employee-lactation-periods'
+/**
+ * Esta funcionalidad NO tiene módulo propio en `system_modules`: vive
+ * embebida en el apartado de "Información del empleado". Por eso los
+ * checks de RBAC se hacen contra el módulo `employees`:
+ *  - listar / consultar  → permiso `read`.
+ *  - crear / editar / eliminar → permiso `update-information`
+ *    (mismo permiso que usa medical conditions y otras secciones del perfil).
+ */
+const PARENT_MODULE_SLUG = 'employees'
+const ACTION_PERMISSION_MAP: Record<'read' | 'create' | 'update' | 'delete', string> = {
+  read: 'read',
+  create: 'update-information',
+  update: 'update-information',
+  delete: 'update-information',
+}
 
 /**
  * Controlador REST del catálogo de periodos de lactancia (NOM-037-STPS-2023 / LFT 170).
  *
  * Expone CRUD completo bajo /api/employee-lactation-periods.
  * Aísla por empresa (vía `EmployeeLactationPeriodService`) y aplica
- * permisos del módulo a través de `RoleService` (root bypass).
+ * permisos del módulo `employees` a través de `RoleService` (root bypass).
  */
 export default class EmployeeLactationPeriodsController {
   /**
@@ -58,11 +72,12 @@ export default class EmployeeLactationPeriodsController {
       if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(employeeLactationPeriodListValidator)
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const bundle = await service.listPaginated(
         filters.page,
         filters.limit,
-        filters.employeeId
+        filters.employeeId,
+        ctx.businessUnitScope
       )
 
       return StandardResponseFormatter.success(
@@ -92,20 +107,20 @@ export default class EmployeeLactationPeriodsController {
    *             type: object
    *             required:
    *               - employeeId
-   *               - lactationPeriodStartDate
-   *               - lactationPeriodEndDate
-   *               - lactationPeriodType
+   *               - employeeLactationPeriodStartDate
+   *               - employeeLactationPeriodEndDate
+   *               - employeeLactationPeriodType
    *             properties:
    *               employeeId: { type: integer }
-   *               lactationPeriodStartDate: { type: string, format: date }
-   *               lactationPeriodEndDate: { type: string, format: date }
-   *               lactationPeriodType:
+   *               employeeLactationPeriodStartDate: { type: string, format: date }
+   *               employeeLactationPeriodEndDate: { type: string, format: date }
+   *               employeeLactationPeriodType:
    *                 type: string
    *                 enum: [two_rest_periods, reduced_hour]
-   *               lactationReductionApplication:
+   *               employeeLactationPeriodReductionApplication:
    *                 type: string
    *                 enum: [start, end, split]
-   *               lactationPeriodNotes:
+   *               employeeLactationPeriodNotes:
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
@@ -118,7 +133,11 @@ export default class EmployeeLactationPeriodsController {
    *       '409':
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
    *       '422':
-   *         description: Rango inverosímil (>24 meses, key `lactation-period-unreasonable-range`)
+   *         description: |
+   *           Rango inválido contra los extremos legales/operativos.
+   *           Posibles `key`:
+   *           - `lactation-period-below-legal-minimum` (rango < 6 meses, LFT 170 IV)
+   *           - `lactation-period-unreasonable-range` (rango > 24 meses, sanity check)
    */
   async store(ctx: HttpContext) {
     const { request, response } = ctx
@@ -128,8 +147,10 @@ export default class EmployeeLactationPeriodsController {
 
       const body = await request.validateUsing(createEmployeeLactationPeriodValidator)
       const payload = this.toCreatePayload(body)
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const created = await service.create(payload)
+      // const service = new EmployeeLactationPeriodService()
+      // const created = await service.create(payload, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -163,15 +184,15 @@ export default class EmployeeLactationPeriodsController {
    *             type: object
    *             properties:
    *               employeeId: { type: integer }
-   *               lactationPeriodStartDate: { type: string, format: date }
-   *               lactationPeriodEndDate: { type: string, format: date }
-   *               lactationPeriodType:
+   *               employeeLactationPeriodStartDate: { type: string, format: date }
+   *               employeeLactationPeriodEndDate: { type: string, format: date }
+   *               employeeLactationPeriodType:
    *                 type: string
    *                 enum: [two_rest_periods, reduced_hour]
-   *               lactationReductionApplication:
+   *               employeeLactationPeriodReductionApplication:
    *                 type: string
    *                 enum: [start, end, split]
-   *               lactationPeriodNotes:
+   *               employeeLactationPeriodNotes:
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
@@ -184,7 +205,11 @@ export default class EmployeeLactationPeriodsController {
    *       '409':
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
    *       '422':
-   *         description: Rango inverosímil (>24 meses, key `lactation-period-unreasonable-range`)
+   *         description: |
+   *           Rango inválido contra los extremos legales/operativos.
+   *           Posibles `key`:
+   *           - `lactation-period-below-legal-minimum` (rango < 6 meses, LFT 170 IV)
+   *           - `lactation-period-unreasonable-range` (rango > 24 meses, sanity check)
    */
   async update(ctx: HttpContext) {
     const { params, request, response } = ctx
@@ -196,8 +221,10 @@ export default class EmployeeLactationPeriodsController {
       const body = await request.validateUsing(updateEmployeeLactationPeriodValidator)
       const payload = this.toUpdatePayload(body)
 
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const updated = await service.update(id, payload)
+      // const service = new EmployeeLactationPeriodService()
+      // const updated = await service.update(id, payload, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -236,8 +263,10 @@ export default class EmployeeLactationPeriodsController {
       if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
-      const service = new EmployeeLactationPeriodService()
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
       const deleted = await service.destroy(id)
+      // const service = new EmployeeLactationPeriodService()
+      // const deleted = await service.destroy(id, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -247,6 +276,74 @@ export default class EmployeeLactationPeriodsController {
       )
     } catch (error) {
       return this.respondError(error, response, 404)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/{id}/regenerate-shift-exceptions:
+   *   post:
+   *     summary: Regenera las excepciones de turno asociadas al periodo
+   *     description: |
+   *       Borra (soft-delete) TODAS las excepciones vinculadas al periodo de
+   *       lactancia (pasadas y futuras) y vuelve a generarlas leyendo el
+   *       `EmployeeShift` vigente para cada día del rango completo. Útil
+   *       después de asignar un turno retroactivo, para reparar periodos
+   *       desincronizados, o tras corregir errores en la captura.
+   *
+   *       - Diferente al hook automático de `update`, que sólo regenera
+   *         excepciones futuras (fecha >= hoy) para preservar histórico.
+   *       - Los días sin shift activo se reportan en `omittedDaysWithoutShift` (warning).
+   *       - Si la empleada no tiene NINGÚN shift activo en todo el rango, responde 422.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Regeneración exitosa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 lactationPeriodId: { type: integer }
+   *                 regeneratedExceptionsCount: { type: integer }
+   *                 omittedDaysWithoutShift:
+   *                   type: array
+   *                   items: { type: string, format: date }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'update' }
+   *       '404': { description: Periodo inexistente o ajeno a la empresa }
+   *       '422':
+   *         description: La empleada no tiene shift activo en el rango (key `lactation-period-no-active-shift`)
+   *       '500':
+   *         description: |
+   *           El tipo de excepción 'lactancia' no está configurado en la BD
+   *           (key `lactation-exception-type-missing`). Ejecutar el seeder correspondiente.
+   */
+  async regenerateShiftExceptions(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseResourceId(params.id)
+      const service = new EmployeeLactationPeriodService(ctx.i18n)
+      const result = await service.regenerateShiftExceptions(id)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period',
+        'Excepciones de turno regeneradas correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
     }
   }
 
@@ -274,7 +371,10 @@ export default class EmployeeLactationPeriodsController {
    * Permite la operación si el usuario es root del tenant; de otro modo
    * verifica el permiso solicitado en el módulo. 403 si no aplica.
    */
-  private async assertHasPermission(ctx: HttpContext, action: string) {
+  private async assertHasPermission(
+    ctx: HttpContext,
+    action: 'read' | 'create' | 'update' | 'delete'
+  ) {
     const user = ctx.auth.user!
     await user.preload('role')
     const isRoot = user.role?.roleSlug === 'root'
@@ -282,7 +382,12 @@ export default class EmployeeLactationPeriodsController {
       return true
     }
     const roleService = new RoleService()
-    const allowed = await roleService.hasAccess(user.roleId, MODULE_SLUG, action)
+    const permissionSlug = ACTION_PERMISSION_MAP[action]
+    const allowed = await roleService.hasAccess(
+      user.roleId,
+      PARENT_MODULE_SLUG,
+      permissionSlug
+    )
     if (!allowed) {
       ctx.response.status(403).json({
         type: 'error',
@@ -312,15 +417,20 @@ export default class EmployeeLactationPeriodsController {
   private toCreatePayload(body: Record<string, unknown>): EmployeeLactationPeriodCreatePayload {
     return {
       employeeId: Number(body.employeeId),
-      lactationPeriodStartDate: this.dateLikeToIso(body.lactationPeriodStartDate),
-      lactationPeriodEndDate: this.dateLikeToIso(body.lactationPeriodEndDate),
-      lactationPeriodType: body.lactationPeriodType as EmployeeLactationPeriodCreatePayload['lactationPeriodType'],
-      lactationReductionApplication:
-        body.lactationReductionApplication as EmployeeLactationPeriodCreatePayload['lactationReductionApplication'],
-      lactationPeriodNotes:
-        body.lactationPeriodNotes === undefined
+      employeeLactationPeriodStartDate: this.dateLikeToIso(
+        body.employeeLactationPeriodStartDate
+      ),
+      employeeLactationPeriodEndDate: this.dateLikeToIso(
+        body.employeeLactationPeriodEndDate
+      ),
+      employeeLactationPeriodType:
+        body.employeeLactationPeriodType as EmployeeLactationPeriodCreatePayload['employeeLactationPeriodType'],
+      employeeLactationPeriodReductionApplication:
+        body.employeeLactationPeriodReductionApplication as EmployeeLactationPeriodCreatePayload['employeeLactationPeriodReductionApplication'],
+      employeeLactationPeriodNotes:
+        body.employeeLactationPeriodNotes === undefined
           ? null
-          : (body.lactationPeriodNotes as string | null),
+          : (body.employeeLactationPeriodNotes as string | null),
     }
   }
 
@@ -329,22 +439,28 @@ export default class EmployeeLactationPeriodsController {
     if (body.employeeId !== undefined) {
       payload.employeeId = Number(body.employeeId)
     }
-    if (body.lactationPeriodStartDate !== undefined) {
-      payload.lactationPeriodStartDate = this.dateLikeToIso(body.lactationPeriodStartDate)
+    if (body.employeeLactationPeriodStartDate !== undefined) {
+      payload.employeeLactationPeriodStartDate = this.dateLikeToIso(
+        body.employeeLactationPeriodStartDate
+      )
     }
-    if (body.lactationPeriodEndDate !== undefined) {
-      payload.lactationPeriodEndDate = this.dateLikeToIso(body.lactationPeriodEndDate)
+    if (body.employeeLactationPeriodEndDate !== undefined) {
+      payload.employeeLactationPeriodEndDate = this.dateLikeToIso(
+        body.employeeLactationPeriodEndDate
+      )
     }
-    if (body.lactationPeriodType !== undefined) {
-      payload.lactationPeriodType =
-        body.lactationPeriodType as EmployeeLactationPeriodCreatePayload['lactationPeriodType']
+    if (body.employeeLactationPeriodType !== undefined) {
+      payload.employeeLactationPeriodType =
+        body.employeeLactationPeriodType as EmployeeLactationPeriodCreatePayload['employeeLactationPeriodType']
     }
-    if (body.lactationReductionApplication !== undefined) {
-      payload.lactationReductionApplication =
-        body.lactationReductionApplication as EmployeeLactationPeriodCreatePayload['lactationReductionApplication']
+    if (body.employeeLactationPeriodReductionApplication !== undefined) {
+      payload.employeeLactationPeriodReductionApplication =
+        body.employeeLactationPeriodReductionApplication as EmployeeLactationPeriodCreatePayload['employeeLactationPeriodReductionApplication']
     }
-    if (body.lactationPeriodNotes !== undefined) {
-      payload.lactationPeriodNotes = body.lactationPeriodNotes as string | null
+    if (body.employeeLactationPeriodNotes !== undefined) {
+      payload.employeeLactationPeriodNotes = body.employeeLactationPeriodNotes as
+        | string
+        | null
     }
     return payload
   }
@@ -368,14 +484,19 @@ export default class EmployeeLactationPeriodsController {
   ) {
     const resolved = resolveEmployeeLactationPeriodApiError(error, fallback)
     if (resolved.key) {
+      const titleByCode: Partial<Record<string, string>> = {
+        [ELP_ERROR_CODES.PERIOD_OVERLAP]: 'Periodo de lactancia traslapado',
+        [ELP_ERROR_CODES.RANGE_UNREASONABLE]: 'Rango de lactancia inverosímil',
+        [ELP_ERROR_CODES.RANGE_BELOW_LEGAL_MINIMUM]:
+          'Periodo de lactancia por debajo del mínimo legal',
+        [ELP_ERROR_CODES.EXCEPTION_TYPE_MISSING]:
+          'Tipo de excepción de lactancia no configurado',
+        [ELP_ERROR_CODES.NO_ACTIVE_SHIFT]:
+          'Empleada sin turno activo en el rango del periodo',
+      }
       return response.status(resolved.status).json({
         type: 'error',
-        title:
-          resolved.errorCode === ELP_ERROR_CODES.PERIOD_OVERLAP
-            ? 'Periodo de lactancia traslapado'
-            : resolved.errorCode === ELP_ERROR_CODES.RANGE_UNREASONABLE
-              ? 'Rango de lactancia inverosímil'
-              : 'Error',
+        title: titleByCode[resolved.errorCode] ?? 'Error',
         key: resolved.key,
         detail: resolved.message,
         message: resolved.message,
