@@ -2,7 +2,33 @@ import { HttpContext } from '@adonisjs/core/http'
 import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 import Role from '#models/role'
+import User from '#models/user'
 import { createRoleValidator, updateRoleValidator } from '#validators/role'
+
+/**
+ * Construye el CSV legado de `roleBusinessAccess` a partir de la tabla pivote
+ * `business_unit_users` del usuario autenticado.
+ *
+ * Conservamos `roleBusinessAccess` como CSV de slugs por compatibilidad con código
+ * heredado que lo lee. La pivote `role_business_units` y la eliminación de la
+ * columna están fuera del alcance de esta historia.
+ *
+ * @returns CSV de Slugs (ej. `"sae,demo"`) o cadena vacía si el usuario no tiene acceso.
+ */
+async function buildRoleBusinessAccessFromPivot(userId: number): Promise<string> {
+  const businessUnits = await User.query()
+    .where('user_id', userId)
+    .preload('businessUnits', (query) => {
+      query.whereNull('business_unit_deleted_at').select('business_unit_slug')
+    })
+    .first()
+
+  if (!businessUnits || businessUnits.businessUnits.length === 0) {
+    return ''
+  }
+
+  return businessUnits.businessUnits.map((unit) => unit.businessUnitSlug).join(',')
+}
 
 export default class RoleController {
   /**
@@ -116,7 +142,7 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -127,7 +153,7 @@ export default class RoleController {
         limit: limit,
       } as RoleFilterSearchInterface
       const roleService = new RoleService()
-      const roles = await roleService.index(filters)
+      const roles = await roleService.index(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -147,7 +173,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger
@@ -268,7 +293,7 @@ export default class RoleController {
       const user = auth.user
       let roleBusinessAccess = ''
       if (user) {
-          roleBusinessAccess = user?.userBusinessAccess
+        roleBusinessAccess = await buildRoleBusinessAccessFromPivot(user.userId)
       }
 
       const roleService = new RoleService()
@@ -285,7 +310,6 @@ export default class RoleController {
         roleBusinessAccess: roleBusinessAccess,
       } as Role
 
-    
       const data = await request.validateUsing(createRoleValidator)
       const valid = await roleService.verifyInfo(role)
       if (valid.status !== 200) {
@@ -321,7 +345,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger
@@ -443,16 +466,10 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response }: HttpContext) {
+  async update({ request, response }: HttpContext) {
     try {
       const roleId = request.param('roleId')
       const roleService = new RoleService()
-      await auth.check()
-      const user = auth.user
-      let roleBusinessAccess = ''
-      if (user) {
-          roleBusinessAccess = user?.userBusinessAccess
-      }
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
       const roleSlug = roleService.generateSlug(roleName)
@@ -463,8 +480,7 @@ export default class RoleController {
         roleName: roleName,
         roleDescription: roleDescription,
         roleSlug: roleSlug,
-        roleActive: roleActive,
-        roleBusinessAccess: roleBusinessAccess,
+        roleActive: roleActive
       } as Role
 
       if (!roleId) {
@@ -522,7 +538,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger

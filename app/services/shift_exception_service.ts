@@ -14,7 +14,7 @@ import ShiftForEmployeeService from './shift_for_employees_service.js'
 import type { ShiftRecordInterface } from '../interfaces/shift_record_interface.js'
 import type { EmployeeRecordInterface } from '../interfaces/employee_record_interface.js'
 import Holiday from '#models/holiday'
-import env from '#start/env'
+// import env from '#start/env'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import logger from '@adonisjs/core/services/logger'
@@ -388,7 +388,8 @@ export default class ShiftExceptionService {
   async getVacationBusinessDays(
     employeeId: number,
     startDate: DateTime,
-    daysToApply: number
+    daysToApply: number,
+    allowedBusinessUnitSlugs: string[] = []
   ): Promise<string[]> {
     if (daysToApply <= 0) {
       return []
@@ -420,7 +421,8 @@ export default class ShiftExceptionService {
     const [officialHolidayDates, datesWithRestOrPermission] = await Promise.all([
       this.getOfficialHolidayDatesInRange(
         dateStart.toFormat('yyyy-LL-dd'),
-        rangeEnd.toFormat('yyyy-LL-dd')
+        rangeEnd.toFormat('yyyy-LL-dd'),
+        allowedBusinessUnitSlugs
       ),
       this.getDatesWithRestOrPermissionExceptions(
         employeeId,
@@ -488,10 +490,9 @@ export default class ShiftExceptionService {
    */
   private async getOfficialHolidayDatesInRange(
     firstDate: string,
-    lastDate: string
+    lastDate: string,
+    allowedBusinessUnitSlugs: string[] = []
   ): Promise<Set<string>> {
-    const businessConf = env.get('SYSTEM_BUSINESS', '')
-    const businessList = businessConf ? businessConf.split(',').map((b) => b.trim()) : []
 
     const query = Holiday.query()
       .where('holidayDate', '>=', firstDate)
@@ -499,13 +500,15 @@ export default class ShiftExceptionService {
       .where('holidayIsOfficialRestDay', true)
       .whereNull('holiday_deleted_at')
 
-    if (businessList.length > 0) {
-      query.andWhere((q) => {
-        businessList.forEach((business) => {
-          q.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
-        })
+    query.andWhere((q) => {
+      if (allowedBusinessUnitSlugs.length === 0) {
+        q.whereRaw('1 = 0')
+        return
+      }
+      allowedBusinessUnitSlugs.forEach((business) => {
+        q.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
       })
-    }
+    })
 
     const holidays = await query.select('holidayDate')
     const dates = new Set<string>()

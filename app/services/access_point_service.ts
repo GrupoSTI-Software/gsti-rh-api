@@ -32,6 +32,7 @@ export default class AccessPointService {
       'access_point_created_at',
     ]
     const accessPoints = await AccessPoint.query()
+      .where('business_unit_id', filters.businessUnitId)
       .whereNull('access_point_deleted_at')
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(access_point_name) LIKE ?', [`%${filters.search!.toUpperCase()}%`])

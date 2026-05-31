@@ -7,3 +7,4 @@ router
   })
   .prefix('/api/business-units')
   .use(middleware.auth())
+  .use(middleware.businessScope())

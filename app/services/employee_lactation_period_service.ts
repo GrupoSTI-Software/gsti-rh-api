@@ -146,10 +146,9 @@ export default class EmployeeLactationPeriodService {
    * @param limit Tamaño de página (máximo 500).
    * @param employeeId Filtra por empleada específica.
    */
-  async listPaginated(page: number, limit: number, employeeId?: number) {
+  async listPaginated(page: number, limit: number, employeeId?: number, allowedBusinessUnitIds: number[] = []) {
     const safeLimit = Math.min(Math.max(limit, 1), 500)
     const safePage = Math.max(page, 1)
-    const allowedBusinessUnitIds = await this.getAllowedBusinessUnitIds()
 
     const query = EmployeeLactationPeriod.query()
       .whereNull('employee_lactation_period_deleted_at')
@@ -190,8 +189,8 @@ export default class EmployeeLactationPeriodService {
    * (excepto si la falla es por días sin shift, que se considera advertencia y
    * no detiene la creación; el método del shift devuelve `omittedDaysWithoutShift`).
    */
-  async create(payload: EmployeeLactationPeriodCreatePayload) {
-    await this.ensureEmployeeBelongsToCompany(payload.employeeId)
+  async create(payload: EmployeeLactationPeriodCreatePayload, allowedBusinessUnitIds: number[] = []) {
+    await this.ensureEmployeeBelongsToCompany(payload.employeeId, allowedBusinessUnitIds)
 
     const startDate = this.parseDate(payload.employeeLactationPeriodStartDate)
     const endDate = this.parseDate(payload.employeeLactationPeriodEndDate)
@@ -240,12 +239,12 @@ export default class EmployeeLactationPeriodService {
    * excepciones pasadas se conservan intactas. Si sólo cambia `notes`, no se
    * regenera nada.
    */
-  async update(periodId: number, payload: EmployeeLactationPeriodUpdatePayload) {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
+  async update(periodId: number, payload: EmployeeLactationPeriodUpdatePayload, allowedBusinessUnitIds: number[] = []) {
+    const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
     const nextEmployeeId = payload.employeeId ?? period.employeeId
     if (payload.employeeId && payload.employeeId !== period.employeeId) {
-      await this.ensureEmployeeBelongsToCompany(payload.employeeId)
+      await this.ensureEmployeeBelongsToCompany(payload.employeeId, allowedBusinessUnitIds)
     }
 
     const nextStartDate =
@@ -439,12 +438,18 @@ export default class EmployeeLactationPeriodService {
     return DateTime.invalid('Fecha no parseable para lactancia')
   }
 
+  /** Soft delete (Lucid + adonis-lucid-soft-deletes). Idempotente sobre la fila. */
+  // async destroy(periodId: number, allowedBusinessUnitIds: number[] = []) {
+  //   const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
+  //   await period.delete()
+  //   return serializeLactationPeriod(period)
+  // }
+
   /**
    * Recupera un periodo no borrado cuya empleada pertenezca a la empresa actual.
    * Lanza 404 cuando no existe o vive en otra empresa.
    */
-  private async findPeriodInCompanyOrFail(periodId: number) {
-    const allowedBusinessUnitIds = await this.getAllowedBusinessUnitIds()
+  private async findPeriodInCompanyOrFail(periodId: number, allowedBusinessUnitIds: number[] = []) {
     const period = await EmployeeLactationPeriod.query()
       .where('employee_lactation_period_id', periodId)
       .whereNull('employee_lactation_period_deleted_at')
@@ -472,8 +477,7 @@ export default class EmployeeLactationPeriodService {
    * Verifica que la empleada exista, no esté dada de baja y pertenezca a una
    * unidad de negocio permitida por SYSTEM_BUSINESS.
    */
-  private async ensureEmployeeBelongsToCompany(employeeId: number) {
-    const allowedBusinessUnitIds = await this.getAllowedBusinessUnitIds()
+  private async ensureEmployeeBelongsToCompany(employeeId: number, allowedBusinessUnitIds: number[] = []) {
     if (allowedBusinessUnitIds.length === 0) {
       throw new EmployeeLactationPeriodError(
         'No hay unidades de negocio activas para el usuario autenticado.',
@@ -616,30 +620,6 @@ export default class EmployeeLactationPeriodService {
     }
     const trimmed = String(value).trim()
     return trimmed.length === 0 ? null : trimmed
-  }
-
-  /**
-   * Devuelve los IDs de unidades de negocio activas a las que el usuario
-   * autenticado puede llegar (alineado a SYSTEM_BUSINESS, patrón vigente del repo).
-   */
-  private async getAllowedBusinessUnitIds(): Promise<number[]> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS') ?? ''}`
-    const businessSlugs = businessConf
-      .split(',')
-      .map((slug) => slug.trim())
-      .filter((slug) => slug.length > 0)
-
-    if (businessSlugs.length === 0) {
-      return []
-    }
-
-    const businessUnits = await BusinessUnit.query()
-      .whereNull('business_unit_deleted_at')
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessSlugs)
-      .select('business_unit_id')
-
-    return businessUnits.map((bu) => bu.businessUnitId)
   }
 
 }

@@ -191,6 +191,8 @@
   "assessment_template_dimension": "Dimensión de plantilla",
   "assessment_template_dimensions": "Dimensiones de plantilla",
   "assessment_template_dimension_data_type_invalid": "El tipo de dato de la dimensión es inválido",
+  "assessment_template_dimension_reorder_out_of_template": "Una o más dimensiones del payload no pertenecen a esta plantilla",
+  "assessment_template_dimension_reorder_duplicated_indexes": "El payload de reordenamiento contiene índices de orden duplicados",
   "position_assessment_profile_coherence_range_required_for_numeric": "Debes definir mínimo y máximo para una dimensión de tipo numérico",
   "position_assessment_profile_coherence_range_required_for_percent": "Debes definir mínimo y máximo para una dimensión de tipo porcentual",
   "position_assessment_profile_coherence_range_min_greater_than_max": "El valor mínimo no puede ser mayor que el máximo",
@@ -388,5 +390,53 @@
   "employee_lactation_period_exception_type_missing_detail": "El tipo de excepción 'lactancia' no está configurado. Ejecuta el seeder correspondiente para habilitar la generación de excepciones de turno.",
   "employee_lactation_period_no_active_shift_title": "Empleada sin turno activo en el rango del periodo",
   "employee_lactation_period_no_active_shift_detail": "La empleada no tiene ningún turno activo en el rango del periodo de lactancia. Asigna un turno antes de regenerar las excepciones.",
-  "employee_lactation_period_shift_exceptions_regenerated": "Excepciones de turno regeneradas correctamente"
+  "employee_lactation_period_shift_exceptions_regenerated": "Excepciones de turno regeneradas correctamente",
+  "auth": {
+    "signup": {
+      "otp": {
+        "subject": "Tu código de verificación es {pinCode}",
+        "preheader": "Usa este código para confirmar tu correo y continuar con tu registro.",
+        "greeting": "Hola, {firstName}",
+        "intro": "Gracias por iniciar tu registro en {tradeName}. Para confirmar que este correo te pertenece, ingresa el siguiente código en la pantalla de verificación:",
+        "code_label": "Tu código de verificación",
+        "validity": "Este código es válido por {minutes} minutos. Si caduca, podrás solicitar uno nuevo desde la misma pantalla.",
+        "ignore_notice": "Si no iniciaste el registro, ignora este correo. No realices ninguna acción adicional ni reenvíes el código a otras personas.",
+        "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+      },
+      "welcome": {
+        "subject": "¡Bienvenido a {tradeName}, {firstName}!",
+        "preheader": "Tu cuenta y tu empresa quedaron listas. Te dejamos el acceso al sistema.",
+        "greeting": "¡Hola, {firstName}!",
+        "intro": "Tu cuenta en {tradeName} y tu empresa {businessUnitName} quedaron listas. Ya puedes iniciar sesión y comenzar a configurar tu operación.",
+        "cta": "Ir al sistema",
+        "tips_title": "¿Qué sigue?",
+        "tip_one": "Completa los datos de tu perfil para personalizar tu experiencia.",
+        "tip_two": "Invita a tu equipo y define los roles que tendrá cada persona.",
+        "tip_three": "Configura los catálogos básicos que requiere tu operación.",
+        "support": "Si necesitas ayuda durante la puesta en marcha, escríbenos respondiendo al equipo de soporte que te asignaron.",
+        "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+      }
+    }
+  },
+  "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
+  "attendance_stats_invalid_range": "El rango de fechas es inválido: startDay no puede ser posterior a endDay",
+  "attendance_stats_invalid_input": "Los parámetros enviados no son válidos",
+  "attendance_stats_scope_required": "El usuario no tiene unidades de negocio asignadas para consultar estadísticas de asistencia",
+  "forbidden": "Acceso denegado",
+  "unauthenticated": "No autenticado",
+  "signup_invalid_data": "Los datos proporcionados no son válidos",
+  "signup_draft_not_found": "El borrador de signup no fue encontrado",
+  "signup_email_not_verified": "El correo electrónico aún no ha sido verificado",
+  "signup_token_invalid": "El token de signup es inválido",
+  "signup_email_already_registered": "El correo electrónico ya se encuentra registrado",
+  "signup_account_created": "Cuenta creada exitosamente",
+  "signup_otp_sent": "Se ha enviado un código de verificación al correo indicado",
+  "signup_otp_expired": "El código OTP ha expirado",
+  "signup_otp_incorrect": "El código OTP es incorrecto",
+  "signup_otp_verified": "Correo verificado correctamente",
+  "signup_password_min_length": "La contraseña debe tener al menos 12 caracteres",
+  "signup_password_requires_uppercase": "La contraseña debe contener al menos una letra mayúscula",
+  "signup_password_requires_number": "La contraseña debe contener al menos un número",
+  "signup_password_requires_symbol": "La contraseña debe contener al menos un símbolo",
+  "signup_passwords_do_not_match": "Las contraseñas no coinciden"
 }

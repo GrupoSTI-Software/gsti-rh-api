@@ -8,10 +8,10 @@ export default class EmployeeBranchOfficeController {
    * POST /api/employees/:employeeId/branch-office
    * Body: { branchOfficeId }
    */
-  async assign({ request, response, params }: HttpContext) {
+  async assign({ request, response, params, businessUnitScope }: HttpContext) {
     try {
       const { branchOfficeId } = await request.validateUsing(assignEmployeeBranchOfficeValidator)
-      const row = await EmployeeBranchOfficeService.assign(Number(params.employeeId), branchOfficeId)
+      const row = await EmployeeBranchOfficeService.assign(Number(params.employeeId), branchOfficeId, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         row,
