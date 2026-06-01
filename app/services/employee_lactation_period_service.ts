@@ -1,25 +1,44 @@
 import { DateTime } from 'luxon'
-import env from '#start/env'
+// import env from '#start/env'
+import db from '@adonisjs/lucid/services/db'
+import { I18n } from '@adonisjs/i18n'
+import i18nManager from '@adonisjs/i18n/services/main'
 import EmployeeLactationPeriod, {
   type EmployeeLactationPeriodReductionApplication,
   type EmployeeLactationPeriodType,
 } from '#models/employee_lactation_period'
 import Employee from '#models/employee'
-import BusinessUnit from '#models/business_unit'
+// import BusinessUnit from '#models/business_unit'
+import ShiftExceptionService, {
+  type LactationShiftExceptionsResult,
+} from './shift_exception_service.js'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
 
 const MAX_LACTATION_RANGE_MONTHS = 24
 
+/**
+ * Mínimo legal de lactancia según LFT artículo 170, fracción IV.
+ * La empleada tiene derecho a "dos reposos extraordinarios por día, de
+ * media hora cada uno" o equivalente, durante el periodo de lactancia
+ * de seis meses como mínimo. El sistema bloquea capturas por debajo
+ * de este mínimo para evitar violaciones inadvertidas al derecho.
+ *
+ * Tolerancia: aceptamos hasta 3 días por debajo del límite teórico
+ * (≈6 meses = 182.5 días) para absorber redondeos por meses con
+ * distinta cantidad de días (febrero, meses de 30 vs 31).
+ */
+const MIN_LACTATION_RANGE_MONTHS = 6
+
 const DEFAULT_REDUCTION_APPLICATION: EmployeeLactationPeriodReductionApplication = 'end'
 
 export interface EmployeeLactationPeriodCreatePayload {
   employeeId: number
-  lactationPeriodStartDate: string
-  lactationPeriodEndDate: string
-  lactationPeriodType: EmployeeLactationPeriodType
-  lactationReductionApplication?: EmployeeLactationPeriodReductionApplication
-  lactationPeriodNotes?: string | null
+  employeeLactationPeriodStartDate: string
+  employeeLactationPeriodEndDate: string
+  employeeLactationPeriodType: EmployeeLactationPeriodType
+  employeeLactationPeriodReductionApplication?: EmployeeLactationPeriodReductionApplication
+  employeeLactationPeriodNotes?: string | null
 }
 
 export type EmployeeLactationPeriodUpdatePayload = Partial<EmployeeLactationPeriodCreatePayload>
@@ -98,8 +117,27 @@ function serializeLactationPeriod(period: EmployeeLactationPeriod) {
  *   El aislamiento se aplica en cada operación (read / write).
  * - Aplica las reglas de negocio (coherencia de fechas, sanity de 24 meses,
  *   traslape contra periodos activos del mismo empleado).
+ * - Mantiene coherencia con el motor de excepciones de turno
+ *   (`shift_exceptions`): toda escritura o borrado de un periodo regenera o
+ *   borra las excepciones diarias correspondientes dentro de la misma
+ *   transacción (si la generación falla, el periodo falla).
  */
 export default class EmployeeLactationPeriodService {
+  private i18n: I18n
+
+  /**
+   * `i18n` es opcional para preservar compatibilidad con los call sites que ya
+   * instanciaban el service sin contexto HTTP. Si no se pasa, caemos al locale
+   * por defecto del sistema vía `i18nManager` (mismo patrón usado en
+   * `attendance_fault_hr_notification_service`).
+   */
+  constructor(i18n?: I18n) {
+    this.i18n = i18n ?? i18nManager.locale(i18nManager.defaultLocale)
+  }
+
+  private buildShiftExceptionService(): ShiftExceptionService {
+    return new ShiftExceptionService(this.i18n)
+  }
   /**
    * Lista paginada de periodos de lactancia visibles para la empresa actual.
    * Orden: `employee_lactation_period_start_date DESC`.
@@ -108,10 +146,9 @@ export default class EmployeeLactationPeriodService {
    * @param limit Tamaño de página (máximo 500).
    * @param employeeId Filtra por empleada específica.
    */
-  async listPaginated(page: number, limit: number, employeeId?: number) {
+  async listPaginated(page: number, limit: number, employeeId?: number, allowedBusinessUnitIds: number[] = []) {
     const safeLimit = Math.min(Math.max(limit, 1), 500)
     const safePage = Math.max(page, 1)
-    const allowedBusinessUnitIds = await this.getAllowedBusinessUnitIds()
 
     const query = EmployeeLactationPeriod.query()
       .whereNull('employee_lactation_period_deleted_at')
@@ -145,58 +182,94 @@ export default class EmployeeLactationPeriodService {
   /**
    * Crea un periodo de lactancia para una empleada de la empresa actual.
    * Valida coherencia de fechas, sanity (≤24 meses) y traslape con periodos vivos.
+   *
+   * Side-effect transaccional: inmediatamente después de persistir el periodo se
+   * llama a `ShiftExceptionService.generateForLactationPeriod(periodId, trx)`.
+   * Si la generación falla la transacción hace rollback y el periodo no se crea
+   * (excepto si la falla es por días sin shift, que se considera advertencia y
+   * no detiene la creación; el método del shift devuelve `omittedDaysWithoutShift`).
    */
-  async create(payload: EmployeeLactationPeriodCreatePayload) {
-    await this.ensureEmployeeBelongsToCompany(payload.employeeId)
+  async create(payload: EmployeeLactationPeriodCreatePayload, allowedBusinessUnitIds: number[] = []) {
+    await this.ensureEmployeeBelongsToCompany(payload.employeeId, allowedBusinessUnitIds)
 
-    const startDate = this.parseDate(payload.lactationPeriodStartDate)
-    const endDate = this.parseDate(payload.lactationPeriodEndDate)
+    const startDate = this.parseDate(payload.employeeLactationPeriodStartDate)
+    const endDate = this.parseDate(payload.employeeLactationPeriodEndDate)
 
     this.assertDateCoherence(startDate, endDate)
     this.assertWithinReasonableRange(startDate, endDate)
     await this.assertNoOverlap(payload.employeeId, startDate, endDate)
 
-    const period = new EmployeeLactationPeriod()
-    period.employeeId = payload.employeeId
-    period.employeeLactationPeriodStartDate = startDate
-    period.employeeLactationPeriodEndDate = endDate
-    period.employeeLactationPeriodType = payload.lactationPeriodType
-    period.employeeLactationPeriodReductionApplication =
-      payload.lactationReductionApplication ?? DEFAULT_REDUCTION_APPLICATION
-    period.employeeLactationPeriodNotes = this.normalizeNotes(payload.lactationPeriodNotes)
-    await period.save()
+    const { period, shiftExceptionsResult } = await db.transaction(async (trx) => {
+      const newPeriod = new EmployeeLactationPeriod()
+      newPeriod.employeeId = payload.employeeId
+      newPeriod.employeeLactationPeriodStartDate = startDate
+      newPeriod.employeeLactationPeriodEndDate = endDate
+      newPeriod.employeeLactationPeriodType = payload.employeeLactationPeriodType
+      newPeriod.employeeLactationPeriodReductionApplication =
+        payload.employeeLactationPeriodReductionApplication ?? DEFAULT_REDUCTION_APPLICATION
+      newPeriod.employeeLactationPeriodNotes = this.normalizeNotes(
+        payload.employeeLactationPeriodNotes
+      )
+      newPeriod.useTransaction(trx)
+      await newPeriod.save()
 
-    return serializeLactationPeriod(period)
+      const result = await this.buildShiftExceptionService().generateForLactationPeriod(
+        newPeriod.employeeLactationPeriodId,
+        trx
+      )
+
+      return { period: newPeriod, shiftExceptionsResult: result }
+    })
+
+    return {
+      ...serializeLactationPeriod(period),
+      shiftExceptions: shiftExceptionsResult,
+    }
   }
 
   /**
    * Edita un periodo existente. Acepta cualquier subconjunto de campos.
    * Si se cambia `employeeId`, valida nuevamente pertenencia a la empresa.
    * Si cambian fechas, vuelve a validar coherencia, sanity y traslape.
+   *
+   * Side-effect transaccional: cuando cambian las fechas, el tipo o la
+   * modalidad de aplicación, se llama a
+   * `ShiftExceptionService.regenerateForLactationPeriod(periodId, trx)` para
+   * borrar (soft-delete) las excepciones futuras y volverlas a generar. Las
+   * excepciones pasadas se conservan intactas. Si sólo cambia `notes`, no se
+   * regenera nada.
    */
-  async update(periodId: number, payload: EmployeeLactationPeriodUpdatePayload) {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
+  async update(periodId: number, payload: EmployeeLactationPeriodUpdatePayload, allowedBusinessUnitIds: number[] = []) {
+    const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
     const nextEmployeeId = payload.employeeId ?? period.employeeId
     if (payload.employeeId && payload.employeeId !== period.employeeId) {
-      await this.ensureEmployeeBelongsToCompany(payload.employeeId)
+      await this.ensureEmployeeBelongsToCompany(payload.employeeId, allowedBusinessUnitIds)
     }
 
     const nextStartDate =
-      payload.lactationPeriodStartDate !== undefined
-        ? this.parseDate(payload.lactationPeriodStartDate)
+      payload.employeeLactationPeriodStartDate !== undefined
+        ? this.parseDate(payload.employeeLactationPeriodStartDate)
         : period.employeeLactationPeriodStartDate
 
     const nextEndDate =
-      payload.lactationPeriodEndDate !== undefined
-        ? this.parseDate(payload.lactationPeriodEndDate)
+      payload.employeeLactationPeriodEndDate !== undefined
+        ? this.parseDate(payload.employeeLactationPeriodEndDate)
         : period.employeeLactationPeriodEndDate
 
     const datesChanged =
-      payload.lactationPeriodStartDate !== undefined ||
-      payload.lactationPeriodEndDate !== undefined
+      payload.employeeLactationPeriodStartDate !== undefined ||
+      payload.employeeLactationPeriodEndDate !== undefined
 
     const employeeChanged = nextEmployeeId !== period.employeeId
+    const typeChanged =
+      payload.employeeLactationPeriodType !== undefined &&
+      payload.employeeLactationPeriodType !== period.employeeLactationPeriodType
+    const applicationChanged =
+      payload.employeeLactationPeriodReductionApplication !== undefined &&
+      payload.employeeLactationPeriodReductionApplication !==
+        period.employeeLactationPeriodReductionApplication
+    const shiftRelevantChange = datesChanged || employeeChanged || typeChanged || applicationChanged
 
     if (datesChanged) {
       this.assertDateCoherence(nextStartDate, nextEndDate)
@@ -212,41 +285,171 @@ export default class EmployeeLactationPeriodService {
       )
     }
 
-    period.employeeId = nextEmployeeId
-    period.employeeLactationPeriodStartDate = nextStartDate
-    period.employeeLactationPeriodEndDate = nextEndDate
-    if (payload.lactationPeriodType !== undefined) {
-      period.employeeLactationPeriodType = payload.lactationPeriodType
+    const { period: updatedPeriod, shiftExceptionsResult } = await db.transaction(
+      async (trx) => {
+        period.useTransaction(trx)
+        period.employeeId = nextEmployeeId
+        period.employeeLactationPeriodStartDate = nextStartDate
+        period.employeeLactationPeriodEndDate = nextEndDate
+        if (payload.employeeLactationPeriodType !== undefined) {
+          period.employeeLactationPeriodType = payload.employeeLactationPeriodType
+        }
+        if (payload.employeeLactationPeriodReductionApplication !== undefined) {
+          period.employeeLactationPeriodReductionApplication =
+            payload.employeeLactationPeriodReductionApplication
+        }
+        if (payload.employeeLactationPeriodNotes !== undefined) {
+          period.employeeLactationPeriodNotes = this.normalizeNotes(
+            payload.employeeLactationPeriodNotes
+          )
+        }
+        await period.save()
+
+        let result: LactationShiftExceptionsResult | null = null
+        if (shiftRelevantChange) {
+          result = await this.buildShiftExceptionService().regenerateForLactationPeriod(
+            period.employeeLactationPeriodId,
+            trx
+          )
+        }
+        return { period, shiftExceptionsResult: result }
+      }
+    )
+
+    await updatedPeriod.refresh()
+
+    return {
+      ...serializeLactationPeriod(updatedPeriod),
+      shiftExceptions: shiftExceptionsResult,
     }
-    if (payload.lactationReductionApplication !== undefined) {
-      period.employeeLactationPeriodReductionApplication =
-        payload.lactationReductionApplication
+  }
+
+  /**
+   * Soft delete (Lucid + adonis-lucid-soft-deletes). Idempotente sobre la fila.
+   *
+   * Side-effect transaccional: antes del soft-delete del propio periodo se
+   * borran (soft-delete) TODAS las excepciones diarias vinculadas vía
+   * `lactation_period_id` mediante
+   * `ShiftExceptionService.destroyForLactationPeriod(periodId, trx)`.
+   */
+  async destroy(periodId: number) {
+    const period = await this.findPeriodInCompanyOrFail(periodId)
+
+    const { deletedCount } = await db.transaction(async (trx) => {
+      const result = await this.buildShiftExceptionService().destroyForLactationPeriod(
+        periodId,
+        trx
+      )
+      period.useTransaction(trx)
+      await period.delete()
+      return result
+    })
+
+    return {
+      ...serializeLactationPeriod(period),
+      shiftExceptions: {
+        lactationPeriodId: periodId,
+        deletedCount,
+      },
     }
-    if (payload.lactationPeriodNotes !== undefined) {
-      period.employeeLactationPeriodNotes = this.normalizeNotes(
-        payload.lactationPeriodNotes
+  }
+
+  /**
+   * Endpoint manual de regeneración. Útil cuando el admin asigna un shift a la
+   * empleada DESPUÉS de haber creado el periodo, cuando se sospecha de
+   * desincronización entre el periodo y sus excepciones, o cuando se necesita
+   * reparar excepciones generadas con un bug previo.
+   *
+   * Borra TODAS las excepciones vinculadas al periodo (pasadas y futuras) y
+   * las regenera para el rango completo, leyendo el shift vigente para cada
+   * día. Si la empleada no tiene NINGÚN `EmployeeShift` activo en todo el rango
+   * lanza 422 `NO_ACTIVE_SHIFT`.
+   */
+  async regenerateShiftExceptions(periodId: number): Promise<{
+    lactationPeriodId: number
+    regeneratedExceptionsCount: number
+    omittedDaysWithoutShift: string[]
+  }> {
+    const period = await this.findPeriodInCompanyOrFail(periodId)
+
+    const result = await db.transaction(async (trx) => {
+      return this.buildShiftExceptionService().regenerateAllForLactationPeriod(
+        period.employeeLactationPeriodId,
+        trx
+      )
+    })
+
+    const totalDaysInRange = this.countDaysInRange(
+      this.toDateTime(period.employeeLactationPeriodStartDate),
+      this.toDateTime(period.employeeLactationPeriodEndDate)
+    )
+    if (
+      result.generatedCount === 0 &&
+      result.omittedDaysWithoutShift.length >= Math.max(totalDaysInRange, 1)
+    ) {
+      throw new EmployeeLactationPeriodError(
+        'La empleada no tiene un turno activo en el rango del periodo de lactancia.',
+        ELP_ERROR_CODES.NO_ACTIVE_SHIFT,
+        422,
+        'lactation-period-no-active-shift'
       )
     }
 
-    await period.save()
-    await period.refresh()
+    return {
+      lactationPeriodId: period.employeeLactationPeriodId,
+      regeneratedExceptionsCount: result.generatedCount,
+      omittedDaysWithoutShift: result.omittedDaysWithoutShift,
+    }
+  }
 
-    return serializeLactationPeriod(period)
+  /** Cantidad de días naturales en el rango inclusivo. */
+  private countDaysInRange(start: DateTime, end: DateTime): number {
+    if (!start.isValid || !end.isValid || end < start) return 0
+    return Math.floor(end.startOf('day').diff(start.startOf('day'), 'days').days) + 1
+  }
+
+  /**
+   * Normaliza `string | Date | DateTime` a un `DateTime` en UTC-6 que conserva
+   * el componente de fecha tal cual viene de BD. Convierte explícitamente a
+   * UTC antes de extraer el componente de fecha porque Lucid `@column.date()`
+   * envuelve el `Date` de mysql2 con `DateTime.fromJSDate(date)` sin zona y
+   * el `DateTime` queda en la zona local del proceso, lo cual al hacer
+   * `toISODate()` devuelve el día anterior (medianoche UTC vista en UTC-6).
+   * Misma estrategia que en `ShiftExceptionService.toDateTime`.
+   */
+  private toDateTime(value: unknown): DateTime {
+    if (DateTime.isDateTime(value)) {
+      const iso = (value as DateTime).toUTC().toISODate()
+      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
+      return (value as DateTime).setZone('UTC-6')
+    }
+    if (value instanceof Date) {
+      const iso = DateTime.fromJSDate(value, { zone: 'utc' }).toISODate()
+      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
+      return DateTime.fromJSDate(value).setZone('UTC-6')
+    }
+    if (typeof value === 'string') {
+      const head = value.length >= 10 ? value.substring(0, 10) : value
+      const iso = DateTime.fromISO(head, { zone: 'UTC-6' })
+      if (iso.isValid) return iso
+      const sql = DateTime.fromSQL(value, { zone: 'UTC-6' })
+      if (sql.isValid) return sql
+    }
+    return DateTime.invalid('Fecha no parseable para lactancia')
   }
 
   /** Soft delete (Lucid + adonis-lucid-soft-deletes). Idempotente sobre la fila. */
-  async destroy(periodId: number) {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
-    await period.delete()
-    return serializeLactationPeriod(period)
-  }
+  // async destroy(periodId: number, allowedBusinessUnitIds: number[] = []) {
+  //   const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
+  //   await period.delete()
+  //   return serializeLactationPeriod(period)
+  // }
 
   /**
    * Recupera un periodo no borrado cuya empleada pertenezca a la empresa actual.
    * Lanza 404 cuando no existe o vive en otra empresa.
    */
-  private async findPeriodInCompanyOrFail(periodId: number) {
-    const allowedBusinessUnitIds = await this.getAllowedBusinessUnitIds()
+  private async findPeriodInCompanyOrFail(periodId: number, allowedBusinessUnitIds: number[] = []) {
     const period = await EmployeeLactationPeriod.query()
       .where('employee_lactation_period_id', periodId)
       .whereNull('employee_lactation_period_deleted_at')
@@ -274,8 +477,7 @@ export default class EmployeeLactationPeriodService {
    * Verifica que la empleada exista, no esté dada de baja y pertenezca a una
    * unidad de negocio permitida por SYSTEM_BUSINESS.
    */
-  private async ensureEmployeeBelongsToCompany(employeeId: number) {
-    const allowedBusinessUnitIds = await this.getAllowedBusinessUnitIds()
+  private async ensureEmployeeBelongsToCompany(employeeId: number, allowedBusinessUnitIds: number[] = []) {
     if (allowedBusinessUnitIds.length === 0) {
       throw new EmployeeLactationPeriodError(
         'No hay unidades de negocio activas para el usuario autenticado.',
@@ -321,12 +523,26 @@ export default class EmployeeLactationPeriodService {
   }
 
   /**
-   * Sanity check: rechaza rangos absurdos (>24 meses) con 422 y key estable
-   * `lactation-period-unreasonable-range`.
-   * El derecho de 6 meses (LFT 170 IV) NO se aplica como hard reject.
+   * Valida el rango contra los dos extremos legales/operativos:
+   *  - Mínimo legal LFT 170 IV: 6 meses. Captura por debajo se rechaza
+   *    con 422 y key estable `lactation-period-below-legal-minimum`.
+   *  - Máximo operativo (sanity check): 24 meses. Captura por encima se
+   *    rechaza con 422 y key estable `lactation-period-unreasonable-range`.
+   *
+   * Las empresas pueden EXTENDER el periodo voluntariamente por encima
+   * del mínimo legal hasta el tope de 24 meses; el warning suave de
+   * "supera 6 meses" lo gestiona el cliente.
    */
   private assertWithinReasonableRange(startDate: DateTime, endDate: DateTime) {
     const diffMonths = endDate.diff(startDate, 'months').months
+    if (diffMonths < MIN_LACTATION_RANGE_MONTHS) {
+      throw new EmployeeLactationPeriodError(
+        'El rango de lactancia es menor al mínimo legal de 6 meses (LFT artículo 170).',
+        ELP_ERROR_CODES.RANGE_BELOW_LEGAL_MINIMUM,
+        422,
+        'lactation-period-below-legal-minimum'
+      )
+    }
     if (diffMonths > MAX_LACTATION_RANGE_MONTHS) {
       throw new EmployeeLactationPeriodError(
         'El rango de lactancia supera el máximo de 24 meses permitido por captura.',
@@ -376,11 +592,18 @@ export default class EmployeeLactationPeriodService {
     }
   }
 
+  /**
+   * Parsea fechas de entrada del cliente. Fuerza zona `UTC-6` para que la
+   * representación interna no se desvíe según el timezone del proceso. Acepta
+   * tanto `YYYY-MM-DD` como ISO completo y `DateTime` ya construido.
+   */
   private parseDate(value: string | DateTime): DateTime {
     if (DateTime.isDateTime(value)) {
-      return value as DateTime
+      const iso = (value as DateTime).toISODate()
+      return iso ? DateTime.fromISO(iso, { zone: 'UTC-6' }) : (value as DateTime)
     }
-    const parsed = DateTime.fromISO(String(value))
+    const head = String(value).length >= 10 ? String(value).substring(0, 10) : String(value)
+    const parsed = DateTime.fromISO(head, { zone: 'UTC-6' })
     if (!parsed.isValid) {
       throw new EmployeeLactationPeriodError(
         'Las fechas del periodo de lactancia son inválidas.',
@@ -397,30 +620,6 @@ export default class EmployeeLactationPeriodService {
     }
     const trimmed = String(value).trim()
     return trimmed.length === 0 ? null : trimmed
-  }
-
-  /**
-   * Devuelve los IDs de unidades de negocio activas a las que el usuario
-   * autenticado puede llegar (alineado a SYSTEM_BUSINESS, patrón vigente del repo).
-   */
-  private async getAllowedBusinessUnitIds(): Promise<number[]> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS') ?? ''}`
-    const businessSlugs = businessConf
-      .split(',')
-      .map((slug) => slug.trim())
-      .filter((slug) => slug.length > 0)
-
-    if (businessSlugs.length === 0) {
-      return []
-    }
-
-    const businessUnits = await BusinessUnit.query()
-      .whereNull('business_unit_deleted_at')
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessSlugs)
-      .select('business_unit_id')
-
-    return businessUnits.map((bu) => bu.businessUnitId)
   }
 
 }

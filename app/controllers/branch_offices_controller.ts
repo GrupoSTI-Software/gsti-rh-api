@@ -14,7 +14,7 @@ export default class BranchOfficesController {
    * /api/branch-offices:
    *   get:
    *     summary: Listar sucursales con paginación y filtros
-   *     description: Solo se devuelven sucursales cuya unidad de negocio tiene slug incluido en SYSTEM_BUSINESS (separado por comas).
+   *     description: Solo se devuelven sucursales cuya unidad de negocio pertenece al scope del usuario autenticado.
    *     tags: [BranchOffices]
    *     parameters:
    *       - in: query
@@ -52,10 +52,10 @@ export default class BranchOfficesController {
    *       200:
    *         description: Lista paginada de sucursales
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, businessUnitScope }: HttpContext) {
     try {
       const filters = await request.validateUsing(branchOfficeFilterValidator)
-      const branches = await BranchOfficeService.getAll(filters)
+      const branches = await BranchOfficeService.getAll(filters, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branches,
@@ -73,7 +73,7 @@ export default class BranchOfficesController {
    * /api/branch-offices/{id}:
    *   get:
    *     summary: Obtener sucursal por ID
-   *     description: Solo si la sucursal pertenece a una unidad de negocio permitida por SYSTEM_BUSINESS; si no, 404.
+   *     description: Solo si la sucursal pertenece a una unidad de negocio del scope del usuario autenticado; si no, 404.
    *     tags: [BranchOffices]
    *     parameters:
    *       - in: path
@@ -87,9 +87,9 @@ export default class BranchOfficesController {
    *       404:
    *         description: No encontrada
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, businessUnitScope }: HttpContext) {
     try {
-      const branch = await BranchOfficeService.getById(params.id)
+      const branch = await BranchOfficeService.getById(params.id, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branch,
@@ -141,10 +141,10 @@ export default class BranchOfficesController {
    *       400:
    *         description: Error de validación o unidad inexistente
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope }: HttpContext) {
     try {
       const data = await request.validateUsing(createBranchOfficeValidator)
-      const branch = await BranchOfficeService.create(data)
+      const branch = await BranchOfficeService.create(data, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branch,
@@ -196,10 +196,10 @@ export default class BranchOfficesController {
    *       404:
    *         description: No encontrada
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, businessUnitScope }: HttpContext) {
     try {
       const data = await request.validateUsing(updateBranchOfficeValidator)
-      const branch = await BranchOfficeService.update(params.id, data)
+      const branch = await BranchOfficeService.update(params.id, data, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branch,
@@ -230,9 +230,9 @@ export default class BranchOfficesController {
    *       404:
    *         description: No encontrada
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, response, businessUnitScope }: HttpContext) {
     try {
-      await BranchOfficeService.delete(params.id)
+      await BranchOfficeService.delete(params.id, businessUnitScope)
       return StandardResponseFormatter.success(response, null, 'Branch', 'Sucursal eliminada correctamente')
     } catch (error) {
       const { message, status, errorCode } = resolveBranchOfficeApiError(error, 404)

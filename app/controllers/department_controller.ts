@@ -14,7 +14,6 @@ import {
 } from '#validators/department'
 import OrgChartMoveService from '#services/org_chart_move_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
-import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
 import UserService from '#services/user_service'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
@@ -461,17 +460,14 @@ export default class DepartmentController {
    *                       type: string
    */
 
-  async getPositions({ auth, request, response, i18n }: HttpContext) {
+  async getPositions({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (user.role.roleSlug !== 'root') {
+        userResponsibleId = user.userId
       }
       const departmentId = request.param('departmentId')
       const positionSearch =
@@ -486,14 +482,7 @@ export default class DepartmentController {
           data: {},
         }
       }
-
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const businessUnitsList = businessUnitScope
 
       // Si el departmentId es 9999, retornar todas las posiciones
       if (Number.parseInt(departmentId) === 9999) {
@@ -750,7 +739,7 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getRotationIndex({ request, response, i18n }: HttpContext) {
+  async getRotationIndex({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -765,17 +754,9 @@ export default class DepartmentController {
         }
       }
 
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
       const department = await Department.query()
         .where('department_id', departmentId)
-        .whereIn('businessUnitId', businessUnitsList)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!department) {
@@ -969,30 +950,24 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getAll({ auth, request, response, i18n }: HttpContext) {
+  async getAll({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (user.role.roleSlug !== 'root') {
+        userResponsibleId = user.userId
       }
       const userService = new UserService(i18n)
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
 
-      let departmentsList = [] as Array<number>
+      const departmentsList = await userService.getRoleDepartments(user.userId)
 
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
-
+      const allowedBusinessUnitIds = businessUnitScope
       const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
-      const departments = await new DepartmentService(i18n).index(departmentsList, filters)
+      const departments = await new DepartmentService(i18n).index(departmentsList, filters, allowedBusinessUnitIds)
 
       response.status(200)
       return {
@@ -2358,32 +2333,27 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getOnlyWithEmployees({ auth, request, response, i18n }: HttpContext) {
+  async getOnlyWithEmployees({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (user.role.roleSlug !== 'root') {
+        userResponsibleId = user.userId
       }
       const userService = new UserService(i18n)
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
 
-      let departmentsList = [] as Array<number>
+      const departmentsList = await userService.getRoleDepartments(user.userId)
 
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
-
+      const allowedBusinessUnitIds = businessUnitScope
       const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
       const departments = await new DepartmentService(i18n).getOnlyWithEmployees(
         departmentsList,
-        filters
+        filters,
+        allowedBusinessUnitIds
       )
 
       response.status(200)

@@ -1,0 +1,252 @@
+openapi: 3.0.3
+info:
+  title: Valanserh API - Empresas Contratantes REPSE
+  version: 1.0.0
+  description: Catálogo de empresas contratantes (clientes corporativos del prestador REPSE).
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    EmpresaContratante:
+      type: object
+      properties:
+        id:
+          type: integer
+        razonSocial:
+          type: string
+          minLength: 3
+          maxLength: 255
+        rfc:
+          type: string
+          minLength: 12
+          maxLength: 13
+        domicilioFiscal:
+          type: string
+          minLength: 10
+          maxLength: 500
+        representanteLegal:
+          type: string
+          nullable: true
+        correo:
+          type: string
+          format: email
+          nullable: true
+        telefono:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    EmpresaContratanteCreate:
+      type: object
+      required:
+        - businessUnitId
+        - razonSocial
+        - rfc
+        - domicilioFiscal
+      properties:
+        businessUnitId:
+          type: integer
+          description: Empresa prestadora (extensión vs HU; requerido en API).
+        razonSocial:
+          type: string
+        rfc:
+          type: string
+        domicilioFiscal:
+          type: string
+        representanteLegal:
+          type: string
+          nullable: true
+        correo:
+          type: string
+          format: email
+          nullable: true
+        telefono:
+          type: string
+          nullable: true
+
+    EmpresaContratanteUpdate:
+      type: object
+      properties:
+        razonSocial:
+          type: string
+        rfc:
+          type: string
+        domicilioFiscal:
+          type: string
+        representanteLegal:
+          type: string
+          nullable: true
+        correo:
+          type: string
+          format: email
+          nullable: true
+        telefono:
+          type: string
+          nullable: true
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        currentPage:
+          type: integer
+        perPage:
+          type: integer
+        lastPage:
+          type: integer
+
+    ApiError:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+        errorCode:
+          type: string
+        data:
+          nullable: true
+
+paths:
+  /api/empresas-contratantes:
+    get:
+      summary: Lista paginada de empresas contratantes
+      tags: [EmpresasContratantes]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 500
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: businessUnitId
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Listado paginado
+        '401':
+          description: No autenticado
+        '403':
+          description: Sin permiso gestion
+
+    post:
+      summary: Crear empresa contratante
+      tags: [EmpresasContratantes]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmpresaContratanteCreate'
+      responses:
+        '201':
+          description: Creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpresaContratante'
+        '400':
+          description: RFC inválido (key rfc-invalido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: RFC duplicado (key rfc-duplicado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/empresas-contratantes/{id}:
+    get:
+      summary: Detalle de empresa contratante
+      tags: [EmpresasContratantes]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalle
+        '404':
+          description: key empresa-contratante-no-encontrada
+
+    patch:
+      summary: Actualizar empresa contratante (parcial)
+      tags: [EmpresasContratantes]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmpresaContratanteUpdate'
+      responses:
+        '200':
+          description: Actualizado
+        '409':
+          description: RFC duplicado
+
+    delete:
+      summary: Soft delete
+      tags: [EmpresasContratantes]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Eliminado lógicamente
+        '404':
+          description: key empresa-contratante-no-encontrada

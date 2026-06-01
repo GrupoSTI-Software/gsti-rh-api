@@ -19,6 +19,11 @@ router
       '/employee-lactation-periods/:id',
       '#controllers/employee_lactation_periods_controller.destroy'
     )
+    router.post(
+      '/employee-lactation-periods/:id/regenerate-shift-exceptions',
+      '#controllers/employee_lactation_periods_controller.regenerateShiftExceptions'
+    )
   })
   .prefix('/api')
   .use(middleware.auth())
+  .use(middleware.businessScope())

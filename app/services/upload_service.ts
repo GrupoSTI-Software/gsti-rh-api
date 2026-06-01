@@ -1,6 +1,19 @@
 import AWS, { S3 } from 'aws-sdk'
 import Env from '#start/env'
 import fs from 'node:fs'
+import { Readable } from 'node:stream'
+
+/**
+ * Resultado de obtener un objeto de S3 como stream junto con metadata útil
+ * para servirlo en una respuesta HTTP.
+ */
+export interface S3ObjectStream {
+  stream: Readable
+  contentType: string
+  contentLength?: number
+  etag?: string
+  lastModified?: Date
+}
 
 export default class UploadService {
   private s3Config: AWS.S3.ClientConfiguration = {
@@ -111,6 +124,45 @@ export default class UploadService {
       return null
     } catch {
       return null
+    }
+  }
+
+  /**
+   * Obtiene un objeto de S3 como stream listo para hacer pipe a la respuesta HTTP.
+   * Devuelve null cuando el objeto no existe (NoSuchKey / NotFound / 403).
+   * Lanza cualquier otro error del SDK para que la capa superior lo mapee.
+   */
+  async getObjectStream(key: string): Promise<S3ObjectStream | null> {
+    if (!key || !this.BUCKET_NAME) return null
+
+    const s3 = new AWS.S3(this.s3Config)
+    const params = {
+      Bucket: this.BUCKET_NAME as string,
+      Key: key,
+    } as S3.Types.GetObjectRequest
+
+    try {
+      // Verificar existencia y obtener metadata sin descargar el cuerpo.
+      const head = await s3.headObject(params).promise()
+      const stream = s3.getObject(params).createReadStream()
+
+      return {
+        stream,
+        contentType: head.ContentType || 'application/octet-stream',
+        contentLength: head.ContentLength,
+        etag: head.ETag,
+        lastModified: head.LastModified,
+      }
+    } catch (error: any) {
+      if (
+        error?.code === 'NotFound' ||
+        error?.code === 'NoSuchKey' ||
+        error?.statusCode === 404 ||
+        error?.statusCode === 403
+      ) {
+        return null
+      }
+      throw error
     }
   }
 

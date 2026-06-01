@@ -1,0 +1,145 @@
+import db from '@adonisjs/lucid/services/db'
+import type { RegulatoryCoverageRepository } from './regulatory_coverage.repository.js'
+import type { RegulationCoverageRow } from './dto/regulatory_coverage.dto.js'
+import {
+  aggregateLeafRows,
+  buildRegulationCoverageRows,
+  type LeafClauseRow,
+  type VigentRegulationRow,
+} from './regulatory_coverage.calculations.js'
+
+/**
+ * Implementación MySQL del repositorio de cobertura regulatoria.
+ *
+ * Resuelve el cálculo completo en dos consultas agregadas para evitar N+1:
+ *
+ * 1. `fetchVigentRegulations` — trae todas las normas vigentes con datos
+ *    de su autoridad regulatoria.
+ *
+ * 2. `fetchLeafClauseCoverage` — una sola consulta que:
+ *    a. Identifica los numerales hoja (cláusulas que no son padre de ninguna otra).
+ *    b. Para cada numeral hoja, determina la mejor cobertura disponible
+ *       considerando únicamente features con systemFeatureStatus = 'disponible'.
+ *    c. Devuelve una fila por numeral hoja con (regulationId, bestCoverage).
+ *
+ * El service agrega los conteos por norma y calcula el porcentaje.
+ */
+export default class RegulatoryCoverageRepositoryMysql implements RegulatoryCoverageRepository {
+  async getCoverageByRegulation(): Promise<RegulationCoverageRow[]> {
+    const [regulations, leafRows] = await Promise.all([
+      this.fetchVigentRegulations(),
+      this.fetchLeafClauseCoverage(),
+    ])
+
+    const countsByRegulation = aggregateLeafRows(leafRows)
+    return buildRegulationCoverageRows(regulations, countsByRegulation)
+  }
+
+  /**
+   * Trae todas las normas con estatus `vigente` junto con los datos de su autoridad.
+   * Excluye normas con soft-delete.
+   */
+  private async fetchVigentRegulations(): Promise<VigentRegulationRow[]> {
+    return db
+      .from('regulations as r')
+      .join('regulatory_authorities as ra', 'ra.regulatory_authority_id', 'r.regulatory_authority_id')
+      .whereNull('r.deleted_at')
+      .where('r.regulation_status', 'vigente')
+      .select(
+        'r.regulation_id',
+        'r.regulation_code',
+        'r.regulation_title',
+        'r.regulation_type',
+        'r.regulation_version',
+        'r.regulation_status',
+        'ra.regulatory_authority_slug as authority_slug',
+        'ra.regulatory_authority_short_name as authority_short_name'
+      )
+      .orderBy('r.regulation_id')
+  }
+
+  /**
+   * Identifica los numerales hoja de todas las normas vigentes y determina
+   * la mejor cobertura disponible para cada uno.
+   *
+   * Un numeral hoja es una cláusula cuyo `regulation_clause_id` no aparece
+   * como `parent_regulation_clause_id` de ninguna otra cláusula (excluyendo
+   * soft-deleted).
+   *
+   * Para cada numeral hoja se evalúan los mapeos en `regulation_clause_features`
+   * cuya feature (`system_features`) tenga `system_feature_status = 'disponible'`.
+   * La cobertura se agrega con MAX sobre la jerarquía: 'total' > 'parcial' > null.
+   *
+   * Retorna una fila por numeral hoja con:
+   *   - regulation_id
+   *   - best_coverage: 'total' | 'parcial' | null
+   */
+  private async fetchLeafClauseCoverage(): Promise<LeafClauseRow[]> {
+    /*
+     * La consulta tiene tres partes:
+     *
+     * 1. `parent_ids`: subconsulta que colecta todos los clause_id que son padre
+     *    de al menos otro numeral (excluyendo soft-deleted). Los que no están en
+     *    esta lista son "hoja".
+     *
+     * 2. `leaf_clauses`: filtra las cláusulas que no están en `parent_ids`,
+     *    pertenecen a normas vigentes y no tienen soft-delete.
+     *
+     * 3. LEFT JOIN con `regulation_clause_features` y `system_features` para
+     *    obtener el mejor coverage disponible (features con status 'disponible').
+     *    Se usa MAX con FIELD() para obtener la jerarquía total > parcial > null.
+     */
+    const sql = `
+      SELECT
+        lc.regulation_id,
+        CASE
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 2 THEN 'total'
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 1 THEN 'parcial'
+          ELSE NULL
+        END AS best_coverage
+      FROM regulation_clauses AS lc
+      INNER JOIN regulations AS r
+        ON  r.regulation_id  = lc.regulation_id
+        AND r.regulation_status = 'vigente'
+        AND r.deleted_at IS NULL
+      LEFT JOIN regulation_clause_features AS rcf
+        ON  rcf.regulation_clause_id = lc.regulation_clause_id
+        AND rcf.deleted_at IS NULL
+      LEFT JOIN system_features AS sf
+        ON  sf.system_feature_id = rcf.system_feature_id
+        AND sf.deleted_at IS NULL
+        AND sf.system_feature_status = 'disponible'
+      WHERE
+        lc.deleted_at IS NULL
+        AND lc.regulation_clause_id NOT IN (
+          SELECT DISTINCT parent_regulation_clause_id
+          FROM   regulation_clauses
+          WHERE  parent_regulation_clause_id IS NOT NULL
+            AND  deleted_at IS NULL
+        )
+      GROUP BY lc.regulation_clause_id, lc.regulation_id
+    `
+
+    const result = await db.rawQuery(sql)
+    // mysql2 devuelve [rows, fields]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = Array.isArray(result) ? (result[0] as any[]) : (result as any[])
+    return rows as LeafClauseRow[]
+  }
+}

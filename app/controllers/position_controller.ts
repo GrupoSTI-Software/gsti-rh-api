@@ -1295,7 +1295,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1309,7 +1309,7 @@ export default class PositionController {
       }
 
       const positionService = new PositionService(i18n)
-      const showPosition = await positionService.show(positionId)
+      const showPosition = await positionService.show(positionId, businessUnitScope)
 
       if (!showPosition) {
         response.status(404)
@@ -1735,7 +1735,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async getPdf({ request, response, i18n }: HttpContext) {
+  async getPdf({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1749,7 +1749,7 @@ export default class PositionController {
       }
 
       const positionService = new PositionService(i18n)
-      const pdfBuffer = await positionService.getPdf(positionId)
+      const pdfBuffer = await positionService.getPdf(positionId, businessUnitScope)
 
       if (!pdfBuffer) {
         response.status(404)
@@ -1876,7 +1876,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async getExcel({ request, response, i18n }: HttpContext) {
+  async getExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1890,7 +1890,7 @@ export default class PositionController {
       }
 
       const positionService = new PositionService(i18n)
-      const excelBuffer = await positionService.getExcel(positionId)
+      const excelBuffer = await positionService.getExcel(positionId, businessUnitScope)
 
       if (!excelBuffer) {
         response.status(404)
