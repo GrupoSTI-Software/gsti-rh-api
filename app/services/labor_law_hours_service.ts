@@ -1,6 +1,13 @@
 import LaborLawHour from '#models/labor_law_hour'
 import { DateTime } from 'luxon'
 
+/**
+ * @deprecated DEPRECADO (EPIC-08-12). Reemplazado por la lógica basada en `working_time_rules`
+ * (modelo `WorkingTimeRule`), fuente única de verdad del marco legal de jornada laboral.
+ * El método `getActive()` será sustituido por el helper `getRulesForDate` de una historia
+ * posterior del CAP. No usar en nuevas funcionalidades.
+ * Pendiente de eliminación (responsable: Wilvardo Ramírez Colunga).
+ */
 export default class LaborLawHoursService {
 
   async index() {

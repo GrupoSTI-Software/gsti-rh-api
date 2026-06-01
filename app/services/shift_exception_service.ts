@@ -14,6 +14,66 @@ import ShiftForEmployeeService from './shift_for_employees_service.js'
 import type { ShiftRecordInterface } from '../interfaces/shift_record_interface.js'
 import type { EmployeeRecordInterface } from '../interfaces/employee_record_interface.js'
 import Holiday from '#models/holiday'
+// import env from '#start/env'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import EmployeeLactationPeriod from '#models/employee_lactation_period'
+import logger from '@adonisjs/core/services/logger'
+import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
+import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
+
+/**
+ * Slug del tipo de excepción que representa una jornada reducida por lactancia.
+ * Persistido por `database/seeders/0028_lactation_exception_type_seeder.ts`.
+ */
+const LACTATION_EXCEPTION_TYPE_SLUG = 'lactancia'
+
+/**
+ * Minutos a reducir según `(employeeLactationPeriodType, employeeLactationPeriodReductionApplication)`.
+ *
+ * - `reduced_hour` ≡ 60 min de jornada reducida.
+ * - `two_rest_periods` ≡ 30 min totales (la otra media hora del derecho LFT 170 IV
+ *   se asume como reposo intra-jornada que no requiere modificación del marcaje).
+ *
+ * Para `split` se reparte la mitad al inicio y la mitad al final para ofrecer
+ * la flexibilidad documentada como convención del repo:
+ * - reduced_hour split → 30 min entrada + 30 min salida.
+ * - two_rest_periods split → 15 min entrada + 15 min salida.
+ */
+const LACTATION_REDUCTION_MINUTES: Record<
+  'reduced_hour' | 'two_rest_periods',
+  { full: number; halfStart: number; halfEnd: number }
+> = {
+  reduced_hour: { full: 60, halfStart: 30, halfEnd: 30 },
+  two_rest_periods: { full: 30, halfStart: 15, halfEnd: 15 },
+}
+
+/**
+ * Información mínima del shift necesaria para calcular check-in/out de la excepción.
+ */
+interface LactationShiftInfo {
+  shiftTimeStart: string
+  shiftActiveHours: number
+  shiftRestDays: string
+}
+
+/**
+ * Asignación de turno vigente para una fecha concreta.
+ */
+interface LactationActiveAssignment {
+  applySince: DateTime
+  shift: LactationShiftInfo
+}
+
+/**
+ * Resultado de generar/regenerar excepciones por periodo. `omittedDaysWithoutShift`
+ * lista las fechas (ISO `YYYY-MM-DD`) que se saltaron porque la empleada no
+ * tenía `EmployeeShift` activo ese día — útil para mostrarlas como warning al admin.
+ */
+export interface LactationShiftExceptionsResult {
+  lactationPeriodId: number
+  generatedCount: number
+  omittedDaysWithoutShift: string[]
+}
 
 export default class ShiftExceptionService {
 
@@ -460,5 +520,464 @@ export default class ShiftExceptionService {
       dates.add(d)
     }
     return dates
+  }
+
+  // ---------------------------------------------------------------------------
+  //  INTEGRACIÓN CON `employee_lactation_periods`
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Genera las excepciones diarias de turno para todo el rango de un periodo de
+   * lactancia. Itera día por día desde la fecha de inicio hasta la fecha de fin
+   * (inclusivas), respetando el `EmployeeShift` vigente para cada fecha y los
+   * `shiftRestDays` del turno (los descansos se omiten). El ajuste de
+   * `shiftExceptionCheckInTime` / `shiftExceptionCheckOutTime` depende de
+   * `employeeLactationPeriodType` y `employeeLactationPeriodReductionApplication`:
+   *
+   * - `reduced_hour` ⇒ 60 min. `start`: entrada +1h. `end` (default): salida -1h.
+   *   `split`: entrada +30min y salida -30min.
+   * - `two_rest_periods` ⇒ 30 min. `start`: entrada +30min. `end`: salida -30min.
+   *   `split`: entrada +15min y salida -15min.
+   *
+   * Los días sin `EmployeeShift` activo NO hacen fallar la generación: se
+   * registran en `omittedDaysWithoutShift` para que el admin pueda regenerar
+   * después de asignar turno. Si el tipo de excepción `lactancia` no existe en
+   * `exception_types`, se lanza `EmployeeLactationPeriodError` 500 con key
+   * `lactation-exception-type-missing` para que el caller haga rollback.
+   *
+   * @param periodId Identificador del periodo de lactancia.
+   * @param trx Transacción opcional. Si se pasa, todas las operaciones se ejecutan
+   *            dentro de ella (las inserciones, lecturas y soft-deletes); si no,
+   *            se ejecutan con el cliente por defecto.
+   */
+  async generateForLactationPeriod(
+    periodId: number,
+    trx?: TransactionClientContract
+  ): Promise<LactationShiftExceptionsResult> {
+    const period = await this.loadLactationPeriodOrThrow(periodId, trx)
+    const exceptionTypeId = await this.resolveLactationExceptionTypeId(trx)
+
+    return this.generateExceptionsForRange({
+      period,
+      exceptionTypeId,
+      rangeStart: this.toDateTime(period.employeeLactationPeriodStartDate),
+      rangeEnd: this.toDateTime(period.employeeLactationPeriodEndDate),
+      trx,
+    })
+  }
+
+  /**
+   * Borra (soft-delete) las excepciones FUTURAS vinculadas al periodo
+   * (fecha `>= hoy`) y vuelve a generarlas. Las excepciones pasadas no se
+   * tocan para preservar el histórico de marcaje.
+   *
+   * Usado por `EmployeeLactationPeriodService.update` cuando cambian las
+   * fechas, el tipo o la modalidad de aplicación. Si no quedan días futuros
+   * dentro del rango, regresa `generatedCount=0` sin error.
+   */
+  async regenerateForLactationPeriod(
+    periodId: number,
+    trx?: TransactionClientContract
+  ): Promise<LactationShiftExceptionsResult> {
+    const period = await this.loadLactationPeriodOrThrow(periodId, trx)
+    const exceptionTypeId = await this.resolveLactationExceptionTypeId(trx)
+
+    const today = DateTime.now().setZone('UTC-6').startOf('day')
+    const periodStart = this.toDateTime(period.employeeLactationPeriodStartDate)
+    const periodEnd = this.toDateTime(period.employeeLactationPeriodEndDate)
+
+    // Soft-delete sólo futuras
+    await this.softDeleteFutureExceptionsByPeriod(periodId, today, trx)
+
+    const rangeStart = periodStart > today ? periodStart : today
+    if (rangeStart > periodEnd) {
+      return {
+        lactationPeriodId: periodId,
+        generatedCount: 0,
+        omittedDaysWithoutShift: [],
+      }
+    }
+
+    return this.generateExceptionsForRange({
+      period,
+      exceptionTypeId,
+      rangeStart,
+      rangeEnd: periodEnd,
+      trx,
+    })
+  }
+
+  /**
+   * Regeneración TOTAL: borra (soft-delete) TODAS las excepciones vinculadas al
+   * periodo (pasadas y futuras) y vuelve a generarlas para el rango completo.
+   *
+   * Usado por el endpoint manual `POST /:id/regenerate-shift-exceptions`. A
+   * diferencia de `regenerateForLactationPeriod`, no protege el histórico: la
+   * suposición es que el admin lo invoca cuando sospecha de desincronización
+   * o cuando asignó un turno retroactivo y quiere reconstruir la línea
+   * completa de excepciones. El propio motor de asistencia se recalcula sobre
+   * los marcajes; perder y rehacer la excepción de un día pasado no genera
+   * pérdida de datos sustantivos.
+   */
+  async regenerateAllForLactationPeriod(
+    periodId: number,
+    trx?: TransactionClientContract
+  ): Promise<LactationShiftExceptionsResult> {
+    const period = await this.loadLactationPeriodOrThrow(periodId, trx)
+    const exceptionTypeId = await this.resolveLactationExceptionTypeId(trx)
+
+    const periodStart = this.toDateTime(period.employeeLactationPeriodStartDate)
+    const periodEnd = this.toDateTime(period.employeeLactationPeriodEndDate)
+
+    // Soft-delete TOTAL (incluye pasadas)
+    const now = DateTime.now().toSQL({ includeOffset: false })
+    const baseQuery = trx ? ShiftException.query({ client: trx }) : ShiftException.query()
+    await baseQuery
+      .where('lactation_period_id', periodId)
+      .whereNull('shift_exceptions_deleted_at')
+      .update({ shift_exceptions_deleted_at: now })
+
+    return this.generateExceptionsForRange({
+      period,
+      exceptionTypeId,
+      rangeStart: periodStart,
+      rangeEnd: periodEnd,
+      trx,
+    })
+  }
+
+  /**
+   * Soft-delete masivo de TODAS las excepciones vinculadas al periodo (incluyendo
+   * pasadas y futuras). Se invoca antes del soft-delete del propio periodo, dentro
+   * de la misma transacción, para mantener la coherencia entre el origen y los
+   * impactos en el calendario de asistencia.
+   */
+  async destroyForLactationPeriod(
+    periodId: number,
+    trx?: TransactionClientContract
+  ): Promise<{ deletedCount: number }> {
+    const now = DateTime.now().toSQL({ includeOffset: false })
+    const baseQuery = trx ? ShiftException.query({ client: trx }) : ShiftException.query()
+    const deletedCount = await baseQuery
+      .where('lactation_period_id', periodId)
+      .whereNull('shift_exceptions_deleted_at')
+      .update({ shift_exceptions_deleted_at: now })
+
+    // `update` regresa la cantidad afectada (number) o un array según el driver;
+    // normalizamos para devolver siempre un entero.
+    const normalized = Array.isArray(deletedCount)
+      ? Number.parseInt(`${deletedCount[0] ?? 0}`, 10) || 0
+      : Number.parseInt(`${deletedCount ?? 0}`, 10) || 0
+    return { deletedCount: normalized }
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Helpers privados (lactancia)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Genera las excepciones día a día para el subrango dado. Aísla el cálculo
+   * de check-in/out y la persistencia en bulk para que `generate` y `regenerate`
+   * compartan la misma implementación.
+   */
+  private async generateExceptionsForRange(params: {
+    period: EmployeeLactationPeriod
+    exceptionTypeId: number
+    rangeStart: DateTime
+    rangeEnd: DateTime
+    trx?: TransactionClientContract
+  }): Promise<LactationShiftExceptionsResult> {
+    const { period, exceptionTypeId, rangeStart, rangeEnd, trx } = params
+    const employeeShifts = await this.loadEmployeeShiftsUpTo(period.employeeId, rangeEnd, trx)
+
+    const rows: Array<Partial<ShiftException>> = []
+    const omittedDaysWithoutShift: string[] = []
+
+    let current = rangeStart.setZone('UTC-6').startOf('day')
+    const end = rangeEnd.setZone('UTC-6').startOf('day')
+
+    while (current <= end) {
+      const isoDate = current.toFormat('yyyy-LL-dd')
+      const assignment = this.findActiveAssignmentForDate(current, employeeShifts)
+
+      if (!assignment) {
+        omittedDaysWithoutShift.push(isoDate)
+        current = current.plus({ days: 1 })
+        continue
+      }
+      if (this.isRestDayForShift(current, assignment.shift.shiftRestDays)) {
+        current = current.plus({ days: 1 })
+        continue
+      }
+
+      const times = this.calculateLactationAdjustedTimes(
+        assignment.shift,
+        period.employeeLactationPeriodType,
+        period.employeeLactationPeriodReductionApplication
+      )
+
+      rows.push({
+        employeeId: period.employeeId,
+        exceptionTypeId,
+        shiftExceptionsDate: isoDate,
+        shiftExceptionsDescription: this.buildLactationDescription(period),
+        shiftExceptionCheckInTime: times.checkIn,
+        shiftExceptionCheckOutTime: times.checkOut,
+        shiftExceptionEnjoymentOfSalary: 1,
+        shiftExceptionTimeByTime: 0,
+        lactationPeriodId: period.employeeLactationPeriodId,
+      })
+
+      current = current.plus({ days: 1 })
+    }
+
+    if (rows.length > 0) {
+      await ShiftException.createMany(rows, trx ? { client: trx } : undefined)
+    }
+
+    if (omittedDaysWithoutShift.length > 0) {
+      logger.warn(
+        {
+          module: 'employee_lactation_period',
+          employeeId: period.employeeId,
+          lactationPeriodId: period.employeeLactationPeriodId,
+          rangeStart: rangeStart.toFormat('yyyy-LL-dd'),
+          rangeEnd: rangeEnd.toFormat('yyyy-LL-dd'),
+          omittedDaysCount: omittedDaysWithoutShift.length,
+        },
+        'Se omitieron días sin EmployeeShift activo al generar excepciones de lactancia'
+      )
+    }
+
+    return {
+      lactationPeriodId: period.employeeLactationPeriodId,
+      generatedCount: rows.length,
+      omittedDaysWithoutShift,
+    }
+  }
+
+  /**
+   * Carga el periodo activo o lanza 404 con código tipado para que el flujo
+   * superior responda de forma consistente. No carga el `employee`; quien necesite
+   * pertenencia a la empresa debe validarlo aparte (lo hace `EmployeeLactationPeriodService`).
+   */
+  private async loadLactationPeriodOrThrow(
+    periodId: number,
+    trx?: TransactionClientContract
+  ): Promise<EmployeeLactationPeriod> {
+    const baseQuery = trx
+      ? EmployeeLactationPeriod.query({ client: trx })
+      : EmployeeLactationPeriod.query()
+    const period = await baseQuery
+      .where('employee_lactation_period_id', periodId)
+      .whereNull('employee_lactation_period_deleted_at')
+      .first()
+
+    if (!period) {
+      throw new EmployeeLactationPeriodError(
+        'El periodo de lactancia no existe.',
+        ELP_ERROR_CODES.PERIOD_NOT_FOUND,
+        404
+      )
+    }
+    return period
+  }
+
+  /**
+   * Resuelve y cachea ad-hoc el `exceptionTypeId` del slug `lactancia`. Si no
+   * existe, lanza error tipado 500 para que la transacción se revierta.
+   */
+  private async resolveLactationExceptionTypeId(
+    trx?: TransactionClientContract
+  ): Promise<number> {
+    const baseQuery = trx ? ExceptionType.query({ client: trx }) : ExceptionType.query()
+    const row = await baseQuery
+      .where('exception_type_slug', LACTATION_EXCEPTION_TYPE_SLUG)
+      .whereNull('exception_type_deleted_at')
+      .select('exceptionTypeId')
+      .first()
+
+    if (!row) {
+      throw new EmployeeLactationPeriodError(
+        'El tipo de excepción de lactancia no está configurado. Ejecuta el seeder correspondiente.',
+        ELP_ERROR_CODES.EXCEPTION_TYPE_MISSING,
+        500,
+        'lactation-exception-type-missing'
+      )
+    }
+    return row.exceptionTypeId
+  }
+
+  /**
+   * Carga todos los `EmployeeShift` no borrados de la empleada cuyo `applySince`
+   * sea anterior o igual al fin del rango. Permite resolver el shift vigente
+   * para cualquier día del rango sin hacer N queries.
+   */
+  private async loadEmployeeShiftsUpTo(
+    employeeId: number,
+    rangeEnd: DateTime,
+    trx?: TransactionClientContract
+  ): Promise<LactationActiveAssignment[]> {
+    const baseQuery = trx ? EmployeeShift.query({ client: trx }) : EmployeeShift.query()
+    const records = await baseQuery
+      .where('employee_id', employeeId)
+      .whereRaw('DATE(employe_shifts_apply_since) <= ?', [rangeEnd.toFormat('yyyy-LL-dd')])
+      .whereNull('deletedAt')
+      .preload('shift')
+      .orderBy('employeShiftsApplySince', 'desc')
+
+    const assignments: LactationActiveAssignment[] = []
+    for (const record of records) {
+      const shift = record.shift
+      if (!shift) continue
+      const shiftTimeStart = `${shift.shiftTimeStart ?? ''}`
+      const shiftActiveHours = Number(shift.shiftActiveHours ?? 0)
+      const shiftRestDays = `${shift.shiftRestDays ?? ''}`
+      if (!shiftTimeStart || !shiftActiveHours) continue
+
+      const applySince = this.toDateTime(record.employeShiftsApplySince).setZone('UTC-6')
+      if (!applySince.isValid) continue
+
+      assignments.push({
+        applySince,
+        shift: { shiftTimeStart, shiftActiveHours, shiftRestDays },
+      })
+    }
+    return assignments
+  }
+
+  /**
+   * Devuelve el `EmployeeShift` activo para la fecha dada (el de mayor
+   * `applySince` que sea anterior o igual a la fecha). `null` si no existe.
+   */
+  private findActiveAssignmentForDate(
+    dayDate: DateTime,
+    assignments: LactationActiveAssignment[]
+  ): LactationActiveAssignment | null {
+    const day = dayDate.setZone('UTC-6').startOf('day')
+    for (const a of assignments) {
+      // assignments está ordenado por applySince DESC; tomamos el primero compatible
+      if (a.applySince.startOf('day') <= day) {
+        return a
+      }
+    }
+    return null
+  }
+
+  /**
+   * Calcula los campos `shiftExceptionCheckInTime` y `shiftExceptionCheckOutTime`
+   * según el tipo y la modalidad de aplicación del periodo de lactancia.
+   *
+   * Hora base: `shift.shiftTimeStart` (acepta `HH:mm` o `HH:mm:ss`).
+   * Hora salida normal: `shiftTimeStart + shiftActiveHours`.
+   *
+   * - `start` ⇒ sólo se modifica entrada (`checkIn`), `checkOut` queda null.
+   * - `end` (default) ⇒ sólo se modifica salida (`checkOut`), `checkIn` queda null.
+   * - `split` ⇒ se modifican ambos.
+   */
+  private calculateLactationAdjustedTimes(
+    shift: LactationShiftInfo,
+    periodType: 'two_rest_periods' | 'reduced_hour',
+    application: 'start' | 'end' | 'split'
+  ): { checkIn: string | null; checkOut: string | null } {
+    const reduction = LACTATION_REDUCTION_MINUTES[periodType]
+    const baseStart = this.parseTimeOfDay(shift.shiftTimeStart)
+    if (!baseStart) {
+      return { checkIn: null, checkOut: null }
+    }
+    const baseEnd = baseStart.plus({ hours: shift.shiftActiveHours })
+
+    switch (application) {
+      case 'start':
+        return {
+          checkIn: baseStart.plus({ minutes: reduction.full }).toFormat('HH:mm:ss'),
+          checkOut: null,
+        }
+      case 'split':
+        return {
+          checkIn: baseStart.plus({ minutes: reduction.halfStart }).toFormat('HH:mm:ss'),
+          checkOut: baseEnd.minus({ minutes: reduction.halfEnd }).toFormat('HH:mm:ss'),
+        }
+      case 'end':
+      default:
+        return {
+          checkIn: null,
+          checkOut: baseEnd.minus({ minutes: reduction.full }).toFormat('HH:mm:ss'),
+        }
+    }
+  }
+
+  /**
+   * Convierte `HH:mm` o `HH:mm:ss` a un `DateTime` neutro (fecha 1970-01-01)
+   * en UTC-6 para poder sumarle/restarle minutos sin acarreo de zona horaria.
+   */
+  private parseTimeOfDay(value: string): DateTime | null {
+    if (!value) return null
+    const normalized = value.length === 5 ? `${value}:00` : value
+    const dt = DateTime.fromISO(`1970-01-01T${normalized}`, { zone: 'UTC-6' })
+    return dt.isValid ? dt : null
+  }
+
+  /**
+   * Convierte cualquier representación de fecha (string, JS Date, Luxon DateTime)
+   * a `DateTime` en UTC-6 PRESERVANDO el componente de fecha tal cual fue
+   * almacenado en la columna `DATE` de MySQL.
+   *
+   * Contexto del bug que esta función mitiga:
+   *  - `mysql2` decodifica una columna `DATE` como `Date` JS construido con
+   *    `new Date('YYYY-MM-DD')`, que es medianoche UTC.
+   *  - Lucid `@column.date()` lo envuelve con `DateTime.fromJSDate(date)` SIN
+   *    especificar zona, por lo que el `DateTime` resultante queda en la zona
+   *    local del proceso (UTC-6 en MX). Visto en local, ese instante es la
+   *    medianoche UTC menos 6 h = "ayer 18:00", por lo que `toISODate()`
+   *    devuelve el día ANTERIOR al almacenado.
+   *  - Solución: convertir explícitamente a UTC antes de extraer el componente
+   *    de fecha, recuperando el `YYYY-MM-DD` original.
+   */
+  private toDateTime(value: unknown): DateTime {
+    if (DateTime.isDateTime(value)) {
+      const iso = (value as DateTime).toUTC().toISODate()
+      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
+      return (value as DateTime).setZone('UTC-6')
+    }
+    if (value instanceof Date) {
+      const iso = DateTime.fromJSDate(value, { zone: 'utc' }).toISODate()
+      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
+      return DateTime.fromJSDate(value).setZone('UTC-6')
+    }
+    if (typeof value === 'string') {
+      const head = value.length >= 10 ? value.substring(0, 10) : value
+      const direct = DateTime.fromISO(head, { zone: 'UTC-6' })
+      if (direct.isValid) return direct
+      const sql = DateTime.fromSQL(value, { zone: 'UTC-6' })
+      if (sql.isValid) return sql
+    }
+    return DateTime.invalid('Fecha no parseable para lactancia')
+  }
+
+  /**
+   * Construye la descripción legible que acompaña cada excepción generada.
+   * No expone notas privadas del periodo; sólo el origen y la modalidad.
+   */
+  private buildLactationDescription(period: EmployeeLactationPeriod): string {
+    return `Periodo de lactancia (${period.employeeLactationPeriodType}/${period.employeeLactationPeriodReductionApplication})`
+  }
+
+  /**
+   * Soft-delete masivo de las excepciones futuras del periodo (fecha >= hoy).
+   */
+  private async softDeleteFutureExceptionsByPeriod(
+    periodId: number,
+    today: DateTime,
+    trx?: TransactionClientContract
+  ): Promise<void> {
+    const now = DateTime.now().toSQL({ includeOffset: false })
+    const todayIso = today.toFormat('yyyy-LL-dd')
+    const baseQuery = trx ? ShiftException.query({ client: trx }) : ShiftException.query()
+    await baseQuery
+      .where('lactation_period_id', periodId)
+      .whereNull('shift_exceptions_deleted_at')
+      .whereRaw('DATE(shift_exceptions_date) >= ?', [todayIso])
+      .update({ shift_exceptions_deleted_at: now })
   }
 }

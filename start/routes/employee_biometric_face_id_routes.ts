@@ -23,6 +23,10 @@ router
       '/:employeeId/biometric-face-id-with-token/:token',
       '#controllers/employee_biometric_face_id_controller.getPhotoToken'
     )
+    router.get(
+      '/:employeeId/biometric-face-id-photo',
+      '#controllers/employee_biometric_photos_controller.streamPhoto'
+    )
   })
   .prefix('/api/employees')
   .use(middleware.auth())

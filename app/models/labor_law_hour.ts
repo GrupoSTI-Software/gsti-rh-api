@@ -33,6 +33,18 @@ import { compose } from '@adonisjs/core/helpers'
  *            type: string
  *
  */
+/**
+ * @deprecated DEPRECADO (EPIC-08-12). La fuente única de verdad del marco legal de
+ * jornada laboral ahora es la tabla `working_time_rules` (modelo `WorkingTimeRule`),
+ * que cubre horas semanales con vigencia por año, horas extra, jornadas diurna/nocturna/mixta,
+ * regla 6x1 y protección salarial.
+ *
+ * Esta tabla solo cubría `hours_per_week` y representa una segunda fuente de verdad del
+ * mismo dato, por lo que no debe usarse para nuevas funcionalidades.
+ *
+ * Pendiente de migración de datos y eliminación en historia posterior del CAP
+ * (responsable: Wilvardo Ramírez Colunga).
+ */
 export default class LaborLawHour extends compose(BaseModel, SoftDeletes) {
   @column({ isPrimary: true })
   declare laborLawHoursId: number
