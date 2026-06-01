@@ -491,10 +491,28 @@ Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. P
 | ECNT.VAL.001 | Validación VineJS o input inválido | 400 | — |
 | ECNT.VAL.RFC.001 | RFC formato o dígito verificador SAT inválido | 400 | `rfc-invalido` |
 | ECNT.CONFLICT.RFC.001 | RFC duplicado en catálogo del tenant | 409 | `rfc-duplicado` |
+| ECNT.CONFLICT.CONTRATOS.001 | Empresa con contratos no soft-deleted asociados | 409 | `empresa-con-contratos-activos` |
 | ECNT.NF.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
 | ECNT.NF.BU.001 | Business unit ajena al tenant | 404 | `empresa-no-encontrada` |
 | ECNT.FORBID.001 | Sin permiso `gestion` | 403 | `sin-permiso` |
 | ECNT.SYS.001 | Error no clasificado | 5xx | — |
+
+---
+
+## Contratos de servicios especializados REPSE (`CSE.*`)
+
+Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especializados`. Permiso: `compliance-contratos` / `gestion`.
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| CSE.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| CSE.VAL.FECHAS.001 | fechaFin anterior a fechaInicio | 422 | `fecha-fin-anterior-a-fecha-inicio` |
+| CSE.NF.001 | Contrato inexistente o cross-tenant | 404 | `contrato-no-encontrado` |
+| CSE.NF.CONTRATANTE.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
+| CSE.NF.REPSE.001 | Sin registro REPSE activo en el tenant | 422 | `registro-repse-no-encontrado` |
+| CSE.CONFLICT.NUMERO.001 | Número de contrato duplicado en el tenant | 409 | `numero-contrato-duplicado` |
+| CSE.FORBID.001 | Sin permiso `gestion` | 403 | `sin-permiso` |
+| CSE.SYS.001 | Error no clasificado | 5xx | — |
 
 ---
 

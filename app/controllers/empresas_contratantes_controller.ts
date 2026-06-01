@@ -45,9 +45,30 @@ export default class EmpresasContratantesController {
    *         name: businessUnitId
    *         schema: { type: integer }
    *     responses:
-   *       '200': { description: Listado paginado }
-   *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso gestion }
+   *       '200':
+   *         description: Listado paginado de empresas contratantes
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresasContratantesListSuccess'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '400':
+   *         description: Validación de filtros de consulta
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async index(ctx: HttpContext) {
     const { request, response, i18n } = ctx
@@ -93,8 +114,30 @@ export default class EmpresasContratantesController {
    *         required: true
    *         schema: { type: integer }
    *     responses:
-   *       '200': { description: Detalle encontrado }
-   *       '404': { description: key empresa-contratante-no-encontrada }
+   *       '200':
+   *         description: Detalle de empresa contratante
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresaContratanteSuccess'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key empresa-contratante-no-encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async show(ctx: HttpContext) {
     const { params, response, i18n } = ctx
@@ -134,20 +177,44 @@ export default class EmpresasContratantesController {
    *       content:
    *         application/json:
    *           schema:
-   *             type: object
-   *             required: [businessUnitId, razonSocial, rfc, domicilioFiscal]
-   *             properties:
-   *               businessUnitId: { type: integer }
-   *               razonSocial: { type: string, minLength: 3, maxLength: 255 }
-   *               rfc: { type: string, minLength: 12, maxLength: 13 }
-   *               domicilioFiscal: { type: string, minLength: 10, maxLength: 500 }
-   *               representanteLegal: { type: string, nullable: true }
-   *               correo: { type: string, format: email, nullable: true }
-   *               telefono: { type: string, minLength: 10, maxLength: 20, nullable: true }
+   *             $ref: '#/components/schemas/EmpresaContratanteCreate'
    *     responses:
-   *       '201': { description: Creado }
-   *       '400': { description: key rfc-invalido }
-   *       '409': { description: key rfc-duplicado }
+   *       '201':
+   *         description: Empresa contratante creada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresaContratanteSuccess'
+   *       '400':
+   *         description: RFC inválido (key rfc-invalido) o validación VineJS
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: Empresa prestadora no encontrada en el tenant
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: RFC duplicado (key rfc-duplicado)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
@@ -189,9 +256,56 @@ export default class EmpresasContratantesController {
    *         name: id
    *         required: true
    *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               razonSocial: { type: string, minLength: 3, maxLength: 255 }
+   *               rfc: { type: string, minLength: 12, maxLength: 13 }
+   *               domicilioFiscal: { type: string, minLength: 10, maxLength: 500 }
+   *               representanteLegal: { type: string, nullable: true }
+   *               correo: { type: string, format: email, nullable: true }
+   *               telefono: { type: string, minLength: 10, maxLength: 20, nullable: true }
    *     responses:
-   *       '200': { description: Actualizado }
-   *       '409': { description: key rfc-duplicado }
+   *       '200':
+   *         description: Empresa contratante actualizada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresaContratanteSuccess'
+   *       '400':
+   *         description: Validación VineJS o businessUnitId no modificable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key empresa-contratante-no-encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: RFC duplicado (key rfc-duplicado)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async update(ctx: HttpContext) {
     const { params, request, response, i18n } = ctx
@@ -242,7 +356,32 @@ export default class EmpresasContratantesController {
    *         required: true
    *         schema: { type: integer }
    *     responses:
-   *       '204': { description: Eliminado lógicamente }
+   *       '204':
+   *         description: Eliminado lógicamente (sin cuerpo)
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key empresa-contratante-no-encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: Empresa con contratos asociados (key empresa-con-contratos-activos)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async destroy(ctx: HttpContext) {
     const { params, response } = ctx

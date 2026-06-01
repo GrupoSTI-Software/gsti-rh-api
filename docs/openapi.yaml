@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: Valanserh API - Empresas Contratantes REPSE
-  version: 1.0.0
-  description: Catálogo de empresas contratantes (clientes corporativos del prestador REPSE).
+  title: Valanserh API - Compliance REPSE
+  version: 1.1.0
+  description: Empresas contratantes y contratos de servicios especializados con anexo 15-D LFT.
 
 components:
   securitySchemes:
@@ -128,6 +128,313 @@ components:
         data:
           nullable: true
 
+    EmpresasContratantesListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            empresasContratantes:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/EmpresaContratante'
+
+    EmpresaContratanteSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            empresaContratante:
+              $ref: '#/components/schemas/EmpresaContratante'
+
+    ContratosServiciosEspecializadosListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            contratosServiciosEspecializados:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ContratoServicioEspecializado'
+
+    ContratoServicioEspecializadoSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            contratoServicioEspecializado:
+              $ref: '#/components/schemas/ContratoServicioEspecializado'
+
+    EmpresaContratanteBasica:
+      type: object
+      properties:
+        id:
+          type: integer
+        razonSocial:
+          type: string
+        rfc:
+          type: string
+
+    CompromisoDocumental:
+      type: object
+      required: [tipo, descripcion, periodicidad]
+      properties:
+        tipo:
+          type: string
+          enum: [cfdi_nomina, comprobante_imss, comprobante_infonavit, otro]
+        descripcion:
+          type: string
+        periodicidad:
+          type: string
+          enum: [mensual, bimestral, cuatrimestral, anual, por_evento]
+
+    Anexo15D:
+      type: object
+      properties:
+        folioRepse:
+          type: string
+          description: Autocompletado server-side desde registro REPSE del tenant.
+        objetoDetallado:
+          type: string
+        numeroTrabajadoresAprox:
+          type: integer
+        fechaInicioServicio:
+          type: string
+          format: date
+        fechaFinServicio:
+          type: string
+          format: date
+          nullable: true
+        compromisosDocumentales:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompromisoDocumental'
+        responsabilidadSolidariaAceptada:
+          type: boolean
+        textoResponsabilidadSolidaria:
+          type: string
+
+    ContratoServicioEspecializado:
+      type: object
+      properties:
+        id:
+          type: integer
+        numeroContrato:
+          type: string
+        empresaContratante:
+          $ref: '#/components/schemas/EmpresaContratanteBasica'
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        objetoServicio:
+          type: string
+        montoTotal:
+          type: number
+          nullable: true
+        moneda:
+          type: string
+        estatus:
+          type: string
+          enum: [borrador, vigente, vencido, cancelado]
+        anexo15d:
+          $ref: '#/components/schemas/Anexo15D'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ContratoServicioEspecializadoCreate:
+      type: object
+      required:
+        - empresaContratanteId
+        - numeroContrato
+        - fechaInicio
+        - objetoServicio
+        - anexo15d
+      properties:
+        empresaContratanteId:
+          type: integer
+        numeroContrato:
+          type: string
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        objetoServicio:
+          type: string
+        montoTotal:
+          type: number
+          nullable: true
+        moneda:
+          type: string
+          default: MXN
+        estatus:
+          type: string
+          enum: [borrador, vigente, vencido, cancelado]
+        anexo15d:
+          type: object
+          required:
+            - objetoDetallado
+            - numeroTrabajadoresAprox
+            - fechaInicioServicio
+            - compromisosDocumentales
+            - textoResponsabilidadSolidaria
+          properties:
+            objetoDetallado:
+              type: string
+            numeroTrabajadoresAprox:
+              type: integer
+            fechaInicioServicio:
+              type: string
+              format: date
+            fechaFinServicio:
+              type: string
+              format: date
+              nullable: true
+            compromisosDocumentales:
+              type: array
+              items:
+                $ref: '#/components/schemas/CompromisoDocumental'
+            responsabilidadSolidariaAceptada:
+              type: boolean
+            textoResponsabilidadSolidaria:
+              type: string
+      example:
+        empresaContratanteId: 1
+        numeroContrato: CSE-2026-001
+        fechaInicio: '2026-01-15'
+        fechaFin: '2026-12-31'
+        objetoServicio: Prestación de servicios especializados de limpieza industrial en planta y áreas administrativas.
+        montoTotal: 450000
+        moneda: MXN
+        estatus: borrador
+        anexo15d:
+          objetoDetallado: Limpieza profunda de áreas productivas, sanitarios, pasillos y zonas comunes con personal capacitado, insumos y supervisión en sitio.
+          numeroTrabajadoresAprox: 12
+          fechaInicioServicio: '2026-01-15'
+          fechaFinServicio: '2026-12-31'
+          compromisosDocumentales:
+            - tipo: cfdi_nomina
+              descripcion: Entrega mensual de CFDI de nómina por cada trabajador asignado al servicio
+              periodicidad: mensual
+            - tipo: comprobante_imss
+              descripcion: Comprobante de pago de cuotas obrero-patronales ante el IMSS
+              periodicidad: bimestral
+            - tipo: comprobante_infonavit
+              descripcion: Comprobante de aportaciones al INFONAVIT conforme al contrato de subcontratación
+              periodicidad: bimestral
+          responsabilidadSolidariaAceptada: true
+          textoResponsabilidadSolidaria: Las partes reconocen la responsabilidad solidaria prevista en el artículo 15-D de la Ley Federal del Trabajo cuando el prestador incumpla obligaciones laborales o de seguridad social.
+
+    ContratoServicioEspecializadoUpdate:
+      type: object
+      properties:
+        numeroContrato:
+          type: string
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        objetoServicio:
+          type: string
+        montoTotal:
+          type: number
+          nullable: true
+        moneda:
+          type: string
+        estatus:
+          type: string
+          enum: [borrador, vigente, vencido, cancelado]
+        anexo15d:
+          type: object
+          properties:
+            objetoDetallado:
+              type: string
+            numeroTrabajadoresAprox:
+              type: integer
+            fechaInicioServicio:
+              type: string
+              format: date
+            fechaFinServicio:
+              type: string
+              format: date
+              nullable: true
+            compromisosDocumentales:
+              type: array
+              items:
+                $ref: '#/components/schemas/CompromisoDocumental'
+            responsabilidadSolidariaAceptada:
+              type: boolean
+            textoResponsabilidadSolidaria:
+              type: string
+      example:
+        estatus: vigente
+        montoTotal: 475000
+        anexo15d:
+          numeroTrabajadoresAprox: 15
+          compromisosDocumentales:
+            - tipo: cfdi_nomina
+              descripcion: CFDI de nómina mensual actualizado
+              periodicidad: mensual
+
 paths:
   /api/empresas-contratantes:
     get:
@@ -157,11 +464,29 @@ paths:
             type: integer
       responses:
         '200':
-          description: Listado paginado
+          description: Listado paginado de empresas contratantes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpresasContratantesListSuccess'
         '401':
           description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '403':
           description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '400':
+          description: Validación de filtros
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
 
     post:
       summary: Crear empresa contratante
@@ -176,13 +501,31 @@ paths:
               $ref: '#/components/schemas/EmpresaContratanteCreate'
       responses:
         '201':
-          description: Creado
+          description: Empresa contratante creada
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmpresaContratante'
+                $ref: '#/components/schemas/EmpresaContratanteSuccess'
         '400':
           description: RFC inválido (key rfc-invalido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empresa prestadora no encontrada en el tenant
           content:
             application/json:
               schema:
@@ -208,9 +551,29 @@ paths:
             type: integer
       responses:
         '200':
-          description: Detalle
+          description: Detalle de empresa contratante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpresaContratanteSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '404':
           description: key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
 
     patch:
       summary: Actualizar empresa contratante (parcial)
@@ -230,9 +593,41 @@ paths:
               $ref: '#/components/schemas/EmpresaContratanteUpdate'
       responses:
         '200':
-          description: Actualizado
+          description: Empresa contratante actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpresaContratanteSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '409':
           description: RFC duplicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
 
     delete:
       summary: Soft delete
@@ -247,6 +642,281 @@ paths:
             type: integer
       responses:
         '204':
-          description: Eliminado lógicamente
+          description: Eliminado lógicamente (sin cuerpo)
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '404':
           description: key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Empresa con contratos asociados (key empresa-con-contratos-activos)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados:
+    get:
+      summary: Lista paginada de contratos de servicios especializados
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 500
+        - name: estatus
+          in: query
+          schema:
+            type: string
+            enum: [borrador, vigente, vencido, cancelado]
+        - name: empresaContratanteId
+          in: query
+          schema:
+            type: integer
+        - name: fechaInicioDesde
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: fechaInicioHasta
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Listado paginado con anexo y contratante básico
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContratosServiciosEspecializadosListSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '400':
+          description: Validación de filtros
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    post:
+      summary: Crear contrato con anexo 15-D embebido
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContratoServicioEspecializadoCreate'
+      responses:
+        '201':
+          description: Contrato creado con folioRepse autocompletado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key numero-contrato-duplicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Fechas inválidas o registro-repse-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{id}:
+    get:
+      summary: Detalle de contrato con anexo 15-D
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalle del contrato con anexo 15-D
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    patch:
+      summary: Actualización parcial del contrato y/o anexo 15-D
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContratoServicioEspecializadoUpdate'
+      responses:
+        '200':
+          description: Contrato actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key numero-contrato-duplicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Fechas inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    delete:
+      summary: Soft delete de contrato
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Eliminado lógicamente (sin cuerpo)
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso gestion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'

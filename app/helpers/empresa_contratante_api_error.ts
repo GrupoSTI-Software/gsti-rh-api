@@ -19,6 +19,7 @@ const ERROR_CODE_TO_I18N_BASE: Record<EmpresaContratanteErrorCode, string> = {
   [EMPRESA_CONTRATANTE_ERROR_CODES.VAL_INPUT]: 'empresa_contratante_val_input',
   [EMPRESA_CONTRATANTE_ERROR_CODES.RFC_INVALID]: 'empresa_contratante_rfc_invalid',
   [EMPRESA_CONTRATANTE_ERROR_CODES.RFC_DUPLICATE]: 'empresa_contratante_rfc_duplicate',
+  [EMPRESA_CONTRATANTE_ERROR_CODES.CONTRATOS_ACTIVOS]: 'empresa_contratante_contratos_activos',
   [EMPRESA_CONTRATANTE_ERROR_CODES.NOT_FOUND]: 'empresa_contratante_not_found',
   [EMPRESA_CONTRATANTE_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND]: 'empresa_contratante_business_unit_not_found',
   [EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN]: 'empresa_contratante_forbidden',

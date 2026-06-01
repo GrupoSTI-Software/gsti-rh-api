@@ -99,6 +99,8 @@ export class StandardResponseFormatter {
       'Repse Specialized Service': 'repseSpecializedService',
       'Empresas Contratantes': 'empresasContratantes',
       'Empresa Contratante': 'empresaContratante',
+      'Contratos de Servicios Especializados': 'contratosServiciosEspecializados',
+      'Contrato de Servicios Especializados': 'contratoServicioEspecializado',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')
