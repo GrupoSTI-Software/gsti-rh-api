@@ -44,13 +44,6 @@ import BusinessUnit from './business_unit.js'
  *          personId:
  *            type: number
  *            description: Person id
- *          userBusinessAccess:
- *            type: string
- *            deprecated: true
- *            description: |
- *              [Deprecado] CSV legado con los slugs de las unidades de negocio asignadas al usuario.
- *              La nueva fuente de verdad es la tabla pivote `business_unit_users` (relación `businessUnits`).
- *              Esta columna se conserva por compatibilidad con código heredado que aún la lee.
  *          userEmailType:
  *            type: string
  *            description: Email type
@@ -105,19 +98,6 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
 
   @column()
   declare userPinCodeExpiresAt: DateTime | null
-
-  /**
-   * @deprecated CSV legado con los slugs de las unidades de negocio asignadas al usuario.
-   *
-   * La nueva fuente de verdad es la tabla pivote `business_unit_users`, expuesta a través
-   * de la relación `businessUnits`. Esta columna permanece nullable en la base de datos por
-   * compatibilidad con código heredado que aún la lee (~27 archivos del repositorio).
-   *
-   * Su eliminación física se programará en una historia posterior, una vez confirmado en
-   * producción que la pivote es la única fuente consultada.
-   */
-  @column()
-  declare userBusinessAccess: string | null
 
   @column()
   declare roleId: number

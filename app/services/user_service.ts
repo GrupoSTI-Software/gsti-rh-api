@@ -119,10 +119,6 @@ export default class UserService {
    * Crea un usuario y, opcionalmente, lo asocia a las unidades de negocio indicadas
    * a través de la tabla pivote `business_unit_users`.
    *
-   * La columna legada `users.user_business_access` se conserva nullable y no se
-   * escribe desde este flujo (queda como `NULL` para usuarios nuevos). La fuente
-   * de verdad para el acceso multi-tenant es la pivote.
-   *
    * @param user Datos base del usuario a crear.
    * @param businessUnitIds IDs de unidades de negocio ya validados (deben existir y estar activos).
    */
@@ -133,7 +129,6 @@ export default class UserService {
     newUser.userActive = user.userActive
     newUser.roleId = user.roleId
     newUser.personId = user.personId
-    newUser.userBusinessAccess = null
     newUser.userEmailType = user.userEmailType
     await newUser.save()
 
@@ -547,15 +542,12 @@ export default class UserService {
       const defaultPassword = 'GrupoSTI'
 
       // Crear usuario y asociarlo a todas las unidades de negocio activas vía pivote.
-      // El CSV legado `user_business_access` queda en NULL; los usuarios demo deben
-      // tener visibilidad total para que las pruebas funcionen en cualquier unidad de negocio activa.
       const user = new User()
       user.userEmail = userEmail
       user.userPassword = defaultPassword
       user.userActive = 1
       user.roleId = roleId
       user.personId = person.personId
-      user.userBusinessAccess = null
       await user.save()
 
       const activeBusinessUnits = await BusinessUnit.query()
@@ -843,7 +835,6 @@ export default class UserService {
         user.userActive = 1
         user.roleId = rootRole.roleId
         user.personId = person.personId
-        user.userBusinessAccess = null
         await user.save()
 
         if (activeBusinessUnitIds.length > 0) {
