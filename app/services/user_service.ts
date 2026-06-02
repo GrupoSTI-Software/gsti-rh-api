@@ -46,17 +46,27 @@ export default class UserService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async index(filters: UserFilterSearchInterface, allowedBusinessUnitSlugs: string[] = []) {
+  async index(filters: UserFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
+
+    // Convertir IDs a slugs para filtrar roles (role_business_access usa CSV de slugs)
+    let allowedSlugs: string[] = []
+    if (allowedBusinessUnitIds.length > 0) {
+      const buUnits = await BusinessUnit.query()
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+        .where('business_unit_active', 1)
+      allowedSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+    }
+
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
-        if (allowedBusinessUnitSlugs.length === 0) {
+        if (allowedSlugs.length === 0) {
           query.whereRaw('1 = 0')
           return
         }
         query.whereNotNull('role_business_access')
         query.andWhere((subQuery) => {
-          allowedBusinessUnitSlugs.forEach((business) => {
+          allowedSlugs.forEach((business) => {
             subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
           })
         })
@@ -73,19 +83,11 @@ export default class UserService {
     ]
     const users = await User.query()
       .whereNull('user_deleted_at')
-      .whereIn('role_id', rolesIds)
-      .andWhere((query) => {
-        if (allowedBusinessUnitSlugs.length === 0) {
-          query.whereRaw('1 = 0')
-          return
-        }
-        query.whereNotNull('user_business_access')
-        query.andWhere((subQuery) => {
-          allowedBusinessUnitSlugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, user_business_access)', [business.trim()])
-          })
+        // Filtro adicional opcional del frontend para una BU específica
+      .whereHas('businessUnits', (subQuery) => {
+          subQuery.where('business_units.business_unit_id', filters.businessUnitId)
         })
-      })
+      .whereIn('role_id', rolesIds)
       .if(filters.search, (query) => {
         query.andWhere((searchQuery) => {
           searchQuery

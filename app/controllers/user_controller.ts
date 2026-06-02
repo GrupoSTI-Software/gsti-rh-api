@@ -21,7 +21,6 @@ import Person from '#models/person'
 import Employee from '#models/employee'
 import logger from '@adonisjs/core/services/logger'
 import { parseBusinessUnitAccessInput, resolveBusinessUnitIds } from '#utils/business_unit_access'
-import BusinessUnit from '#models/business_unit'
 
 export default class UserController {
   /**
@@ -36,8 +35,8 @@ export default class UserController {
    *     description: |
    *       Autentica al usuario validando email, contraseña, `user_active = 1` y `user_deleted_at IS NULL`.
    *       Desde la introducción de la tabla pivote `business_unit_users`, este endpoint ya no realiza
-   *       intersección con `env.SYSTEM_BUSINESS`: el alcance multi-tenant se evalúa en cada operación
-   *       posterior a través de las unidades de negocio asociadas al usuario.
+   *       intersección estática de unidades de negocio: el alcance multi-tenant se evalúa en cada operación
+   *       posterior a través de las unidades de negocio asociadas al usuario (scope dinámico).
    *     produces:
    *       - application/json
    *     requestBody:
@@ -1081,11 +1080,21 @@ export default class UserController {
    *         description: Role id
    *         schema:
    *           type: integer
+   *       - name: businessUnitId
+   *         in: query
+   *         required: true
+   *         description: Business unit id
+   *         schema:
+   *           type: integer
    *       - name: page
    *         in: query
    *         required: true
-   *         description: The page number for pagination
-   *         default: 1
+   *         schema:
+   *           type: array
+   *           items:
+   *             type: integer
+   *           example: [1, 2, 3]
+   *           description: Business unit ids
    *         schema:
    *           type: integer
    *       - name: limit
@@ -1180,20 +1189,18 @@ export default class UserController {
     try {
       const search = request.input('search')
       const roleId = request.input('roleId')
+      const businessUnitId = request.input('businessUnitId')
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
       const filters = {
         search: search,
         roleId: roleId,
+        businessUnitId: businessUnitId,
         page: page,
         limit: limit,
       } as UserFilterSearchInterface
-      const buUnits = businessUnitScope.length > 0
-        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
-        : []
-      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const userService = new UserService(i18n)
-      const users = await userService.index(filters, businessSlugs)
+      const users = await userService.index(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
