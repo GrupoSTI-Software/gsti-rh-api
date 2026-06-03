@@ -1,5 +1,4 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import RoleService from '#services/role_service'
 import EmpresaContratanteService, {
   type EmpresaContratanteCreatePayload,
   type EmpresaContratanteUpdatePayload,
@@ -12,15 +11,23 @@ import {
 import { EMPRESA_CONTRATANTE_ERROR_CODES } from '../constants/empresa_contratante_error_codes.js'
 import { EmpresaContratanteError } from '../exceptions/empresa_contratante_error.js'
 import { resolveEmpresaContratanteApiError } from '../helpers/empresa_contratante_api_error.js'
+import {
+  assertComplianceRepsePermission,
+  type ComplianceRepseAction,
+} from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
 const MODULE_SLUG = 'compliance-contratantes'
+const RBAC_FORBIDDEN = {
+  errorCode: EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN,
+  i18nPrefix: 'empresa_contratante',
+}
 
 /**
  * Controlador REST del catálogo de empresas contratantes REPSE.
  *
- * Expone CRUD bajo /api/empresas-contratantes con permiso único `gestion`
- * (compliance.contratantes.gestion) y aislamiento multi-tenant por business unit.
+ * Expone CRUD bajo /api/empresas-contratantes con permisos granulares
+ * (`read`, `create`, `update`, `delete` o `gestion`) y aislamiento multi-tenant.
  */
 export default class EmpresasContratantesController {
   /**
@@ -58,7 +65,7 @@ export default class EmpresasContratantesController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso read o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -74,7 +81,7 @@ export default class EmpresasContratantesController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(listEmpresasContratantesValidator)
       const service = new EmpresaContratanteService()
@@ -127,7 +134,7 @@ export default class EmpresasContratantesController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso read o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -143,7 +150,7 @@ export default class EmpresasContratantesController {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new EmpresaContratanteService()
@@ -198,7 +205,7 @@ export default class EmpresasContratantesController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso create o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -220,7 +227,7 @@ export default class EmpresasContratantesController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
 
       const body = await request.validateUsing(createEmpresaContratanteValidator)
       const payload = this.toCreatePayload(body)
@@ -289,7 +296,7 @@ export default class EmpresasContratantesController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso update o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -311,7 +318,7 @@ export default class EmpresasContratantesController {
     const { params, request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
 
       if (request.input('businessUnitId') !== undefined) {
         throw new EmpresaContratanteError(
@@ -365,7 +372,7 @@ export default class EmpresasContratantesController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso delete o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -387,7 +394,7 @@ export default class EmpresasContratantesController {
     const { params, response } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new EmpresaContratanteService()
@@ -418,32 +425,8 @@ export default class EmpresasContratantesController {
     return true
   }
 
-  private async assertHasPermission(ctx: HttpContext) {
-    const user = ctx.auth.user!
-    await user.preload('role')
-    const roleSlug = user.role?.roleSlug
-    if (roleSlug === 'root' || roleSlug === 'super-administrador') {
-      return true
-    }
-
-    const roleService = new RoleService()
-    const allowed = await roleService.hasAccess(user.roleId, MODULE_SLUG, 'gestion')
-    if (!allowed) {
-      ctx.response.status(403).json({
-        type: 'error',
-        title: ctx.i18n.t('empresa_contratante_forbidden_title', undefined, 'Sin permiso'),
-        message: ctx.i18n.t(
-          'empresa_contratante_forbidden_message',
-          undefined,
-          'No tienes permiso para gestionar empresas contratantes.'
-        ),
-        key: 'sin-permiso',
-        errorCode: EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN,
-        data: null,
-      })
-      return false
-    }
-    return true
+  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
+    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private parseResourceId(raw: unknown) {

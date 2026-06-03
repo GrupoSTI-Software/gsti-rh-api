@@ -71,7 +71,7 @@ export const listContratosServiciosEspecializadosValidator = vine.compile(
   vine.object({
     page: vine.number().min(1).optional(),
     perPage: vine.number().min(1).max(500).optional(),
-    estatus: estatusField.optional(),
+    estatus: vine.array(estatusField).minLength(1).optional(),
     empresaContratanteId: positiveIdField.optional(),
     fechaInicioDesde: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
     fechaInicioHasta: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),

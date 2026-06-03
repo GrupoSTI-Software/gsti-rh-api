@@ -11,7 +11,7 @@ export default class SystemSettingService {
     let systemSettingsList: SystemSetting[] = []
 
     const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at')
-    .preload('systemSettingPayrollConfigs')
+      .preload('systemSettingPayrollConfigs')
 
     systemSettings.forEach((sistemSetting) => {
       const units = sistemSetting.systemSettingBusinessUnits

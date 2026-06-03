@@ -12,14 +12,23 @@ import type { RepseSpecializedServiceStatus } from '#models/repse_specialized_se
 import { REPSE_SPECIALIZED_SERVICE_ERROR_CODES } from '../constants/repse_specialized_service_error_codes.js'
 import { RepseSpecializedServiceError } from '../exceptions/repse_specialized_service_error.js'
 import { resolveRepseSpecializedServiceApiError } from '../helpers/repse_specialized_service_api_error.js'
+import {
+  assertComplianceRepsePermission,
+  type ComplianceRepseAction,
+} from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+
+const MODULE_SLUG = 'repse-registrations'
+const RBAC_FORBIDDEN = {
+  errorCode: REPSE_SPECIALIZED_SERVICE_ERROR_CODES.FORBIDDEN,
+  i18nPrefix: 'repse_specialized_service',
+}
 
 /**
  * Controlador REST del catálogo de servicios especializados REPSE.
  *
- * Expone CRUD completo bajo /api/repse-specialized-services. Aísla por
- * tenant heredando del registro REPSE padre y usa el guard estándar del
- * backoffice (`middleware.auth()`).
+ * Expone CRUD bajo /api/repse-specialized-services con permisos del módulo
+ * `repse-registrations` (`read`, `create`, `update`, `delete` o `gestion`).
  */
 export default class RepseSpecializedServicesController {
   /**
@@ -54,6 +63,7 @@ export default class RepseSpecializedServicesController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(repseSpecializedServiceListValidator)
       const service = new RepseSpecializedServiceService()
@@ -101,6 +111,7 @@ export default class RepseSpecializedServicesController {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new RepseSpecializedServiceService()
@@ -164,6 +175,7 @@ export default class RepseSpecializedServicesController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
 
       const body = await request.validateUsing(createRepseSpecializedServiceValidator)
       const payload = this.toCreatePayload(body)
@@ -229,6 +241,7 @@ export default class RepseSpecializedServicesController {
     const { params, request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
 
       const id = this.parseResourceId(params.id)
       const body = await request.validateUsing(updateRepseSpecializedServiceValidator)
@@ -274,6 +287,7 @@ export default class RepseSpecializedServicesController {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new RepseSpecializedServiceService()
@@ -320,6 +334,10 @@ export default class RepseSpecializedServicesController {
       return false
     }
     return true
+  }
+
+  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
+    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private parseResourceId(raw: unknown) {

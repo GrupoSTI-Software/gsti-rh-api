@@ -476,7 +476,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso read o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -519,7 +519,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso create o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -563,7 +563,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso read o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -611,7 +611,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso update o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -650,7 +650,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso delete o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -688,9 +688,15 @@ paths:
             maximum: 500
         - name: estatus
           in: query
+          description: Uno o varios estatus (CSV o repetido). Ej. vigente,borrador
           schema:
-            type: string
-            enum: [borrador, vigente, vencido, cancelado]
+            oneOf:
+              - type: string
+                enum: [borrador, vigente, vencido, cancelado]
+              - type: array
+                items:
+                  type: string
+                  enum: [borrador, vigente, vencido, cancelado]
         - name: empresaContratanteId
           in: query
           schema:
@@ -723,7 +729,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso read o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -766,7 +772,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso create o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -816,7 +822,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso read o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -864,7 +870,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso update o gestion (key sin-permiso)
           content:
             application/json:
               schema:
@@ -909,7 +915,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso gestion
+          description: Sin permiso delete o gestion (key sin-permiso)
           content:
             application/json:
               schema:

@@ -1,6 +1,5 @@
 import logger from '@adonisjs/core/services/logger'
 import type { HttpContext } from '@adonisjs/core/http'
-import RoleService from '#services/role_service'
 import ContratoServicioEspecializadoService, {
   type Anexo15dCreatePayload,
   type Anexo15dUpdatePayload,
@@ -15,16 +14,24 @@ import {
 import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
 import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
 import { resolveContratoServicioEspecializadoApiError } from '../helpers/contrato_servicio_especializado_api_error.js'
+import {
+  assertComplianceRepsePermission,
+  type ComplianceRepseAction,
+} from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import type { ContratoServicioEspecializadoEstatus } from '#models/contrato_servicio_especializado'
 
 const MODULE_SLUG = 'compliance-contratos'
+const RBAC_FORBIDDEN = {
+  errorCode: CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN,
+  i18nPrefix: 'contrato_servicio_especializado',
+}
 
 /**
  * Controlador REST de contratos de servicios especializados REPSE (anexo 15-D LFT).
  *
- * Expone CRUD bajo /api/contratos-servicios-especializados con permiso `gestion`
- * (compliance.contratos.gestion) y aislamiento multi-tenant por business unit.
+ * Expone CRUD bajo /api/contratos-servicios-especializados con permisos granulares
+ * (`read`, `create`, `update`, `delete` o `gestion`) y aislamiento multi-tenant.
  */
 export default class ContratosServiciosEspecializadosController {
   /**
@@ -42,9 +49,17 @@ export default class ContratosServiciosEspecializadosController {
    *       - in: query
    *         name: perPage
    *         schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
-   *       - in: query
-   *         name: estatus
-   *         schema: { type: string, enum: [borrador, vigente, vencido, cancelado] }
+       *       - in: query
+       *         name: estatus
+       *         description: Uno o varios estatus (CSV o repetido). Ej. vigente,borrador
+       *         schema:
+       *           oneOf:
+       *             - type: string
+       *               enum: [borrador, vigente, vencido, cancelado]
+       *             - type: array
+       *               items:
+       *                 type: string
+       *                 enum: [borrador, vigente, vencido, cancelado]
    *       - in: query
    *         name: empresaContratanteId
    *         schema: { type: integer }
@@ -71,7 +86,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso read o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -87,12 +102,21 @@ export default class ContratosServiciosEspecializadosController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
-      const filters = await request.validateUsing(listContratosServiciosEspecializadosValidator)
+      const estatusList = this.parseEstatusList(request.input('estatus'))
+      const filters = await listContratosServiciosEspecializadosValidator.validate({
+        page: request.input('page'),
+        perPage: request.input('perPage'),
+        estatus: estatusList,
+        empresaContratanteId: request.input('empresaContratanteId'),
+        fechaInicioDesde: request.input('fechaInicioDesde'),
+        fechaInicioHasta: request.input('fechaInicioHasta'),
+        q: request.input('q'),
+      })
       const service = new ContratoServicioEspecializadoService()
       const bundle = await service.listPaginated(filters.page ?? 1, filters.perPage ?? 20, {
-        estatus: filters.estatus as ContratoServicioEspecializadoEstatus | undefined,
+        estatus: filters.estatus as ContratoServicioEspecializadoEstatus[] | undefined,
         empresaContratanteId: filters.empresaContratanteId,
         fechaInicioDesde: filters.fechaInicioDesde,
         fechaInicioHasta: filters.fechaInicioHasta,
@@ -145,7 +169,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso read o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -161,7 +185,7 @@ export default class ContratosServiciosEspecializadosController {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new ContratoServicioEspecializadoService()
@@ -220,7 +244,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso create o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -248,7 +272,7 @@ export default class ContratosServiciosEspecializadosController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
 
       const body = await request.validateUsing(createContratoServicioEspecializadoValidator)
       const payload = this.toCreatePayload(body as Record<string, unknown>)
@@ -314,7 +338,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso update o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -342,7 +366,7 @@ export default class ContratosServiciosEspecializadosController {
     const { params, request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
 
       const id = this.parseResourceId(params.id)
       const body = await request.validateUsing(updateContratoServicioEspecializadoValidator)
@@ -392,7 +416,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '403':
-   *         description: Sin permiso gestion (key sin-permiso)
+   *         description: Sin permiso delete o gestion (key sin-permiso)
    *         content:
    *           application/json:
    *             schema:
@@ -408,7 +432,7 @@ export default class ContratosServiciosEspecializadosController {
     const { params, response } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new ContratoServicioEspecializadoService()
@@ -443,36 +467,8 @@ export default class ContratosServiciosEspecializadosController {
     return true
   }
 
-  private async assertHasPermission(ctx: HttpContext) {
-    const user = ctx.auth.user!
-    await user.preload('role')
-    const roleSlug = user.role?.roleSlug
-    if (roleSlug === 'root' || roleSlug === 'super-administrador') {
-      return true
-    }
-
-    const roleService = new RoleService()
-    const allowed = await roleService.hasAccess(user.roleId, MODULE_SLUG, 'gestion')
-    if (!allowed) {
-      ctx.response.status(403).json({
-        type: 'error',
-        title: ctx.i18n.t(
-          'contrato_servicio_especializado_forbidden_title',
-          undefined,
-          'Sin permiso'
-        ),
-        message: ctx.i18n.t(
-          'contrato_servicio_especializado_forbidden_message',
-          undefined,
-          'No tienes permiso para gestionar contratos de servicios especializados.'
-        ),
-        key: 'sin-permiso',
-        errorCode: CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN,
-        data: null,
-      })
-      return false
-    }
-    return true
+  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
+    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private parseResourceId(raw: unknown) {
@@ -558,6 +554,24 @@ export default class ContratosServiciosEspecializadosController {
       payload.textoResponsabilidadSolidaria = String(raw.textoResponsabilidadSolidaria)
     }
     return payload
+  }
+
+  /**
+   * Normaliza el query param `estatus` desde string CSV, array o valor único.
+   */
+  private parseEstatusList(value: unknown): string[] | undefined {
+    if (value === undefined || value === null || value === '') {
+      return undefined
+    }
+
+    const rawList = Array.isArray(value)
+      ? value.map(String)
+      : String(value)
+          .split(',')
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+
+    return rawList.length > 0 ? rawList : undefined
   }
 
   private respondError(

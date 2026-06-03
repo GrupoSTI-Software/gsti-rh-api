@@ -683,17 +683,11 @@ export default class extends BaseSeeder {
         systemModuleId: 38
       },
       {
-        systemPermissionId: 160,
-        systemPermissionName: 'Gestionar empresas contratantes',
+        systemPermissionId: 166,
+        systemPermissionName: 'Gestionar',
         systemPermissionSlug: 'gestion',
         systemModuleId: 38
       },
-      {
-        systemPermissionId: 161,
-        systemPermissionName: 'Gestionar contratos especializados',
-        systemPermissionSlug: 'gestion',
-        systemModuleId: 39
-      }
     ]
 
     for (const systemPermission of systemPermissions) {

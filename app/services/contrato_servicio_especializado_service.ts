@@ -211,7 +211,7 @@ export default class ContratoServicioEspecializadoService {
     page: number,
     perPage: number,
     filters: {
-      estatus?: ContratoServicioEspecializadoEstatus
+      estatus?: ContratoServicioEspecializadoEstatus[]
       empresaContratanteId?: number
       fechaInicioDesde?: Date
       fechaInicioHasta?: Date
@@ -246,8 +246,8 @@ export default class ContratoServicioEspecializadoService {
       .preload('clausula15d')
       .preload('empresaContratante')
 
-    if (filters.estatus) {
-      query = query.where('contrato_servicio_especializado_estatus', filters.estatus)
+    if (filters.estatus && filters.estatus.length > 0) {
+      query = query.whereIn('contrato_servicio_especializado_estatus', filters.estatus)
     }
 
     if (filters.empresaContratanteId !== undefined) {
