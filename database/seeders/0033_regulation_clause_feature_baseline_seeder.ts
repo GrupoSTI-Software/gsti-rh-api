@@ -218,11 +218,10 @@ export default class extends BaseSeeder {
       await RegulationClauseFeature.updateOrCreate(
         {
           regulationClauseId: clause.regulation_clause_id,
-          systemFeatureId: feature.system_feature_id,
+          regulationClauseFeatureSlug: feature.system_feature_slug,
         },
         {
-          regulationClauseFeatureCoverage: row.coverage,
-          regulationClauseFeatureNoteKey: row.noteKey,
+          regulationClauseFeatureNotes: row.noteKey,
         }
       )
     }
