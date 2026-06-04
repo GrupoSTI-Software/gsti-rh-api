@@ -61,5 +61,8 @@ export default class EmployeeBiometricFaceId extends compose(BaseModel, SoftDele
     foreignKey: 'employeeId',
   })
   declare employee: BelongsTo<typeof Employee>
+
+  @column()
+  declare employeeBiometricFaceIdPhotoUrlProxy: string
 }
 
