@@ -128,6 +128,93 @@ components:
         data:
           nullable: true
 
+    ServicioRegistradoResumen:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          description: Identificador del servicio en el catálogo REPSE del tenant.
+        name:
+          type: string
+          description: Nombre del servicio especializado registrado.
+
+    ApiErrorServiciosRegistradosRequeridos:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Servicios registrados requeridos
+        message: Debe indicar al menos un servicio del catálogo REPSE registrado.
+        detail: Debe indicar al menos un servicio del catálogo REPSE.
+        key: servicios-registrados-requeridos
+        errorCode: CSE.VAL.SERVICIOS.001
+        data: null
+
+    ApiErrorServicioRegistradoNoEncontrado:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Servicio registrado no encontrado
+        message: Uno o más servicios registrados no existen o no pertenecen al tenant actual.
+        detail: Servicio registrado no encontrado.
+        key: servicio-registrado-no-encontrado
+        errorCode: CSE.NF.SERVICIO.001
+        data: null
+
+    ApiErrorServicioConContratosActivos:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Servicio con contratos asociados
+        message: No se puede eliminar el servicio mientras esté vinculado a contratos activos.
+        detail: Servicio con contratos activos
+        key: servicio-con-contratos-activos
+        errorCode: REPSE.SVC.CONFLICT.CONTRATOS.001
+        data: null
+
+    RepseSpecializedServiceResource:
+      type: object
+      properties:
+        repseSpecializedServiceId:
+          type: integer
+        repseRegistrationId:
+          type: integer
+        name:
+          type: string
+        objectDescription:
+          type: string
+        status:
+          type: string
+          enum: [active]
+        repseSpecializedServiceCreatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        repseSpecializedServiceUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RepseSpecializedServiceDeleteSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            repseSpecializedService:
+              $ref: '#/components/schemas/RepseSpecializedServiceResource'
+
     EmpresasContratantesListSuccess:
       type: object
       required: [type, title, message, data]
@@ -287,6 +374,11 @@ components:
           enum: [borrador, vigente, vencido, cancelado]
         anexo15d:
           $ref: '#/components/schemas/Anexo15D'
+        serviciosRegistrados:
+          type: array
+          description: Servicios del catálogo REPSE que amparan el contrato.
+          items:
+            $ref: '#/components/schemas/ServicioRegistradoResumen'
         createdAt:
           type: string
           format: date-time
@@ -303,6 +395,7 @@ components:
         - fechaInicio
         - objetoServicio
         - anexo15d
+        - serviciosRegistradosIds
       properties:
         empresaContratanteId:
           type: integer
@@ -326,6 +419,13 @@ components:
         estatus:
           type: string
           enum: [borrador, vigente, vencido, cancelado]
+        serviciosRegistradosIds:
+          type: array
+          minItems: 1
+          description: Ids del catálogo REPSE del tenant (mínimo uno).
+          items:
+            type: integer
+            minimum: 1
         anexo15d:
           type: object
           required:
@@ -356,6 +456,7 @@ components:
               type: string
       example:
         empresaContratanteId: 1
+        serviciosRegistradosIds: [1, 2]
         numeroContrato: CSE-2026-001
         fechaInicio: '2026-01-15'
         fechaFin: '2026-12-31'
@@ -403,6 +504,13 @@ components:
         estatus:
           type: string
           enum: [borrador, vigente, vencido, cancelado]
+        serviciosRegistradosIds:
+          type: array
+          minItems: 1
+          description: Reemplaza el set de servicios vinculados (mínimo uno si se envía).
+          items:
+            type: integer
+            minimum: 1
         anexo15d:
           type: object
           properties:
@@ -426,6 +534,7 @@ components:
             textoResponsabilidadSolidaria:
               type: string
       example:
+        serviciosRegistradosIds: [1]
         estatus: vigente
         montoTotal: 475000
         anexo15d:
@@ -760,11 +869,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
         '400':
-          description: Validación VineJS
+          description: Validación VineJS o key servicios-registrados-requeridos
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServiciosRegistradosRequeridos'
         '401':
           description: No autenticado
           content:
@@ -778,11 +889,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '404':
-          description: key empresa-contratante-no-encontrada
+          description: key empresa-contratante-no-encontrada o servicio-registrado-no-encontrado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServicioRegistradoNoEncontrado'
         '409':
           description: key numero-contrato-duplicado
           content:
@@ -858,11 +971,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
         '400':
-          description: Validación VineJS
+          description: Validación VineJS o key servicios-registrados-requeridos
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServiciosRegistradosRequeridos'
         '401':
           description: No autenticado
           content:
@@ -876,11 +991,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '404':
-          description: key contrato-no-encontrado
+          description: key contrato-no-encontrado o servicio-registrado-no-encontrado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServicioRegistradoNoEncontrado'
         '409':
           description: key numero-contrato-duplicado
           content:
@@ -926,3 +1043,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+
+  /api/repse-specialized-services/{id}:
+    delete:
+      summary: Soft delete de servicio especializado del catálogo REPSE
+      description: |
+        Elimina lógicamente un servicio del catálogo. Responde 409 si el servicio
+        está vinculado a contratos de servicios especializados no eliminados.
+      tags: [RepseSpecializedServices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Servicio eliminado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseSpecializedServiceDeleteSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso delete o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key servicio-especializado-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key servicio-con-contratos-activos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorServicioConContratosActivos'

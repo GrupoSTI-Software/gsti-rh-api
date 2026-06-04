@@ -14,6 +14,8 @@ export const REPSE_SPECIALIZED_SERVICE_ERROR_CODES = {
   PARENT_NOT_FOUND: 'REPSE.SVC.NF.PARENT.001',
   /** Nombre duplicado dentro de la misma empresa (business_unit_id) */
   NAME_DUPLICATE: 'REPSE.SVC.DUP.001',
+  /** Servicio vinculado a contratos no eliminados */
+  LINKED_ACTIVE_CONTRATOS: 'REPSE.SVC.CONFLICT.CONTRATOS.001',
   /** Sin permisos sobre el módulo */
   FORBIDDEN: 'REPSE.SVC.FORBID.001',
   /** Error no clasificado del dominio */

@@ -511,6 +511,8 @@ Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especia
 | CSE.NF.CONTRATANTE.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
 | CSE.NF.REPSE.001 | Sin registro REPSE activo en el tenant | 422 | `registro-repse-no-encontrado` |
 | CSE.CONFLICT.NUMERO.001 | Número de contrato duplicado en el tenant | 409 | `numero-contrato-duplicado` |
+| CSE.VAL.SERVICIOS.001 | serviciosRegistradosIds ausente o vacío | 400 | `servicios-registrados-requeridos` |
+| CSE.NF.SERVICIO.001 | Servicio del catálogo inexistente o cross-tenant | 404 | `servicio-registrado-no-encontrado` |
 | CSE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
 | CSE.SYS.001 | Error no clasificado | 5xx | — |
 
@@ -524,6 +526,7 @@ Módulo: `/api/repse-registrations` y `/api/repse-specialized-services`. Permiso
 |--------|-----------|------|-----|
 | REPSE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
 | REPSE.SVC.FORBID.001 | Sin permiso (servicios especializados) | 403 | `sin-permiso` |
+| REPSE.SVC.CONFLICT.CONTRATOS.001 | Servicio vinculado a contratos no soft-deleted | 409 | `servicio-con-contratos-activos` |
 
 ---
 

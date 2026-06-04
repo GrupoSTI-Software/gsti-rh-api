@@ -282,6 +282,8 @@ export default class RepseSpecializedServicesController {
    *       '401': { description: Sin autenticación }
    *       '404':
    *         description: Recurso ajeno o inexistente (key `servicio-especializado-no-encontrado`)
+   *       '409':
+   *         description: Servicio vinculado a contratos no eliminados (key `servicio-con-contratos-activos`)
    */
   async destroy(ctx: HttpContext) {
     const { params, response, i18n } = ctx

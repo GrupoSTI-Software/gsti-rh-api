@@ -200,9 +200,67 @@ export default class RepseSpecializedServiceService {
 
   /** Soft delete del servicio especializado. */
   async destroy(repseSpecializedServiceId: number) {
-    const row = await this.findServiceInTenantOrFail(repseSpecializedServiceId)
-    await row.delete()
-    return serializeRepseSpecializedService(row)
+    return db.transaction(async (trx) => {
+      const allowed = await getAllowedBusinessUnitIds()
+      if (allowed.length === 0) {
+        throw new RepseSpecializedServiceError(
+          'El servicio especializado no existe o no pertenece al tenant actual.',
+          REPSE_SPECIALIZED_SERVICE_ERROR_CODES.SVC_NOT_FOUND,
+          404,
+          'servicio-especializado-no-encontrado'
+        )
+      }
+
+      const row = await RepseSpecializedService.query({ client: trx })
+        .where('repse_specialized_service_id', repseSpecializedServiceId)
+        .whereNull('repse_specialized_service_deleted_at')
+        .whereHas('repseRegistration', (parentQuery) => {
+          parentQuery
+            .whereNull('repse_registration_deleted_at')
+            .whereIn('business_unit_id', allowed)
+        })
+        .forUpdate()
+        .first()
+
+      if (!row) {
+        throw new RepseSpecializedServiceError(
+          'El servicio especializado no existe o no pertenece al tenant actual.',
+          REPSE_SPECIALIZED_SERVICE_ERROR_CODES.SVC_NOT_FOUND,
+          404,
+          'servicio-especializado-no-encontrado'
+        )
+      }
+
+      const blocking = await trx
+        .from('contrato_servicio_repse')
+        .join(
+          'contratos_servicios_especializados',
+          'contrato_servicio_repse.contrato_servicio_especializado_id',
+          'contratos_servicios_especializados.contrato_servicio_especializado_id'
+        )
+        .where(
+          'contrato_servicio_repse.repse_specialized_service_id',
+          repseSpecializedServiceId
+        )
+        .whereNull('contratos_servicios_especializados.contrato_servicio_especializado_deleted_at')
+        .select('contratos_servicios_especializados.contrato_servicio_especializado_id')
+        .forUpdate()
+        .limit(1)
+
+      if (blocking.length > 0) {
+        throw new RepseSpecializedServiceError(
+          'No se puede eliminar el servicio mientras esté vinculado a contratos activos.',
+          REPSE_SPECIALIZED_SERVICE_ERROR_CODES.LINKED_ACTIVE_CONTRATOS,
+          409,
+          'servicio-con-contratos-activos'
+        )
+      }
+
+      const snapshot = serializeRepseSpecializedService(row)
+      row.useTransaction(trx)
+      await row.delete()
+      return snapshot
+    })
   }
 
   // ---------------------------------------------------------------------------

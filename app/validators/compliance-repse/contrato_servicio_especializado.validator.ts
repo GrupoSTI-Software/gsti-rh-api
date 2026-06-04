@@ -16,6 +16,7 @@ export const createContratoServicioEspecializadoValidator = vine.compile(
     moneda: vine.string().trim().fixedLength(3).optional(),
     estatus: estatusField.optional(),
     anexo15d: anexo15dSchema,
+    serviciosRegistradosIds: vine.array(positiveIdField),
   })
 )
 
@@ -64,6 +65,7 @@ export const updateContratoServicioEspecializadoValidator = vine.compile(
           .optional(),
       })
       .optional(),
+    serviciosRegistradosIds: vine.array(positiveIdField).optional(),
   })
 )
 
