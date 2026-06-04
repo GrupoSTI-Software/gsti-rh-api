@@ -296,6 +296,41 @@ components:
           properties:
             contratoServicioEspecializado:
               $ref: '#/components/schemas/ContratoServicioEspecializado'
+      example:
+        type: success
+        title: Contrato de Servicios Especializados
+        message: Contrato creado correctamente
+        data:
+          contratoServicioEspecializado:
+            id: 1
+            numeroContrato: CSE-2026-001
+            empresaContratante:
+              id: 1
+              razonSocial: La casa
+              rfc: MVGI541001RE6
+            fechaInicio: '2026-01-23'
+            fechaFin: '2026-01-23'
+            objetoServicio: Prestación de servicios especializados de limpieza industrial.
+            montoTotal: 450000
+            moneda: MXN
+            estatus: borrador
+            anexo15d:
+              folioRepse: Prueba12
+              objetoDetallado: Limpieza profunda de áreas productivas y zonas comunes.
+              numeroTrabajadoresAprox: 12
+              fechaInicioServicio: '2026-01-15'
+              fechaFinServicio: '2026-12-31'
+              compromisosDocumentales:
+                - tipo: cfdi_nomina
+                  descripcion: Entrega mensual de CFDI de nómina
+                  periodicidad: mensual
+              responsabilidadSolidariaAceptada: true
+              textoResponsabilidadSolidaria: Las partes reconocen la responsabilidad solidaria prevista en el artículo 15-D de la LFT.
+            serviciosRegistrados:
+              - id: 18
+                name: Demo REPSE - Mantenimiento de aire acondicionado
+            createdAt: '2026-06-04T18:14:04.868+00:00'
+            updatedAt: '2026-06-04T18:14:04.868+00:00'
 
     EmpresaContratanteBasica:
       type: object
@@ -376,7 +411,9 @@ components:
           $ref: '#/components/schemas/Anexo15D'
         serviciosRegistrados:
           type: array
-          description: Servicios del catálogo REPSE que amparan el contrato.
+          description: |
+            Servicios del catálogo REPSE vinculados al contrato (id y nombre).
+            Incluido en respuestas POST 201, PATCH 200, GET list y GET detail.
           items:
             $ref: '#/components/schemas/ServicioRegistradoResumen'
         createdAt:
@@ -422,7 +459,9 @@ components:
         serviciosRegistradosIds:
           type: array
           minItems: 1
-          description: Ids del catálogo REPSE del tenant (mínimo uno).
+          description: |
+            IDs de servicios del catálogo REPSE del tenant (GET /api/repse-specialized-services).
+            Mínimo uno; vincula el contrato con las líneas registradas que lo amparan.
           items:
             type: integer
             minimum: 1
@@ -456,7 +495,6 @@ components:
               type: string
       example:
         empresaContratanteId: 1
-        serviciosRegistradosIds: [1, 2]
         numeroContrato: CSE-2026-001
         fechaInicio: '2026-01-15'
         fechaFin: '2026-12-31'
@@ -464,6 +502,7 @@ components:
         montoTotal: 450000
         moneda: MXN
         estatus: borrador
+        serviciosRegistradosIds: [1, 2]
         anexo15d:
           objetoDetallado: Limpieza profunda de áreas productivas, sanitarios, pasillos y zonas comunes con personal capacitado, insumos y supervisión en sitio.
           numeroTrabajadoresAprox: 12
@@ -826,7 +865,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Listado paginado con anexo y contratante básico
+          description: Listado paginado con anexo, contratante y serviciosRegistrados por contrato
           content:
             application/json:
               schema:
@@ -863,7 +902,7 @@ paths:
               $ref: '#/components/schemas/ContratoServicioEspecializadoCreate'
       responses:
         '201':
-          description: Contrato creado con folioRepse autocompletado
+          description: Contrato creado con folioRepse autocompletado y serviciosRegistrados en la respuesta
           content:
             application/json:
               schema:
@@ -923,7 +962,7 @@ paths:
             type: integer
       responses:
         '200':
-          description: Detalle del contrato con anexo 15-D
+          description: Detalle del contrato con anexo 15-D y serviciosRegistrados
           content:
             application/json:
               schema:
@@ -965,7 +1004,7 @@ paths:
               $ref: '#/components/schemas/ContratoServicioEspecializadoUpdate'
       responses:
         '200':
-          description: Contrato actualizado
+          description: Contrato actualizado (incluye serviciosRegistrados)
           content:
             application/json:
               schema:

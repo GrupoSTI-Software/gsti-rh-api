@@ -74,7 +74,7 @@ export default class ContratosServiciosEspecializadosController {
    *         schema: { type: string }
    *     responses:
    *       '200':
-   *         description: Listado paginado con anexo 15-D y contratante básico
+   *         description: Listado paginado con anexo 15-D, contratante y serviciosRegistrados
    *         content:
    *           application/json:
    *             schema:
@@ -157,7 +157,7 @@ export default class ContratosServiciosEspecializadosController {
    *         schema: { type: integer }
    *     responses:
    *       '200':
-   *         description: Detalle del contrato con anexo 15-D embebido
+   *         description: Detalle del contrato con anexo 15-D y serviciosRegistrados
    *         content:
    *           application/json:
    *             schema:
@@ -226,7 +226,7 @@ export default class ContratosServiciosEspecializadosController {
    *             $ref: '#/components/schemas/ContratoServicioEspecializadoCreate'
    *     responses:
    *       '201':
-   *         description: Contrato creado con folioRepse autocompletado en anexo15d
+   *         description: Contrato creado con folioRepse autocompletado y serviciosRegistrados poblados
    *         content:
    *           application/json:
    *             schema:
@@ -320,7 +320,7 @@ export default class ContratosServiciosEspecializadosController {
    *             $ref: '#/components/schemas/ContratoServicioEspecializadoUpdate'
    *     responses:
    *       '200':
-   *         description: Contrato actualizado
+   *         description: Contrato actualizado (incluye serviciosRegistrados si hay vínculos)
    *         content:
    *           application/json:
    *             schema:

@@ -116,6 +116,17 @@ export {}
  *         textoResponsabilidadSolidaria:
  *           type: string
  *
+ *     ServicioRegistradoResumen:
+ *       type: object
+ *       required: [id, name]
+ *       properties:
+ *         id:
+ *           type: integer
+ *           description: ID del servicio en el catálogo REPSE del tenant.
+ *         name:
+ *           type: string
+ *           description: Nombre del servicio especializado registrado.
+ *
  *     CompromisoDocumental:
  *       type: object
  *       required: [tipo, descripcion, periodicidad]
@@ -173,6 +184,7 @@ export {}
  *         - fechaInicio
  *         - objetoServicio
  *         - anexo15d
+ *         - serviciosRegistradosIds
  *       properties:
  *         empresaContratanteId:
  *           type: integer
@@ -205,6 +217,15 @@ export {}
  *           type: string
  *           enum: [borrador, vigente, vencido, cancelado]
  *           default: borrador
+ *         serviciosRegistradosIds:
+ *           type: array
+ *           minItems: 1
+ *           description: |
+ *             IDs de servicios del catálogo REPSE del tenant (GET /api/repse-specialized-services).
+ *             Mínimo uno; vincula el contrato con las líneas registradas que lo amparan.
+ *           items:
+ *             type: integer
+ *             minimum: 1
  *         anexo15d:
  *           $ref: '#/components/schemas/Anexo15DCreate'
  *       example:
@@ -216,6 +237,7 @@ export {}
  *         montoTotal: 450000
  *         moneda: MXN
  *         estatus: borrador
+ *         serviciosRegistradosIds: [1, 2]
  *         anexo15d:
  *           objetoDetallado: Limpieza profunda de áreas productivas, sanitarios, pasillos y zonas comunes con personal capacitado, insumos y supervisión en sitio.
  *           numeroTrabajadoresAprox: 12
@@ -263,6 +285,14 @@ export {}
  *         estatus:
  *           type: string
  *           enum: [borrador, vigente, vencido, cancelado]
+ *         serviciosRegistradosIds:
+ *           type: array
+ *           minItems: 1
+ *           description: |
+ *             Reemplaza el set de servicios vinculados al contrato (mínimo uno si se envía).
+ *           items:
+ *             type: integer
+ *             minimum: 1
  *         anexo15d:
  *           type: object
  *           properties:
@@ -292,6 +322,7 @@ export {}
  *               minLength: 50
  *               maxLength: 3000
  *       example:
+ *         serviciosRegistradosIds: [1]
  *         estatus: vigente
  *         montoTotal: 475000
  *         anexo15d:
@@ -368,6 +399,13 @@ export {}
  *           enum: [borrador, vigente, vencido, cancelado]
  *         anexo15d:
  *           $ref: '#/components/schemas/Anexo15DResource'
+ *         serviciosRegistrados:
+ *           type: array
+ *           description: |
+ *             Servicios del catálogo REPSE vinculados al contrato (id y nombre).
+ *             Presente en POST 201, PATCH 200, GET list y GET detail.
+ *           items:
+ *             $ref: '#/components/schemas/ServicioRegistradoResumen'
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -375,6 +413,36 @@ export {}
  *           type: string
  *           format: date-time
  *           nullable: true
+ *       example:
+ *         id: 1
+ *         numeroContrato: CSE-2026-001
+ *         empresaContratante:
+ *           id: 1
+ *           razonSocial: La casa
+ *           rfc: MVGI541001RE6
+ *         fechaInicio: '2026-01-23'
+ *         fechaFin: '2026-01-23'
+ *         objetoServicio: Prestación de servicios especializados de limpieza industrial.
+ *         montoTotal: 450000
+ *         moneda: MXN
+ *         estatus: borrador
+ *         anexo15d:
+ *           folioRepse: Prueba12
+ *           objetoDetallado: Limpieza profunda de áreas productivas y zonas comunes.
+ *           numeroTrabajadoresAprox: 12
+ *           fechaInicioServicio: '2026-01-15'
+ *           fechaFinServicio: '2026-12-31'
+ *           compromisosDocumentales:
+ *             - tipo: cfdi_nomina
+ *               descripcion: Entrega mensual de CFDI de nómina
+ *               periodicidad: mensual
+ *           responsabilidadSolidariaAceptada: true
+ *           textoResponsabilidadSolidaria: Las partes reconocen la responsabilidad solidaria prevista en el artículo 15-D de la LFT.
+ *         serviciosRegistrados:
+ *           - id: 18
+ *             name: Demo REPSE - Mantenimiento de aire acondicionado
+ *         createdAt: '2026-06-04T18:14:04.868+00:00'
+ *         updatedAt: '2026-06-04T18:14:04.868+00:00'
  *
  *     EmpresasContratantesListSuccess:
  *       type: object
@@ -487,6 +555,9 @@ export {}
  *                   periodicidad: mensual
  *               responsabilidadSolidariaAceptada: true
  *               textoResponsabilidadSolidaria: Las partes reconocen la responsabilidad solidaria prevista en el artículo 15-D de la Ley Federal del Trabajo cuando el prestador incumpla obligaciones laborales o de seguridad social.
- *             createdAt: '2026-06-01T15:00:00.000Z'
- *             updatedAt: '2026-06-01T15:00:00.000Z'
+ *             serviciosRegistrados:
+ *               - id: 18
+ *                 name: Demo REPSE - Mantenimiento de aire acondicionado
+ *             createdAt: '2026-06-04T18:14:04.868+00:00'
+ *             updatedAt: '2026-06-04T18:14:04.868+00:00'
  */
