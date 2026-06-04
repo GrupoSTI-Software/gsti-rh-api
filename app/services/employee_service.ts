@@ -299,7 +299,6 @@ export default class EmployeeService {
 
   async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
     const businessUnitsList = allowedBusinessUnitIds
-
     const normalizeTime = (time?: string | null): string | null => {
       if (!time) {
         return null
@@ -315,6 +314,7 @@ export default class EmployeeService {
     const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
+
     
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
