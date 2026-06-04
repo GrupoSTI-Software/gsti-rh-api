@@ -321,9 +321,7 @@ export default class EmployeeService {
       .if(filters.onlyPayroll, (query) => {
         query.whereIn('payrollBusinessUnitId', businessUnitsList)
       })
-      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
-        query.where('businessUnitId', filters.businessUnitId!)
-      })
+      .where('businessUnitId', filters.businessUnitId!)
       .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
         query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
       })
@@ -467,7 +465,6 @@ export default class EmployeeService {
         query.orderBy('employee_id')
       })
       .paginate(filters.page, filters.limit)
-
     if (this.isGetMailsEnabled(filters)) {
       for (const employee of employees.all()) {
         employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
@@ -7596,5 +7593,169 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       message: 'La deducción de vacaciones fue eliminada correctamente',
       data: { vacationDeductionId },
     }
+  }
+
+  async indexToAssigned(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
+
+    const normalizeTime = (time?: string | null): string | null => {
+      if (!time) {
+        return null
+      }
+      const trimmed = time.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length === 5 ? `${trimmed}:00` : trimmed
+    }
+
+    const shiftStartTimeInit = normalizeTime(filters.shiftStartTimeInit ?? null)
+    const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
+    const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
+    const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
+    
+    const employees = await Employee.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.onlyPayroll, (query) => {
+        query.whereIn('payrollBusinessUnitId', businessUnitsList)
+      })
+      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
+      })
+      .if(filters.search, (query) => {
+        query.where((subQuery) => {
+          subQuery
+            .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereHas('person', (personQuery) => {
+              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+            })
+        })
+      })
+      .if(filters.employeeWorkSchedule, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereRaw('UPPER(employee_work_schedule) LIKE ?', [
+            `%${filters.employeeWorkSchedule.toUpperCase()}%`,
+          ])
+        })
+      })
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
+      })
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
+      })
+      .if(shiftStartTimeInit || shiftStartTimeEnd || shiftEndTimeStart || shiftEndTimeEnd, (query) => {
+        query.whereHas('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          if (filters.exceptionDate) {
+            employeeShiftQuery.whereRaw('DATE(employe_shifts_apply_since) <= ?', [filters.exceptionDate])
+          }
+          employeeShiftQuery.whereHas('shift', (shiftQuery) => {
+            // Filtro por rango de hora de entrada
+            if (shiftStartTimeInit && shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+                .whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            } else if (shiftStartTimeInit) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+            } else if (shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            }
+
+            // Filtro por rango de hora de salida
+            if (shiftEndTimeStart && shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            } else if (shiftEndTimeStart) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+            } else if (shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            }
+          })
+        })
+      })
+      .if(filters.ignoreDiscriminated === 1, (query) => {
+        query.where('employeeAssistDiscriminator', 0)
+      })
+      .if(filters.ignoreExternal === 1, (query) => {
+        query.where('employee_type_of_contract', 'Internal')
+      })
+      .if(
+        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        (query) => {
+          query.whereNotNull('employee_deleted_at')
+          query.withTrashed()
+        }
+      )
+      .if(filters.employeeTypeId, (query) => {
+        query.where('employee_type_id', filters.employeeTypeId ? filters.employeeTypeId : 0)
+      })
+      .if(
+        !filters.userResponsibleId,
+        (query) => {
+          query.whereIn('departmentId', departmentsList)
+        }
+      )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
+      .preload('department')
+      .preload('position')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
+      .if(filters.orderBy === 'number', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
+      })
+      .if(filters.orderBy === 'name', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`)
+      })
+      .if(!filters.orderBy, (query) => {
+        query.orderBy('employee_id')
+      })
+      .paginate(filters.page, filters.limit)
+
+    if (this.isGetMailsEnabled(filters)) {
+      for (const employee of employees.all()) {
+        employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
+      }
+    }
+
+    return employees
   }
 }

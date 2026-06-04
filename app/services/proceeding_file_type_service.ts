@@ -1,13 +1,10 @@
 import ProceedingFileType from '#models/proceeding_file_type'
 import ProceedingFileTypeProperty from '#models/proceeding_file_type_property'
 import { ProceedingFileTypeFilterSearchInterface } from '../interfaces/proceeding_file_type_filter_search_interface.js'
-import env from '#start/env'
 import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
 
 export default class ProceedingFileTypeService {
-  async index(filters: ProceedingFileTypeFilterSearchInterface) {
-    const systemBussines = env.get('SYSTEM_BUSINESS')
-    const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
+  async index(filters: ProceedingFileTypeFilterSearchInterface, allowedBusinessUnitSlugs: string[] = []) {
     const proceedingFileTypes = await ProceedingFileType.query()
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(proceeding_file_type_name) LIKE ?', [
@@ -15,9 +12,13 @@ export default class ProceedingFileTypeService {
         ])
       })
       .andWhere((query) => {
+        if (allowedBusinessUnitSlugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
         query.whereNotNull('proceeding_file_type_business_units')
         query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
+          allowedBusinessUnitSlugs.forEach((business) => {
             subQuery.orWhereRaw('FIND_IN_SET(?, proceeding_file_type_business_units)', [
               business.trim(),
             ])
@@ -30,17 +31,19 @@ export default class ProceedingFileTypeService {
     return proceedingFileTypes
   }
 
-  async indexByArea(areaToUse: string) {
-    const systemBussines = env.get('SYSTEM_BUSINESS')
-    const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
+  async indexByArea(areaToUse: string, allowedBusinessUnitSlugs: string[] = []) {
     const proceedingFileTypes = await ProceedingFileType.query()
       .if(areaToUse, (query) => {
         query.where('proceeding_file_type_area_to_use', areaToUse)
       })
       .andWhere((query) => {
+        if (allowedBusinessUnitSlugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
         query.whereNotNull('proceeding_file_type_business_units')
         query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
+          allowedBusinessUnitSlugs.forEach((business) => {
             subQuery.orWhereRaw('FIND_IN_SET(?, proceeding_file_type_business_units)', [
               business.trim(),
             ])
@@ -65,6 +68,7 @@ export default class ProceedingFileTypeService {
     newProceedingFileType.proceedingFileTypeAreaToUse =
       proceedingFileType.proceedingFileTypeAreaToUse
     newProceedingFileType.proceedingFileTypeActive = proceedingFileType.proceedingFileTypeActive
+    newProceedingFileType.proceedingFileTypeBusinessUnits = proceedingFileType.proceedingFileTypeBusinessUnits
     await newProceedingFileType.save()
     return newProceedingFileType
   }
@@ -78,6 +82,7 @@ export default class ProceedingFileTypeService {
     currenProceedingFileType.proceedingFileTypeAreaToUse =
       proceedingFileType.proceedingFileTypeAreaToUse
     currenProceedingFileType.proceedingFileTypeActive = proceedingFileType.proceedingFileTypeActive
+    currenProceedingFileType.proceedingFileTypeBusinessUnits = proceedingFileType.proceedingFileTypeBusinessUnits
     await currenProceedingFileType.save()
     return currenProceedingFileType
   }
@@ -174,7 +179,7 @@ export default class ProceedingFileTypeService {
     proceedingFileTypeActive?: boolean
     proceedingFileTypeIsExclusive?: boolean
     employeeId?: number
-  }) {
+  }, allowedBusinessUnitSlugs: string[] = []) {
     try {
       // Validar que el parentId existe si se proporciona
       if (data.parentId) {
@@ -215,10 +220,7 @@ export default class ProceedingFileTypeService {
         }
       }
 
-      // Obtener las business units del sistema desde la variable de entorno
-      const systemBusiness = env.get('SYSTEM_BUSINESS')
-      const systemBusinessArray = systemBusiness?.toString().split(',') as Array<string>
-      const businessUnitsString = systemBusinessArray.join(',')
+      const businessUnitsString = allowedBusinessUnitSlugs.join(',')
 
       // Validar que si isExclusive es true, employeeId debe estar presente
       if (data.proceedingFileTypeIsExclusive && !data.employeeId) {
@@ -288,7 +290,7 @@ export default class ProceedingFileTypeService {
     proceedingFileTypeName: string
     parentId?: number
     proceedingFileTypeActive?: boolean
-  }) {
+  }, allowedBusinessUnitSlugs: string[] = []) {
     try {
       if (data.parentId) {
         const parentExists = await ProceedingFileType.query()
@@ -326,9 +328,7 @@ export default class ProceedingFileTypeService {
         }
       }
 
-      const systemBusiness = env.get('SYSTEM_BUSINESS')
-      const systemBusinessArray = systemBusiness?.toString().split(',') as Array<string>
-      const businessUnitsString = systemBusinessArray.join(',')
+      const businessUnitsString = allowedBusinessUnitSlugs.join(',')
 
       const newProceedingFileType = new ProceedingFileType()
       newProceedingFileType.proceedingFileTypeName = data.proceedingFileTypeName
