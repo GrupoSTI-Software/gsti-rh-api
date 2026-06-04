@@ -1,4 +1,4 @@
-import type { RegulationCoverageRow } from './dto/regulatory_coverage.dto.js'
+import type { RegulationCoverageRow, RegulatoryCoverageSummaryResponse } from './dto/regulatory_coverage.dto.js'
 
 /**
  * Contrato del repositorio de regulatory-coverage.
@@ -18,4 +18,14 @@ export interface RegulatoryCoverageRepository {
    * - Peso: 1.0 si el mejor mapeo disponible es `total`; 0.5 si es `parcial`.
    */
   getCoverageByRegulation(): Promise<RegulationCoverageRow[]>
+
+  /**
+   * Obtiene el resumen de cobertura con desglose por bucket acumulativo de
+   * `system_feature_status` (disponible / en_desarrollo / planeado).
+   *
+   * Devuelve el agregado cross-norma y una fila por norma vigente con los
+   * tres porcentajes de cobertura proyectada. Las features con status
+   * `deprecado` quedan fuera de todos los buckets.
+   */
+  getCoverageSummary(): Promise<RegulatoryCoverageSummaryResponse>
 }
