@@ -16,13 +16,14 @@ const BUSINESS_UNIT_HEADER = 'x-business-unit-id'
  *     que inyecta el filtro automáticamente en todas las queries de los modelos
  *     tenant-scoped a lo largo de toda la cadena async de la request.
  *
- * ## Header opcional `X-Business-Unit-Id`
- * Si el cliente envía este header, el middleware valida que el ID solicitado
- * pertenezca al scope accesible del usuario:
- *  - No pertenece → 404 (el recurso no existe para ese usuario).
- *  - Pertenece     → el scope se estrecha a ese único ID para toda la request.
+ * ## Validación de `businessUnitId` en la request
+ * El middleware bloquea con 404 si el cliente envía un `businessUnitId` que no
+ * pertenece al scope del usuario, en cualquiera de estas tres formas:
+ *  - Header `X-Business-Unit-Id`      → además estrecha el scope a ese único ID.
+ *  - Query param `?businessUnitId=X`  → protege listados filtrados.
+ *  - Body `{ businessUnitId: X }`     → protege operaciones de escritura (POST/PUT).
  *
- * ## Comportamiento por rol (sin header o con header válido)
+ * ## Comportamiento por rol
  *  - root → `TenantContext.runUnscoped`: el mixin omite el whereIn (acceso total).
  *  - resto → `TenantContext.run(scope)`: el mixin aplica whereIn con los IDs resueltos.
  *
@@ -70,19 +71,28 @@ export default class BusinessUnitScopeMiddleware {
       effectiveScope = [requestedId]
     }
 
-    // Validar businessUnitId enviado como query param
-    const queryBusinessUnitId = ctx.request.qs().businessUnitId
-      ? Number(ctx.request.qs().businessUnitId)
-      : undefined
+    // Validar businessUnitId enviado como query param o en el body (POST/PUT/PATCH)
+    const rawQueryId = ctx.request.qs().businessUnitId
+    const rawBodyId = ctx.request.body().businessUnitId
+    const candidateId = rawQueryId ?? rawBodyId
 
-    if (
-      queryBusinessUnitId !== undefined &&
-      user.role?.roleSlug !== 'root' &&
-      !fullScope.includes(queryBusinessUnitId)
-    ) {
-      return ctx.response.status(404).json({
-        message: 'Unidad de negocio no encontrada.',
-      })
+    if (candidateId !== undefined && candidateId !== null && candidateId !== '') {
+      const requestedBusinessUnitId = Number(candidateId)
+
+      if (!Number.isInteger(requestedBusinessUnitId) || requestedBusinessUnitId <= 0) {
+        return ctx.response.status(400).json({
+          message: 'El campo businessUnitId debe ser un entero positivo.',
+        })
+      }
+
+      if (
+        user.role?.roleSlug !== 'root' &&
+        !fullScope.includes(requestedBusinessUnitId)
+      ) {
+        return ctx.response.status(404).json({
+          message: 'Unidad de negocio no encontrada.',
+        })
+      }
     }
 
     ctx.businessUnitScope = effectiveScope
