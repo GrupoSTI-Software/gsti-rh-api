@@ -192,6 +192,43 @@ components:
                   type: array
                   items:
                     $ref: '#/components/schemas/ContratoServicioEspecializado'
+      example:
+        type: success
+        title: Contratos de Servicios Especializados
+        message: Contratos obtenidos correctamente
+        data:
+          contratosServiciosEspecializados:
+            meta:
+              total: 1
+              page: 1
+              currentPage: 1
+              perPage: 20
+              lastPage: 1
+            data:
+              - id: 42
+                numeroContrato: CSE-2026-001
+                empresaContratante:
+                  id: 1
+                  razonSocial: Manufacturas del Norte SA de CV
+                  rfc: DMN900101AA1
+                fechaInicio: '2026-01-15'
+                fechaFin: '2026-03-31'
+                objetoServicio: Prestación de servicios especializados de limpieza industrial.
+                montoTotal: 450000
+                moneda: MXN
+                estatus: vencido
+                vencidoPorFecha: true
+                anexo15d:
+                  folioRepse: REPSE-2026-001
+                  objetoDetallado: Limpieza profunda de áreas productivas.
+                  numeroTrabajadoresAprox: 12
+                  fechaInicioServicio: '2026-01-15'
+                  fechaFinServicio: '2026-12-31'
+                  compromisosDocumentales: []
+                  responsabilidadSolidariaAceptada: true
+                  textoResponsabilidadSolidaria: Texto de responsabilidad solidaria conforme al artículo 15-D LFT.
+                createdAt: '2026-01-15T12:00:00.000Z'
+                updatedAt: '2026-01-15T12:00:00.000Z'
 
     ContratoServicioEspecializadoSuccess:
       type: object
@@ -209,6 +246,36 @@ components:
           properties:
             contratoServicioEspecializado:
               $ref: '#/components/schemas/ContratoServicioEspecializado'
+      example:
+        type: success
+        title: Contrato de Servicios Especializados
+        message: Contrato encontrado correctamente
+        data:
+          contratoServicioEspecializado:
+            id: 42
+            numeroContrato: CSE-2026-001
+            empresaContratante:
+              id: 1
+              razonSocial: Manufacturas del Norte SA de CV
+              rfc: DMN900101AA1
+            fechaInicio: '2026-01-15'
+            fechaFin: '2026-03-31'
+            objetoServicio: Prestación de servicios especializados de limpieza industrial.
+            montoTotal: 450000
+            moneda: MXN
+            estatus: vencido
+            vencidoPorFecha: true
+            anexo15d:
+              folioRepse: REPSE-2026-001
+              objetoDetallado: Limpieza profunda de áreas productivas.
+              numeroTrabajadoresAprox: 12
+              fechaInicioServicio: '2026-01-15'
+              fechaFinServicio: '2026-12-31'
+              compromisosDocumentales: []
+              responsabilidadSolidariaAceptada: true
+              textoResponsabilidadSolidaria: Texto de responsabilidad solidaria conforme al artículo 15-D LFT.
+            createdAt: '2026-01-15T12:00:00.000Z'
+            updatedAt: '2026-01-15T12:00:00.000Z'
 
     EmpresaContratanteBasica:
       type: object
@@ -285,6 +352,14 @@ components:
         estatus:
           type: string
           enum: [borrador, vigente, vencido, cancelado]
+          description: |
+            Estatus efectivo derivado en lectura. Para contratos declarados vigente,
+            puede ser vencido si fecha_fin o el documento firmado vigente ya venció (CDMX).
+        vencidoPorFecha:
+          type: boolean
+          description: |
+            true solo cuando el estatus efectivo es vencido por expiración de fecha
+            (fecha_fin o documento firmado vigente) y el estatus declarado en BD sigue siendo vigente.
         anexo15d:
           $ref: '#/components/schemas/Anexo15D'
         createdAt:
@@ -762,7 +837,10 @@ paths:
             maximum: 500
         - name: estatus
           in: query
-          description: Uno o varios estatus (CSV o repetido). Ej. vigente,borrador
+          description: |
+            Uno o varios estatus (CSV o repetido). Semántica efectiva en lectura:
+            vencido incluye declarados vencidos más vigentes expirados por fecha_fin o documento;
+            vigente excluye vigentes expirados por fecha. Ej. vigente,borrador
           schema:
             oneOf:
               - type: string
@@ -791,7 +869,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Listado paginado con anexo y contratante básico
+          description: Listado paginado con anexo, contratante básico y estatus efectivo por contrato
           content:
             application/json:
               schema:
@@ -884,7 +962,7 @@ paths:
             type: integer
       responses:
         '200':
-          description: Detalle del contrato con anexo 15-D
+          description: Detalle del contrato con anexo 15-D, estatus efectivo y vencidoPorFecha
           content:
             application/json:
               schema:

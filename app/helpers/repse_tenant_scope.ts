@@ -140,14 +140,26 @@ export async function findEmpresaContratanteInTenantOrFail(
   return row
 }
 
+export type FindContratoInTenantOptions = {
+  notFoundKey?: string
+  /** Incluye subconsulta de fecha_vencimiento del documento firmado vigente en `$extras`. */
+  withDocumentoVigenteFecha?: boolean
+}
+
 /**
  * Recupera un contrato de servicios especializados no borrado cuya BU pertenezca
  * al tenant actual. Lanza 404 cuando no existe o vive en otra instancia.
  */
 export async function findContratoInTenantOrFail(
   contratoServicioEspecializadoId: number,
-  notFoundKey: string = 'contrato-no-encontrado'
+  notFoundKeyOrOptions: string | FindContratoInTenantOptions = 'contrato-no-encontrado'
 ): Promise<ContratoServicioEspecializado> {
+  const options: FindContratoInTenantOptions =
+    typeof notFoundKeyOrOptions === 'string'
+      ? { notFoundKey: notFoundKeyOrOptions }
+      : notFoundKeyOrOptions
+  const notFoundKey = options.notFoundKey ?? 'contrato-no-encontrado'
+
   const allowed = await getAllowedBusinessUnitIds()
   if (allowed.length === 0) {
     throw new ContratoServicioEspecializadoError(
@@ -159,11 +171,16 @@ export async function findContratoInTenantOrFail(
     )
   }
 
-  const row = await ContratoServicioEspecializado.query()
+  let query = ContratoServicioEspecializado.query()
     .where('contrato_servicio_especializado_id', contratoServicioEspecializadoId)
     .whereNull('contrato_servicio_especializado_deleted_at')
     .whereIn('business_unit_id', allowed)
-    .first()
+
+  if (options.withDocumentoVigenteFecha) {
+    query = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(query)
+  }
+
+  const row = await query.first()
 
   if (!row) {
     throw new ContratoServicioEspecializadoError(

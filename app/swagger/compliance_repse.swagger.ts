@@ -366,6 +366,14 @@ export {}
  *         estatus:
  *           type: string
  *           enum: [borrador, vigente, vencido, cancelado]
+ *           description: |
+ *             Estatus efectivo derivado en lectura. Para contratos declarados vigente,
+ *             puede ser vencido si fecha_fin o el documento firmado vigente ya venció (CDMX).
+ *         vencidoPorFecha:
+ *           type: boolean
+ *           description: |
+ *             true solo cuando el estatus efectivo es vencido por expiración de fecha
+ *             (fecha_fin o documento firmado vigente) y el estatus declarado en BD sigue siendo vigente.
  *         anexo15d:
  *           $ref: '#/components/schemas/Anexo15DResource'
  *         createdAt:

@@ -51,7 +51,9 @@ export default class ContratosServiciosEspecializadosController {
    *         schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
        *       - in: query
        *         name: estatus
-       *         description: Uno o varios estatus (CSV o repetido). Ej. vigente,borrador
+       *         description: |
+       *           Uno o varios estatus (CSV o repetido). Semántica efectiva: vencido incluye
+       *           declarados vencidos más vigentes expirados por fecha; vigente los excluye.
        *         schema:
        *           oneOf:
        *             - type: string

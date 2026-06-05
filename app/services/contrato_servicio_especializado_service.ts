@@ -14,6 +14,7 @@ import {
   findEmpresaContratanteInTenantOrFail,
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
+import { toBusinessDateString } from '#utils/business_date'
 
 export interface Anexo15dCreatePayload {
   objetoDetallado: string
@@ -134,7 +135,8 @@ export function serializeContratoServicioEspecializado(row: ContratoServicioEspe
     objetoServicio: row.objetoServicio,
     montoTotal: row.montoTotal !== null ? Number(row.montoTotal) : null,
     moneda: row.moneda,
-    estatus: row.estatus,
+    estatus: row.estatusEfectivo,
+    vencidoPorFecha: row.vencidoPorFecha,
     anexo15d: anexo ? serializeAnexo15d(anexo) : null,
     createdAt: toIsoDateTimeString(row.createdAt),
     updatedAt: toIsoDateTimeString(row.updatedAt),
@@ -204,7 +206,8 @@ export default class ContratoServicioEspecializadoService {
     )
 
     await this.loadRelations(row)
-    return serializeContratoServicioEspecializado(row)
+    const forResponse = await this.findForSerialization(row.contratoServicioEspecializadoId)
+    return serializeContratoServicioEspecializado(forResponse)
   }
 
   async listPaginated(
@@ -240,14 +243,21 @@ export default class ContratoServicioEspecializadoService {
       await findEmpresaContratanteInTenantOrFail(filters.empresaContratanteId)
     }
 
-    let query = ContratoServicioEspecializado.query()
+    let query = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(
+      ContratoServicioEspecializado.query()
+    )
       .whereNull('contrato_servicio_especializado_deleted_at')
       .whereIn('business_unit_id', allowed)
       .preload('clausula15d')
       .preload('empresaContratante')
 
+    const hoyIso = toBusinessDateString()
     if (filters.estatus && filters.estatus.length > 0) {
-      query = query.whereIn('contrato_servicio_especializado_estatus', filters.estatus)
+      query = ContratoServicioEspecializado.applyEffectiveEstatusFilter(
+        query,
+        filters.estatus,
+        hoyIso
+      )
     }
 
     if (filters.empresaContratanteId !== undefined) {
@@ -301,8 +311,7 @@ export default class ContratoServicioEspecializadoService {
   }
 
   async findById(contratoServicioEspecializadoId: number) {
-    const row = await findContratoInTenantOrFail(contratoServicioEspecializadoId)
-    await this.loadRelations(row)
+    const row = await this.findForSerialization(contratoServicioEspecializadoId)
     return serializeContratoServicioEspecializado(row)
   }
 
@@ -428,7 +437,8 @@ export default class ContratoServicioEspecializadoService {
     )
 
     await this.loadRelations(current)
-    return serializeContratoServicioEspecializado(current)
+    const forResponse = await this.findForSerialization(current.contratoServicioEspecializadoId)
+    return serializeContratoServicioEspecializado(forResponse)
   }
 
   async destroy(contratoServicioEspecializadoId: number) {
@@ -438,6 +448,14 @@ export default class ContratoServicioEspecializadoService {
       { contratoId: row.contratoServicioEspecializadoId, numeroContrato: row.numeroContrato },
       'Contrato de servicios especializados eliminado lógicamente'
     )
+  }
+
+  private async findForSerialization(contratoServicioEspecializadoId: number) {
+    const row = await findContratoInTenantOrFail(contratoServicioEspecializadoId, {
+      withDocumentoVigenteFecha: true,
+    })
+    await this.loadRelations(row)
+    return row
   }
 
   private async loadRelations(row: ContratoServicioEspecializado) {
