@@ -1,7 +1,7 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-06-03T20:00:02+00:00"
-kg_head_sha: "582dca48e1e8627caf8d2c089c988178a52da8f2"
+kg_built_at: "2026-06-05T16:11:15+00:00"
+kg_head_sha: "11cf7d1fd297a842c31dbed9738b80d75a5159ef"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
@@ -10,7 +10,7 @@ prefijo_asana: "USRH"
 default_branch: "develop"
 counts:
   entidades_db: 158
-  endpoints: 752
+  endpoints: 753
   controllers: 146
   services: 147
   validators: 111
@@ -1914,7 +1914,6 @@ counts:
   - `userActive`: number
   - `pinCode`: string
   - `userPinCodeExpiresAt`: DateTime | null
-  - `userBusinessAccess`: string | null
   - `roleId`: number
   - `personId`: number
   - `userEmailType`: string
@@ -2074,7 +2073,7 @@ counts:
   - `zoneAddress`: string
   - `zonePolygon`: string
 
-## Endpoints REST (752)
+## Endpoints REST (753)
 
 ### `/api/access-points` (middleware: auth)
 
@@ -2690,6 +2689,7 @@ counts:
 | GET | `/api/employees/termination-catalog` | `#controllers/employee_controller.getTerminationCatalog` | `start/routes/employee_routes.ts` |
 | GET | `/api/employees/without-user` | `#controllers/employee_controller.indexWithOutUser` | `start/routes/employee_routes.ts` |
 | GET | `/api/employees` | `#controllers/employee_controller.index` | `start/routes/employee_routes.ts` |
+| GET | `/api/employees/to-assigned` | `#controllers/employee_controller.indexToAssigned` | `start/routes/employee_routes.ts` |
 | POST | `/api/employees` | `#controllers/employee_controller.store` | `start/routes/employee_routes.ts` |
 | PUT | `/api/employees/:employeeId` | `#controllers/employee_controller.update` | `start/routes/employee_routes.ts` |
 | DELETE | `/api/employees/:employeeId` | `#controllers/employee_controller.delete` | `start/routes/employee_routes.ts` |
@@ -3080,7 +3080,7 @@ counts:
 | DELETE | `/api/proceeding-file-type-property-values/:proceedingFileTypePropertyValueId` | `#controllers/proceeding_file_type_property_value_controller.delete` | `start/routes/proceeding_file_type_property_value_routes.ts` |
 | GET | `/api/proceeding-file-type-property-values/:proceedingFileTypePropertyValueId` | `#controllers/proceeding_file_type_property_value_controller.show` | `start/routes/proceeding_file_type_property_value_routes.ts` |
 
-### `/api/proceeding-file-types` (middleware: auth)
+### `/api/proceeding-file-types` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3322,7 +3322,7 @@ counts:
 | DELETE | `/api/system-setting-trade-names/:systemSettingTradeNameId` | `#controllers/system_setting_trade_name_controller.delete` | `start/routes/system_setting_trade_name_routes.ts` |
 | GET | `/api/system-setting-trade-names/:systemSettingTradeNameId` | `#controllers/system_setting_trade_name_controller.show` | `start/routes/system_setting_trade_name_routes.ts` |
 
-### `/api/system-settings` (middleware: auth, auth, auth, auth, auth, auth, auth, auth, auth)
+### `/api/system-settings` (middleware: auth, auth, auth, auth, auth, auth, businessScope, auth, businessScope, auth, businessScope, auth)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3404,7 +3404,7 @@ counts:
 | GET | `/api/user-responsible-employees/:userResponsibleEmployeeId` | `#controllers/user_responsible_employee_controller.show` | `start/routes/user_responsible_employee_routes.ts` |
 | DELETE | `/api/user-responsible-employees/:userResponsibleEmployeeId` | `#controllers/user_responsible_employee_controller.delete` | `start/routes/user_responsible_employee_routes.ts` |
 
-### `/api/users` (middleware: auth)
+### `/api/users` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
