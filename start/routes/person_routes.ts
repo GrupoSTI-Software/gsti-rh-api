@@ -16,7 +16,7 @@ router
     router.get('/:personId', '#controllers/person_controller.getEmployee')
   })
   .prefix('/api/person-get-employee')
-  .use(middleware.auth())
+  .use(middleware.auth()).use(middleware.businessScope())
 router
   .group(() => {
     router.get('/', '#controllers/person_controller.getPlacesOfBirth')
