@@ -106,6 +106,7 @@ export interface EmployeeInfo {
   employeeFirstName: string | null
   employeeLastName: string | null
   employeeSecondLastName: string | null
+  employeePhoto: string | null
   departmentId: number | null
   positionId: number | null
   businessUnitId: number
