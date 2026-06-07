@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import WorkingTimeRule from '#models/working_time_rule'
 import WorkingTimeRuleError from '#exceptions/working_time_rule_error'
+import { workingTimeRuleCache } from '#services/working_time_rule_cache_service'
 import OverridesRepositoryMysql from './overrides.repository.mysql.js'
 import type { OverridesRepository } from './overrides.repository.js'
 import type { CreateOverrideInput, OverrideCaps, UpdateOverrideInput } from './dto/override.dto.js'
@@ -62,7 +63,9 @@ export default class OverridesService {
       overrideCreatedByUserId: exceedsFederal ? authorUserId : null,
     }
 
-    return this.repository.create(attributes)
+    const created = await this.repository.create(attributes)
+    workingTimeRuleCache.invalidateBusinessUnit(input.businessUnitId)
+    return created
   }
 
   /** Actualiza parcialmente un override existente. */
@@ -98,12 +101,20 @@ export default class OverridesService {
       overrideCreatedByUserId: exceedsFederal ? authorUserId : null,
     }
 
-    return this.repository.update(existing, attributes)
+    const updated = await this.repository.update(existing, attributes)
+    if (existing.businessUnitId) {
+      workingTimeRuleCache.invalidateBusinessUnit(existing.businessUnitId)
+    }
+    return updated
   }
 
   /** Borra (lógico) un override. */
   async delete(existing: WorkingTimeRule): Promise<void> {
+    const businessUnitId = existing.businessUnitId
     await this.repository.softDelete(existing)
+    if (businessUnitId) {
+      workingTimeRuleCache.invalidateBusinessUnit(businessUnitId)
+    }
   }
 
   /** Resuelve validTo en un PATCH: undefined conserva el actual; null lo deja indefinido. */

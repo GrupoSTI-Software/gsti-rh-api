@@ -80,31 +80,31 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
   @column.date()
   declare workingTimeRuleValidTo: DateTime | null
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleMaxWeeklyHours: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleMaxWeeklyOvertimeHours: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleMaxDailyOvertimeHours: number
 
   @column()
   declare workingTimeRuleMaxOvertimeDaysPerWeek: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleDailyHoursDay: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleDailyHoursNight: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleDailyHoursMixed: number
 
   @column()
   declare workingTimeRuleWorkDaysPerRestDay: number
 
-  @column()
+  @column({ consume: (value: number | boolean | null) => Boolean(value) })
   declare workingTimeRuleSalaryProtection: boolean
 
   /** Null = regla federal; un valor indica el override de esa empresa (tenant). */
@@ -112,7 +112,7 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
   declare businessUnitId: number | null
 
   /** True si algún tope del override supera el federal vigente (bitácora de deslinde). */
-  @column()
+  @column({ consume: (value: number | boolean | null) => Boolean(value) })
   declare workingTimeRuleExceedsFederal: boolean
 
   /** Justificación obligatoria cuando exceedsFederal es true. */
