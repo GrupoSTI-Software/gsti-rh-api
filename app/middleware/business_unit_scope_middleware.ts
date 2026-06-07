@@ -47,13 +47,13 @@ export default class BusinessUnitScopeMiddleware {
       await user.load('role')
     }
 
-    const isRoot = user.role?.roleSlug === 'root'
+    // const isRoot = user.role?.roleSlug === 'root'
 
     // Root omite toda validación de scope y continúa sin filtro de tenant.
-    if (isRoot) {
-      ctx.businessUnitScope = []
-      return TenantContext.runUnscoped(() => next(), 'usuario con rol root')
-    }
+    // if (isRoot) {
+    //   ctx.businessUnitScope = []
+    //   return TenantContext.runUnscoped(() => next(), 'usuario con rol root')
+    // }
 
     const scopeService = new BusinessAccessScopeService()
     const fullScope = await scopeService.getAccessibleIds(user)
