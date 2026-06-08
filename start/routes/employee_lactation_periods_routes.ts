@@ -11,6 +11,17 @@ router
       '/employee-lactation-periods',
       '#controllers/employee_lactation_periods_controller.store'
     )
+    // Reporte de cumplimiento (JSON + export PDF).
+    // OJO: estas rutas deben declararse ANTES de `/:id` para que
+    // `compliance-report` no se confunda con un identificador numérico.
+    router.get(
+      '/employee-lactation-periods/compliance-report',
+      '#controllers/employee_lactation_periods_controller.complianceReport'
+    )
+    router.get(
+      '/employee-lactation-periods/compliance-report/export',
+      '#controllers/employee_lactation_periods_controller.complianceReportExport'
+    )
     router.put(
       '/employee-lactation-periods/:id',
       '#controllers/employee_lactation_periods_controller.update'

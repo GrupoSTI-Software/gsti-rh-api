@@ -1,15 +1,21 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
 import RoleService from '#services/role_service'
 import EmployeeLactationPeriodService, {
   type EmployeeLactationPeriodCreatePayload,
   type EmployeeLactationPeriodUpdatePayload,
 } from '#services/employee_lactation_period_service'
+import EmployeeLactationComplianceReportService, {
+  type ComplianceReportFilters,
+} from '#services/employee_lactation_compliance_report_service'
 import {
   createEmployeeLactationPeriodValidator,
+  employeeLactationComplianceReportValidator,
   employeeLactationPeriodListValidator,
   updateEmployeeLactationPeriodValidator,
 } from '#validators/employee_lactation_period'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
+import { LACTATION_COMPLIANCE_STATUS_VALUES } from '../constants/employee_lactation_compliance_status.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
 import { resolveEmployeeLactationPeriodApiError } from '../helpers/employee_lactation_period_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
@@ -347,6 +353,172 @@ export default class EmployeeLactationPeriodsController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/compliance-report:
+   *   get:
+   *     summary: Reporte de cumplimiento de periodos de lactancia (JSON paginado)
+   *     description: |
+   *       Agrega los periodos de lactancia de la empresa con su estado calculado
+   *       (`activa` / `por_vencer` / `vencida`), el número de días con reducción
+   *       efectivamente aplicada (excepciones de turno vivas ligadas al periodo)
+   *       y el conteo de evidencias documentales adjuntas.
+   *
+   *       El estado se calcula en runtime contra `today` en la zona horaria del
+   *       sistema; el umbral de `por_vencer` es 30 días.
+   *
+   *       Aplica multitenancy: sólo devuelve periodos de empleadas cuya
+   *       business_unit es accesible para el usuario autenticado.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         required: true
+   *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: limit
+   *         required: true
+   *         schema: { type: integer, minimum: 1, maximum: 500 }
+   *       - in: query
+   *         name: status
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [activa, por_vencer, vencida]
+   *       - in: query
+   *         name: from
+   *         required: false
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: to
+   *         required: false
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: employeeId
+   *         required: false
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         description: Acota a una sola unidad de negocio (selector del header global)
+   *         schema: { type: integer }
+   *     responses:
+   *       '200': { description: Listado paginado del reporte de cumplimiento }
+   *       '400': { description: Validación inválida (rango from>to, filtros mal formados) }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   */
+  async complianceReport(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
+      const service = new EmployeeLactationComplianceReportService()
+      const bundle = await service.getCompliancePaginated(
+        this.toReportFilters(filters),
+        ctx.businessUnitScope
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        bundle,
+        'Employee Lactation Compliance Report',
+        'Reporte de cumplimiento de lactancia obtenido correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/compliance-report/export:
+   *   get:
+   *     summary: Exporta el paquete de evidencia STPS en PDF
+   *     description: |
+   *       Genera un PDF en memoria/streaming con los periodos que cumplen los
+   *       filtros, incluyendo por cada empleada: fechas, tipo, modalidad,
+   *       estado calculado, prueba de aplicación (días con reducción aplicada)
+   *       y el conteo de evidencias documentales adjuntas. Cada página incluye
+   *       en el pie la cita literal de los fundamentos legales: LFT artículo
+   *       170 fracciones II y IV y NOM-037-STPS-2023 numeral 5.2.h.
+   *
+   *       El PDF nunca se persiste en disco del servidor. Se devuelve siempre
+   *       200 (incluso cuando no hay registros) con un documento de "estado
+   *       vacío" — nunca 404.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         required: true
+   *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: limit
+   *         required: true
+   *         schema: { type: integer, minimum: 1, maximum: 500 }
+   *       - in: query
+   *         name: status
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [activa, por_vencer, vencida]
+   *       - in: query
+   *         name: from
+   *         required: false
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: to
+   *         required: false
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: employeeId
+   *         required: false
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         description: Acota a una sola unidad de negocio (selector del header global)
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: PDF binario (application/pdf)
+   *         content:
+   *           application/pdf:
+   *             schema: { type: string, format: binary }
+   *       '400': { description: Validación inválida }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   */
+  async complianceReportExport(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
+      const service = new EmployeeLactationComplianceReportService()
+      const pdfBuffer = await service.buildCompliancePdf(
+        this.toReportFilters(filters),
+        ctx.businessUnitScope
+      )
+
+      const filename = `reporte-cumplimiento-lactancia-${DateTime.now().toFormat('yyyyLLdd')}.pdf`
+      response.header('Content-Type', 'application/pdf')
+      response.header('Content-Disposition', `attachment; filename="${filename}"`)
+      response.header('Content-Length', pdfBuffer.length.toString())
+      response.status(200)
+      return response.send(pdfBuffer)
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -475,6 +647,43 @@ export default class EmployeeLactationPeriodsController {
       return iso.substring(0, 10)
     }
     return String(value)
+  }
+
+  /**
+   * Convierte la salida del validador del reporte (`from`/`to` como `Date`
+   * JS, `status` como string del set cerrado) al shape `ComplianceReportFilters`
+   * que espera el servicio. Mantiene esta transformación encapsulada para
+   * que el service no tenga que conocer detalles del runtime de Vine.
+   */
+  private toReportFilters(
+    raw: Awaited<ReturnType<typeof employeeLactationComplianceReportValidator.validate>>
+  ): ComplianceReportFilters {
+    const toDateTime = (value: unknown): DateTime | null => {
+      if (!value) return null
+      if (value instanceof Date) {
+        return DateTime.fromJSDate(value).toUTC().startOf('day')
+      }
+      if (typeof value === 'string') {
+        return DateTime.fromISO(value, { zone: 'utc' }).startOf('day')
+      }
+      return null
+    }
+
+    const allowedStatuses = LACTATION_COMPLIANCE_STATUS_VALUES as readonly string[]
+    const status =
+      typeof raw.status === 'string' && allowedStatuses.includes(raw.status)
+        ? (raw.status as ComplianceReportFilters['status'])
+        : undefined
+
+    return {
+      page: raw.page,
+      limit: raw.limit,
+      status,
+      from: toDateTime(raw.from),
+      to: toDateTime(raw.to),
+      employeeId: raw.employeeId,
+      businessUnitId: raw.businessUnitId,
+    }
   }
 
   private respondError(
