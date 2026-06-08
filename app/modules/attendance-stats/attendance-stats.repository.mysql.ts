@@ -115,6 +115,12 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const q = db
       .from('employees AS e')
       .leftJoin('departments AS d', 'd.department_id', 'e.department_id')
+      // Posición: se descarta el join si la posición está soft-deleted (el nombre
+      // queda NULL en lugar de exponer una posición eliminada).
+      .leftJoin('positions AS p', (join) => {
+        join.on('p.position_id', 'e.position_id').andOnNull('p.position_deleted_at')
+      })
+      .leftJoin('business_units AS bu', 'bu.business_unit_id', 'e.business_unit_id')
       .whereNull('e.employee_deleted_at')
       // Excluir empleados discriminados de asistencia (employee_assist_discriminator=1):
       // el sistema viejo nunca les asigna status (siempre ''), así que no deben
@@ -142,33 +148,54 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       .select(
         'e.employee_id AS employee_id',
         'e.employee_code AS employee_code',
+        'e.employee_payroll_code AS employee_payroll_code',
         'e.employee_first_name AS employee_first_name',
         'e.employee_last_name AS employee_last_name',
         'e.employee_second_last_name AS employee_second_last_name',
+        'e.employee_photo AS employee_photo',
         'e.department_id AS department_id',
         'd.department_name AS department_name',
         'e.position_id AS position_id',
+        'p.position_name AS position_name',
         'e.business_unit_id AS business_unit_id',
+        'bu.business_unit_name AS business_unit_name',
         'e.payroll_business_unit_id AS payroll_business_unit_id'
       )
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('e.employee_last_name', 'asc')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      employee: {
-        employeeId: Number(r.employee_id),
-        employeeCode: r.employee_code ?? null,
-        employeeFirstName: r.employee_first_name ?? null,
-        employeeLastName: r.employee_last_name ?? null,
-        employeeSecondLastName: r.employee_second_last_name ?? null,
-        departmentId: r.department_id !== null && r.department_id !== undefined ? Number(r.department_id) : null,
-        positionId: r.position_id !== null && r.position_id !== undefined ? Number(r.position_id) : null,
-        businessUnitId: Number(r.business_unit_id),
-        payrollBusinessUnitId: Number(r.payroll_business_unit_id),
-      },
-      departmentName: r.department_name ?? null,
-    }))
+    return rows.map((r: any) => {
+      const departmentId =
+        r.department_id !== null && r.department_id !== undefined ? Number(r.department_id) : null
+      const positionId =
+        r.position_id !== null && r.position_id !== undefined ? Number(r.position_id) : null
+      const businessUnitId = Number(r.business_unit_id)
+      const departmentName = r.department_name ?? null
+
+      return {
+        employee: {
+          employeeId: Number(r.employee_id),
+          employeeCode: r.employee_code ?? null,
+          employeePayrollCode: r.employee_payroll_code ?? null,
+          employeeFirstName: r.employee_first_name ?? null,
+          employeeLastName: r.employee_last_name ?? null,
+          employeeSecondLastName: r.employee_second_last_name ?? null,
+          employeePhoto: r.employee_photo ?? null,
+          departmentId,
+          positionId,
+          businessUnitId,
+          payrollBusinessUnitId: Number(r.payroll_business_unit_id),
+          department: departmentId !== null ? { departmentId, departmentName } : null,
+          position:
+            positionId !== null
+              ? { positionId, positionName: r.position_name ?? null }
+              : null,
+          businessUnit: { businessUnitId, businessUnitName: r.business_unit_name ?? null },
+        },
+        departmentName,
+      }
+    })
   }
 
   /**

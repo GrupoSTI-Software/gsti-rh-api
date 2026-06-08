@@ -21,3 +21,4 @@ router
   })
   .prefix('/api/proceeding-file-types')
   .use(middleware.auth())
+  .use(middleware.businessScope())

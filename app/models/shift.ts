@@ -95,6 +95,15 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         shiftDeletedAt: null
  */
 
+/**
+ * @tenant-scope pendiente
+ * Shift no tiene una columna FK directa `business_unit_id`; usa el campo
+ * `shiftBusinessUnits` (CSV de slugs) para la relación con unidades de negocio.
+ * Antes de aplicar `withBusinessUnitScope()` se requiere una migración que
+ * agregue la columna `business_unit_id` y normalice el campo CSV existente.
+ * Hasta entonces, el filtrado de tenant en Shift se gestiona manualmente en
+ * los servicios mediante FIND_IN_SET sobre `shift_business_units`.
+ */
 export default class Shift extends BaseModel {
   @column({ isPrimary: true })
   declare shiftId: number

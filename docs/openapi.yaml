@@ -128,6 +128,93 @@ components:
         data:
           nullable: true
 
+    ServicioRegistradoResumen:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          description: Identificador del servicio en el catálogo REPSE del tenant.
+        name:
+          type: string
+          description: Nombre del servicio especializado registrado.
+
+    ApiErrorServiciosRegistradosRequeridos:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Servicios registrados requeridos
+        message: Debe indicar al menos un servicio del catálogo REPSE registrado.
+        detail: Debe indicar al menos un servicio del catálogo REPSE.
+        key: servicios-registrados-requeridos
+        errorCode: CSE.VAL.SERVICIOS.001
+        data: null
+
+    ApiErrorServicioRegistradoNoEncontrado:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Servicio registrado no encontrado
+        message: Uno o más servicios registrados no existen o no pertenecen al tenant actual.
+        detail: Servicio registrado no encontrado.
+        key: servicio-registrado-no-encontrado
+        errorCode: CSE.NF.SERVICIO.001
+        data: null
+
+    ApiErrorServicioConContratosActivos:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Servicio con contratos asociados
+        message: No se puede eliminar el servicio mientras esté vinculado a contratos activos.
+        detail: Servicio con contratos activos
+        key: servicio-con-contratos-activos
+        errorCode: REPSE.SVC.CONFLICT.CONTRATOS.001
+        data: null
+
+    RepseSpecializedServiceResource:
+      type: object
+      properties:
+        repseSpecializedServiceId:
+          type: integer
+        repseRegistrationId:
+          type: integer
+        name:
+          type: string
+        objectDescription:
+          type: string
+        status:
+          type: string
+          enum: [active]
+        repseSpecializedServiceCreatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        repseSpecializedServiceUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RepseSpecializedServiceDeleteSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            repseSpecializedService:
+              $ref: '#/components/schemas/RepseSpecializedServiceResource'
+
     EmpresasContratantesListSuccess:
       type: object
       required: [type, title, message, data]
@@ -362,6 +449,13 @@ components:
             (fecha_fin o documento firmado vigente) y el estatus declarado en BD sigue siendo vigente.
         anexo15d:
           $ref: '#/components/schemas/Anexo15D'
+        serviciosRegistrados:
+          type: array
+          description: |
+            Servicios del catálogo REPSE vinculados al contrato (id y nombre).
+            Incluido en respuestas POST 201, PATCH 200, GET list y GET detail.
+          items:
+            $ref: '#/components/schemas/ServicioRegistradoResumen'
         createdAt:
           type: string
           format: date-time
@@ -378,6 +472,7 @@ components:
         - fechaInicio
         - objetoServicio
         - anexo15d
+        - serviciosRegistradosIds
       properties:
         empresaContratanteId:
           type: integer
@@ -401,6 +496,15 @@ components:
         estatus:
           type: string
           enum: [borrador, vigente, vencido, cancelado]
+        serviciosRegistradosIds:
+          type: array
+          minItems: 1
+          description: |
+            IDs de servicios del catálogo REPSE del tenant (GET /api/repse-specialized-services).
+            Mínimo uno; vincula el contrato con las líneas registradas que lo amparan.
+          items:
+            type: integer
+            minimum: 1
         anexo15d:
           type: object
           required:
@@ -438,6 +542,7 @@ components:
         montoTotal: 450000
         moneda: MXN
         estatus: borrador
+        serviciosRegistradosIds: [1, 2]
         anexo15d:
           objetoDetallado: Limpieza profunda de áreas productivas, sanitarios, pasillos y zonas comunes con personal capacitado, insumos y supervisión en sitio.
           numeroTrabajadoresAprox: 12
@@ -478,6 +583,13 @@ components:
         estatus:
           type: string
           enum: [borrador, vigente, vencido, cancelado]
+        serviciosRegistradosIds:
+          type: array
+          minItems: 1
+          description: Reemplaza el set de servicios vinculados (mínimo uno si se envía).
+          items:
+            type: integer
+            minimum: 1
         anexo15d:
           type: object
           properties:
@@ -501,6 +613,7 @@ components:
             textoResponsabilidadSolidaria:
               type: string
       example:
+        serviciosRegistradosIds: [1]
         estatus: vigente
         montoTotal: 475000
         anexo15d:
@@ -906,17 +1019,19 @@ paths:
               $ref: '#/components/schemas/ContratoServicioEspecializadoCreate'
       responses:
         '201':
-          description: Contrato creado con folioRepse autocompletado
+          description: Contrato creado con folioRepse autocompletado y serviciosRegistrados en la respuesta
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
         '400':
-          description: Validación VineJS
+          description: Validación VineJS o key servicios-registrados-requeridos
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServiciosRegistradosRequeridos'
         '401':
           description: No autenticado
           content:
@@ -930,11 +1045,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '404':
-          description: key empresa-contratante-no-encontrada
+          description: key empresa-contratante-no-encontrada o servicio-registrado-no-encontrado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServicioRegistradoNoEncontrado'
         '409':
           description: key numero-contrato-duplicado
           content:
@@ -1004,17 +1121,19 @@ paths:
               $ref: '#/components/schemas/ContratoServicioEspecializadoUpdate'
       responses:
         '200':
-          description: Contrato actualizado
+          description: Contrato actualizado (incluye serviciosRegistrados)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
         '400':
-          description: Validación VineJS
+          description: Validación VineJS o key servicios-registrados-requeridos
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServiciosRegistradosRequeridos'
         '401':
           description: No autenticado
           content:
@@ -1028,11 +1147,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '404':
-          description: key contrato-no-encontrado
+          description: key contrato-no-encontrado o servicio-registrado-no-encontrado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorServicioRegistradoNoEncontrado'
         '409':
           description: key numero-contrato-duplicado
           content:
@@ -1079,25 +1200,29 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
 
-  /api/contratos-servicios-especializados/{contratoId}/documentos:
-    get:
-      summary: Listar documentos del contrato (vigente y archivados)
-      tags: [DocumentosContratoEspecializado]
+  /api/repse-specialized-services/{id}:
+    delete:
+      summary: Soft delete de servicio especializado del catálogo REPSE
+      description: |
+        Elimina lógicamente un servicio del catálogo. Responde 409 si el servicio
+        está vinculado a contratos de servicios especializados no eliminados.
+      tags: [RepseSpecializedServices]
       security:
         - bearerAuth: []
       parameters:
-        - name: contratoId
+        - name: id
           in: path
           required: true
           schema:
             type: integer
+            minimum: 1
       responses:
         '200':
-          description: Listado cronológico descendente
+          description: Servicio eliminado correctamente
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentosContratoListSuccess'
+                $ref: '#/components/schemas/RepseSpecializedServiceDeleteSuccess'
         '401':
           description: No autenticado
           content:
@@ -1105,193 +1230,20 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Sin permiso delete o gestion (key sin-permiso)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '404':
-          description: key contrato-no-encontrado
+          description: key servicio-especializado-no-encontrado
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-
-    post:
-      summary: Subir documento firmado del contrato
-      tags: [DocumentosContratoEspecializado]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: contratoId
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - archivo
-                - fechaInicioVigencia
-                - fechaVencimiento
-              properties:
-                archivo:
-                  type: string
-                  format: binary
-                  description: PDF (tamaño máx. según MAX_FILE_BYTES del servicio de documentos)
-                fechaInicioVigencia:
-                  type: string
-                  format: date
-                fechaVencimiento:
-                  type: string
-                  format: date
-      responses:
-        '201':
-          description: Documento creado (origen subido, vigente true)
+        '409':
+          description: key servicio-con-contratos-activos
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DocumentoContratoEspecializadoSuccess'
-        '400':
-          description: key vigencia-incoherente
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: No autenticado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Sin permiso create o gestion (key sin-permiso)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: key contrato-no-encontrado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '422':
-          description: key documento-invalido
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-
-  /api/contratos-servicios-especializados/{contratoId}/documentos/vigente/descarga:
-    get:
-      summary: Descargar PDF del documento vigente
-      tags: [DocumentosContratoEspecializado]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: contratoId
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        '200':
-          description: Stream application/pdf (Content-Disposition attachment)
-          content:
-            application/pdf:
-              schema:
-                type: string
-                format: binary
-        '401':
-          description: No autenticado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Sin permiso read o gestion (key sin-permiso)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: key documento-no-encontrado o contrato-no-encontrado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-
-  /api/contratos-servicios-especializados/{contratoId}/documentos/vigente:
-    put:
-      summary: Reemplazar el documento vigente
-      tags: [DocumentosContratoEspecializado]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: contratoId
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - archivo
-                - fechaInicioVigencia
-                - fechaVencimiento
-              properties:
-                archivo:
-                  type: string
-                  format: binary
-                fechaInicioVigencia:
-                  type: string
-                  format: date
-                fechaVencimiento:
-                  type: string
-                  format: date
-      responses:
-        '200':
-          description: Nuevo documento vigente; anterior archivado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DocumentoContratoEspecializadoSuccess'
-        '400':
-          description: key vigencia-incoherente
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: No autenticado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '403':
-          description: Sin permiso update o gestion (key sin-permiso)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '404':
-          description: key contrato-no-encontrado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '422':
-          description: key documento-invalido
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
+                $ref: '#/components/schemas/ApiErrorServicioConContratosActivos'

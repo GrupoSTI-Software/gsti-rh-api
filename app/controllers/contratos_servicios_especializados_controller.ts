@@ -76,7 +76,7 @@ export default class ContratosServiciosEspecializadosController {
    *         schema: { type: string }
    *     responses:
    *       '200':
-   *         description: Listado paginado con anexo 15-D y contratante básico
+   *         description: Listado paginado con anexo 15-D, contratante y serviciosRegistrados
    *         content:
    *           application/json:
    *             schema:
@@ -159,7 +159,7 @@ export default class ContratosServiciosEspecializadosController {
    *         schema: { type: integer }
    *     responses:
    *       '200':
-   *         description: Detalle del contrato con anexo 15-D embebido
+   *         description: Detalle del contrato con anexo 15-D y serviciosRegistrados
    *         content:
    *           application/json:
    *             schema:
@@ -228,13 +228,13 @@ export default class ContratosServiciosEspecializadosController {
    *             $ref: '#/components/schemas/ContratoServicioEspecializadoCreate'
    *     responses:
    *       '201':
-   *         description: Contrato creado con folioRepse autocompletado en anexo15d
+   *         description: Contrato creado con folioRepse autocompletado y serviciosRegistrados poblados
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
    *       '400':
-   *         description: Validación VineJS
+   *         description: Validación VineJS o key servicios-registrados-requeridos
    *         content:
    *           application/json:
    *             schema:
@@ -252,7 +252,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '404':
-   *         description: key empresa-contratante-no-encontrada
+   *         description: key empresa-contratante-no-encontrada o servicio-registrado-no-encontrado
    *         content:
    *           application/json:
    *             schema:
@@ -322,13 +322,13 @@ export default class ContratosServiciosEspecializadosController {
    *             $ref: '#/components/schemas/ContratoServicioEspecializadoUpdate'
    *     responses:
    *       '200':
-   *         description: Contrato actualizado
+   *         description: Contrato actualizado (incluye serviciosRegistrados si hay vínculos)
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/ContratoServicioEspecializadoSuccess'
    *       '400':
-   *         description: Validación VineJS
+   *         description: Validación VineJS o key servicios-registrados-requeridos
    *         content:
    *           application/json:
    *             schema:
@@ -346,7 +346,7 @@ export default class ContratosServiciosEspecializadosController {
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
    *       '404':
-   *         description: key contrato-no-encontrado
+   *         description: key contrato-no-encontrado o servicio-registrado-no-encontrado
    *         content:
    *           application/json:
    *             schema:
@@ -497,6 +497,7 @@ export default class ContratosServiciosEspecializadosController {
       moneda: body.moneda === undefined ? undefined : String(body.moneda),
       estatus: body.estatus as ContratoServicioEspecializadoCreatePayload['estatus'],
       anexo15d: this.toAnexoCreatePayload(anexoRaw),
+      serviciosRegistradosIds: (body.serviciosRegistradosIds as number[]).map(Number),
     }
   }
 
@@ -513,6 +514,9 @@ export default class ContratosServiciosEspecializadosController {
     }
     if (body.anexo15d !== undefined) {
       payload.anexo15d = this.toAnexoUpdatePayload(body.anexo15d as Record<string, unknown>)
+    }
+    if (body.serviciosRegistradosIds !== undefined) {
+      payload.serviciosRegistradosIds = (body.serviciosRegistradosIds as number[]).map(Number)
     }
     return payload
   }

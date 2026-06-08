@@ -1,7 +1,7 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-05-25T13:08:20+00:00"
-kg_head_sha: "47509be808d4adede33a0cab4378fdc1a2bde046"
+kg_built_at: "2026-06-05T16:11:15+00:00"
+kg_head_sha: "11cf7d1fd297a842c31dbed9738b80d75a5159ef"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
@@ -9,15 +9,15 @@ producto: "valanserh"
 prefijo_asana: "USRH"
 default_branch: "develop"
 counts:
-  entidades_db: 151
-  endpoints: 734
-  controllers: 142
-  services: 143
-  validators: 109
-  middlewares: 5
-  seeders: 26
-  tablas_migradas: 166
-  i18n_keys: 843
+  entidades_db: 158
+  endpoints: 753
+  controllers: 146
+  services: 147
+  validators: 111
+  middlewares: 6
+  seeders: 30
+  tablas_migradas: 172
+  i18n_keys: 1093
 ---
 
 # Knowledge Graph — valanserh-api
@@ -34,7 +34,7 @@ counts:
 - **i18n del backend**: resources/langs/{es,en}.json
 - **Stack**: AdonisJS 6, Lucid ORM (MySQL), soft deletes via adonis-lucid-soft-deletes
 
-## Entidades de BD (151)
+## Entidades de BD (158)
 
 ### `AccessPoint`
 
@@ -631,6 +631,7 @@ counts:
   - `employeeId`: number
   - `employeeBiometricFaceIdPhotoUrl`: string
   - `employeeBiometricFaceIdToken`: string
+  - `employeeBiometricFaceIdPhotoUrlProxy`: string
 
 ### `EmployeeBonus`
 
@@ -996,6 +997,21 @@ counts:
   - `employeeZoneId`: number (PK)
   - `employeeId`: number
   - `zoneId`: number
+
+### `EmpresaContratante`
+
+- **Archivo**: `app/models/empresa_contratante.ts`
+- **PK**: `empresaContratanteId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `empresaContratanteId`: number (PK)
+  - `businessUnitId`: number
+  - `razonSocial`: string
+  - `rfc`: string
+  - `domicilioFiscal`: string
+  - `representanteLegal`: string | null
+  - `correo`: string | null
+  - `telefono`: string | null
 
 ### `ExceptionRequest`
 
@@ -1478,6 +1494,59 @@ counts:
   - `employeeId`: number | null
   - `proceedingFileId`: number
 
+### `RegulationClause`
+
+- **Archivo**: `app/models/regulation_clause.ts`
+- **PK**: `regulationClauseId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `regulationClauseId`: number (PK)
+  - `regulationId`: number
+  - `parentRegulationClauseId`: number | null
+  - `regulationClauseCode`: string
+  - `regulationClauseOrd`: number
+  - `regulationClauseTitleKey`: string | null
+  - `regulationClauseObligationKey`: string
+  - `regulationClauseExplanationKey`: string
+  - `regulationClauseRationaleKey`: string
+  - `regulationClauseAuditCriteriaKey`: string
+  - `regulationClauseApplicabilityKey`: string | null
+
+### `RegulationClauseFeature`
+
+- **Archivo**: `app/models/regulation_clause_feature.ts`
+- **PK**: `regulationClauseFeatureId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `regulationClauseFeatureId`: number (PK)
+  - `regulationClauseId`: number
+  - `systemFeatureId`: number
+  - `regulationClauseFeatureCoverage`: 'total' | 'parcial' | null
+  - `regulationClauseFeatureNoteKey`: string | null
+
+### `RepseRegistration`
+
+- **Archivo**: `app/models/repse_registration.ts`
+- **PK**: `repseRegistrationId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `repseRegistrationId`: number (PK)
+  - `businessUnitId`: number
+  - `folio`: string
+  - `status`: RepseRegistrationStatus
+
+### `RepseSpecializedService`
+
+- **Archivo**: `app/models/repse_specialized_service.ts`
+- **PK**: `repseSpecializedServiceId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `repseSpecializedServiceId`: number (PK)
+  - `repseRegistrationId`: number
+  - `name`: string
+  - `objectDescription`: string
+  - `status`: RepseSpecializedServiceStatus
+
 ### `Reservation`
 
 - **Archivo**: `app/models/reservation.ts`
@@ -1594,6 +1663,7 @@ counts:
   - `shiftExceptionTimeByTime`: number | null
   - `workDisabilityPeriodId`: number | null
   - `vacationSettingId`: number | null
+  - `lactationPeriodId`: number | null
 
 ### `ShiftExceptionEvidence`
 
@@ -1681,6 +1751,19 @@ counts:
   - `supplyValueHistoryCost`: number
   - `supplyValueHistoryCurrentValue`: number
   - `supplyValueHistoryNotes`: string | null
+
+### `SystemFeature`
+
+- **Archivo**: `app/models/system_feature.ts`
+- **PK**: `systemFeatureId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `systemFeatureId`: number (PK)
+  - `systemModuleId`: number
+  - `systemFeatureName`: string
+  - `systemFeatureSlug`: string
+  - `systemFeatureDescription`: string | null
+  - `systemFeatureStatus`: 'planeado' | 'en_desarrollo' | 'disponible' | 'deprecado'
 
 ### `SystemModule`
 
@@ -1831,7 +1914,6 @@ counts:
   - `userActive`: number
   - `pinCode`: string
   - `userPinCodeExpiresAt`: DateTime | null
-  - `userBusinessAccess`: string | null
   - `roleId`: number
   - `personId`: number
   - `userEmailType`: string
@@ -1960,6 +2042,25 @@ counts:
   - `workDisabilityTypeSlug`: string
   - `workDisabilityTypeActive`: number
 
+### `WorkingTimeRule`
+
+- **Archivo**: `app/models/working_time_rule.ts`
+- **PK**: `workingTimeRuleId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `workingTimeRuleId`: number (PK)
+  - `workingTimeRuleCountryCode`: string
+  - `workingTimeRuleEffectiveYear`: number
+  - `workingTimeRuleMaxWeeklyHours`: number
+  - `workingTimeRuleMaxWeeklyOvertimeHours`: number
+  - `workingTimeRuleMaxDailyOvertimeHours`: number
+  - `workingTimeRuleMaxOvertimeDaysPerWeek`: number
+  - `workingTimeRuleDailyHoursDay`: number
+  - `workingTimeRuleDailyHoursNight`: number
+  - `workingTimeRuleDailyHoursMixed`: number
+  - `workingTimeRuleWorkDaysPerRestDay`: number
+  - `workingTimeRuleSalaryProtection`: boolean
+
 ### `Zone`
 
 - **Archivo**: `app/models/zone.ts`
@@ -1972,7 +2073,7 @@ counts:
   - `zoneAddress`: string
   - `zonePolygon`: string
 
-## Endpoints REST (734)
+## Endpoints REST (753)
 
 ### `/api/access-points` (middleware: auth)
 
@@ -2126,7 +2227,7 @@ counts:
 |---|---|---|---|
 | GET | `/api/banks` | `#controllers/bank_controller.index` | `start/routes/bank_routes.ts` |
 
-### `/api/branch-offices` (middleware: auth)
+### `/api/branch-offices` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2136,7 +2237,7 @@ counts:
 | PUT | `/api/branch-offices/:id` | `#controllers/branch_offices_controller.update` | `start/routes/branch_offices.ts` |
 | DELETE | `/api/branch-offices/:id` | `#controllers/branch_offices_controller.destroy` | `start/routes/branch_offices.ts` |
 
-### `/api/business-unit-competency-levels` (middleware: auth)
+### `/api/business-unit-competency-levels` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2146,7 +2247,7 @@ counts:
 | PUT | `/api/business-unit-competency-levels/:businessUnitCompetencyLevelId` | `#controllers/business_unit_competency_level_controller.update` | `start/routes/business_unit_competency_level_routes.ts` |
 | DELETE | `/api/business-unit-competency-levels/:businessUnitCompetencyLevelId` | `#controllers/business_unit_competency_level_controller.delete` | `start/routes/business_unit_competency_level_routes.ts` |
 
-### `/api/business-units` (middleware: auth)
+### `/api/business-units` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2246,22 +2347,22 @@ counts:
 | DELETE | `/api/customers-proceeding-files/:customerProceedingFileId` | `#controllers/customer_proceeding_file_controller.delete` | `start/routes/customer_proceeding_file_routes.ts` |
 | GET | `/api/customers-proceeding-files/:customerProceedingFileId` | `#controllers/customer_proceeding_file_controller.show` | `start/routes/customer_proceeding_file_routes.ts` |
 
-### `/api/departments` (middleware: auth, auth, auth)
+### `/api/departments` (middleware: auth, businessScope, auth, auth)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
-| GET | `/api/departments` | `#controllers/department_controller.getAll` | `start/routes/department_routes.ts` |
-| GET | `/api/departments/get-only-with-employees/` | `#controllers/department_controller.getOnlyWithEmployees` | `start/routes/department_routes.ts` |
 | GET | `/api/departments/organization` | `#controllers/department_controller.getOrganization` | `start/routes/department_routes.ts` |
 | GET | `/api/departments/search` | `#controllers/department_controller.getSearch` | `start/routes/department_routes.ts` |
-| GET | `/api/departments/:departmentId/get-rotation-index` | `#controllers/department_controller.getRotationIndex` | `start/routes/department_routes.ts` |
 | GET | `/api/departments/:departmentId` | `#controllers/department_controller.show` | `start/routes/department_routes.ts` |
-| GET | `/api/departments/:departmentId/positions` | `#controllers/department_controller.getPositions` | `start/routes/department_routes.ts` |
 | POST | `/api/departments` | `#controllers/department_controller.store` | `start/routes/department_routes.ts` |
 | POST | `/api/departments/sync-positions` | `#controllers/department_controller.syncPositions` | `start/routes/department_routes.ts` |
 | PUT | `/api/departments/:departmentId` | `#controllers/department_controller.update` | `start/routes/department_routes.ts` |
 | DELETE | `/api/departments/:departmentId` | `#controllers/department_controller.delete` | `start/routes/department_routes.ts` |
 | DELETE | `/api/departments/:departmentId/force-delete` | `#controllers/department_controller.forceDelete` | `start/routes/department_routes.ts` |
+| GET | `/api/departments` | `#controllers/department_controller.getAll` | `start/routes/department_routes.ts` |
+| GET | `/api/departments/get-only-with-employees/` | `#controllers/department_controller.getOnlyWithEmployees` | `start/routes/department_routes.ts` |
+| GET | `/api/departments/:departmentId/positions` | `#controllers/department_controller.getPositions` | `start/routes/department_routes.ts` |
+| GET | `/api/departments/:departmentId/get-rotation-index` | `#controllers/department_controller.getRotationIndex` | `start/routes/department_routes.ts` |
 | PATCH | `/api/departments/:departmentId/move` | `#controllers/department_controller.move` | `start/routes/department_routes.ts` |
 | POST | `/api/departments/assign-shift/:departmentId` | `#controllers/department_controller.assignShift` | `start/routes/department_routes.ts` |
 
@@ -2410,7 +2511,7 @@ counts:
 | DELETE | `/api/employee-kpi-evaluations/:employeeKpiEvaluationId` | `#controllers/employee_kpi_evaluation_controller.destroy` | `start/routes/employee_kpi_evaluation.ts` |
 | GET | `/api/employee-kpi-evaluations/:employeeKpiEvaluationId` | `#controllers/employee_kpi_evaluation_controller.show` | `start/routes/employee_kpi_evaluation.ts` |
 
-### `/api/employee-lactation-periods` (middleware: auth)
+### `/api/employee-lactation-periods` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2418,6 +2519,7 @@ counts:
 | POST | `/api/employee-lactation-periods` | `#controllers/employee_lactation_periods_controller.store` | `start/routes/employee_lactation_periods_routes.ts` |
 | PUT | `/api/employee-lactation-periods/:id` | `#controllers/employee_lactation_periods_controller.update` | `start/routes/employee_lactation_periods_routes.ts` |
 | DELETE | `/api/employee-lactation-periods/:id` | `#controllers/employee_lactation_periods_controller.destroy` | `start/routes/employee_lactation_periods_routes.ts` |
+| POST | `/api/employee-lactation-periods/:id/regenerate-shift-exceptions` | `#controllers/employee_lactation_periods_controller.regenerateShiftExceptions` | `start/routes/employee_lactation_periods_routes.ts` |
 
 ### `/api/employee-medical-conditions` (middleware: ninguno)
 
@@ -2558,6 +2660,7 @@ counts:
 | PUT | `/api/employees/:employeeId/biometric-face-id` | `#controllers/employee_biometric_face_id_controller.replacePhoto` | `start/routes/employee_biometric_face_id_routes.ts` |
 | DELETE | `/api/employees/:employeeId/biometric-face-id` | `#controllers/employee_biometric_face_id_controller.deletePhoto` | `start/routes/employee_biometric_face_id_routes.ts` |
 | GET | `/api/employees/:employeeId/biometric-face-id-with-token/:token` | `#controllers/employee_biometric_face_id_controller.getPhotoToken` | `start/routes/employee_biometric_face_id_routes.ts` |
+| GET | `/api/employees/:employeeId/biometric-face-id-photo` | `#controllers/employee_biometric_photos_controller.streamPhoto` | `start/routes/employee_biometric_face_id_routes.ts` |
 | GET | `/api/employees/:employeeId/biometrics` | `#controllers/employee_biometric_controller.show` | `start/routes/employee_biometric_routes.ts` |
 | GET | `/api/employees/:employeeId/biometrics/fingers` | `#controllers/employee_biometric_controller.getFingers` | `start/routes/employee_biometric_routes.ts` |
 | GET | `/api/employees/:employeeId/biometrics/face` | `#controllers/employee_biometric_controller.getFaceStatus` | `start/routes/employee_biometric_routes.ts` |
@@ -2586,6 +2689,7 @@ counts:
 | GET | `/api/employees/termination-catalog` | `#controllers/employee_controller.getTerminationCatalog` | `start/routes/employee_routes.ts` |
 | GET | `/api/employees/without-user` | `#controllers/employee_controller.indexWithOutUser` | `start/routes/employee_routes.ts` |
 | GET | `/api/employees` | `#controllers/employee_controller.index` | `start/routes/employee_routes.ts` |
+| GET | `/api/employees/to-assigned` | `#controllers/employee_controller.indexToAssigned` | `start/routes/employee_routes.ts` |
 | POST | `/api/employees` | `#controllers/employee_controller.store` | `start/routes/employee_routes.ts` |
 | PUT | `/api/employees/:employeeId` | `#controllers/employee_controller.update` | `start/routes/employee_routes.ts` |
 | DELETE | `/api/employees/:employeeId` | `#controllers/employee_controller.delete` | `start/routes/employee_routes.ts` |
@@ -2633,7 +2737,7 @@ counts:
 | DELETE | `/api/employees-proceeding-files/:employeeProceedingFileId` | `#controllers/employee_proceeding_file_controller.delete` | `start/routes/employee_proceeding_file_routes.ts` |
 | GET | `/api/employees-proceeding-files/:employeeProceedingFileId` | `#controllers/employee_proceeding_file_controller.show` | `start/routes/employee_proceeding_file_routes.ts` |
 
-### `/api/employees-vacations` (middleware: auth)
+### `/api/employees-vacations` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2642,6 +2746,16 @@ counts:
 | GET | `/api/employees-vacations/get-vacations-summary-excel` | `#controllers/employee_vacation_controller.getVacationsSummaryExcel` | `start/routes/employee_vacation_routes.ts` |
 | GET | `/api/employees-vacations/get-vacation-import-template` | `#controllers/employee_vacation_controller.getVacationImportTemplate` | `start/routes/employee_vacation_routes.ts` |
 | POST | `/api/employees-vacations/import-vacation-excel` | `#controllers/employee_vacation_controller.importVacationExcel` | `start/routes/employee_vacation_routes.ts` |
+
+### `/api/empresas-contratantes` (middleware: auth)
+
+| Método | Path | Handler | Archivo |
+|---|---|---|---|
+| GET | `/api/empresas-contratantes` | `#controllers/empresas_contratantes_controller.index` | `start/routes/empresas_contratantes_routes.ts` |
+| GET | `/api/empresas-contratantes/:id` | `#controllers/empresas_contratantes_controller.show` | `start/routes/empresas_contratantes_routes.ts` |
+| POST | `/api/empresas-contratantes` | `#controllers/empresas_contratantes_controller.store` | `start/routes/empresas_contratantes_routes.ts` |
+| PATCH | `/api/empresas-contratantes/:id` | `#controllers/empresas_contratantes_controller.update` | `start/routes/empresas_contratantes_routes.ts` |
+| DELETE | `/api/empresas-contratantes/:id` | `#controllers/empresas_contratantes_controller.destroy` | `start/routes/empresas_contratantes_routes.ts` |
 
 ### `/api/exception-requests` (middleware: auth)
 
@@ -2695,7 +2809,7 @@ counts:
 | DELETE | `/api/galleries/:id` | `#controllers/galleries_controller.destroy` | `start/routes/gallery_routes.ts` |
 | GET | `/api/galleries/:id` | `#controllers/galleries_controller.show` | `start/routes/gallery_routes.ts` |
 
-### `/api/holidays` (middleware: auth)
+### `/api/holidays` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2705,7 +2819,7 @@ counts:
 | PUT | `/api/holidays/:id` | `#controllers/holidays_controller.update` | `start/routes/holiday_routes.ts` |
 | DELETE | `/api/holidays/:id` | `#controllers/holidays_controller.destroy` | `start/routes/holiday_routes.ts` |
 
-### `/api/icons` (middleware: auth)
+### `/api/icons` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2922,8 +3036,8 @@ counts:
 | POST | `/api/positions` | `#controllers/position_controller.store` | `start/routes/position_routes.ts` |
 | PUT | `/api/positions/:positionId` | `#controllers/position_controller.update` | `start/routes/position_routes.ts` |
 | DELETE | `/api/positions/:positionId` | `#controllers/position_controller.delete` | `start/routes/position_routes.ts` |
-| GET | `/api/positions/:positionId` | `#controllers/position_controller.show` | `start/routes/position_routes.ts` |
 | GET | `/api/positions` | `#controllers/position_controller.get` | `start/routes/position_routes.ts` |
+| GET | `/api/positions/:positionId` | `#controllers/position_controller.show` | `start/routes/position_routes.ts` |
 | GET | `/api/positions/get-pdf/:positionId` | `#controllers/position_controller.getPdf` | `start/routes/position_routes.ts` |
 | GET | `/api/positions/get-excel/:positionId` | `#controllers/position_controller.getExcel` | `start/routes/position_routes.ts` |
 | PATCH | `/api/positions/:positionId/move` | `#controllers/position_controller.move` | `start/routes/position_routes.ts` |
@@ -2966,7 +3080,7 @@ counts:
 | DELETE | `/api/proceeding-file-type-property-values/:proceedingFileTypePropertyValueId` | `#controllers/proceeding_file_type_property_value_controller.delete` | `start/routes/proceeding_file_type_property_value_routes.ts` |
 | GET | `/api/proceeding-file-type-property-values/:proceedingFileTypePropertyValueId` | `#controllers/proceeding_file_type_property_value_controller.show` | `start/routes/proceeding_file_type_property_value_routes.ts` |
 
-### `/api/proceeding-file-types` (middleware: auth)
+### `/api/proceeding-file-types` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2990,6 +3104,26 @@ counts:
 | PUT | `/api/proceeding-files/:proceedingFileId` | `#controllers/proceeding_file_controller.update` | `start/routes/proceeding_file_routes.ts` |
 | DELETE | `/api/proceeding-files/:proceedingFileId` | `#controllers/proceeding_file_controller.delete` | `start/routes/proceeding_file_routes.ts` |
 | GET | `/api/proceeding-files/:proceedingFileId` | `#controllers/proceeding_file_controller.show` | `start/routes/proceeding_file_routes.ts` |
+
+### `/api/repse-registrations` (middleware: auth)
+
+| Método | Path | Handler | Archivo |
+|---|---|---|---|
+| GET | `/api/repse-registrations` | `#controllers/repse_registrations_controller.index` | `start/routes/repse_registration_routes.ts` |
+| GET | `/api/repse-registrations/:id` | `#controllers/repse_registrations_controller.show` | `start/routes/repse_registration_routes.ts` |
+| POST | `/api/repse-registrations` | `#controllers/repse_registrations_controller.store` | `start/routes/repse_registration_routes.ts` |
+| PUT | `/api/repse-registrations/:id` | `#controllers/repse_registrations_controller.update` | `start/routes/repse_registration_routes.ts` |
+| DELETE | `/api/repse-registrations/:id` | `#controllers/repse_registrations_controller.destroy` | `start/routes/repse_registration_routes.ts` |
+
+### `/api/repse-specialized-services` (middleware: auth)
+
+| Método | Path | Handler | Archivo |
+|---|---|---|---|
+| GET | `/api/repse-specialized-services` | `#controllers/repse_specialized_services_controller.index` | `start/routes/repse_specialized_service_routes.ts` |
+| GET | `/api/repse-specialized-services/:id` | `#controllers/repse_specialized_services_controller.show` | `start/routes/repse_specialized_service_routes.ts` |
+| POST | `/api/repse-specialized-services` | `#controllers/repse_specialized_services_controller.store` | `start/routes/repse_specialized_service_routes.ts` |
+| PUT | `/api/repse-specialized-services/:id` | `#controllers/repse_specialized_services_controller.update` | `start/routes/repse_specialized_service_routes.ts` |
+| DELETE | `/api/repse-specialized-services/:id` | `#controllers/repse_specialized_services_controller.destroy` | `start/routes/repse_specialized_service_routes.ts` |
 
 ### `/api/reservation-legs` (middleware: auth)
 
@@ -3018,7 +3152,7 @@ counts:
 | DELETE | `/api/reservations/:reservationId` | `#controllers/reservation_controller.delete` | `start/routes/reservations_routes.ts` |
 | GET | `/api/reservations/:reservationId` | `#controllers/reservation_controller.show` | `start/routes/reservations_routes.ts` |
 
-### `/api/roles` (middleware: auth)
+### `/api/roles` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3033,7 +3167,7 @@ counts:
 | DELETE | `/api/roles/:roleId` | `#controllers/role_controller.delete` | `start/routes/role_routes.ts` |
 | GET | `/api/roles/:roleId` | `#controllers/role_controller.show` | `start/routes/role_routes.ts` |
 
-### `/api/shift` (middleware: auth)
+### `/api/shift` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3043,13 +3177,13 @@ counts:
 | PUT | `/api/shift/:id` | `#controllers/shifts_controller.update` | `start/routes/shift_routes.ts` |
 | DELETE | `/api/shift/:id` | `#controllers/shifts_controller.destroy` | `start/routes/shift_routes.ts` |
 
-### `/api/shift-department-position` (middleware: auth)
+### `/api/shift-department-position` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
 | GET | `/api/shift-department-position` | `#controllers/shifts_controller.searchPositionDepartment` | `start/routes/shift_routes.ts` |
 
-### `/api/shift-exception` (middleware: auth)
+### `/api/shift-exception` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3060,13 +3194,13 @@ counts:
 | DELETE | `/api/shift-exception/:id` | `#controllers/shift_exceptions_controller.destroy` | `start/routes/shift_exceptions_routes.ts` |
 | GET | `/api/shift-exception/:shiftExceptionId/evidences` | `#controllers/shift_exceptions_controller.getEvidences` | `start/routes/shift_exceptions_routes.ts` |
 
-### `/api/shift-exception-apply-general` (middleware: auth)
+### `/api/shift-exception-apply-general` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
 | POST | `/api/shift-exception-apply-general` | `#controllers/shift_exceptions_controller.applyExceptionGeneral` | `start/routes/shift_exceptions_routes.ts` |
 
-### `/api/shift-exception-employee` (middleware: auth)
+### `/api/shift-exception-employee` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3188,7 +3322,7 @@ counts:
 | DELETE | `/api/system-setting-trade-names/:systemSettingTradeNameId` | `#controllers/system_setting_trade_name_controller.delete` | `start/routes/system_setting_trade_name_routes.ts` |
 | GET | `/api/system-setting-trade-names/:systemSettingTradeNameId` | `#controllers/system_setting_trade_name_controller.show` | `start/routes/system_setting_trade_name_routes.ts` |
 
-### `/api/system-settings` (middleware: auth, auth, auth, auth, auth, auth, auth, auth, auth)
+### `/api/system-settings` (middleware: auth, auth, auth, auth, auth, auth, businessScope, auth, businessScope, auth, businessScope, auth)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3270,7 +3404,7 @@ counts:
 | GET | `/api/user-responsible-employees/:userResponsibleEmployeeId` | `#controllers/user_responsible_employee_controller.show` | `start/routes/user_responsible_employee_routes.ts` |
 | DELETE | `/api/user-responsible-employees/:userResponsibleEmployeeId` | `#controllers/user_responsible_employee_controller.delete` | `start/routes/user_responsible_employee_routes.ts` |
 
-### `/api/users` (middleware: auth)
+### `/api/users` (middleware: auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3282,7 +3416,7 @@ counts:
 | DELETE | `/api/users/:userId` | `#controllers/user_controller.delete` | `start/routes/user_routes.ts` |
 | GET | `/api/users/:userId` | `#controllers/user_controller.show` | `start/routes/user_routes.ts` |
 
-### `/api/v1` (middleware: auth, auth)
+### `/api/v1` (middleware: auth, auth, businessScope)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3305,6 +3439,7 @@ counts:
 | GET | `/api/v1/attendance-stats/by-department` | `#modules/attendance-stats/attendance-stats.controller.byDepartment` | `start/routes/attendance_stats_routes.ts` |
 | GET | `/api/v1/attendance-stats/by-employee` | `#modules/attendance-stats/attendance-stats.controller.byEmployee` | `start/routes/attendance_stats_routes.ts` |
 | GET | `/api/v1/employee-assist-calendars` | `#controllers/employee_assist_calendar_controller.index` | `start/routes/employee_assist_calendar_routes.ts` |
+| GET | `/api/v1/regulatory-coverage` | `#modules/regulatory-coverage/regulatory_coverage.controller.index` | `start/routes/regulatory_coverage_routes.ts` |
 
 ### `/api/vacation-authorizations` (middleware: auth)
 
@@ -3393,7 +3528,7 @@ counts:
 | DELETE | `/api/zones/:zoneId` | `#controllers/zone_controller.delete` | `start/routes/zone_routes.ts` |
 | PUT | `/api/zones/:zoneId/thumbnail` | `#controllers/zone_controller.uploadThumbnail` | `start/routes/zone_routes.ts` |
 
-## Controllers (142)
+## Controllers (146)
 
 - `app/controllers/access_point_controller.ts`
 - `app/controllers/address_controller.ts`
@@ -3432,6 +3567,7 @@ counts:
 - `app/controllers/employee_bank_controller.ts`
 - `app/controllers/employee_biometric_controller.ts`
 - `app/controllers/employee_biometric_face_id_controller.ts`
+- `app/controllers/employee_biometric_photos_controller.ts`
 - `app/controllers/employee_bonus_controller.ts`
 - `app/controllers/employee_branch_office_controller.ts`
 - `app/controllers/employee_certification_controller.ts`
@@ -3465,6 +3601,7 @@ counts:
 - `app/controllers/employee_vacation_archive_controller.ts`
 - `app/controllers/employee_vacation_controller.ts`
 - `app/controllers/employee_zone_controller.ts`
+- `app/controllers/empresas_contratantes_controller.ts`
 - `app/controllers/exception_requests_controller.ts`
 - `app/controllers/exception_type_controller.ts`
 - `app/controllers/face_controller.ts`
@@ -3504,6 +3641,8 @@ counts:
 - `app/controllers/proceeding_file_type_email_controller.ts`
 - `app/controllers/proceeding_file_type_property_controller.ts`
 - `app/controllers/proceeding_file_type_property_value_controller.ts`
+- `app/controllers/repse_registrations_controller.ts`
+- `app/controllers/repse_specialized_services_controller.ts`
 - `app/controllers/reservation_controller.ts`
 - `app/controllers/reservation_leg_controller.ts`
 - `app/controllers/reservation_note_controller.ts`
@@ -3538,7 +3677,7 @@ counts:
 - `app/controllers/work_disability_type_controller.ts`
 - `app/controllers/zone_controller.ts`
 
-## Services (143)
+## Services (147)
 
 - `app/services/access_point_service.ts`
 - `app/services/address_service.ts`
@@ -3556,6 +3695,7 @@ counts:
 - `app/services/auth_mail_service.ts`
 - `app/services/bank_service.ts`
 - `app/services/branch_office_service.ts`
+- `app/services/business_access_scope_service.ts`
 - `app/services/business_unit_competency_level_service.ts`
 - `app/services/business_unit_service.ts`
 - `app/services/career_path_candidate_service.ts`
@@ -3610,6 +3750,7 @@ counts:
 - `app/services/employee_vacation_archive_service.ts`
 - `app/services/employee_vacation_service.ts`
 - `app/services/employee_zone_service.ts`
+- `app/services/empresa_contratante_service.ts`
 - `app/services/exception_type_service.ts`
 - `app/services/face_descriptor_cache_service.ts`
 - `app/services/flight_attendant_proceeding_file_service.ts`
@@ -3645,6 +3786,8 @@ counts:
 - `app/services/proceeding_file_type_property_service.ts`
 - `app/services/proceeding_file_type_property_value_service.ts`
 - `app/services/proceeding_file_type_service.ts`
+- `app/services/repse_registration_service.ts`
+- `app/services/repse_specialized_service_service.ts`
 - `app/services/reservation_leg_service.ts`
 - `app/services/reservation_note_service.ts`
 - `app/services/reservation_service.ts`
@@ -3684,7 +3827,7 @@ counts:
 - `app/services/ws.ts`
 - `app/services/zone_service.ts`
 
-## Validators (109)
+## Validators (111)
 
 - `app/validators/access_point.ts`
 - `app/validators/address.ts`
@@ -3764,6 +3907,8 @@ counts:
 - `app/validators/proceeding_file_type_email.ts`
 - `app/validators/proceeding_file_type_property.ts`
 - `app/validators/proceeding_file_type_property_value.ts`
+- `app/validators/repse_registration.ts`
+- `app/validators/repse_specialized_service.ts`
 - `app/validators/reservation.ts`
 - `app/validators/reservation_leg.ts`
 - `app/validators/reservation_note.ts`
@@ -3796,15 +3941,16 @@ counts:
 - `app/validators/work_disability_period_expense.ts`
 - `app/validators/zone.ts`
 
-## Middlewares (5)
+## Middlewares (6)
 
 - `app/middleware/auth_middleware.ts`
 - `app/middleware/basic_auth_middleware.ts`
+- `app/middleware/business_unit_scope_middleware.ts`
 - `app/middleware/container_bindings_middleware.ts`
 - `app/middleware/detect_user_locale_middleware.ts`
 - `app/middleware/force_json_response_middleware.ts`
 
-## Seeders (26)
+## Seeders (30)
 
 - `database/seeders/0001_business_unit_seeder.ts`
 - `database/seeders/0002_bank_seeder.ts`
@@ -3832,8 +3978,12 @@ counts:
 - `database/seeders/0024_weights_seeder.ts`
 - `database/seeders/0025_career_path_override_reasons_seeder.ts`
 - `database/seeders/0027_certification_category_seeder.ts`
+- `database/seeders/0028_lactation_exception_type_seeder.ts`
+- `database/seeders/0028_working_time_rule_seeder.ts`
+- `database/seeders/0032_system_feature_seeder.ts`
+- `database/seeders/0033_regulation_clause_feature_baseline_seeder.ts`
 
-## Tablas migradas (166)
+## Tablas migradas (172)
 
 - `access_point_employees`
 - `access_points`
@@ -3914,6 +4064,7 @@ counts:
 - `employee_vacation_archives`
 - `employee_zones`
 - `employees`
+- `empresas_contratantes`
 - `exception_requests`
 - `exception_types`
 - `flight_attendant_proceeding_files`
@@ -3960,8 +4111,11 @@ counts:
 - `proceeding_files`
 - `psychometric_test_dimensions`
 - `psychometric_tests`
+- `regulation_clause_features`
 - `rename_page_syncs`
 - `rename_status_syncs`
+- `repse_registrations`
+- `repse_specialized_services`
 - `reservation_legs`
 - `reservation_notes`
 - `reservations`
@@ -3978,6 +4132,7 @@ counts:
 - `supplies`
 - `supply_types`
 - `supply_value_histories`
+- `system_features`
 - `system_modules`
 - `system_permissions`
 - `system_setting_notification_emails`
@@ -4000,12 +4155,121 @@ counts:
 - `work_disability_period_expenses`
 - `work_disability_periods`
 - `work_disability_types`
+- `working_time_rules`
 - `zones`
 
 ## i18n keys (top-level)
 
-### Idioma `en` (420 claves totales)
+### Idioma `en` (545 claves totales)
 
+- `validator.shared.messages.required.*` (1 claves)
+- `validator.shared.messages.string.*` (1 claves)
+- `validator.shared.messages.number.*` (1 claves)
+- `validator.shared.messages.boolean.*` (1 claves)
+- `validator.shared.messages.email.*` (1 claves)
+- `validator.shared.messages.regex.*` (1 claves)
+- `validator.shared.messages.url.*` (1 claves)
+- `validator.shared.messages.minLength.*` (1 claves)
+- `validator.shared.messages.maxLength.*` (1 claves)
+- `validator.shared.messages.fixedLength.*` (1 claves)
+- `validator.shared.messages.confirmed.*` (1 claves)
+- `validator.shared.messages.sameAs.*` (1 claves)
+- `validator.shared.messages.notSameAs.*` (1 claves)
+- `validator.shared.messages.in.*` (1 claves)
+- `validator.shared.messages.notIn.*` (1 claves)
+- `validator.shared.messages.min.*` (1 claves)
+- `validator.shared.messages.max.*` (1 claves)
+- `validator.shared.messages.range.*` (1 claves)
+- `validator.shared.messages.positive.*` (1 claves)
+- `validator.shared.messages.negative.*` (1 claves)
+- `validator.shared.messages.decimal.*` (1 claves)
+- `validator.shared.messages.enum.*` (1 claves)
+- `validator.shared.messages.literal.*` (1 claves)
+- `validator.shared.messages.object.*` (1 claves)
+- `validator.shared.messages.array.*` (1 claves)
+- `validator.shared.messages.array.minLength.*` (1 claves)
+- `validator.shared.messages.array.maxLength.*` (1 claves)
+- `validator.shared.messages.array.fixedLength.*` (1 claves)
+- `validator.shared.messages.notEmpty.*` (1 claves)
+- `validator.shared.messages.distinct.*` (1 claves)
+- `validator.shared.messages.date.*` (1 claves)
+- `validator.shared.messages.date.equals.*` (1 claves)
+- `validator.shared.messages.date.after.*` (1 claves)
+- `validator.shared.messages.date.before.*` (1 claves)
+- `validator.shared.messages.date.afterOrEqual.*` (1 claves)
+- `validator.shared.messages.date.beforeOrEqual.*` (1 claves)
+- `validator.shared.messages.date.sameAs.*` (1 claves)
+- `validator.shared.messages.date.notSameAs.*` (1 claves)
+- `validator.shared.messages.date.afterField.*` (1 claves)
+- `validator.shared.messages.date.afterOrSameAs.*` (1 claves)
+- `validator.shared.messages.date.beforeField.*` (1 claves)
+- `validator.shared.messages.date.beforeOrSameAs.*` (1 claves)
+- `validator.shared.messages.date.weekend.*` (1 claves)
+- `validator.shared.messages.date.weekday.*` (1 claves)
+- `repse_registrations_title.*` (1 claves)
+- `repse_registration_title.*` (1 claves)
+- `repse_registrations_listed_successfully.*` (1 claves)
+- `repse_registration_found_successfully.*` (1 claves)
+- `repse_registration_created_successfully.*` (1 claves)
+- `repse_registration_updated_successfully.*` (1 claves)
+- `repse_registration_deleted_successfully.*` (1 claves)
+- `repse_error_default_title.*` (1 claves)
+- `repse_unauthorized_title.*` (1 claves)
+- `repse_unauthorized_message.*` (1 claves)
+- `repse_val_input_title.*` (1 claves)
+- `repse_val_input_message.*` (1 claves)
+- `repse_folio_duplicate_title.*` (1 claves)
+- `repse_folio_duplicate_message.*` (1 claves)
+- `repse_business_unit_not_found_title.*` (1 claves)
+- `repse_business_unit_not_found_message.*` (1 claves)
+- `repse_not_found_title.*` (1 claves)
+- `repse_not_found_message.*` (1 claves)
+- `repse_dates_invalid_title.*` (1 claves)
+- `repse_dates_invalid_message.*` (1 claves)
+- `repse_dates_range_invalid_message.*` (1 claves)
+- `repse_unexpected_error_message.*` (1 claves)
+- `repse_specialized_services_title.*` (1 claves)
+- `repse_specialized_service_title.*` (1 claves)
+- `repse_specialized_services_listed_successfully.*` (1 claves)
+- `repse_specialized_service_found_successfully.*` (1 claves)
+- `repse_specialized_service_created_successfully.*` (1 claves)
+- `repse_specialized_service_updated_successfully.*` (1 claves)
+- `repse_specialized_service_deleted_successfully.*` (1 claves)
+- `repse_specialized_service_error_default_title.*` (1 claves)
+- `repse_specialized_service_unauthorized_title.*` (1 claves)
+- `repse_specialized_service_unauthorized_message.*` (1 claves)
+- `repse_specialized_service_val_input_title.*` (1 claves)
+- `repse_specialized_service_val_input_message.*` (1 claves)
+- `repse_specialized_service_not_found_title.*` (1 claves)
+- `repse_specialized_service_not_found_message.*` (1 claves)
+- `repse_specialized_service_parent_not_found_title.*` (1 claves)
+- `repse_specialized_service_parent_not_found_message.*` (1 claves)
+- `repse_specialized_service_name_duplicate_title.*` (1 claves)
+- `repse_specialized_service_name_duplicate_message.*` (1 claves)
+- `repse_specialized_service_unexpected_error_message.*` (1 claves)
+- `empresas_contratantes_title.*` (1 claves)
+- `empresa_contratante_title.*` (1 claves)
+- `empresas_contratantes_listed_successfully.*` (1 claves)
+- `empresa_contratante_found_successfully.*` (1 claves)
+- `empresa_contratante_created_successfully.*` (1 claves)
+- `empresa_contratante_updated_successfully.*` (1 claves)
+- `empresa_contratante_deleted_successfully.*` (1 claves)
+- `empresa_contratante_error_default_title.*` (1 claves)
+- `empresa_contratante_unauthorized_title.*` (1 claves)
+- `empresa_contratante_unauthorized_message.*` (1 claves)
+- `empresa_contratante_val_input_title.*` (1 claves)
+- `empresa_contratante_val_input_message.*` (1 claves)
+- `empresa_contratante_rfc_invalid_title.*` (1 claves)
+- `empresa_contratante_rfc_invalid_message.*` (1 claves)
+- `empresa_contratante_rfc_duplicate_title.*` (1 claves)
+- `empresa_contratante_rfc_duplicate_message.*` (1 claves)
+- `empresa_contratante_not_found_title.*` (1 claves)
+- `empresa_contratante_not_found_message.*` (1 claves)
+- `empresa_contratante_business_unit_not_found_title.*` (1 claves)
+- `empresa_contratante_business_unit_not_found_message.*` (1 claves)
+- `empresa_contratante_forbidden_title.*` (1 claves)
+- `empresa_contratante_forbidden_message.*` (1 claves)
+- `empresa_contratante_unexpected_error_message.*` (1 claves)
 - `address.*` (1 claves)
 - `the_address.*` (1 claves)
 - `address_type.*` (1 claves)
@@ -4342,6 +4606,23 @@ counts:
 - `employee_lactation_period_unreasonable_range_detail.*` (1 claves)
 - `employee_lactation_period_overlap_title.*` (1 claves)
 - `employee_lactation_period_overlap_detail.*` (1 claves)
+- `repse_registration.*` (1 claves)
+- `repse_registrations.*` (1 claves)
+- `repse_registration_was_created_successfully.*` (1 claves)
+- `repse_registration_was_updated_successfully.*` (1 claves)
+- `repse_registration_was_deleted_successfully.*` (1 claves)
+- `repse_registration_was_found_successfully.*` (1 claves)
+- `repse_registration_folio_already_registered.*` (1 claves)
+- `repse_registration_business_unit_not_found.*` (1 claves)
+- `repse_registration_dates_invalid.*` (1 claves)
+- `repse_registration_not_found.*` (1 claves)
+- `employee_lactation_period_below_legal_minimum_title.*` (1 claves)
+- `employee_lactation_period_below_legal_minimum_detail.*` (1 claves)
+- `employee_lactation_period_exception_type_missing_title.*` (1 claves)
+- `employee_lactation_period_exception_type_missing_detail.*` (1 claves)
+- `employee_lactation_period_no_active_shift_title.*` (1 claves)
+- `employee_lactation_period_no_active_shift_detail.*` (1 claves)
+- `employee_lactation_period_shift_exceptions_regenerated.*` (1 claves)
 - `auth.*` (19 claves)
 - `attendance_stats_dates_required.*` (1 claves)
 - `attendance_stats_invalid_range.*` (1 claves)
@@ -4365,8 +4646,116 @@ counts:
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
 
-### Idioma `es` (423 claves totales)
+### Idioma `es` (548 claves totales)
 
+- `validator.shared.messages.required.*` (1 claves)
+- `validator.shared.messages.string.*` (1 claves)
+- `validator.shared.messages.number.*` (1 claves)
+- `validator.shared.messages.boolean.*` (1 claves)
+- `validator.shared.messages.email.*` (1 claves)
+- `validator.shared.messages.regex.*` (1 claves)
+- `validator.shared.messages.url.*` (1 claves)
+- `validator.shared.messages.minLength.*` (1 claves)
+- `validator.shared.messages.maxLength.*` (1 claves)
+- `validator.shared.messages.fixedLength.*` (1 claves)
+- `validator.shared.messages.confirmed.*` (1 claves)
+- `validator.shared.messages.sameAs.*` (1 claves)
+- `validator.shared.messages.notSameAs.*` (1 claves)
+- `validator.shared.messages.in.*` (1 claves)
+- `validator.shared.messages.notIn.*` (1 claves)
+- `validator.shared.messages.min.*` (1 claves)
+- `validator.shared.messages.max.*` (1 claves)
+- `validator.shared.messages.range.*` (1 claves)
+- `validator.shared.messages.positive.*` (1 claves)
+- `validator.shared.messages.negative.*` (1 claves)
+- `validator.shared.messages.decimal.*` (1 claves)
+- `validator.shared.messages.enum.*` (1 claves)
+- `validator.shared.messages.literal.*` (1 claves)
+- `validator.shared.messages.object.*` (1 claves)
+- `validator.shared.messages.array.*` (1 claves)
+- `validator.shared.messages.array.minLength.*` (1 claves)
+- `validator.shared.messages.array.maxLength.*` (1 claves)
+- `validator.shared.messages.array.fixedLength.*` (1 claves)
+- `validator.shared.messages.notEmpty.*` (1 claves)
+- `validator.shared.messages.distinct.*` (1 claves)
+- `validator.shared.messages.date.*` (1 claves)
+- `validator.shared.messages.date.equals.*` (1 claves)
+- `validator.shared.messages.date.after.*` (1 claves)
+- `validator.shared.messages.date.before.*` (1 claves)
+- `validator.shared.messages.date.afterOrEqual.*` (1 claves)
+- `validator.shared.messages.date.beforeOrEqual.*` (1 claves)
+- `validator.shared.messages.date.sameAs.*` (1 claves)
+- `validator.shared.messages.date.notSameAs.*` (1 claves)
+- `validator.shared.messages.date.afterField.*` (1 claves)
+- `validator.shared.messages.date.afterOrSameAs.*` (1 claves)
+- `validator.shared.messages.date.beforeField.*` (1 claves)
+- `validator.shared.messages.date.beforeOrSameAs.*` (1 claves)
+- `validator.shared.messages.date.weekend.*` (1 claves)
+- `validator.shared.messages.date.weekday.*` (1 claves)
+- `repse_registrations_title.*` (1 claves)
+- `repse_registration_title.*` (1 claves)
+- `repse_registrations_listed_successfully.*` (1 claves)
+- `repse_registration_found_successfully.*` (1 claves)
+- `repse_registration_created_successfully.*` (1 claves)
+- `repse_registration_updated_successfully.*` (1 claves)
+- `repse_registration_deleted_successfully.*` (1 claves)
+- `repse_error_default_title.*` (1 claves)
+- `repse_unauthorized_title.*` (1 claves)
+- `repse_unauthorized_message.*` (1 claves)
+- `repse_val_input_title.*` (1 claves)
+- `repse_val_input_message.*` (1 claves)
+- `repse_folio_duplicate_title.*` (1 claves)
+- `repse_folio_duplicate_message.*` (1 claves)
+- `repse_business_unit_not_found_title.*` (1 claves)
+- `repse_business_unit_not_found_message.*` (1 claves)
+- `repse_not_found_title.*` (1 claves)
+- `repse_not_found_message.*` (1 claves)
+- `repse_dates_invalid_title.*` (1 claves)
+- `repse_dates_invalid_message.*` (1 claves)
+- `repse_dates_range_invalid_message.*` (1 claves)
+- `repse_unexpected_error_message.*` (1 claves)
+- `repse_specialized_services_title.*` (1 claves)
+- `repse_specialized_service_title.*` (1 claves)
+- `repse_specialized_services_listed_successfully.*` (1 claves)
+- `repse_specialized_service_found_successfully.*` (1 claves)
+- `repse_specialized_service_created_successfully.*` (1 claves)
+- `repse_specialized_service_updated_successfully.*` (1 claves)
+- `repse_specialized_service_deleted_successfully.*` (1 claves)
+- `repse_specialized_service_error_default_title.*` (1 claves)
+- `repse_specialized_service_unauthorized_title.*` (1 claves)
+- `repse_specialized_service_unauthorized_message.*` (1 claves)
+- `repse_specialized_service_val_input_title.*` (1 claves)
+- `repse_specialized_service_val_input_message.*` (1 claves)
+- `repse_specialized_service_not_found_title.*` (1 claves)
+- `repse_specialized_service_not_found_message.*` (1 claves)
+- `repse_specialized_service_parent_not_found_title.*` (1 claves)
+- `repse_specialized_service_parent_not_found_message.*` (1 claves)
+- `repse_specialized_service_name_duplicate_title.*` (1 claves)
+- `repse_specialized_service_name_duplicate_message.*` (1 claves)
+- `repse_specialized_service_unexpected_error_message.*` (1 claves)
+- `empresas_contratantes_title.*` (1 claves)
+- `empresa_contratante_title.*` (1 claves)
+- `empresas_contratantes_listed_successfully.*` (1 claves)
+- `empresa_contratante_found_successfully.*` (1 claves)
+- `empresa_contratante_created_successfully.*` (1 claves)
+- `empresa_contratante_updated_successfully.*` (1 claves)
+- `empresa_contratante_deleted_successfully.*` (1 claves)
+- `empresa_contratante_error_default_title.*` (1 claves)
+- `empresa_contratante_unauthorized_title.*` (1 claves)
+- `empresa_contratante_unauthorized_message.*` (1 claves)
+- `empresa_contratante_val_input_title.*` (1 claves)
+- `empresa_contratante_val_input_message.*` (1 claves)
+- `empresa_contratante_rfc_invalid_title.*` (1 claves)
+- `empresa_contratante_rfc_invalid_message.*` (1 claves)
+- `empresa_contratante_rfc_duplicate_title.*` (1 claves)
+- `empresa_contratante_rfc_duplicate_message.*` (1 claves)
+- `empresa_contratante_not_found_title.*` (1 claves)
+- `empresa_contratante_not_found_message.*` (1 claves)
+- `empresa_contratante_business_unit_not_found_title.*` (1 claves)
+- `empresa_contratante_business_unit_not_found_message.*` (1 claves)
+- `empresa_contratante_forbidden_title.*` (1 claves)
+- `empresa_contratante_forbidden_message.*` (1 claves)
+- `empresa_contratante_unexpected_error_message.*` (1 claves)
 - `address.*` (1 claves)
 - `the_address.*` (1 claves)
 - `address_type.*` (1 claves)
@@ -4706,6 +5095,23 @@ counts:
 - `employee_lactation_period_unreasonable_range_detail.*` (1 claves)
 - `employee_lactation_period_overlap_title.*` (1 claves)
 - `employee_lactation_period_overlap_detail.*` (1 claves)
+- `repse_registration.*` (1 claves)
+- `repse_registrations.*` (1 claves)
+- `repse_registration_was_created_successfully.*` (1 claves)
+- `repse_registration_was_updated_successfully.*` (1 claves)
+- `repse_registration_was_deleted_successfully.*` (1 claves)
+- `repse_registration_was_found_successfully.*` (1 claves)
+- `repse_registration_folio_already_registered.*` (1 claves)
+- `repse_registration_business_unit_not_found.*` (1 claves)
+- `repse_registration_dates_invalid.*` (1 claves)
+- `repse_registration_not_found.*` (1 claves)
+- `employee_lactation_period_below_legal_minimum_title.*` (1 claves)
+- `employee_lactation_period_below_legal_minimum_detail.*` (1 claves)
+- `employee_lactation_period_exception_type_missing_title.*` (1 claves)
+- `employee_lactation_period_exception_type_missing_detail.*` (1 claves)
+- `employee_lactation_period_no_active_shift_title.*` (1 claves)
+- `employee_lactation_period_no_active_shift_detail.*` (1 claves)
+- `employee_lactation_period_shift_exceptions_regenerated.*` (1 claves)
 - `auth.*` (19 claves)
 - `attendance_stats_dates_required.*` (1 claves)
 - `attendance_stats_invalid_range.*` (1 claves)

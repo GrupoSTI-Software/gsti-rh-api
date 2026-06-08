@@ -24,6 +24,10 @@ const ERROR_CODE_TO_I18N_BASE: Record<ContratoServicioEspecializadoErrorCode, st
     'contrato_servicio_especializado_repse_not_found',
   [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.NUMERO_DUPLICATE]:
     'contrato_servicio_especializado_numero_duplicate',
+  [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIOS_REGISTRADOS_REQUERIDOS]:
+    'contrato_servicio_especializado_servicios_registrados_requeridos',
+  [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_NOT_FOUND]:
+    'contrato_servicio_especializado_servicio_registrado_not_found',
   [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN]: 'contrato_servicio_especializado_forbidden',
   [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SYS_UNHANDLED]:
     'contrato_servicio_especializado_unexpected_error',

@@ -15,6 +15,10 @@ export const CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES = {
   REPSE_NOT_FOUND: 'CSE.NF.REPSE.001',
   /** Número de contrato duplicado en el tenant */
   NUMERO_DUPLICATE: 'CSE.CONFLICT.NUMERO.001',
+  /** serviciosRegistradosIds ausente o vacío */
+  SERVICIOS_REGISTRADOS_REQUERIDOS: 'CSE.VAL.SERVICIOS.001',
+  /** Algún id de servicio registrado no existe o es de otro tenant */
+  SERVICIO_REGISTRADO_NOT_FOUND: 'CSE.NF.SERVICIO.001',
   /** Sin permiso sobre el módulo */
   FORBIDDEN: 'CSE.FORBID.001',
   /** Error no clasificado del dominio */

@@ -8,10 +8,13 @@ import ContratoServicioEspecializado, {
 import EmpresaContratante from '#models/empresa_contratante'
 import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
 import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
+import RepseSpecializedService from '#models/repse_specialized_service'
 import {
+  assertServiciosRegistradosRequeridos,
   findActiveRepseFolioForTenant,
   findContratoInTenantOrFail,
   findEmpresaContratanteInTenantOrFail,
+  findRepseSpecializedServicesInTenantOrFail,
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
 import { toBusinessDateString } from '#utils/business_date'
@@ -38,12 +41,17 @@ export interface ContratoServicioEspecializadoCreatePayload {
   moneda?: string
   estatus?: ContratoServicioEspecializadoEstatus
   anexo15d: Anexo15dCreatePayload
+  serviciosRegistradosIds: number[]
 }
 
 export type ContratoServicioEspecializadoUpdatePayload = Partial<
-  Omit<ContratoServicioEspecializadoCreatePayload, 'empresaContratanteId' | 'anexo15d'>
+  Omit<
+    ContratoServicioEspecializadoCreatePayload,
+    'empresaContratanteId' | 'anexo15d' | 'serviciosRegistradosIds'
+  >
 > & {
   anexo15d?: Anexo15dUpdatePayload
+  serviciosRegistradosIds?: number[]
 }
 
 function toIsoDateTimeString(value: unknown): string | null {
@@ -113,6 +121,15 @@ function serializeAnexo15d(row: Clausula15d) {
   }
 }
 
+function serializeServiciosRegistrados(services: RepseSpecializedService[]) {
+  return [...services]
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+    .map((service) => ({
+      id: service.repseSpecializedServiceId,
+      name: service.name,
+    }))
+}
+
 function serializeContratanteBasico(row: EmpresaContratante) {
   return {
     id: row.empresaContratanteId,
@@ -125,6 +142,7 @@ function serializeContratanteBasico(row: EmpresaContratante) {
 export function serializeContratoServicioEspecializado(row: ContratoServicioEspecializado) {
   const contratante = row.empresaContratante
   const anexo = row.clausula15d
+  const servicios = row.repseSpecializedServices ?? []
 
   return {
     id: row.contratoServicioEspecializadoId,
@@ -138,6 +156,7 @@ export function serializeContratoServicioEspecializado(row: ContratoServicioEspe
     estatus: row.estatusEfectivo,
     vencidoPorFecha: row.vencidoPorFecha,
     anexo15d: anexo ? serializeAnexo15d(anexo) : null,
+    serviciosRegistrados: serializeServiciosRegistrados(servicios),
     createdAt: toIsoDateTimeString(row.createdAt),
     updatedAt: toIsoDateTimeString(row.updatedAt),
   }
@@ -160,6 +179,8 @@ export default class ContratoServicioEspecializadoService {
 
     const normalizedNumero = payload.numeroContrato.trim()
     await this.assertNumeroContratoUniqueInTenant(normalizedNumero)
+    const servicioIds = assertServiciosRegistradosRequeridos(payload.serviciosRegistradosIds)
+    await findRepseSpecializedServicesInTenantOrFail(servicioIds)
 
     const row = await db.transaction(async (trx) => {
       const contrato = new ContratoServicioEspecializado()
@@ -196,6 +217,8 @@ export default class ContratoServicioEspecializadoService {
         payload.anexo15d.textoResponsabilidadSolidaria.trim()
       anexo.useTransaction(trx)
       await anexo.save()
+
+      await contrato.related('repseSpecializedServices').sync(servicioIds, true, trx)
 
       return contrato
     })
@@ -250,6 +273,7 @@ export default class ContratoServicioEspecializadoService {
       .whereIn('business_unit_id', allowed)
       .preload('clausula15d')
       .preload('empresaContratante')
+      .preload('repseSpecializedServices')
 
     const hoyIso = toBusinessDateString()
     if (filters.estatus && filters.estatus.length > 0) {
@@ -364,6 +388,12 @@ export default class ContratoServicioEspecializadoService {
 
     const folioRepse = await findActiveRepseFolioForTenant()
 
+    let servicioIds: number[] | undefined
+    if (payload.serviciosRegistradosIds !== undefined) {
+      servicioIds = assertServiciosRegistradosRequeridos(payload.serviciosRegistradosIds)
+      await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+    }
+
     await db.transaction(async (trx) => {
       if (payload.numeroContrato !== undefined) {
         current.numeroContrato = targetNumero
@@ -426,6 +456,10 @@ export default class ContratoServicioEspecializadoService {
         current.clausula15d.useTransaction(trx)
         await current.clausula15d.save()
       }
+
+      if (servicioIds !== undefined) {
+        await current.related('repseSpecializedServices').sync(servicioIds, true, trx)
+      }
     })
 
     logger.info(
@@ -461,6 +495,7 @@ export default class ContratoServicioEspecializadoService {
   private async loadRelations(row: ContratoServicioEspecializado) {
     await row.load('clausula15d')
     await row.load('empresaContratante')
+    await row.load('repseSpecializedServices')
   }
 
   private async assertNumeroContratoUniqueInTenant(numeroContrato: string, excludeId?: number) {
