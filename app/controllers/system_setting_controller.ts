@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import SystemSettingService from '#services/system_setting_service'
@@ -260,18 +261,14 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async index({ response }: HttpContext) {
+  async index({ response, businessUnitScope }: HttpContext) {
     try {
-      // const search = request.input('search')
-      // const page = request.input('page', 1)
-      // const limit = request.input('limit', 100)
-      // const filters = {
-      //   search: search,
-      //   page: page,
-      //   limit: limit,
-      // } as SystemSettingFilterSearchInterface
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const systemSettingService = new SystemSettingService()
-      const systemSettings = await systemSettingService.index()
+      const systemSettings = await systemSettingService.index(businessSlugs)
       response.status(200)
       return {
         type: 'success',
@@ -452,7 +449,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingTradeName = request.input('systemSettingTradeName')
       const systemSettingSidebarColor = request.input('systemSettingSidebarColor')
@@ -504,6 +501,10 @@ export default class SystemSettingController {
         systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
+      const buUnitsStore = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugsStore = buUnitsStore.map((bu) => bu.businessUnitSlug)
       const data = await request.validateUsing(createSystemSettingValidator)
       const valid = await systemSettingService.verifyInfo(systemSetting)
       if (valid.status !== 200) {
@@ -515,7 +516,7 @@ export default class SystemSettingController {
           data: { ...data },
         }
       }
-      const validActive = await systemSettingService.verifyActiveStore(systemSetting)
+      const validActive = await systemSettingService.verifyActiveStore(systemSetting, businessSlugsStore)
       if (validActive.status !== 200) {
         response.status(validActive.status)
         return {
@@ -644,8 +645,7 @@ export default class SystemSettingController {
         }
         systemSetting.systemSettingEmployeeAplicationIcon = fileUrl
       }
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      systemSetting.systemSettingBusinessUnits = businessConf
+      systemSetting.systemSettingBusinessUnits = businessSlugsStore.join(',')
       const newSystemSetting = await systemSettingService.create(systemSetting)
       response.status(201)
       return {
@@ -831,7 +831,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       const systemSettingTradeName = request.input('systemSettingTradeName')
@@ -907,6 +907,10 @@ export default class SystemSettingController {
         }
       }
       const systemSettingService = new SystemSettingService()
+      const buUnitsUpdate = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugsUpdate = buUnitsUpdate.map((bu) => bu.businessUnitSlug)
       const valid = await systemSettingService.verifyInfo(systemSetting)
       if (valid.status !== 200) {
         response.status(valid.status)
@@ -919,7 +923,8 @@ export default class SystemSettingController {
       }
       const validActive = await systemSettingService.verifyActiveUpdate(
         systemSetting,
-        currentSystemSetting
+        currentSystemSetting,
+        businessSlugsUpdate
       )
       if (validActive.status !== 200) {
         response.status(validActive.status)
@@ -930,6 +935,7 @@ export default class SystemSettingController {
           data: { ...systemSetting },
         }
       }
+      systemSetting.systemSettingBusinessUnits = businessSlugsUpdate.join(',')
       const validationOptions = {
         types: ['image'],
         size: '',
