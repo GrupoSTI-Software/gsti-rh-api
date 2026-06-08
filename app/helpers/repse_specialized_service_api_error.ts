@@ -26,6 +26,8 @@ const ERROR_CODE_TO_I18N_BASE: Record<RepseSpecializedServiceErrorCode, string> 
     'repse_specialized_service_parent_not_found',
   [REPSE_SPECIALIZED_SERVICE_ERROR_CODES.NAME_DUPLICATE]:
     'repse_specialized_service_name_duplicate',
+  [REPSE_SPECIALIZED_SERVICE_ERROR_CODES.LINKED_ACTIVE_CONTRATOS]:
+    'repse_specialized_service_linked_contratos',
   [REPSE_SPECIALIZED_SERVICE_ERROR_CODES.FORBIDDEN]: 'repse_specialized_service_unauthorized',
   [REPSE_SPECIALIZED_SERVICE_ERROR_CODES.SYS_UNHANDLED]:
     'repse_specialized_service_unexpected_error',

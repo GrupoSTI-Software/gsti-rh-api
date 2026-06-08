@@ -15,8 +15,6 @@ import BusinessUnitUser from '#models/business_unit_user'
  *      desaparece del flujo de login).
  * 3. Login con `user_active = 0` → responde 404 con el mensaje existente
  *    'Incorrect email or password' (comportamiento preservado).
- * 4. POST /api/users con `userBusinessAccess` como arreglo de IDs → crea filas
- *    en la pivote y deja `users.user_business_access` en NULL.
  * 5. POST /api/roles construye `roleBusinessAccess` heredando del pivote del
  *    usuario autenticado (formato CSV de IDs).
  *
@@ -71,9 +69,6 @@ async function createPivotUser(options: {
   user.userActive = options.active
   user.roleId = role.roleId
   user.personId = person.personId
-  // El refactor del pivote dejó el CSV legado como nullable y deprecado: el setup
-  // lo fuerza a null para representar el estado esperado tras la migración.
-  user.userBusinessAccess = null
   user.userEmailType = 'institutional'
   await user.save()
 
@@ -263,7 +258,6 @@ test.group('Users (POST /api/users) - userBusinessAccess como arreglo de IDs', (
       roleId: actor.user.roleId,
       personId: preparedPerson.personId,
       userEmailType: 'institutional',
-      userBusinessAccess: businessUnitIds,
     })
 
     response.assertStatus(201)
@@ -272,11 +266,6 @@ test.group('Users (POST /api/users) - userBusinessAccess como arreglo de IDs', (
     assert.exists(body.data?.user?.userId)
 
     createdUserId = Number(body.data.user.userId)
-
-    const persistedUser = await User.query().where('user_id', createdUserId).firstOrFail()
-    // Lectura del campo deprecado para verificar que el refactor lo conserva en NULL
-    // tras crear un usuario con el formato nuevo (arreglo de IDs en la pivote).
-    assert.isNull(persistedUser.userBusinessAccess, 'El CSV legado debe quedar NULL')
 
     const pivotRows = await BusinessUnitUser.query()
       .where('user_id', createdUserId)
