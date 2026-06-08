@@ -518,6 +518,24 @@ Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especia
 
 ---
 
+## Documentos firmados de contrato REPSE (`DCE.*`)
+
+Módulo: documentos PDF bajo `/api/contratos-servicios-especializados/{contratoId}/documentos`. Permisos: `compliance-contratos` / `read`, `create`, `update` o `gestion`. Tamaño máximo del PDF: `MAX_FILE_BYTES` en `documento_contrato_especializado_service.ts` (mensajes de error muestran el valor en MB/KB derivado de esa constante).
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| DCE.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| DCE.VAL.VIGENCIA.001 | fechaInicioVigencia posterior a fechaVencimiento | 400 | `vigencia-incoherente` |
+| DCE.VAL.DOC.001 | No PDF, tamaño excedido o fallo de almacenamiento | 422 | `documento-invalido` |
+| DCE.NF.001 | Sin documento vigente o archivo no en S3 | 404 | `documento-no-encontrado` |
+| DCE.S3.001 | Error interno al subir (mapeado a documento-invalido en V1) | 422 | `documento-invalido` |
+| DCE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
+| DCE.SYS.001 | Error no clasificado | 5xx | — |
+
+Cross-tenant o contrato inexistente reutiliza `CSE.NF.001` / key `contrato-no-encontrado`.
+
+---
+
 ## Registro REPSE (`REPSE.*`)
 
 Módulo: `/api/repse-registrations` y `/api/repse-specialized-services`. Permisos: `repse-registrations` / `read`, `create`, `update`, `delete` o `gestion`.

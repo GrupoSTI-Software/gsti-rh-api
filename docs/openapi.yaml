@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Valanserh API - Compliance REPSE
   version: 1.1.0
-  description: Empresas contratantes y contratos de servicios especializados con anexo 15-D LFT.
+  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT y documentos firmados.
 
 components:
   securitySchemes:
@@ -582,6 +582,80 @@ components:
             - tipo: cfdi_nomina
               descripcion: CFDI de nómina mensual actualizado
               periodicidad: mensual
+
+    DocumentoContratoEspecializado:
+      type: object
+      properties:
+        documentoId:
+          type: integer
+        contratoId:
+          type: integer
+        origen:
+          type: string
+          enum: [subido, firmado_canvas]
+        vigente:
+          type: boolean
+        fechaInicioVigencia:
+          type: string
+          format: date
+        fechaVencimiento:
+          type: string
+          format: date
+        nombreArchivo:
+          type: string
+        mimeType:
+          type: string
+        tamanoBytes:
+          type: integer
+        subidoPor:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    DocumentoContratoEspecializadoSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            documentoContrato:
+              $ref: '#/components/schemas/DocumentoContratoEspecializado'
+
+    DocumentosContratoListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            documentoContrato:
+              type: object
+              properties:
+                documentos:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/DocumentoContratoEspecializado'
 
 paths:
   /api/empresas-contratantes:

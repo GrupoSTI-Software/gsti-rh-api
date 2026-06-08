@@ -2,7 +2,7 @@ import User from '#models/user'
 import vine from '@vinejs/vine'
 
 /**
- * Schema reutilizable para el campo `userBusinessAccess`.
+ *
  *
  * Se acepta como `any` opcional porque la API admite dos formatos:
  * - Formato nuevo: arreglo de IDs numéricos.
@@ -13,7 +13,6 @@ import vine from '@vinejs/vine'
  * helper `parseBusinessUnitAccessInput` + `resolveBusinessUnitIds` invocado desde el
  * controlador. Esto preserva el contrato dual sin sacrificar tipado.
  */
-const userBusinessAccessSchema = vine.any().optional()
 
 export const createUserValidator = vine.compile(
   vine.object({
@@ -41,7 +40,6 @@ export const createUserValidator = vine.compile(
           .first()
         return !existingPersonId
       }),
-    userBusinessAccess: userBusinessAccessSchema,
   })
 )
 
@@ -50,6 +48,5 @@ export const updateUserValidator = vine.compile(
     userEmail: vine.string().trim().minLength(0).maxLength(200),
     userActive: vine.boolean(),
     roleId: vine.number().min(1),
-    userBusinessAccess: userBusinessAccessSchema,
   })
 )

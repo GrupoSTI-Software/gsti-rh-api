@@ -1,13 +1,14 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column, hasOne, manyToMany } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, hasOne, manyToMany, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
-import type { BelongsTo, HasOne, ManyToMany } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasOne, ManyToMany, HasMany } from '@adonisjs/lucid/types/relations'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import BusinessUnit from '#models/business_unit'
 import EmpresaContratante from '#models/empresa_contratante'
 import Clausula15d from '#models/clausula_15d'
 import RepseSpecializedService from '#models/repse_specialized_service'
+import DocumentoContratoEspecializado from '#models/documento_contrato_especializado'
 
 export type ContratoServicioEspecializadoEstatus =
   | 'borrador'
@@ -91,6 +92,12 @@ export default class ContratoServicioEspecializado extends compose(BaseModel, So
     pivotTimestamps: true,
   })
   declare repseSpecializedServices: ManyToMany<typeof RepseSpecializedService>
+
+  @hasMany(() => DocumentoContratoEspecializado, {
+    foreignKey: 'contratoServicioEspecializadoId',
+    localKey: 'contratoServicioEspecializadoId',
+  })
+  declare documentos: HasMany<typeof DocumentoContratoEspecializado>
 
   /**
    * Restringe la consulta a las unidades de negocio permitidas del tenant.
