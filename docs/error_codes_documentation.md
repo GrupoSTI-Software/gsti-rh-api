@@ -484,17 +484,67 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 
 ## Empresas contratantes REPSE (`ECNT.*`)
 
-Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. Permiso: `compliance-contratantes` / `gestion`.
+Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. Permisos: `compliance-contratantes` / `read`, `create`, `update`, `delete` o `gestion`.
 
 | Código | Escenario | HTTP | Key |
 |--------|-----------|------|-----|
 | ECNT.VAL.001 | Validación VineJS o input inválido | 400 | — |
 | ECNT.VAL.RFC.001 | RFC formato o dígito verificador SAT inválido | 400 | `rfc-invalido` |
 | ECNT.CONFLICT.RFC.001 | RFC duplicado en catálogo del tenant | 409 | `rfc-duplicado` |
+| ECNT.CONFLICT.CONTRATOS.001 | Empresa con contratos no soft-deleted asociados | 409 | `empresa-con-contratos-activos` |
 | ECNT.NF.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
 | ECNT.NF.BU.001 | Business unit ajena al tenant | 404 | `empresa-no-encontrada` |
-| ECNT.FORBID.001 | Sin permiso `gestion` | 403 | `sin-permiso` |
+| ECNT.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
 | ECNT.SYS.001 | Error no clasificado | 5xx | — |
+
+---
+
+## Contratos de servicios especializados REPSE (`CSE.*`)
+
+Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especializados`. Permisos: `compliance-contratos` / `read`, `create`, `update`, `delete` o `gestion`. Filtro `estatus` admite varios valores (CSV o repetido).
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| CSE.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| CSE.VAL.FECHAS.001 | fechaFin anterior a fechaInicio | 422 | `fecha-fin-anterior-a-fecha-inicio` |
+| CSE.NF.001 | Contrato inexistente o cross-tenant | 404 | `contrato-no-encontrado` |
+| CSE.NF.CONTRATANTE.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
+| CSE.NF.REPSE.001 | Sin registro REPSE activo en el tenant | 422 | `registro-repse-no-encontrado` |
+| CSE.CONFLICT.NUMERO.001 | Número de contrato duplicado en el tenant | 409 | `numero-contrato-duplicado` |
+| CSE.VAL.SERVICIOS.001 | serviciosRegistradosIds ausente o vacío | 400 | `servicios-registrados-requeridos` |
+| CSE.NF.SERVICIO.001 | Servicio del catálogo inexistente o cross-tenant | 404 | `servicio-registrado-no-encontrado` |
+| CSE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
+| CSE.SYS.001 | Error no clasificado | 5xx | — |
+
+---
+
+## Documentos firmados de contrato REPSE (`DCE.*`)
+
+Módulo: documentos PDF bajo `/api/contratos-servicios-especializados/{contratoId}/documentos`. Permisos: `compliance-contratos` / `read`, `create`, `update` o `gestion`. Tamaño máximo del PDF: `MAX_FILE_BYTES` en `documento_contrato_especializado_service.ts` (mensajes de error muestran el valor en MB/KB derivado de esa constante).
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| DCE.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| DCE.VAL.VIGENCIA.001 | fechaInicioVigencia posterior a fechaVencimiento | 400 | `vigencia-incoherente` |
+| DCE.VAL.DOC.001 | No PDF, tamaño excedido o fallo de almacenamiento | 422 | `documento-invalido` |
+| DCE.NF.001 | Sin documento vigente o archivo no en S3 | 404 | `documento-no-encontrado` |
+| DCE.S3.001 | Error interno al subir (mapeado a documento-invalido en V1) | 422 | `documento-invalido` |
+| DCE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
+| DCE.SYS.001 | Error no clasificado | 5xx | — |
+
+Cross-tenant o contrato inexistente reutiliza `CSE.NF.001` / key `contrato-no-encontrado`.
+
+---
+
+## Registro REPSE (`REPSE.*`)
+
+Módulo: `/api/repse-registrations` y `/api/repse-specialized-services`. Permisos: `repse-registrations` / `read`, `create`, `update`, `delete` o `gestion`.
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| REPSE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
+| REPSE.SVC.FORBID.001 | Sin permiso (servicios especializados) | 403 | `sin-permiso` |
+| REPSE.SVC.CONFLICT.CONTRATOS.001 | Servicio vinculado a contratos no soft-deleted | 409 | `servicio-con-contratos-activos` |
 
 ---
 

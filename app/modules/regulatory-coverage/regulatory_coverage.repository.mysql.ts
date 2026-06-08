@@ -1,10 +1,14 @@
 import db from '@adonisjs/lucid/services/db'
 import type { RegulatoryCoverageRepository } from './regulatory_coverage.repository.js'
-import type { RegulationCoverageRow } from './dto/regulatory_coverage.dto.js'
+import type { RegulationCoverageRow, RegulatoryCoverageSummaryResponse } from './dto/regulatory_coverage.dto.js'
 import {
   aggregateLeafRows,
   buildRegulationCoverageRows,
+  aggregateBucketLeafRows,
+  buildRegulationSummaryRows,
+  buildSummaryAggregate,
   type LeafClauseRow,
+  type LeafClauseBucketRow,
   type VigentRegulationRow,
 } from './regulatory_coverage.calculations.js'
 
@@ -33,6 +37,19 @@ export default class RegulatoryCoverageRepositoryMysql implements RegulatoryCove
 
     const countsByRegulation = aggregateLeafRows(leafRows)
     return buildRegulationCoverageRows(regulations, countsByRegulation)
+  }
+
+  async getCoverageSummary(): Promise<RegulatoryCoverageSummaryResponse> {
+    const [regulations, leafRows] = await Promise.all([
+      this.fetchVigentRegulations(),
+      this.fetchLeafClauseCoverageBuckets(),
+    ])
+
+    const countsByRegulation = aggregateBucketLeafRows(leafRows)
+    return {
+      aggregate: buildSummaryAggregate(regulations, countsByRegulation),
+      regulations: buildRegulationSummaryRows(regulations, countsByRegulation),
+    }
   }
 
   /**
@@ -141,5 +158,115 @@ export default class RegulatoryCoverageRepositoryMysql implements RegulatoryCove
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = Array.isArray(result) ? (result[0] as any[]) : (result as any[])
     return rows as LeafClauseRow[]
+  }
+
+  /**
+   * Variante de `fetchLeafClauseCoverage` para el summary.
+   *
+   * Devuelve una fila por numeral hoja con tres columnas de mejor cobertura,
+   * una por bucket acumulativo:
+   *
+   * - `best_coverage_disponible`   : solo features con status `disponible`.
+   * - `best_coverage_en_desarrollo`: features con status `disponible` o `en_desarrollo`.
+   * - `best_coverage_planeado`     : features con status `disponible`, `en_desarrollo` o `planeado`.
+   *
+   * Las features con status `deprecado` quedan fuera del JOIN, de modo que no
+   * contribuyen a ningún bucket. El criterio de numerales hoja y el join con
+   * normas vigentes es idéntico al de `fetchLeafClauseCoverage`.
+   */
+  private async fetchLeafClauseCoverageBuckets(): Promise<LeafClauseBucketRow[]> {
+    const sql = `
+      SELECT
+        lc.regulation_id,
+        CASE
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 2 THEN 'total'
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status = 'disponible'
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 1 THEN 'parcial'
+          ELSE NULL
+        END AS best_coverage_disponible,
+        CASE
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo')
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo')
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 2 THEN 'total'
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo')
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo')
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 1 THEN 'parcial'
+          ELSE NULL
+        END AS best_coverage_en_desarrollo,
+        CASE
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo', 'planeado')
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo', 'planeado')
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 2 THEN 'total'
+          WHEN MAX(
+            CASE
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo', 'planeado')
+                   AND rcf.regulation_clause_feature_coverage = 'total'  THEN 2
+              WHEN sf.system_feature_status IN ('disponible', 'en_desarrollo', 'planeado')
+                   AND rcf.regulation_clause_feature_coverage = 'parcial' THEN 1
+              ELSE 0
+            END
+          ) = 1 THEN 'parcial'
+          ELSE NULL
+        END AS best_coverage_planeado
+      FROM regulation_clauses AS lc
+      INNER JOIN regulations AS r
+        ON  r.regulation_id  = lc.regulation_id
+        AND r.regulation_status = 'vigente'
+        AND r.deleted_at IS NULL
+      LEFT JOIN regulation_clause_features AS rcf
+        ON  rcf.regulation_clause_id = lc.regulation_clause_id
+        AND rcf.deleted_at IS NULL
+      LEFT JOIN system_features AS sf
+        ON  sf.system_feature_id = rcf.system_feature_id
+        AND sf.deleted_at IS NULL
+        AND sf.system_feature_status != 'deprecado'
+      WHERE
+        lc.deleted_at IS NULL
+        AND lc.regulation_clause_id NOT IN (
+          SELECT DISTINCT parent_regulation_clause_id
+          FROM   regulation_clauses
+          WHERE  parent_regulation_clause_id IS NOT NULL
+            AND  deleted_at IS NULL
+        )
+      GROUP BY lc.regulation_clause_id, lc.regulation_id
+    `
+
+    const result = await db.rawQuery(sql)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = Array.isArray(result) ? (result[0] as any[]) : (result as any[])
+    return rows as LeafClauseBucketRow[]
   }
 }

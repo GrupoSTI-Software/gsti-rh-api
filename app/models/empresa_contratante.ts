@@ -1,10 +1,11 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import BusinessUnit from '#models/business_unit'
+import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 
 /**
  * @swagger
@@ -83,6 +84,12 @@ export default class EmpresaContratante extends compose(BaseModel, SoftDeletes) 
     localKey: 'businessUnitId',
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @hasMany(() => ContratoServicioEspecializado, {
+    foreignKey: 'empresaContratanteId',
+    localKey: 'empresaContratanteId',
+  })
+  declare contratosServiciosEspecializados: HasMany<typeof ContratoServicioEspecializado>
 
   /**
    * Restringe la consulta a las unidades de negocio permitidas del tenant.

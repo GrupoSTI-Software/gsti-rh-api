@@ -58,3 +58,48 @@ export interface LeafClauseCoverageRaw {
 export interface RegulatoryCoverageResponse {
   regulations: RegulationCoverageRow[]
 }
+
+// ─── DTOs del summary (GET /api/v1/regulatory-coverage/summary) ──────────────
+
+/**
+ * Porcentajes de cobertura desglosados por bucket acumulativo.
+ *
+ * Los buckets son acumulativos en orden creciente:
+ * - `disponible`  : solo features con status `disponible`.
+ * - `enDesarrollo`: features con status `disponible` + `en_desarrollo`.
+ * - `planeado`    : features con status `disponible` + `en_desarrollo` + `planeado`.
+ *
+ * `null` en un bucket cuando `evaluableClauses` es 0 (sin denominador).
+ */
+export interface CoverageBucketPercentages {
+  disponible: number | null
+  enDesarrollo: number | null
+  planeado: number | null
+}
+
+/** Fila por norma vigente en la respuesta del summary. */
+export interface RegulationSummaryRow {
+  regulationId: number
+  regulationCode: string
+  regulationTitle: string
+  regulationVersion: string
+  authority: RegulatoryAuthorityInfo
+  /** Numerales hoja evaluables (denominador del cálculo). */
+  evaluableClauses: number
+  /** Porcentaje de cobertura por bucket acumulativo. */
+  coveragePercentage: CoverageBucketPercentages
+}
+
+/** Agregado global cross-norma del summary. */
+export interface SummaryAggregate {
+  /** Total de numerales hoja en todas las normas vigentes (denominador global). */
+  evaluableClauses: number
+  /** Porcentaje global de cobertura por bucket acumulativo. */
+  coveragePercentage: CoverageBucketPercentages
+}
+
+/** Forma de la respuesta HTTP 200 de GET /api/v1/regulatory-coverage/summary. */
+export interface RegulatoryCoverageSummaryResponse {
+  aggregate: SummaryAggregate
+  regulations: RegulationSummaryRow[]
+}

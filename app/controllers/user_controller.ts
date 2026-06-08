@@ -171,7 +171,17 @@ export default class UserController {
       const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
-      const user = await User.query().where('user_email', userEmail).where('user_active', 1).first()
+      const user = await User.query()
+        .where('user_email', userEmail)
+        .where('user_active', 1)
+        .preload('person', (personQuery) =>
+          personQuery.preload('employee', (employeeQuery) =>
+            employeeQuery.preload('position', (positionQuery) =>
+              positionQuery.whereNull('position_deleted_at')
+            )
+          )
+        )
+        .first()
 
       if (!user) {
         response.status(404)
@@ -434,7 +444,11 @@ export default class UserController {
     const user = await User.query()
       .where('user_id', userData.userId)
       .preload('person', (query) => {
-        query.preload('employee')
+        query.preload('employee', (employeeQuery) =>
+          employeeQuery.preload('position', (positionQuery) =>
+            positionQuery.whereNull('position_deleted_at')
+          )
+        )
       })
       .preload('role')
       .first()
