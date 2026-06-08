@@ -813,7 +813,8 @@ export default class EmployeeBiometricFaceIdController {
    *                 error:
    *                   type: string
    */
-  async getPhotoToken({ request, response }: HttpContext) {
+  @inject()
+  async getPhotoToken({ request, response }: HttpContext, uploadService: UploadService) {
     try {
       const employeeId = request.param('employeeId')
       const token = request.param('token')
@@ -872,19 +873,27 @@ export default class EmployeeBiometricFaceIdController {
         await employeeBiometricService.updateToken(biometricFaceId, token)
       }
 
+      const photoUrl = await uploadService.getDownloadLink(biometricFaceId.employeeBiometricFaceIdPhotoUrl)
+      if (typeof photoUrl === 'string') {
+        biometricFaceId.employeeBiometricFaceIdPhotoUrl = photoUrl
+      }
+
       // Path relativo al proxy server-side. El cliente concatena con su baseUrl
       // (que ya apunta al API y aplica el Bearer automáticamente). Evita exponer
       // URLs firmadas de DigitalOcean Spaces, que en algunas redes corporativas
       // están filtradas a nivel DNS.
-      biometricFaceId.employeeBiometricFaceIdPhotoUrl =
-        `/api/employees/${employeeId}/biometric-face-id-photo`
+      const employeeBiometricFaceIdPhotoUrlProxy = `/api/employees/${employeeId}/biometric-face-id-photo`
 
       response.status(200)
       return {
         type: 'success',
         title: 'Foto encontrada',
         message: 'La foto biométrica fue encontrada exitosamente',
-        data: { employeeBiometricFaceId: biometricFaceId, sameToken: sameToken },
+        data: {
+          employeeBiometricFaceId: biometricFaceId,
+          sameToken: sameToken,
+          photoUrlProxy: employeeBiometricFaceIdPhotoUrlProxy,
+        },
       }
     } catch (error: any) {
       response.status(500)

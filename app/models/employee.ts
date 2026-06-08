@@ -5,6 +5,7 @@ import Department from './department.js'
 import Position from './position.js'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import Person from './person.js'
 import ShiftException from './shift_exception.js'
 import BusinessUnit from './business_unit.js'
@@ -125,7 +126,7 @@ import EmployeeCertification from './employee_certification.js'
  *            type: string
  *
  */
-export default class Employee extends compose(BaseModel, SoftDeletes) {
+export default class Employee extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeId: number
 

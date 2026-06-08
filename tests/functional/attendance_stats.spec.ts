@@ -45,7 +45,6 @@ test.group('AttendanceStats - validation & auth', () => {
   test('200 overview devuelve la forma esperada', async ({ client, assert }) => {
     const user = await User.query()
       .whereNull('user_deleted_at')
-      .whereNotNull('user_business_access')
       .firstOrFail()
     // Limitamos a 1 empleado: la nueva arquitectura llama syncAssistsService.index
     // per-empleado y para todo el scope tomaría >2 min. Para validar la forma del
@@ -85,7 +84,6 @@ test.group('AttendanceStats - validation & auth', () => {
   test('200 by-department devuelve array', async ({ client, assert }) => {
     const user = await User.query()
       .whereNull('user_deleted_at')
-      .whereNotNull('user_business_access')
       .firstOrFail()
     const response = await client
       .get('/api/v1/attendance-stats/by-department')
@@ -99,7 +97,6 @@ test.group('AttendanceStats - validation & auth', () => {
   test('200 by-employee devuelve array y respeta employeeIds', async ({ client, assert }) => {
     const user = await User.query()
       .whereNull('user_deleted_at')
-      .whereNotNull('user_business_access')
       .firstOrFail()
     const response = await client
       .get('/api/v1/attendance-stats/by-employee')

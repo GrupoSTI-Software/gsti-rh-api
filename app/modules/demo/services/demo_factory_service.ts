@@ -1,6 +1,5 @@
 /* eslint-disable no-console -- trazas temporales modo demo */
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
@@ -219,20 +218,18 @@ export default class DemoFactoryService {
       assists: { employees: 0, pairs: 0 },
     }
 
-    // 0. Contexto base
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf
-      .split(',')
-      .map((u: string) => u.trim())
-      .filter(Boolean)
-    const systemBusiness = businessConf
-
-    console.log(tag, 'contexto SYSTEM_BUSINESS', { businessConf, businessList })
-
-    const businessUnit = await BusinessUnit.query()
+    // 0. Contexto base — se usan todas las BUs activas de la BD (sin depender de SYSTEM_BUSINESS)
+    const activeBusinessUnitsCtx = await BusinessUnit.query()
       .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
+      .whereNull('business_unit_deleted_at')
+      .orderBy('business_unit_id', 'asc')
+
+    const businessList = activeBusinessUnitsCtx.map((bu) => bu.businessUnitSlug)
+    const systemBusiness = businessList.join(',')
+
+    console.log(tag, 'contexto de BUs activas', { businessList })
+
+    const businessUnit = activeBusinessUnitsCtx[0] ?? null
     const businessUnitId = businessUnit?.businessUnitId ?? 0
 
     console.log(tag, 'BusinessUnit resuelto', {
