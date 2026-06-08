@@ -8,8 +8,6 @@ const BUSINESS_UNIT_HEADER = 'x-business-unit-id'
 
 /** Códigos de error del middleware de scope (contrato GSTI). */
 const ERR = {
-  /** Header X-Business-Unit-Id ausente (es obligatorio). */
-  MISSING_HEADER: { key: 'BU.VAL.000', title: 'Header requerido' },
   /** Header o campo businessUnitId con valor no entero-positivo. */
   INVALID_ID: { key: 'BU.VAL.001', title: 'Parámetro inválido' },
   /** ID enviado no pertenece al scope accesible del usuario. */
@@ -17,29 +15,24 @@ const ERR = {
 } as const
 
 /**
- * Resuelve una vez por request los IDs de unidades de negocio accesibles
- * para el usuario autenticado y los expone en dos lugares:
+ * Variante de `BusinessUnitScopeMiddleware` donde el header `X-Business-Unit-Id`
+ * es **opcional**.
  *
- *  1. `ctx.businessUnitScope` — para controllers y servicios que leen el scope
- *     explícitamente (compatibilidad con código existente).
- *  2. `TenantContext` (AsyncLocalStorage) — para el mixin `withBusinessUnitScope`,
- *     que inyecta el filtro automáticamente en todas las queries de los modelos
- *     tenant-scoped a lo largo de toda la cadena async de la request.
+ * Usar en rutas bootstrap que se ejecutan antes de que el cliente conozca la
+ * unidad activa (p. ej. catálogo de unidades de negocio, permisos iniciales).
  *
- * ## Header `X-Business-Unit-Id` (obligatorio)
- * El cliente debe enviar este header en toda request. El middleware:
- *  - Ausente             → 400 `BU.VAL.000`.
- *  - No entero-positivo  → 400 `BU.VAL.001`.
- *  - Fuera del scope     → 404 `BU.NOT.001` (sin revelar si la unidad existe).
- *  - Válido              → `TenantContext.run([selectedId])` para root y no-root.
+ * Comportamiento:
+ *  - Sin header → `ctx.businessUnitScope` = conjunto completo accesible del usuario;
+ *                 `TenantContext.run(fullScope)` (sin narrowing).
+ *  - Con header → idéntico a `BusinessUnitScopeMiddleware`: valida y estrecha
+ *                 el scope a `[selectedId]`.
  *
- * ## Validación de `businessUnitId` en query param / body
- *  - Query param `?businessUnitId=X`  → protege listados filtrados.
- *  - Body `{ businessUnitId: X }`     → protege operaciones de escritura (POST/PUT).
+ * ## root
+ * Omite toda validación y continúa con `TenantContext.runUnscoped`.
  *
  * Debe colocarse después del middleware `auth` (requiere usuario autenticado).
  */
-export default class BusinessUnitScopeMiddleware {
+export default class BusinessUnitScopeOptionalMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
     const user = ctx.auth.user!
 
@@ -49,7 +42,7 @@ export default class BusinessUnitScopeMiddleware {
 
     // const isRoot = user.role?.roleSlug === 'root'
 
-    // Root omite toda validación de scope y continúa sin filtro de tenant.
+    // // Root omite toda validación de scope y continúa sin filtro de tenant.
     // if (isRoot) {
     //   ctx.businessUnitScope = []
     //   return TenantContext.runUnscoped(() => next(), 'usuario con rol root')
@@ -58,15 +51,13 @@ export default class BusinessUnitScopeMiddleware {
     const scopeService = new BusinessAccessScopeService()
     const fullScope = await scopeService.getAccessibleIds(user)
 
-    // ── Header X-Business-Unit-Id (obligatorio para no-root) ─────────────────
+    // ── Header X-Business-Unit-Id (opcional) ─────────────────────────────────
     const headerValue = ctx.request.header(BUSINESS_UNIT_HEADER)
 
     if (headerValue === undefined) {
-      return ctx.response.status(400).json({
-        title: ERR.MISSING_HEADER.title,
-        detail: `El header ${BUSINESS_UNIT_HEADER} es obligatorio.`,
-        key: ERR.MISSING_HEADER.key,
-      })
+      // Sin header → scope completo del usuario, sin narrowing.
+      ctx.businessUnitScope = fullScope
+      return TenantContext.run(fullScope, () => next())
     }
 
     const requestedId = Number(headerValue)
@@ -120,15 +111,5 @@ export default class BusinessUnitScopeMiddleware {
     ctx.businessUnitScope = [requestedId]
 
     return TenantContext.run([requestedId], () => next())
-  }
-}
-
-/**
- * Extensión del HttpContext para exponer el scope de business units
- * resuelto una única vez por request.
- */
-declare module '@adonisjs/core/http' {
-  export interface HttpContext {
-    businessUnitScope: number[]
   }
 }

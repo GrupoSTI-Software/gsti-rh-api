@@ -19,6 +19,7 @@ router
     router.get('/termination-catalog', '#controllers/employee_controller.getTerminationCatalog')
     router.get('/without-user', '#controllers/employee_controller.indexWithOutUser')
     router.get('/', '#controllers/employee_controller.index')
+    router.get('/to-assigned', '#controllers/employee_controller.indexToAssigned')
     router.post('/', '#controllers/employee_controller.store')
     router.put('/:employeeId', '#controllers/employee_controller.update')
     router.delete('/:employeeId', '#controllers/employee_controller.delete')

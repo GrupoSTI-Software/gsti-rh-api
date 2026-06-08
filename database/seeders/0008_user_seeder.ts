@@ -12,7 +12,6 @@ export default class extends BaseSeeder {
         userActive: 1,
         personId: 1,
         roleId: 3,
-        userBusinessAccess: 'gsti-rh',
         businessUnitIds: [1],
       },
     ]
