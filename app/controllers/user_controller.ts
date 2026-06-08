@@ -19,8 +19,7 @@ import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
 import Person from '#models/person'
 import Employee from '#models/employee'
-import logger from '@adonisjs/core/services/logger'
-import { parseBusinessUnitAccessInput, resolveBusinessUnitIds } from '#utils/business_unit_access'
+import BusinessUnit from '#models/business_unit'
 
 export default class UserController {
   /**
@@ -35,8 +34,8 @@ export default class UserController {
    *     description: |
    *       Autentica al usuario validando email, contraseña, `user_active = 1` y `user_deleted_at IS NULL`.
    *       Desde la introducción de la tabla pivote `business_unit_users`, este endpoint ya no realiza
-   *       intersección con `env.SYSTEM_BUSINESS`: el alcance multi-tenant se evalúa en cada operación
-   *       posterior a través de las unidades de negocio asociadas al usuario.
+   *       intersección estática de unidades de negocio: el alcance multi-tenant se evalúa en cada operación
+   *       posterior a través de las unidades de negocio asociadas al usuario (scope dinámico).
    *     produces:
    *       - application/json
    *     requestBody:
@@ -172,7 +171,17 @@ export default class UserController {
       const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
-      const user = await User.query().where('user_email', userEmail).where('user_active', 1).first()
+      const user = await User.query()
+        .where('user_email', userEmail)
+        .where('user_active', 1)
+        .preload('person', (personQuery) =>
+          personQuery.preload('employee', (employeeQuery) =>
+            employeeQuery.preload('position', (positionQuery) =>
+              positionQuery.whereNull('position_deleted_at')
+            )
+          )
+        )
+        .first()
 
       if (!user) {
         response.status(404)
@@ -435,7 +444,11 @@ export default class UserController {
     const user = await User.query()
       .where('user_id', userData.userId)
       .preload('person', (query) => {
-        query.preload('employee')
+        query.preload('employee', (employeeQuery) =>
+          employeeQuery.preload('position', (positionQuery) =>
+            positionQuery.whereNull('position_deleted_at')
+          )
+        )
       })
       .preload('role')
       .first()
@@ -1080,11 +1093,21 @@ export default class UserController {
    *         description: Role id
    *         schema:
    *           type: integer
+   *       - name: businessUnitId
+   *         in: query
+   *         required: true
+   *         description: Business unit id
+   *         schema:
+   *           type: integer
    *       - name: page
    *         in: query
    *         required: true
-   *         description: The page number for pagination
-   *         default: 1
+   *         schema:
+   *           type: array
+   *           items:
+   *             type: integer
+   *           example: [1, 2, 3]
+   *           description: Business unit ids
    *         schema:
    *           type: integer
    *       - name: limit
@@ -1175,20 +1198,22 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const roleId = request.input('roleId')
+      const businessUnitId = request.input('businessUnitId')
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
       const filters = {
         search: search,
         roleId: roleId,
+        businessUnitId: businessUnitId,
         page: page,
         limit: limit,
       } as UserFilterSearchInterface
       const userService = new UserService(i18n)
-      const users = await userService.index(filters)
+      const users = await userService.index(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -1256,24 +1281,6 @@ export default class UserController {
    *                 description: User type email
    *                 required: true
    *                 default: 'institutional'
-   *               userBusinessAccess:
-   *                 description: |
-   *                   Unidades de negocio a las que el usuario tendrá acceso.
-   *                   - **Formato recomendado**: arreglo de IDs numéricos de `business_units` (`[1, 3, 5]`).
-   *                   - **Formato legado (deprecado)**: cadena CSV con slugs o IDs (`"gsti-rh,sae"`).
-   *                     Aceptado solo por compatibilidad; genera una advertencia en logs.
-   *                   Las asociaciones se persisten en la tabla pivote `business_unit_users`.
-   *                   La columna legada `users.user_business_access` permanece en `NULL`.
-   *                 oneOf:
-   *                   - type: array
-   *                     items:
-   *                       type: integer
-   *                       minimum: 1
-   *                     example: [1, 3, 5]
-   *                   - type: string
-   *                     deprecated: true
-   *                     example: "gsti-rh,sae"
-   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1355,7 +1362,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const userEmail = request.input('userEmail')
       let userPassword = request.input('userPassword')
@@ -1368,14 +1375,13 @@ export default class UserController {
       const personId = request.input('personId')
       const userEmailType = request.input('userEmailType')
 
-      const businessAccessRaw = request.input('userBusinessAccess')
-      const businessAccessInput = parseBusinessUnitAccessInput(businessAccessRaw)
-      if (businessAccessInput.legacyCsv && businessAccessInput.slugs.length > 0) {
-        logger.warn(
-          { userEmail, legacyCsv: businessAccessInput.legacyCsv },
-          'POST /api/users recibió userBusinessAccess en formato CSV de slugs (formato deprecado). Migrar el cliente para enviar un arreglo de IDs.'
-        )
-      }
+      const businessUnits = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+        .select('business_unit_id')
+      
+      const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
 
       const user = {
         userEmail: userEmail,
@@ -1383,7 +1389,6 @@ export default class UserController {
         userActive: userActive,
         roleId: roleId,
         personId: personId,
-        userBusinessAccess: null,
         userEmailType: userEmailType,
       } as User
       const userService = new UserService(i18n)
@@ -1398,7 +1403,6 @@ export default class UserController {
           data: { ...data },
         }
       }
-      const businessUnitIds = await resolveBusinessUnitIds(businessAccessInput)
       const newUser = await userService.create(user, businessUnitIds)
       if (newUser) {
         if (newUser.userEmailType === 'personal') {
@@ -2279,7 +2283,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async getEmployeesAssigned({ auth, request, response, i18n }: HttpContext) {
+  async getEmployeesAssigned({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -2325,7 +2329,7 @@ export default class UserController {
         employeeId: employeeId,
         userResponsibleId: userResponsibleId,
       } as EmployeeAssignedFilterSearchInterface
-      const employeesAssigned = await userService.getEmployeesAssigned(filters)
+      const employeesAssigned = await userService.getEmployeesAssigned(filters, businessUnitScope)
 
       response.status(200)
       return {

@@ -4,6 +4,7 @@ import type { HasMany } from '@adonisjs/lucid/types/relations'
 import EmployeeBranchOffice from './employee_branch_office.js'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import BusinessUnit from './business_unit.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 
@@ -49,7 +50,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *           format: date-time
  *           nullable: true
  */
-export default class BranchOffice extends compose(BaseModel, SoftDeletes) {
+export default class BranchOffice extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare branchOfficeId: number
 
