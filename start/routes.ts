@@ -121,6 +121,8 @@ import './routes/employee_annotation_routes.js'
 import './routes/face_routes.js'
 import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
+import '#modules/working-time-rules/overrides/overrides.routes'
+import '#modules/working-time-rules/effective/effective.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')
@@ -158,6 +160,8 @@ import './routes/employee_lactation_periods_routes.js'
 import './routes/repse_registration_routes.js'
 import './routes/repse_specialized_service_routes.js'
 import './routes/empresas_contratantes_routes.js'
+import './routes/contratos_servicios_especializados_routes.js'
+import './routes/documentos_contrato_especializado_routes.js'
 import './routes/employee_certification_upload_routes.js'
 import './routes/employee_certification_expiration_routes.js'
 import './routes/competency_descriptor_routes.js'

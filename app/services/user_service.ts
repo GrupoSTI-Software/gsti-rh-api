@@ -46,16 +46,27 @@ export default class UserService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async index(filters: UserFilterSearchInterface) {
-    const systemBussines = env.get('SYSTEM_BUSINESS')
-    const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
+  async index(filters: UserFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
+
+    // Convertir IDs a slugs para filtrar roles (role_business_access usa CSV de slugs)
+    let allowedSlugs: string[] = []
+    if (allowedBusinessUnitIds.length > 0) {
+      const buUnits = await BusinessUnit.query()
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+        .where('business_unit_active', 1)
+      allowedSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+    }
 
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        if (allowedSlugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
         query.whereNotNull('role_business_access')
         query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
+          allowedSlugs.forEach((business) => {
             subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
           })
         })
@@ -72,15 +83,11 @@ export default class UserService {
     ]
     const users = await User.query()
       .whereNull('user_deleted_at')
-      .whereIn('role_id', rolesIds)
-      .andWhere((query) => {
-        query.whereNotNull('user_business_access')
-        query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, user_business_access)', [business.trim()])
-          })
+        // Filtro adicional opcional del frontend para una BU específica
+      .whereHas('businessUnits', (subQuery) => {
+          subQuery.where('business_units.business_unit_id', filters.businessUnitId)
         })
-      })
+      .whereIn('role_id', rolesIds)
       .if(filters.search, (query) => {
         query.andWhere((searchQuery) => {
           searchQuery
@@ -112,10 +119,6 @@ export default class UserService {
    * Crea un usuario y, opcionalmente, lo asocia a las unidades de negocio indicadas
    * a través de la tabla pivote `business_unit_users`.
    *
-   * La columna legada `users.user_business_access` se conserva nullable y no se
-   * escribe desde este flujo (queda como `NULL` para usuarios nuevos). La fuente
-   * de verdad para el acceso multi-tenant es la pivote.
-   *
    * @param user Datos base del usuario a crear.
    * @param businessUnitIds IDs de unidades de negocio ya validados (deben existir y estar activos).
    */
@@ -126,7 +129,6 @@ export default class UserService {
     newUser.userActive = user.userActive
     newUser.roleId = user.roleId
     newUser.personId = user.personId
-    newUser.userBusinessAccess = null
     newUser.userEmailType = user.userEmailType
     await newUser.save()
 
@@ -241,7 +243,7 @@ export default class UserService {
     }
   }
 
-  async getRoleDepartments(userId: number, hasAccessToFullEmployes: boolean = false) {
+  async getRoleDepartments(userId: number, hasAccessToFullEmployes: boolean = false, allowedBusinessUnitIds: number[] = []) {
     const user = await User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)
@@ -260,13 +262,15 @@ export default class UserService {
       const departments = departmentsList.map((department) => department.departmentId)
       return departments
     }
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    let businessUnitsList: number[]
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsList = allowedBusinessUnitIds
+    } else {
+      const allBus = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+      businessUnitsList = allBus.map((bu) => bu.businessUnitId)
+    }
 
     // Obtener departamentos asignados directamente al rol del usuario
     const roleDepartments = await RoleDepartment.query()
@@ -419,14 +423,7 @@ export default class UserService {
     return true
   }
 
-  async getEmployeesAssigned(filters: EmployeeAssignedFilterSearchInterface) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async getEmployeesAssigned(filters: EmployeeAssignedFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
     const employeesAssigned = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
       .where('user_id', filters.userId)
@@ -440,7 +437,11 @@ export default class UserService {
         }
       )
       .whereHas('employee', (employeeQuery) => {
-        employeeQuery.whereIn('businessUnitId', businessUnitsList)
+        if (allowedBusinessUnitIds.length === 0) {
+          employeeQuery.whereRaw('1 = 0')
+        } else {
+          employeeQuery.whereIn('businessUnitId', allowedBusinessUnitIds)
+        }
         employeeQuery.if(
           filters.userResponsibleId &&
             typeof filters.userResponsibleId &&
@@ -541,15 +542,12 @@ export default class UserService {
       const defaultPassword = 'GrupoSTI'
 
       // Crear usuario y asociarlo a todas las unidades de negocio activas vía pivote.
-      // El CSV legado `user_business_access` queda en NULL; los usuarios demo deben
-      // tener visibilidad total para que las pruebas funcionen sin importar SYSTEM_BUSINESS.
       const user = new User()
       user.userEmail = userEmail
       user.userPassword = defaultPassword
       user.userActive = 1
       user.roleId = roleId
       user.personId = person.personId
-      user.userBusinessAccess = null
       await user.save()
 
       const activeBusinessUnits = await BusinessUnit.query()
@@ -756,14 +754,11 @@ export default class UserService {
         }
       }
 
-      // `employee.businessUnitId` sigue siendo una FK directa de la tabla `employees`
-      // (no es parte de la pivote refactorizada). Conservamos el filtro por SYSTEM_BUSINESS
-      // hasta que se aborde la deuda técnica multi-tenant en una historia separada.
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      // `employee.businessUnitId` sigue siendo una FK directa de la tabla `employees`.
+      // Se obtiene la primera unidad de negocio activa disponible para el usuario demo root.
       const businessUnit = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereNull('business_unit_deleted_at')
         .first()
 
       const businessUnitId = businessUnit?.businessUnitId || 0
@@ -840,7 +835,6 @@ export default class UserService {
         user.userActive = 1
         user.roleId = rootRole.roleId
         user.personId = person.personId
-        user.userBusinessAccess = null
         await user.save()
 
         if (activeBusinessUnitIds.length > 0) {
