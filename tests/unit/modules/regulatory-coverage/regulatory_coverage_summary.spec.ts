@@ -86,6 +86,9 @@ function makeFullMockRepo(options: {
         }
       )
     },
+    async getRegulationDetail() {
+      return null
+    },
   }
 
   return {
@@ -641,6 +644,9 @@ test.group(`${FEATURE} — controller: GET /api/v1/regulatory-coverage/summary`,
       },
       async getCoverageSummary() {
         throw new Error('fallo de base de datos')
+      },
+      async getRegulationDetail() {
+        return null
       },
     }
     const service = new RegulatoryCoverageService(repo)
