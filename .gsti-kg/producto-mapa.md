@@ -1,23 +1,23 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-06-05T16:11:15+00:00"
-kg_head_sha: "11cf7d1fd297a842c31dbed9738b80d75a5159ef"
+kg_built_at: "2026-06-09T18:28:59+00:00"
+kg_head_sha: "6e2b754a6289838539df4ae967d7dfd1f5840db2"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
-producto: "valanserh"
+producto: "Valanserh"
 prefijo_asana: "USRH"
 default_branch: "develop"
 counts:
-  entidades_db: 158
-  endpoints: 753
-  controllers: 146
-  services: 147
-  validators: 111
-  middlewares: 6
-  seeders: 30
-  tablas_migradas: 172
-  i18n_keys: 1093
+  entidades_db: 163
+  endpoints: 774
+  controllers: 150
+  services: 153
+  validators: 112
+  middlewares: 7
+  seeders: 31
+  tablas_migradas: 178
+  i18n_keys: 1325
 ---
 
 # Knowledge Graph — valanserh-api
@@ -34,7 +34,7 @@ counts:
 - **i18n del backend**: resources/langs/{es,en}.json
 - **Stack**: AdonisJS 6, Lucid ORM (MySQL), soft deletes via adonis-lucid-soft-deletes
 
-## Entidades de BD (158)
+## Entidades de BD (163)
 
 ### `AccessPoint`
 
@@ -390,6 +390,20 @@ counts:
   - `certificationCategoryDisplayOrder`: number
   - `certificationCategoryIsActive`: number
 
+### `Clausula15d`
+
+- **Archivo**: `app/models/clausula_15d.ts`
+- **PK**: `clausula15dId`
+- **Columnas**:
+  - `clausula15dId`: number (PK)
+  - `contratoServicioEspecializadoId`: number
+  - `folioRepse`: string
+  - `objetoDetallado`: string
+  - `numeroTrabajadoresAprox`: number
+  - `compromisosDocumentales`: CompromisoDocumental[]
+  - `responsabilidadSolidariaAceptada`: boolean
+  - `textoResponsabilidadSolidaria`: string
+
 ### `Competency`
 
 - **Archivo**: `app/models/competency.ts`
@@ -423,6 +437,21 @@ counts:
   - `competencyId`: number
   - `businessUnitCompetencyLevelId`: number
   - `competencyDescriptorDescription`: string
+
+### `ContratoServicioEspecializado`
+
+- **Archivo**: `app/models/contrato_servicio_especializado.ts`
+- **PK**: `contratoServicioEspecializadoId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `contratoServicioEspecializadoId`: number (PK)
+  - `businessUnitId`: number
+  - `empresaContratanteId`: number
+  - `numeroContrato`: string
+  - `objetoServicio`: string
+  - `montoTotal`: number | null
+  - `moneda`: string
+  - `estatus`: ContratoServicioEspecializadoEstatus
 
 ### `Customer`
 
@@ -474,6 +503,23 @@ counts:
   - `departmentId`: number
   - `positionId`: number
   - `departmentPositionLastSynchronizationAt`: Date
+
+### `DocumentoContratoEspecializado`
+
+- **Archivo**: `app/models/documento_contrato_especializado.ts`
+- **PK**: `documentoContratoEspecializadoId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `documentoContratoEspecializadoId`: number (PK)
+  - `contratoServicioEspecializadoId`: number
+  - `businessUnitId`: number
+  - `origen`: DocumentoContratoEspecializadoOrigen
+  - `vigente`: boolean
+  - `nombreArchivo`: string
+  - `storageKey`: string
+  - `mimeType`: string
+  - `tamanoBytes`: number
+  - `subidoPor`: number | null
 
 ### `Employee`
 
@@ -794,6 +840,18 @@ counts:
   - `employeeLactationPeriodType`: EmployeeLactationPeriodType
   - `employeeLactationPeriodReductionApplication`: EmployeeLactationPeriodReductionApplication
   - `employeeLactationPeriodNotes`: string | null
+
+### `EmployeeLactationPeriodEvidence`
+
+- **Archivo**: `app/models/employee_lactation_period_evidence.ts`
+- **PK**: `employeeLactationPeriodEvidenceId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `employeeLactationPeriodEvidenceId`: number (PK)
+  - `employeeLactationPeriodId`: number
+  - `employeeLactationPeriodEvidenceFile`: string
+  - `employeeLactationPeriodEvidenceOriginalName`: string | null
+  - `employeeLactationPeriodEvidenceCategory`: EmployeeLactationPeriodEvidenceCategory
 
 ### `EmployeeMedicalCondition`
 
@@ -1973,6 +2031,22 @@ counts:
 - **Columnas**:
   - `vacationSettingId`: number (PK)
 
+### `VersionContratoEspecializado`
+
+- **Archivo**: `app/models/version_contrato_especializado.ts`
+- **PK**: `versionContratoEspecializadoId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `versionContratoEspecializadoId`: number (PK)
+  - `contratoServicioEspecializadoId`: number
+  - `businessUnitId`: number
+  - `numero`: number
+  - `tipoCambio`: VersionContratoEspecializadoTipoCambio
+  - `motivo`: string
+  - `anexo15dSnapshot`: Anexo15dSnapshot
+  - `documentoVigenteId`: number | null
+  - `creadoPor`: number | null
+
 ### `Weight`
 
 - **Archivo**: `app/models/weight.ts`
@@ -2060,6 +2134,10 @@ counts:
   - `workingTimeRuleDailyHoursMixed`: number
   - `workingTimeRuleWorkDaysPerRestDay`: number
   - `workingTimeRuleSalaryProtection`: boolean
+  - `businessUnitId`: number | null
+  - `workingTimeRuleExceedsFederal`: boolean
+  - `workingTimeRuleOverrideJustification`: string | null
+  - `overrideCreatedByUserId`: number | null
 
 ### `Zone`
 
@@ -2073,7 +2151,7 @@ counts:
   - `zoneAddress`: string
   - `zonePolygon`: string
 
-## Endpoints REST (753)
+## Endpoints REST (774)
 
 ### `/api/access-points` (middleware: auth)
 
@@ -2247,7 +2325,7 @@ counts:
 | PUT | `/api/business-unit-competency-levels/:businessUnitCompetencyLevelId` | `#controllers/business_unit_competency_level_controller.update` | `start/routes/business_unit_competency_level_routes.ts` |
 | DELETE | `/api/business-unit-competency-levels/:businessUnitCompetencyLevelId` | `#controllers/business_unit_competency_level_controller.delete` | `start/routes/business_unit_competency_level_routes.ts` |
 
-### `/api/business-units` (middleware: auth, businessScope)
+### `/api/business-units` (middleware: auth, businessScopeOptional)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2324,6 +2402,23 @@ counts:
 | PUT | `/api/competency-descriptors/:competencyDescriptorId` | `#controllers/competency_descriptor_controller.update` | `start/routes/competency_descriptor_routes.ts` |
 | DELETE | `/api/competency-descriptors/:competencyDescriptorId` | `#controllers/competency_descriptor_controller.delete` | `start/routes/competency_descriptor_routes.ts` |
 | GET | `/api/competency-descriptors/by-competency/:competencyId` | `#controllers/competency_descriptor_controller.getByCompetencyId` | `start/routes/competency_descriptor_routes.ts` |
+
+### `/api/contratos-servicios-especializados` (middleware: auth)
+
+| Método | Path | Handler | Archivo |
+|---|---|---|---|
+| GET | `/api/contratos-servicios-especializados` | `#controllers/contratos_servicios_especializados_controller.index` | `start/routes/contratos_servicios_especializados_routes.ts` |
+| GET | `/api/contratos-servicios-especializados/:id` | `#controllers/contratos_servicios_especializados_controller.show` | `start/routes/contratos_servicios_especializados_routes.ts` |
+| POST | `/api/contratos-servicios-especializados` | `#controllers/contratos_servicios_especializados_controller.store` | `start/routes/contratos_servicios_especializados_routes.ts` |
+| PATCH | `/api/contratos-servicios-especializados/:id` | `#controllers/contratos_servicios_especializados_controller.update` | `start/routes/contratos_servicios_especializados_routes.ts` |
+| DELETE | `/api/contratos-servicios-especializados/:id` | `#controllers/contratos_servicios_especializados_controller.destroy` | `start/routes/contratos_servicios_especializados_routes.ts` |
+| GET | `/api/contratos-servicios-especializados/:contratoId/documentos/vigente/descarga` | `#controllers/documentos_contrato_especializado_controller.downloadVigente` | `start/routes/documentos_contrato_especializado_routes.ts` |
+| PUT | `/api/contratos-servicios-especializados/:contratoId/documentos/vigente` | `#controllers/documentos_contrato_especializado_controller.replaceVigente` | `start/routes/documentos_contrato_especializado_routes.ts` |
+| GET | `/api/contratos-servicios-especializados/:contratoId/documentos` | `#controllers/documentos_contrato_especializado_controller.index` | `start/routes/documentos_contrato_especializado_routes.ts` |
+| POST | `/api/contratos-servicios-especializados/:contratoId/documentos` | `#controllers/documentos_contrato_especializado_controller.store` | `start/routes/documentos_contrato_especializado_routes.ts` |
+| POST | `/api/contratos-servicios-especializados/:contratoId/renovaciones` | `#controllers/version_contrato_especializado_controller.renew` | `start/routes/versiones_contrato_especializado_routes.ts` |
+| GET | `/api/contratos-servicios-especializados/:contratoId/versiones` | `#controllers/version_contrato_especializado_controller.index` | `start/routes/versiones_contrato_especializado_routes.ts` |
+| GET | `/api/contratos-servicios-especializados/:contratoId/versiones/:numeroVersion` | `#controllers/version_contrato_especializado_controller.show` | `start/routes/versiones_contrato_especializado_routes.ts` |
 
 ### `/api/customers` (middleware: auth)
 
@@ -2461,7 +2556,7 @@ counts:
 |---|---|---|---|
 | GET | `/api/employee-contract-types` | `#controllers/employee_contract_type_controller.index` | `start/routes/employee_contract_type_routes.ts` |
 
-### `/api/employee-contracts` (middleware: auth)
+### `/api/employee-contracts` (middleware: businessScopeOptional, auth)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2469,6 +2564,7 @@ counts:
 | PUT | `/api/employee-contracts/:employeeContractId` | `#controllers/employee_contract_controller.update` | `start/routes/employee_contract_routes.ts` |
 | DELETE | `/api/employee-contracts/:employeeContractId` | `#controllers/employee_contract_controller.delete` | `start/routes/employee_contract_routes.ts` |
 | GET | `/api/employee-contracts/:employeeContractId` | `#controllers/employee_contract_controller.show` | `start/routes/employee_contract_routes.ts` |
+| GET | `/api/employee-contracts/:employeeContractId/download` | `#controllers/employee_contract_controller.download` | `start/routes/employee_contract_routes.ts` |
 
 ### `/api/employee-devices` (middleware: auth)
 
@@ -2517,9 +2613,15 @@ counts:
 |---|---|---|---|
 | GET | `/api/employee-lactation-periods` | `#controllers/employee_lactation_periods_controller.index` | `start/routes/employee_lactation_periods_routes.ts` |
 | POST | `/api/employee-lactation-periods` | `#controllers/employee_lactation_periods_controller.store` | `start/routes/employee_lactation_periods_routes.ts` |
+| GET | `/api/employee-lactation-periods/compliance-report` | `#controllers/employee_lactation_periods_controller.complianceReport` | `start/routes/employee_lactation_periods_routes.ts` |
+| GET | `/api/employee-lactation-periods/compliance-report/export` | `#controllers/employee_lactation_periods_controller.complianceReportExport` | `start/routes/employee_lactation_periods_routes.ts` |
 | PUT | `/api/employee-lactation-periods/:id` | `#controllers/employee_lactation_periods_controller.update` | `start/routes/employee_lactation_periods_routes.ts` |
 | DELETE | `/api/employee-lactation-periods/:id` | `#controllers/employee_lactation_periods_controller.destroy` | `start/routes/employee_lactation_periods_routes.ts` |
 | POST | `/api/employee-lactation-periods/:id/regenerate-shift-exceptions` | `#controllers/employee_lactation_periods_controller.regenerateShiftExceptions` | `start/routes/employee_lactation_periods_routes.ts` |
+| GET | `/api/employee-lactation-periods/:periodId/evidences` | `#controllers/employee_lactation_period_evidences_controller.index` | `start/routes/employee_lactation_periods_routes.ts` |
+| POST | `/api/employee-lactation-periods/:periodId/evidences` | `#controllers/employee_lactation_period_evidences_controller.store` | `start/routes/employee_lactation_periods_routes.ts` |
+| GET | `/api/employee-lactation-periods/:periodId/evidences/:evidenceId/download-url` | `#controllers/employee_lactation_period_evidences_controller.downloadUrl` | `start/routes/employee_lactation_periods_routes.ts` |
+| DELETE | `/api/employee-lactation-periods/:periodId/evidences/:evidenceId` | `#controllers/employee_lactation_period_evidences_controller.destroy` | `start/routes/employee_lactation_periods_routes.ts` |
 
 ### `/api/employee-medical-conditions` (middleware: ninguno)
 
@@ -2726,7 +2828,7 @@ counts:
 | GET | `/api/employees/odoo/employees/groups` | `#controllers/employee_controller.getOdooGroups` | `start/routes/employee_routes.ts` |
 | GET | `/api/employees/odoo/employees/create` | `#controllers/employee_controller.createNewOdooEmployee` | `start/routes/employee_routes.ts` |
 
-### `/api/employees-proceeding-files` (middleware: auth)
+### `/api/employees-proceeding-files` (middleware: businessScopeOptional, auth)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -2736,6 +2838,7 @@ counts:
 | PUT | `/api/employees-proceeding-files/:employeeProceedingFileId` | `#controllers/employee_proceeding_file_controller.update` | `start/routes/employee_proceeding_file_routes.ts` |
 | DELETE | `/api/employees-proceeding-files/:employeeProceedingFileId` | `#controllers/employee_proceeding_file_controller.delete` | `start/routes/employee_proceeding_file_routes.ts` |
 | GET | `/api/employees-proceeding-files/:employeeProceedingFileId` | `#controllers/employee_proceeding_file_controller.show` | `start/routes/employee_proceeding_file_routes.ts` |
+| GET | `/api/employees-proceeding-files/:employeeProceedingFileId/download` | `#controllers/employee_proceeding_file_controller.download` | `start/routes/employee_proceeding_file_routes.ts` |
 
 ### `/api/employees-vacations` (middleware: auth, businessScope)
 
@@ -2923,7 +3026,7 @@ counts:
 | POST | `/api/notices/:noticeId/send` | `#controllers/notice_controller.send` | `start/routes/notice_routes.ts` |
 | POST | `/api/notices/:noticeId/mark-as-read` | `#controllers/notice_controller.markAsRead` | `start/routes/notice_routes.ts` |
 
-### `/api/persons` (middleware: auth, auth, auth)
+### `/api/persons` (middleware: auth, auth, businessScope, auth)
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
@@ -3440,6 +3543,7 @@ counts:
 | GET | `/api/v1/attendance-stats/by-employee` | `#modules/attendance-stats/attendance-stats.controller.byEmployee` | `start/routes/attendance_stats_routes.ts` |
 | GET | `/api/v1/employee-assist-calendars` | `#controllers/employee_assist_calendar_controller.index` | `start/routes/employee_assist_calendar_routes.ts` |
 | GET | `/api/v1/regulatory-coverage` | `#modules/regulatory-coverage/regulatory_coverage.controller.index` | `start/routes/regulatory_coverage_routes.ts` |
+| GET | `/api/v1/regulatory-coverage/summary` | `#modules/regulatory-coverage/regulatory_coverage.controller.summary` | `start/routes/regulatory_coverage_routes.ts` |
 
 ### `/api/vacation-authorizations` (middleware: auth)
 
@@ -3528,7 +3632,7 @@ counts:
 | DELETE | `/api/zones/:zoneId` | `#controllers/zone_controller.delete` | `start/routes/zone_routes.ts` |
 | PUT | `/api/zones/:zoneId/thumbnail` | `#controllers/zone_controller.uploadThumbnail` | `start/routes/zone_routes.ts` |
 
-## Controllers (146)
+## Controllers (150)
 
 - `app/controllers/access_point_controller.ts`
 - `app/controllers/address_controller.ts`
@@ -3556,10 +3660,12 @@ counts:
 - `app/controllers/competency_bracket_controller.ts`
 - `app/controllers/competency_controller.ts`
 - `app/controllers/competency_descriptor_controller.ts`
+- `app/controllers/contratos_servicios_especializados_controller.ts`
 - `app/controllers/customer_controller.ts`
 - `app/controllers/customer_proceeding_file_controller.ts`
 - `app/controllers/department_controller.ts`
 - `app/controllers/department_position_controller.ts`
+- `app/controllers/documentos_contrato_especializado_controller.ts`
 - `app/controllers/employee_address_controller.ts`
 - `app/controllers/employee_annotation_controller.ts`
 - `app/controllers/employee_assessment_controller.ts`
@@ -3582,6 +3688,7 @@ counts:
 - `app/controllers/employee_emergency_contact_controller.ts`
 - `app/controllers/employee_evaluation_controller.ts`
 - `app/controllers/employee_kpi_evaluation_controller.ts`
+- `app/controllers/employee_lactation_period_evidences_controller.ts`
 - `app/controllers/employee_lactation_periods_controller.ts`
 - `app/controllers/employee_medical_condition_controller.ts`
 - `app/controllers/employee_medical_conditions_controller.ts`
@@ -3669,6 +3776,7 @@ counts:
 - `app/controllers/user_responsible_employee_controller.ts`
 - `app/controllers/vacation_authorization_signatures_controller.ts`
 - `app/controllers/vacation_settings_controller.ts`
+- `app/controllers/version_contrato_especializado_controller.ts`
 - `app/controllers/weight_controller.ts`
 - `app/controllers/work_disability_controller.ts`
 - `app/controllers/work_disability_note_controller.ts`
@@ -3677,7 +3785,7 @@ counts:
 - `app/controllers/work_disability_type_controller.ts`
 - `app/controllers/zone_controller.ts`
 
-## Services (147)
+## Services (153)
 
 - `app/services/access_point_service.ts`
 - `app/services/address_service.ts`
@@ -3706,10 +3814,12 @@ counts:
 - `app/services/competency_bracket_service.ts`
 - `app/services/competency_descriptor_service.ts`
 - `app/services/competency_service.ts`
+- `app/services/contrato_servicio_especializado_service.ts`
 - `app/services/customer_proceeding_file_service.ts`
 - `app/services/customer_service.ts`
 - `app/services/department_position_service.ts`
 - `app/services/department_service.ts`
+- `app/services/documento_contrato_especializado_service.ts`
 - `app/services/employee_address_service.ts`
 - `app/services/employee_annotation_service.ts`
 - `app/services/employee_assessment_result_service.ts`
@@ -3731,6 +3841,8 @@ counts:
 - `app/services/employee_emergency_contact_service.ts`
 - `app/services/employee_evaluation_service.ts`
 - `app/services/employee_kpi_evaluation_service.ts`
+- `app/services/employee_lactation_compliance_report_service.ts`
+- `app/services/employee_lactation_period_evidence_service.ts`
 - `app/services/employee_lactation_period_service.ts`
 - `app/services/employee_medical_condition_service.ts`
 - `app/services/employee_proceeding_file_service.ts`
@@ -3818,16 +3930,18 @@ counts:
 - `app/services/user_responsible_employee_service.ts`
 - `app/services/user_service.ts`
 - `app/services/vacation_authorization_signatures_service.ts`
+- `app/services/version_contrato_especializado_service.ts`
 - `app/services/weight_service.ts`
 - `app/services/work_disability_note_service.ts`
 - `app/services/work_disability_period_expense_service.ts`
 - `app/services/work_disability_period_service.ts`
 - `app/services/work_disability_service.ts`
 - `app/services/work_disability_type_service.ts`
+- `app/services/working_time_rule_cache_service.ts`
 - `app/services/ws.ts`
 - `app/services/zone_service.ts`
 
-## Validators (111)
+## Validators (112)
 
 - `app/validators/access_point.ts`
 - `app/validators/address.ts`
@@ -3869,6 +3983,7 @@ counts:
 - `app/validators/employee_evaluation.ts`
 - `app/validators/employee_kpi_evaluation.ts`
 - `app/validators/employee_lactation_period.ts`
+- `app/validators/employee_lactation_period_evidence.ts`
 - `app/validators/employee_medical_condition.ts`
 - `app/validators/employee_proceeding_file.ts`
 - `app/validators/employee_record.ts`
@@ -3941,16 +4056,17 @@ counts:
 - `app/validators/work_disability_period_expense.ts`
 - `app/validators/zone.ts`
 
-## Middlewares (6)
+## Middlewares (7)
 
 - `app/middleware/auth_middleware.ts`
 - `app/middleware/basic_auth_middleware.ts`
 - `app/middleware/business_unit_scope_middleware.ts`
+- `app/middleware/business_unit_scope_optional_middleware.ts`
 - `app/middleware/container_bindings_middleware.ts`
 - `app/middleware/detect_user_locale_middleware.ts`
 - `app/middleware/force_json_response_middleware.ts`
 
-## Seeders (30)
+## Seeders (31)
 
 - `database/seeders/0001_business_unit_seeder.ts`
 - `database/seeders/0002_bank_seeder.ts`
@@ -3982,8 +4098,9 @@ counts:
 - `database/seeders/0028_working_time_rule_seeder.ts`
 - `database/seeders/0032_system_feature_seeder.ts`
 - `database/seeders/0033_regulation_clause_feature_baseline_seeder.ts`
+- `database/seeders/0034_working_time_overrides_module_seeder.ts`
 
-## Tablas migradas (172)
+## Tablas migradas (178)
 
 - `access_point_employees`
 - `access_points`
@@ -4015,15 +4132,19 @@ counts:
 - `career_path_templates`
 - `certification_categories`
 - `certifications`
+- `clausulas_15d`
 - `competencies`
 - `competency_brackets`
 - `competency_descriptors`
 - `competency_level_descriptions`
 - `competency_levels`
+- `contrato_servicio_repse`
+- `contratos_servicios_especializados`
 - `customer_proceeding_files`
 - `customers`
 - `department_position`
 - `departments`
+- `documentos_contrato_especializado`
 - `employee_address`
 - `employee_annotations`
 - `employee_assist_calendars`
@@ -4041,6 +4162,7 @@ counts:
 - `employee_emergency_contacts`
 - `employee_evaluations`
 - `employee_kpi_evaluations`
+- `employee_lactation_period_evidences`
 - `employee_lactation_periods`
 - `employee_medical_conditions`
 - `employee_proceeding_files`
@@ -4149,6 +4271,7 @@ counts:
 - `vacation_authorization_signatures`
 - `vacation_deductions`
 - `vacation_settings`
+- `versiones_contrato_especializado`
 - `weights`
 - `work_disabilities`
 - `work_disability_notes`
@@ -4160,7 +4283,7 @@ counts:
 
 ## i18n keys (top-level)
 
-### Idioma `en` (545 claves totales)
+### Idioma `en` (661 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -4246,6 +4369,8 @@ counts:
 - `repse_specialized_service_parent_not_found_message.*` (1 claves)
 - `repse_specialized_service_name_duplicate_title.*` (1 claves)
 - `repse_specialized_service_name_duplicate_message.*` (1 claves)
+- `repse_specialized_service_linked_contratos_title.*` (1 claves)
+- `repse_specialized_service_linked_contratos_message.*` (1 claves)
 - `repse_specialized_service_unexpected_error_message.*` (1 claves)
 - `empresas_contratantes_title.*` (1 claves)
 - `empresa_contratante_title.*` (1 claves)
@@ -4270,6 +4395,62 @@ counts:
 - `empresa_contratante_forbidden_title.*` (1 claves)
 - `empresa_contratante_forbidden_message.*` (1 claves)
 - `empresa_contratante_unexpected_error_message.*` (1 claves)
+- `empresa_contratante_contratos_activos_title.*` (1 claves)
+- `empresa_contratante_contratos_activos_message.*` (1 claves)
+- `contratos_servicios_especializados_title.*` (1 claves)
+- `contrato_servicio_especializado_title.*` (1 claves)
+- `contratos_servicios_especializados_listed_successfully.*` (1 claves)
+- `contrato_servicio_especializado_found_successfully.*` (1 claves)
+- `contrato_servicio_especializado_created_successfully.*` (1 claves)
+- `contrato_servicio_especializado_updated_successfully.*` (1 claves)
+- `contrato_servicio_especializado_error_default_title.*` (1 claves)
+- `contrato_servicio_especializado_unauthorized_title.*` (1 claves)
+- `contrato_servicio_especializado_unauthorized_message.*` (1 claves)
+- `contrato_servicio_especializado_val_input_title.*` (1 claves)
+- `contrato_servicio_especializado_val_input_message.*` (1 claves)
+- `contrato_servicio_especializado_val_fechas_title.*` (1 claves)
+- `contrato_servicio_especializado_val_fechas_message.*` (1 claves)
+- `contrato_servicio_especializado_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_contratante_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_contratante_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_repse_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_repse_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_numero_duplicate_title.*` (1 claves)
+- `contrato_servicio_especializado_numero_duplicate_message.*` (1 claves)
+- `contrato_servicio_especializado_servicios_registrados_requeridos_title.*` (1 claves)
+- `contrato_servicio_especializado_servicios_registrados_requeridos_message.*` (1 claves)
+- `contrato_servicio_especializado_servicio_registrado_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_servicio_registrado_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_forbidden_title.*` (1 claves)
+- `contrato_servicio_especializado_forbidden_message.*` (1 claves)
+- `contrato_servicio_especializado_unexpected_error_message.*` (1 claves)
+- `version_contrato_especializado_title.*` (1 claves)
+- `version_contrato_especializado_renewed_successfully.*` (1 claves)
+- `version_contrato_especializado_list_successfully.*` (1 claves)
+- `version_contrato_especializado_found_successfully.*` (1 claves)
+- `version_contrato_especializado_error_default_title.*` (1 claves)
+- `version_contrato_especializado_unauthorized_title.*` (1 claves)
+- `version_contrato_especializado_unauthorized_message.*` (1 claves)
+- `version_contrato_especializado_val_input_title.*` (1 claves)
+- `version_contrato_especializado_val_input_message.*` (1 claves)
+- `version_contrato_especializado_val_vigencia_title.*` (1 claves)
+- `version_contrato_especializado_val_vigencia_message.*` (1 claves)
+- `version_contrato_especializado_contrato_not_found_title.*` (1 claves)
+- `version_contrato_especializado_contrato_not_found_message.*` (1 claves)
+- `version_contrato_especializado_version_not_found_title.*` (1 claves)
+- `version_contrato_especializado_version_not_found_message.*` (1 claves)
+- `version_contrato_especializado_not_renewable_title.*` (1 claves)
+- `version_contrato_especializado_not_renewable_message.*` (1 claves)
+- `version_contrato_especializado_snapshot_incomplete_title.*` (1 claves)
+- `version_contrato_especializado_snapshot_incomplete_message.*` (1 claves)
+- `version_contrato_especializado_immutable_title.*` (1 claves)
+- `version_contrato_especializado_immutable_message.*` (1 claves)
+- `version_contrato_especializado_forbidden_read_title.*` (1 claves)
+- `version_contrato_especializado_forbidden_read_message.*` (1 claves)
+- `version_contrato_especializado_forbidden_write_title.*` (1 claves)
+- `version_contrato_especializado_forbidden_write_message.*` (1 claves)
+- `version_contrato_especializado_unexpected_error_message.*` (1 claves)
 - `address.*` (1 claves)
 - `the_address.*` (1 claves)
 - `address_type.*` (1 claves)
@@ -4623,6 +4804,64 @@ counts:
 - `employee_lactation_period_no_active_shift_title.*` (1 claves)
 - `employee_lactation_period_no_active_shift_detail.*` (1 claves)
 - `employee_lactation_period_shift_exceptions_regenerated.*` (1 claves)
+- `employee_lactation_period_evidence.*` (1 claves)
+- `employee_lactation_period_evidences.*` (1 claves)
+- `employee_lactation_period_evidence_uploaded.*` (1 claves)
+- `employee_lactation_period_evidence_deleted.*` (1 claves)
+- `employee_lactation_period_evidence_list_empty.*` (1 claves)
+- `employee_lactation_period_evidence_file_required_title.*` (1 claves)
+- `employee_lactation_period_evidence_file_required_detail.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_file_type_title.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_file_type_detail.*` (1 claves)
+- `employee_lactation_period_evidence_file_too_large_title.*` (1 claves)
+- `employee_lactation_period_evidence_file_too_large_detail.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_category_title.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_category_detail.*` (1 claves)
+- `employee_lactation_period_evidence_not_found_title.*` (1 claves)
+- `employee_lactation_period_evidence_not_found_detail.*` (1 claves)
+- `employee_lactation_period_evidence_upload_failed_title.*` (1 claves)
+- `employee_lactation_period_evidence_upload_failed_detail.*` (1 claves)
+- `employee_lactation_period_evidence_download_failed_title.*` (1 claves)
+- `employee_lactation_period_evidence_download_failed_detail.*` (1 claves)
+- `employee_lactation_period_evidence_category_agreement.*` (1 claves)
+- `employee_lactation_period_evidence_category_birth_support.*` (1 claves)
+- `employee_lactation_period_evidence_category_other.*` (1 claves)
+- `employee_lactation_period_type_two_rest_periods.*` (1 claves)
+- `employee_lactation_period_type_reduced_hour.*` (1 claves)
+- `employee_lactation_reduction_application_start.*` (1 claves)
+- `employee_lactation_reduction_application_end.*` (1 claves)
+- `employee_lactation_reduction_application_split.*` (1 claves)
+- `employee_lactation_compliance_report_title.*` (1 claves)
+- `employee_lactation_compliance_report_generated_at.*` (1 claves)
+- `employee_lactation_compliance_report_filters.*` (1 claves)
+- `employee_lactation_compliance_report_range.*` (1 claves)
+- `employee_lactation_compliance_report_status.*` (1 claves)
+- `employee_lactation_compliance_report_employee.*` (1 claves)
+- `employee_lactation_compliance_report_code.*` (1 claves)
+- `employee_lactation_compliance_report_period.*` (1 claves)
+- `employee_lactation_compliance_report_duration.*` (1 claves)
+- `employee_lactation_compliance_report_type.*` (1 claves)
+- `employee_lactation_compliance_report_modality.*` (1 claves)
+- `employee_lactation_compliance_report_applied_days.*` (1 claves)
+- `employee_lactation_compliance_report_evidences.*` (1 claves)
+- `employee_lactation_compliance_report_days.*` (1 claves)
+- `employee_lactation_compliance_report_empty.*` (1 claves)
+- `employee_lactation_compliance_report_empty_title.*` (1 claves)
+- `employee_lactation_compliance_report_subtitle.*` (1 claves)
+- `employee_lactation_compliance_report_summary_table.*` (1 claves)
+- `employee_lactation_compliance_report_detailed_sections.*` (1 claves)
+- `employee_lactation_compliance_report_kpi_total.*` (1 claves)
+- `employee_lactation_compliance_report_table_employee.*` (1 claves)
+- `employee_lactation_compliance_report_table_applied.*` (1 claves)
+- `employee_lactation_compliance_report_table_evid.*` (1 claves)
+- `employee_lactation_compliance_report_no_lower_bound.*` (1 claves)
+- `employee_lactation_compliance_report_no_upper_bound.*` (1 claves)
+- `employee_lactation_compliance_report_legal_basis.*` (1 claves)
+- `employee_lactation_compliance_report_range_invalid_title.*` (1 claves)
+- `employee_lactation_compliance_report_range_invalid_detail.*` (1 claves)
+- `employee_lactation_compliance_status_active.*` (1 claves)
+- `employee_lactation_compliance_status_expiring.*` (1 claves)
+- `employee_lactation_compliance_status_expired.*` (1 claves)
 - `auth.*` (19 claves)
 - `attendance_stats_dates_required.*` (1 claves)
 - `attendance_stats_invalid_range.*` (1 claves)
@@ -4646,7 +4885,7 @@ counts:
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
 
-### Idioma `es` (548 claves totales)
+### Idioma `es` (664 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -4732,6 +4971,8 @@ counts:
 - `repse_specialized_service_parent_not_found_message.*` (1 claves)
 - `repse_specialized_service_name_duplicate_title.*` (1 claves)
 - `repse_specialized_service_name_duplicate_message.*` (1 claves)
+- `repse_specialized_service_linked_contratos_title.*` (1 claves)
+- `repse_specialized_service_linked_contratos_message.*` (1 claves)
 - `repse_specialized_service_unexpected_error_message.*` (1 claves)
 - `empresas_contratantes_title.*` (1 claves)
 - `empresa_contratante_title.*` (1 claves)
@@ -4756,6 +4997,62 @@ counts:
 - `empresa_contratante_forbidden_title.*` (1 claves)
 - `empresa_contratante_forbidden_message.*` (1 claves)
 - `empresa_contratante_unexpected_error_message.*` (1 claves)
+- `empresa_contratante_contratos_activos_title.*` (1 claves)
+- `empresa_contratante_contratos_activos_message.*` (1 claves)
+- `contratos_servicios_especializados_title.*` (1 claves)
+- `contrato_servicio_especializado_title.*` (1 claves)
+- `contratos_servicios_especializados_listed_successfully.*` (1 claves)
+- `contrato_servicio_especializado_found_successfully.*` (1 claves)
+- `contrato_servicio_especializado_created_successfully.*` (1 claves)
+- `contrato_servicio_especializado_updated_successfully.*` (1 claves)
+- `contrato_servicio_especializado_error_default_title.*` (1 claves)
+- `contrato_servicio_especializado_unauthorized_title.*` (1 claves)
+- `contrato_servicio_especializado_unauthorized_message.*` (1 claves)
+- `contrato_servicio_especializado_val_input_title.*` (1 claves)
+- `contrato_servicio_especializado_val_input_message.*` (1 claves)
+- `contrato_servicio_especializado_val_fechas_title.*` (1 claves)
+- `contrato_servicio_especializado_val_fechas_message.*` (1 claves)
+- `contrato_servicio_especializado_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_contratante_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_contratante_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_repse_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_repse_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_numero_duplicate_title.*` (1 claves)
+- `contrato_servicio_especializado_numero_duplicate_message.*` (1 claves)
+- `contrato_servicio_especializado_servicios_registrados_requeridos_title.*` (1 claves)
+- `contrato_servicio_especializado_servicios_registrados_requeridos_message.*` (1 claves)
+- `contrato_servicio_especializado_servicio_registrado_not_found_title.*` (1 claves)
+- `contrato_servicio_especializado_servicio_registrado_not_found_message.*` (1 claves)
+- `contrato_servicio_especializado_forbidden_title.*` (1 claves)
+- `contrato_servicio_especializado_forbidden_message.*` (1 claves)
+- `contrato_servicio_especializado_unexpected_error_message.*` (1 claves)
+- `version_contrato_especializado_title.*` (1 claves)
+- `version_contrato_especializado_renewed_successfully.*` (1 claves)
+- `version_contrato_especializado_list_successfully.*` (1 claves)
+- `version_contrato_especializado_found_successfully.*` (1 claves)
+- `version_contrato_especializado_error_default_title.*` (1 claves)
+- `version_contrato_especializado_unauthorized_title.*` (1 claves)
+- `version_contrato_especializado_unauthorized_message.*` (1 claves)
+- `version_contrato_especializado_val_input_title.*` (1 claves)
+- `version_contrato_especializado_val_input_message.*` (1 claves)
+- `version_contrato_especializado_val_vigencia_title.*` (1 claves)
+- `version_contrato_especializado_val_vigencia_message.*` (1 claves)
+- `version_contrato_especializado_contrato_not_found_title.*` (1 claves)
+- `version_contrato_especializado_contrato_not_found_message.*` (1 claves)
+- `version_contrato_especializado_version_not_found_title.*` (1 claves)
+- `version_contrato_especializado_version_not_found_message.*` (1 claves)
+- `version_contrato_especializado_not_renewable_title.*` (1 claves)
+- `version_contrato_especializado_not_renewable_message.*` (1 claves)
+- `version_contrato_especializado_snapshot_incomplete_title.*` (1 claves)
+- `version_contrato_especializado_snapshot_incomplete_message.*` (1 claves)
+- `version_contrato_especializado_immutable_title.*` (1 claves)
+- `version_contrato_especializado_immutable_message.*` (1 claves)
+- `version_contrato_especializado_forbidden_read_title.*` (1 claves)
+- `version_contrato_especializado_forbidden_read_message.*` (1 claves)
+- `version_contrato_especializado_forbidden_write_title.*` (1 claves)
+- `version_contrato_especializado_forbidden_write_message.*` (1 claves)
+- `version_contrato_especializado_unexpected_error_message.*` (1 claves)
 - `address.*` (1 claves)
 - `the_address.*` (1 claves)
 - `address_type.*` (1 claves)
@@ -5112,6 +5409,64 @@ counts:
 - `employee_lactation_period_no_active_shift_title.*` (1 claves)
 - `employee_lactation_period_no_active_shift_detail.*` (1 claves)
 - `employee_lactation_period_shift_exceptions_regenerated.*` (1 claves)
+- `employee_lactation_period_evidence.*` (1 claves)
+- `employee_lactation_period_evidences.*` (1 claves)
+- `employee_lactation_period_evidence_uploaded.*` (1 claves)
+- `employee_lactation_period_evidence_deleted.*` (1 claves)
+- `employee_lactation_period_evidence_list_empty.*` (1 claves)
+- `employee_lactation_period_evidence_file_required_title.*` (1 claves)
+- `employee_lactation_period_evidence_file_required_detail.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_file_type_title.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_file_type_detail.*` (1 claves)
+- `employee_lactation_period_evidence_file_too_large_title.*` (1 claves)
+- `employee_lactation_period_evidence_file_too_large_detail.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_category_title.*` (1 claves)
+- `employee_lactation_period_evidence_invalid_category_detail.*` (1 claves)
+- `employee_lactation_period_evidence_not_found_title.*` (1 claves)
+- `employee_lactation_period_evidence_not_found_detail.*` (1 claves)
+- `employee_lactation_period_evidence_upload_failed_title.*` (1 claves)
+- `employee_lactation_period_evidence_upload_failed_detail.*` (1 claves)
+- `employee_lactation_period_evidence_download_failed_title.*` (1 claves)
+- `employee_lactation_period_evidence_download_failed_detail.*` (1 claves)
+- `employee_lactation_period_evidence_category_agreement.*` (1 claves)
+- `employee_lactation_period_evidence_category_birth_support.*` (1 claves)
+- `employee_lactation_period_evidence_category_other.*` (1 claves)
+- `employee_lactation_period_type_two_rest_periods.*` (1 claves)
+- `employee_lactation_period_type_reduced_hour.*` (1 claves)
+- `employee_lactation_reduction_application_start.*` (1 claves)
+- `employee_lactation_reduction_application_end.*` (1 claves)
+- `employee_lactation_reduction_application_split.*` (1 claves)
+- `employee_lactation_compliance_report_title.*` (1 claves)
+- `employee_lactation_compliance_report_generated_at.*` (1 claves)
+- `employee_lactation_compliance_report_filters.*` (1 claves)
+- `employee_lactation_compliance_report_range.*` (1 claves)
+- `employee_lactation_compliance_report_status.*` (1 claves)
+- `employee_lactation_compliance_report_employee.*` (1 claves)
+- `employee_lactation_compliance_report_code.*` (1 claves)
+- `employee_lactation_compliance_report_period.*` (1 claves)
+- `employee_lactation_compliance_report_duration.*` (1 claves)
+- `employee_lactation_compliance_report_type.*` (1 claves)
+- `employee_lactation_compliance_report_modality.*` (1 claves)
+- `employee_lactation_compliance_report_applied_days.*` (1 claves)
+- `employee_lactation_compliance_report_evidences.*` (1 claves)
+- `employee_lactation_compliance_report_days.*` (1 claves)
+- `employee_lactation_compliance_report_empty.*` (1 claves)
+- `employee_lactation_compliance_report_empty_title.*` (1 claves)
+- `employee_lactation_compliance_report_subtitle.*` (1 claves)
+- `employee_lactation_compliance_report_summary_table.*` (1 claves)
+- `employee_lactation_compliance_report_detailed_sections.*` (1 claves)
+- `employee_lactation_compliance_report_kpi_total.*` (1 claves)
+- `employee_lactation_compliance_report_table_employee.*` (1 claves)
+- `employee_lactation_compliance_report_table_applied.*` (1 claves)
+- `employee_lactation_compliance_report_table_evid.*` (1 claves)
+- `employee_lactation_compliance_report_no_lower_bound.*` (1 claves)
+- `employee_lactation_compliance_report_no_upper_bound.*` (1 claves)
+- `employee_lactation_compliance_report_legal_basis.*` (1 claves)
+- `employee_lactation_compliance_report_range_invalid_title.*` (1 claves)
+- `employee_lactation_compliance_report_range_invalid_detail.*` (1 claves)
+- `employee_lactation_compliance_status_active.*` (1 claves)
+- `employee_lactation_compliance_status_expiring.*` (1 claves)
+- `employee_lactation_compliance_status_expired.*` (1 claves)
 - `auth.*` (19 claves)
 - `attendance_stats_dates_required.*` (1 claves)
 - `attendance_stats_invalid_range.*` (1 claves)

@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { LACTATION_COMPLIANCE_STATUS_VALUES } from '#constants/employee_lactation_compliance_status'
 
 const LACTATION_PERIOD_TYPE_VALUES = ['two_rest_periods', 'reduced_hour'] as const
 
@@ -68,5 +69,39 @@ export const updateEmployeeLactationPeriodValidator = vine.compile(
     employeeLactationPeriodReductionApplication:
       lactationReductionApplicationField.optional(),
     employeeLactationPeriodNotes: lactationPeriodNotesField.optional(),
+  })
+)
+
+/**
+ * Validador de filtros del reporte de cumplimiento (JSON paginado + export PDF).
+ *
+ * Reglas:
+ * - `page` / `limit` requeridos para el endpoint JSON. Para el export PDF se
+ *   reusa el mismo validador pero el service ignora la paginación y trae todo
+ *   lo que cumpla los demás filtros.
+ * - `status` opcional dentro del set cerrado del módulo (`activa`,
+ *   `por_vencer`, `vencida`).
+ * - `from` / `to` opcionales. Si vienen ambos, el sanity check `from <= to`
+ *   se hace en el service (Vine permite expresarlo aquí con `afterField`
+ *   pero queremos un código de error tipado consistente con el resto del
+ *   módulo, así que lo movemos al service para devolver 400 con detalle).
+ * - `employeeId` opcional para acotar a una empleada específica.
+ */
+export const employeeLactationComplianceReportValidator = vine.compile(
+  vine.object({
+    page: vine.number().positive(),
+    limit: vine.number().positive().max(500),
+    status: vine.enum([...LACTATION_COMPLIANCE_STATUS_VALUES]).optional(),
+    from: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
+    to: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
+    employeeId: vine.number().positive().optional(),
+    /**
+     * Acota el reporte a una sola unidad de negocio (la seleccionada en el
+     * header global del backoffice). El service valida que el id esté
+     * dentro del `businessUnitScope` del usuario para evitar escapes
+     * multitenant — si no lo está, el reporte responde vacío sin filtrar
+     * a ciegas por todo el scope.
+     */
+    businessUnitId: vine.number().positive().optional(),
   })
 )
