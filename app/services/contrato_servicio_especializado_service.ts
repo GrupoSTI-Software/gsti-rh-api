@@ -17,6 +17,7 @@ import {
   findRepseSpecializedServicesInTenantOrFail,
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
+import { serializeAnexo15d } from '../helpers/anexo_15d_serializer.js'
 import { toBusinessDateString } from '#utils/business_date'
 
 export interface Anexo15dCreatePayload {
@@ -105,19 +106,6 @@ function assertDateRangeOrFail(
       'fecha-fin-anterior-a-fecha-inicio',
       'La fecha fin no puede ser anterior a la fecha inicio.'
     )
-  }
-}
-
-function serializeAnexo15d(row: Clausula15d) {
-  return {
-    folioRepse: row.folioRepse,
-    objetoDetallado: row.objetoDetallado,
-    numeroTrabajadoresAprox: row.numeroTrabajadoresAprox,
-    fechaInicioServicio: toIsoDateString(row.fechaInicioServicio),
-    fechaFinServicio: toIsoDateString(row.fechaFinServicio),
-    compromisosDocumentales: row.compromisosDocumentales,
-    responsabilidadSolidariaAceptada: row.responsabilidadSolidariaAceptada,
-    textoResponsabilidadSolidaria: row.textoResponsabilidadSolidaria,
   }
 }
 

@@ -86,7 +86,7 @@ export function resolveContratoServicioEspecializadoApiError(
       status: error.httpStatus,
       errorCode: error.errorCode,
       key: error.key,
-      detail: error.detail ?? message,
+      detail: message,
     }
   }
 

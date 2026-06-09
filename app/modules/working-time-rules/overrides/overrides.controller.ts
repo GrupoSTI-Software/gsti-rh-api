@@ -233,13 +233,17 @@ export default class OverridesController {
       return this.forbidden(ctx)
     }
 
-    await service.delete(existing)
-    return response.status(200).json({
-      type: 'success',
-      title: 'Override de jornada',
-      message: 'Override eliminado correctamente.',
-      data: { id },
-    })
+    try {
+      await service.delete(existing)
+      return response.status(200).json({
+        type: 'success',
+        title: 'Override de jornada',
+        message: 'Override eliminado correctamente.',
+        data: { id },
+      })
+    } catch (error) {
+      return this.domainError(ctx, error)
+    }
   }
 
   /** Verifica que la empresa objetivo esté dentro del scope del usuario (anti-IDOR). */
