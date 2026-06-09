@@ -1102,12 +1102,7 @@ export default class UserController {
    *       - name: page
    *         in: query
    *         required: true
-   *         schema:
-   *           type: array
-   *           items:
-   *             type: integer
-   *           example: [1, 2, 3]
-   *           description: Business unit ids
+   *         description: The page number
    *         schema:
    *           type: integer
    *       - name: limit
