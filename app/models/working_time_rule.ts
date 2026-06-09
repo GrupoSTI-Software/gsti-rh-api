@@ -148,6 +148,12 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
    */
   @beforeSave()
   static async validateBeforeSave(rule: WorkingTimeRule) {
+    // El borrado lógico se persiste como UPDATE y dispara este hook; en ese caso
+    // no se valida (no tiene sentido revisar valores ni solapamiento al eliminar).
+    if (rule.deletedAt) {
+      return
+    }
+
     WorkingTimeRule.assertValidValues(rule)
     await WorkingTimeRule.assertNoOverlap(rule)
   }
@@ -220,11 +226,11 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
       query.where('business_unit_id', rule.businessUnitId)
     }
 
-    // Excluye el propio registro (por id en updates, por clave natural en upserts).
+    // Excluye el propio registro al actualizar. En altas no hay self que excluir:
+    // no debe filtrarse por effective_year porque dos overrides de la misma empresa
+    // pueden compartir año fiscal y se perdería la detección de solapamiento.
     if (rule.workingTimeRuleId) {
       query.whereNot('working_time_rule_id', rule.workingTimeRuleId)
-    } else {
-      query.whereNot('working_time_rule_effective_year', rule.workingTimeRuleEffectiveYear)
     }
 
     const overlapping = await query.first()
