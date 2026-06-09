@@ -8,6 +8,9 @@ router
     router.put('/:employeeContractId', '#controllers/employee_contract_controller.update')
     router.delete('/:employeeContractId', '#controllers/employee_contract_controller.delete')
     router.get('/:employeeContractId', '#controllers/employee_contract_controller.show')
+    router
+      .get('/:employeeContractId/download', '#controllers/employee_contract_controller.download')
+      .use(middleware.businessScopeOptional())
   })
   .use(middleware.auth())
   .prefix('/api/employee-contracts')
