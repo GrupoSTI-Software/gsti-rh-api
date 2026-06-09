@@ -36,6 +36,7 @@
     "#config/*": "./config/*.js",
     "#constants/*": "./app/constants/*.js",
     "#utils/*": "./app/utils/*.js",
+    "#mixins/*": "./app/mixins/*.js",
     "#modules/*": "./app/modules/*.js"
   },
   "devDependencies": {
@@ -146,11 +147,17 @@
     },
     "overrides": [
       {
-        "files": ["app/modules/attendance-stats/**/*.ts"],
+        "files": [
+          "app/modules/attendance-stats/**/*.ts"
+        ],
         "rules": {
           "unicorn/filename-case": [
             "error",
-            { "cases": { "kebabCase": true } }
+            {
+              "cases": {
+                "kebabCase": true
+              }
+            }
           ]
         }
       }

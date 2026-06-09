@@ -1,7 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, beforeSave, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeSave, belongsTo, column } from '@adonisjs/lucid/orm'
+import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import BusinessUnit from '#models/business_unit'
+import User from '#models/user'
 import WorkingTimeRuleError from '#exceptions/working_time_rule_error'
 
 /**
@@ -77,32 +80,48 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
   @column.date()
   declare workingTimeRuleValidTo: DateTime | null
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleMaxWeeklyHours: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleMaxWeeklyOvertimeHours: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleMaxDailyOvertimeHours: number
 
   @column()
   declare workingTimeRuleMaxOvertimeDaysPerWeek: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleDailyHoursDay: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleDailyHoursNight: number
 
-  @column()
+  @column({ consume: (value: number | string) => Number(value) })
   declare workingTimeRuleDailyHoursMixed: number
 
   @column()
   declare workingTimeRuleWorkDaysPerRestDay: number
 
-  @column()
+  @column({ consume: (value: number | boolean | null) => Boolean(value) })
   declare workingTimeRuleSalaryProtection: boolean
+
+  /** Null = regla federal; un valor indica el override de esa empresa (tenant). */
+  @column()
+  declare businessUnitId: number | null
+
+  /** True si algún tope del override supera el federal vigente (bitácora de deslinde). */
+  @column({ consume: (value: number | boolean | null) => Boolean(value) })
+  declare workingTimeRuleExceedsFederal: boolean
+
+  /** Justificación obligatoria cuando exceedsFederal es true. */
+  @column()
+  declare workingTimeRuleOverrideJustification: string | null
+
+  /** Autor del override, para la bitácora de deslinde. */
+  @column()
+  declare overrideCreatedByUserId: number | null
 
   @column.dateTime({ autoCreate: true, columnName: 'working_time_rule_created_at' })
   declare workingTimeRuleCreatedAt: DateTime
@@ -113,12 +132,28 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
   @column.dateTime({ columnName: 'working_time_rule_deleted_at' })
   declare deletedAt: DateTime | null
 
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'businessUnitId',
+  })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @belongsTo(() => User, {
+    foreignKey: 'overrideCreatedByUserId',
+  })
+  declare overrideAuthor: BelongsTo<typeof User>
+
   /**
    * Valida los valores antes de persistir: ningún parámetro numérico puede ser negativo
    * y la jornada semanal debe ser estrictamente mayor a cero.
    */
   @beforeSave()
   static async validateBeforeSave(rule: WorkingTimeRule) {
+    // El borrado lógico se persiste como UPDATE y dispara este hook; en ese caso
+    // no se valida (no tiene sentido revisar valores ni solapamiento al eliminar).
+    if (rule.deletedAt) {
+      return
+    }
+
     WorkingTimeRule.assertValidValues(rule)
     await WorkingTimeRule.assertNoOverlap(rule)
   }
@@ -183,11 +218,19 @@ export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
           .orWhere('working_time_rule_valid_to', '>=', validFrom)
       })
 
-    // Excluye el propio registro (por id en updates, por clave natural en upserts).
+    // El solapamiento se evalúa dentro del mismo ámbito: el federal (business_unit_id
+    // null) no choca con los overrides ni un override de una empresa con el de otra.
+    if (rule.businessUnitId === null || rule.businessUnitId === undefined) {
+      query.whereNull('business_unit_id')
+    } else {
+      query.where('business_unit_id', rule.businessUnitId)
+    }
+
+    // Excluye el propio registro al actualizar. En altas no hay self que excluir:
+    // no debe filtrarse por effective_year porque dos overrides de la misma empresa
+    // pueden compartir año fiscal y se perdería la detección de solapamiento.
     if (rule.workingTimeRuleId) {
       query.whereNot('working_time_rule_id', rule.workingTimeRuleId)
-    } else {
-      query.whereNot('working_time_rule_effective_year', rule.workingTimeRuleEffectiveYear)
     }
 
     const overlapping = await query.first()

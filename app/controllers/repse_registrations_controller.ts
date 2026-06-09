@@ -12,14 +12,23 @@ import type { RepseRegistrationStatus } from '#models/repse_registration'
 import { REPSE_ERROR_CODES } from '../constants/repse_registration_error_codes.js'
 import { RepseRegistrationError } from '../exceptions/repse_registration_error.js'
 import { resolveRepseRegistrationApiError } from '../helpers/repse_registration_api_error.js'
+import {
+  assertComplianceRepsePermission,
+  type ComplianceRepseAction,
+} from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+
+const MODULE_SLUG = 'repse-registrations'
+const RBAC_FORBIDDEN = {
+  errorCode: REPSE_ERROR_CODES.FORBIDDEN,
+  i18nPrefix: 'repse_registration',
+}
 
 /**
  * Controlador REST del catálogo Repse de cada empresa.
  *
- * Expone CRUD completo bajo /api/repse-registrations.
- * Aísla por empresa via `RepseRegistrationService` y usa el guard estándar
- * de autenticación del backoffice.
+ * Expone CRUD completo bajo /api/repse-registrations con permisos granulares
+ * (`read`, `create`, `update`, `delete` o `gestion`) y aislamiento multi-tenant.
  */
 export default class RepseRegistrationsController {
   /**
@@ -54,6 +63,7 @@ export default class RepseRegistrationsController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(repseRegistrationListValidator)
       const service = new RepseRegistrationService()
@@ -101,6 +111,7 @@ export default class RepseRegistrationsController {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new RepseRegistrationService()
@@ -165,6 +176,7 @@ export default class RepseRegistrationsController {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
 
       const body = await request.validateUsing(createRepseRegistrationValidator)
       const payload = this.toCreatePayload(body)
@@ -230,6 +242,7 @@ export default class RepseRegistrationsController {
     const { params, request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
 
       const id = this.parseResourceId(params.id)
       const body = await request.validateUsing(updateRepseRegistrationValidator)
@@ -275,6 +288,7 @@ export default class RepseRegistrationsController {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new RepseRegistrationService()
@@ -313,6 +327,10 @@ export default class RepseRegistrationsController {
       return false
     }
     return true
+  }
+
+  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
+    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private parseResourceId(raw: unknown) {

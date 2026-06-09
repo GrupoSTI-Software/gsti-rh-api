@@ -92,6 +92,10 @@ export class StandardResponseFormatter {
       'Certification Categories': 'certificationCategories',
       'Employee Lactation Periods': 'employeeLactationPeriods',
       'Employee Lactation Period': 'employeeLactationPeriod',
+      'Employee Lactation Period Evidences': 'employeeLactationPeriodEvidences',
+      'Employee Lactation Period Evidence': 'employeeLactationPeriodEvidence',
+      'Employee Lactation Period Evidence Download': 'employeeLactationPeriodEvidenceDownload',
+      'Employee Lactation Compliance Report': 'employeeLactationComplianceReport',
       'Repse': 'repseRegistrations',
       'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
@@ -99,6 +103,9 @@ export class StandardResponseFormatter {
       'Repse Specialized Service': 'repseSpecializedService',
       'Empresas Contratantes': 'empresasContratantes',
       'Empresa Contratante': 'empresaContratante',
+      'Contratos de Servicios Especializados': 'contratosServiciosEspecializados',
+      'Contrato de Servicios Especializados': 'contratoServicioEspecializado',
+      'Documento del contrato': 'documentoContrato',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')
