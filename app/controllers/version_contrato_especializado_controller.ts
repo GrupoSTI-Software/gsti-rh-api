@@ -6,13 +6,24 @@ import {
   obtenerVersionContratoParamsValidator,
   renovarContratoValidator,
 } from '#validators/compliance-repse/renovar_contrato.validator'
+import { addendarContratoValidator } from '#validators/compliance-repse/addendar_contrato.validator'
+import type { Anexo15dUpdatePayload } from '#services/contrato_servicio_especializado_service'
 import { VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES } from '../constants/version_contrato_especializado_error_codes.js'
-import { resolveVersionContratoApiError } from '../helpers/version_contrato_especializado_api_error.js'
+import {
+  resolveVersionContratoApiError,
+  type ResolveVersionContratoApiErrorOptions,
+} from '../helpers/version_contrato_especializado_api_error.js'
 import {
   assertComplianceRepsePermission,
   type ComplianceRepseAction,
 } from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+import { VersionContratoEspecializadoError } from '../exceptions/version_contrato_especializado_error.js'
+
+const ADDENDUM_VALIDATION_ERROR_OPTIONS: ResolveVersionContratoApiErrorOptions = {
+  validationErrorCode: VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.VAL_ADDENDUM,
+  validationKey: 'addendum-invalido',
+}
 
 const MODULE_SLUG = 'compliance-contratos'
 const RBAC_FORBIDDEN = {
@@ -93,7 +104,7 @@ export default class VersionContratoEspecializadoController {
       const { contratoId } = await contratoIdParamValidator.validate({
         contratoId: Number(params.contratoId),
       })
-      const body = await renovarContratoValidator.validate(request.all())
+      const body = await request.validateUsing(renovarContratoValidator)
 
       const service = new VersionContratoEspecializadoService()
       const result = await service.renovarContrato({
@@ -117,6 +128,115 @@ export default class VersionContratoEspecializadoController {
       )
     } catch (error) {
       return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/contratos-servicios-especializados/{contratoId}/addendums:
+   *   post:
+   *     summary: Registrar addendum al anexo 15-D conservando historial
+   *     description: |
+   *       Toma un snapshot inmutable del anexo 15-D vigente y aplica los cambios addendables
+   *       sobre el head en una sola transacción. No altera la vigencia del contrato.
+   *       Solo contratos en estatus efectivo vigente.
+   *     tags: [VersionesContratoEspecializado]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: contratoId
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             $ref: '#/components/schemas/AddendumContratoRequest'
+   *     responses:
+   *       '201':
+   *         description: Addendum registrado con versión histórica generada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AddendumContratoSuccess'
+   *       '400':
+   *         description: key addendum-invalido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '401':
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso update o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key contrato-no-encontrado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: key contrato-no-addendable o anexo ausente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   */
+  async addendum(ctx: HttpContext) {
+    const { params, request, response, i18n, auth } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const { contratoId } = await contratoIdParamValidator.validate({
+        contratoId: Number(params.contratoId),
+      })
+
+      const rawBody = request.all() as Record<string, unknown>
+      const rawAnexo = rawBody.anexo
+      if (rawAnexo !== null && typeof rawAnexo === 'object' && 'folioRepse' in rawAnexo) {
+        throw new VersionContratoEspecializadoError(
+          'El campo folioRepse no es addendable.',
+          VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.VAL_ADDENDUM,
+          400,
+          'addendum-invalido',
+          'El campo folioRepse no es addendable.'
+        )
+      }
+
+      const body = await request.validateUsing(addendarContratoValidator)
+
+      const service = new VersionContratoEspecializadoService()
+      const result = await service.registrarAddendum({
+        contratoId,
+        motivo: body.motivo,
+        anexo: this.toAnexoUpdatePayload(body.anexo as Record<string, unknown>),
+        creadoPor: auth.user?.userId ?? null,
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.t('version_contrato_especializado_title', undefined, 'Versión de contrato'),
+        i18n.t(
+          'version_contrato_especializado_addendum_successfully',
+          undefined,
+          'Addendum registrado correctamente'
+        ),
+        201
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n, ADDENDUM_VALIDATION_ERROR_OPTIONS)
     }
   }
 
@@ -293,9 +413,10 @@ export default class VersionContratoEspecializadoController {
     error: unknown,
     response: HttpContext['response'],
     fallback: number,
-    i18n: HttpContext['i18n']
+    i18n: HttpContext['i18n'],
+    options?: ResolveVersionContratoApiErrorOptions
   ) {
-    const resolved = resolveVersionContratoApiError(error, fallback, i18n)
+    const resolved = resolveVersionContratoApiError(error, fallback, i18n, options)
     if (resolved.errorCode === VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.SYS_UNHANDLED) {
       logger.error({ err: error }, 'Error inesperado en versiones de contrato REPSE')
     }
@@ -311,5 +432,30 @@ export default class VersionContratoEspecializadoController {
       body.detail = resolved.detail ?? resolved.message
     }
     return response.status(resolved.status).json(body)
+  }
+
+  private toAnexoUpdatePayload(raw: Record<string, unknown>): Anexo15dUpdatePayload {
+    const payload: Anexo15dUpdatePayload = {}
+    if (raw.objetoDetallado !== undefined) payload.objetoDetallado = String(raw.objetoDetallado)
+    if (raw.numeroTrabajadoresAprox !== undefined) {
+      payload.numeroTrabajadoresAprox = Number(raw.numeroTrabajadoresAprox)
+    }
+    if (raw.fechaInicioServicio !== undefined) {
+      payload.fechaInicioServicio = raw.fechaInicioServicio as Date
+    }
+    if (raw.fechaFinServicio !== undefined) {
+      payload.fechaFinServicio = raw.fechaFinServicio as Date | null
+    }
+    if (raw.compromisosDocumentales !== undefined) {
+      payload.compromisosDocumentales =
+        raw.compromisosDocumentales as Anexo15dUpdatePayload['compromisosDocumentales']
+    }
+    if (raw.responsabilidadSolidariaAceptada !== undefined) {
+      payload.responsabilidadSolidariaAceptada = Boolean(raw.responsabilidadSolidariaAceptada)
+    }
+    if (raw.textoResponsabilidadSolidaria !== undefined) {
+      payload.textoResponsabilidadSolidaria = String(raw.textoResponsabilidadSolidaria)
+    }
+    return payload
   }
 }

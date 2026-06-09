@@ -9,8 +9,10 @@ import VersionContratoEspecializado, {
   type VersionContratoEspecializadoTipoCambio,
 } from '#models/version_contrato_especializado'
 import ContratoServicioEspecializadoService, {
+  type Anexo15dUpdatePayload,
   serializeContratoServicioEspecializado,
 } from '#services/contrato_servicio_especializado_service'
+import { hasAtLeastOneAddendableField } from '#validators/compliance-repse/addendar_contrato.validator'
 import { VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES } from '../constants/version_contrato_especializado_error_codes.js'
 import { VersionContratoEspecializadoError } from '../exceptions/version_contrato_especializado_error.js'
 import { serializeAnexo15d } from '../helpers/anexo_15d_serializer.js'
@@ -35,6 +37,11 @@ export type VersionContratoSerialized = {
 
 export type RenovacionContratoResult = {
   contrato: ReturnType<typeof serializeContratoServicioEspecializado>
+  version: VersionContratoSerialized
+}
+
+export type AddendumContratoResult = {
+  anexo15d: ReturnType<typeof serializeAnexo15d>
   version: VersionContratoSerialized
 }
 
@@ -113,6 +120,67 @@ export default class VersionContratoEspecializadoService {
 
     return {
       contrato,
+      version: this.serializeVersion(versionRow),
+    }
+  }
+
+  /**
+   * Registra un addendum al anexo 15-D conservando snapshot del estado anterior.
+   */
+  async registrarAddendum(input: {
+    contratoId: number
+    motivo: string
+    anexo: Anexo15dUpdatePayload
+    creadoPor: number | null
+  }): Promise<AddendumContratoResult> {
+    this.assertAddendumPayload(input.anexo)
+
+    const preCheck = await findContratoInTenantOrFail(input.contratoId, {
+      withDocumentoVigenteFecha: true,
+    })
+    await preCheck.load('clausula15d')
+
+    this.assertAddendable(preCheck)
+    this.assertAnexoPresente(preCheck)
+
+    await db.transaction(async (trx) => {
+      let headQuery = ContratoServicioEspecializado.query({ client: trx })
+        .where('contrato_servicio_especializado_id', input.contratoId)
+        .whereNull('contrato_servicio_especializado_deleted_at')
+        .forUpdate()
+        .preload('clausula15d')
+
+      headQuery = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(headQuery)
+      const head = await headQuery.firstOrFail()
+
+      this.assertAddendable(head)
+      this.assertAnexoPresente(head)
+
+      await this.crearSnapshotDesdeHead({
+        contratoId: input.contratoId,
+        tipoCambio: 'addendum',
+        motivo: input.motivo.trim(),
+        creadoPor: input.creadoPor,
+        trx,
+        head,
+      })
+
+      const contratoService = new ContratoServicioEspecializadoService()
+      await contratoService.aplicarCambiosAnexo15d(head.clausula15d!, input.anexo, trx)
+    })
+
+    logger.info({ contratoId: input.contratoId }, 'Addendum al anexo 15-D registrado con versión histórica')
+
+    const contratoRow = await findContratoInTenantOrFail(input.contratoId)
+    await contratoRow.load('clausula15d')
+
+    const versionRow = await VersionContratoEspecializado.query()
+      .where('contrato_servicio_especializado_id', input.contratoId)
+      .orderBy('version_contrato_especializado_numero', 'desc')
+      .firstOrFail()
+
+    return {
+      anexo15d: serializeAnexo15d(contratoRow.clausula15d!),
       version: this.serializeVersion(versionRow),
     }
   }
@@ -254,6 +322,30 @@ export default class VersionContratoEspecializadoService {
     }
   }
 
+  private assertAddendable(contrato: ContratoServicioEspecializado) {
+    if (contrato.estatusEfectivo !== 'vigente') {
+      throw new VersionContratoEspecializadoError(
+        'Solo se pueden addendar contratos en estatus vigente.',
+        VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.NOT_ADDENDABLE,
+        409,
+        'contrato-no-addendable',
+        'Solo se pueden addendar contratos en estatus vigente.'
+      )
+    }
+  }
+
+  private assertAddendumPayload(anexo: Anexo15dUpdatePayload) {
+    if (!hasAtLeastOneAddendableField(anexo)) {
+      throw new VersionContratoEspecializadoError(
+        'Debe incluir al menos un campo addendable del anexo.',
+        VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.VAL_ADDENDUM,
+        400,
+        'addendum-invalido',
+        'Debe incluir al menos un campo addendable del anexo.'
+      )
+    }
+  }
+
   private assertAnexoPresente(contrato: ContratoServicioEspecializado) {
     if (!contrato.clausula15d) {
       throw new VersionContratoEspecializadoError(
@@ -261,7 +353,7 @@ export default class VersionContratoEspecializadoService {
         VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.SNAPSHOT_INCOMPLETE,
         409,
         undefined,
-        'El contrato debe tener anexo 15-D antes de renovar.'
+        'El contrato debe tener anexo 15-D antes de crear una versión histórica.'
       )
     }
   }

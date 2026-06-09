@@ -22,6 +22,47 @@ export {}
  *           minLength: 3
  *           maxLength: 500
  *
+ *     AddendumAnexo15DRequest:
+ *       type: object
+ *       description: Subconjunto addendable del anexo 15-D (sin folioRepse).
+ *       properties:
+ *         numeroTrabajadoresAprox:
+ *           type: integer
+ *           minimum: 1
+ *         objetoDetallado:
+ *           type: string
+ *           minLength: 20
+ *           maxLength: 3000
+ *         fechaInicioServicio:
+ *           type: string
+ *           format: date
+ *         fechaFinServicio:
+ *           type: string
+ *           format: date
+ *           nullable: true
+ *         compromisosDocumentales:
+ *           type: array
+ *           minItems: 1
+ *           items:
+ *             $ref: '#/components/schemas/CompromisoDocumentalResource'
+ *         responsabilidadSolidariaAceptada:
+ *           type: boolean
+ *         textoResponsabilidadSolidaria:
+ *           type: string
+ *           minLength: 50
+ *           maxLength: 3000
+ *
+ *     AddendumContratoRequest:
+ *       type: object
+ *       required: [motivo, anexo]
+ *       properties:
+ *         motivo:
+ *           type: string
+ *           minLength: 3
+ *           maxLength: 500
+ *         anexo:
+ *           $ref: '#/components/schemas/AddendumAnexo15DRequest'
+ *
  *     VersionContratoSnapshotResource:
  *       type: object
  *       properties:
@@ -82,6 +123,28 @@ export {}
  *           type: string
  *         data:
  *           $ref: '#/components/schemas/RenovacionContratoData'
+ *
+ *     AddendumContratoData:
+ *       type: object
+ *       properties:
+ *         anexo15d:
+ *           $ref: '#/components/schemas/Anexo15DResource'
+ *         version:
+ *           $ref: '#/components/schemas/VersionContratoEspecializadoResource'
+ *
+ *     AddendumContratoSuccess:
+ *       type: object
+ *       required: [type, title, message, data]
+ *       properties:
+ *         type:
+ *           type: string
+ *           enum: [success]
+ *         title:
+ *           type: string
+ *         message:
+ *           type: string
+ *         data:
+ *           $ref: '#/components/schemas/AddendumContratoData'
  *
  *     VersionesContratoListSuccess:
  *       type: object

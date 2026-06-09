@@ -7,6 +7,10 @@ router
       '/contratos-servicios-especializados/:contratoId/renovaciones',
       '#controllers/version_contrato_especializado_controller.renew'
     )
+    router.post(
+      '/contratos-servicios-especializados/:contratoId/addendums',
+      '#controllers/version_contrato_especializado_controller.addendum'
+    )
     router.get(
       '/contratos-servicios-especializados/:contratoId/versiones',
       '#controllers/version_contrato_especializado_controller.index'
