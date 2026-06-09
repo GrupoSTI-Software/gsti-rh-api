@@ -532,6 +532,24 @@ Módulo: documentos PDF bajo `/api/contratos-servicios-especializados/{contratoI
 | DCE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
 | DCE.SYS.001 | Error no clasificado | 5xx | — |
 
+## Versiones históricas de contrato REPSE (`VCE.*`)
+
+Endpoints: `POST .../renovaciones`, `GET .../versiones`, `GET .../versiones/:numeroVersion`.
+
+| Código | Condición | HTTP | key |
+|--------|-----------|------|-----|
+| VCE.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| VCE.VAL.ADDENDUM.001 | Payload de addendum inválido | 400 | `addendum-invalido` |
+| VCE.VAL.VIGENCIA.001 | fechaInicio posterior a fechaFin | 400 | `vigencia-incoherente` |
+| VCE.NF.001 | Contrato no encontrado en tenant | 404 | `contrato-no-encontrado` |
+| VCE.NF.002 | Versión histórica no encontrada | 404 | `version-no-encontrada` |
+| VCE.CONFLICT.001 | Contrato borrador o cancelado | 409 | `contrato-no-renovable` |
+| VCE.CONFLICT.ADDENDUM.001 | Contrato no vigente (no addendable) | 409 | `contrato-no-addendable` |
+| VCE.CONFLICT.002 | Anexo 15-D ausente al snapshot | 409 | — |
+| VCE.CONFLICT.003 | Mutación de versión write-once | 409 | `version-inmutable` |
+| VCE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
+| VCE.SYS.001 | Error no clasificado | 5xx | — |
+
 Cross-tenant o contrato inexistente reutiliza `CSE.NF.001` / key `contrato-no-encontrado`.
 
 ---

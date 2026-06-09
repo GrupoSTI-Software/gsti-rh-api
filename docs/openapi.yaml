@@ -364,6 +364,232 @@ components:
             createdAt: '2026-01-15T12:00:00.000Z'
             updatedAt: '2026-01-15T12:00:00.000Z'
 
+    RenovarContratoRequest:
+      type: object
+      required: [fechaInicio, fechaFin, motivo]
+      properties:
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+        motivo:
+          type: string
+          minLength: 3
+          maxLength: 500
+
+    AddendumAnexo15DRequest:
+      type: object
+      description: |
+        Subconjunto addendable del anexo 15-D. Debe incluir al menos un campo.
+        folioRepse no se acepta (server-side).
+      properties:
+        numeroTrabajadoresAprox:
+          type: integer
+          minimum: 1
+        objetoDetallado:
+          type: string
+          minLength: 20
+          maxLength: 3000
+        fechaInicioServicio:
+          type: string
+          format: date
+        fechaFinServicio:
+          type: string
+          format: date
+          nullable: true
+        compromisosDocumentales:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CompromisoDocumental'
+        responsabilidadSolidariaAceptada:
+          type: boolean
+        textoResponsabilidadSolidaria:
+          type: string
+          minLength: 50
+          maxLength: 3000
+
+    AddendumContratoRequest:
+      type: object
+      required: [motivo, anexo]
+      properties:
+        motivo:
+          type: string
+          minLength: 3
+          maxLength: 500
+        anexo:
+          $ref: '#/components/schemas/AddendumAnexo15DRequest'
+
+    VersionContratoSnapshot:
+      type: object
+      properties:
+        fechaInicio:
+          type: string
+          format: date
+          nullable: true
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        anexo15d:
+          $ref: '#/components/schemas/Anexo15D'
+        documentoVigenteId:
+          type: integer
+          nullable: true
+
+    VersionContratoEspecializado:
+      type: object
+      properties:
+        numeroVersion:
+          type: integer
+        tipoCambio:
+          type: string
+          enum: [renovacion, addendum]
+        motivo:
+          type: string
+        fechaCambio:
+          type: string
+          format: date-time
+        snapshot:
+          $ref: '#/components/schemas/VersionContratoSnapshot'
+        creadoPor:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    RenovacionContratoData:
+      type: object
+      properties:
+        contrato:
+          $ref: '#/components/schemas/ContratoServicioEspecializado'
+        version:
+          $ref: '#/components/schemas/VersionContratoEspecializado'
+
+    RenovacionContratoSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/RenovacionContratoData'
+      example:
+        type: success
+        title: Versión de contrato
+        message: Contrato renovado correctamente
+        data:
+          contrato:
+            id: 42
+            numeroContrato: CSE-2026-001
+            fechaInicio: '2026-04-01'
+            fechaFin: '2027-03-31'
+            estatus: vigente
+            vencidoPorFecha: false
+          version:
+            numeroVersion: 1
+            tipoCambio: renovacion
+            motivo: Renovación anual conforme al calendario fiscal
+            fechaCambio: '2026-04-01T10:00:00.000Z'
+            snapshot:
+              fechaInicio: '2026-01-15'
+              fechaFin: '2026-03-31'
+              anexo15d:
+                folioRepse: REPSE-2026-001
+                objetoDetallado: Limpieza profunda de áreas productivas.
+              documentoVigenteId: 7
+            creadoPor: 1
+            createdAt: '2026-04-01T10:00:00.000Z'
+
+    AddendumContratoData:
+      type: object
+      properties:
+        anexo15d:
+          $ref: '#/components/schemas/Anexo15D'
+        version:
+          $ref: '#/components/schemas/VersionContratoEspecializado'
+
+    AddendumContratoSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AddendumContratoData'
+      example:
+        type: success
+        title: Versión de contrato
+        message: Addendum registrado correctamente
+        data:
+          anexo15d:
+            folioRepse: REPSE-2026-001
+            objetoDetallado: Mantenimiento industrial con ampliación de personal.
+            numeroTrabajadoresAprox: 25
+            fechaInicioServicio: '2026-01-15'
+            fechaFinServicio: '2026-12-31'
+            compromisosDocumentales: []
+            responsabilidadSolidariaAceptada: true
+            textoResponsabilidadSolidaria: Texto de responsabilidad solidaria conforme al artículo 15-D LFT.
+          version:
+            numeroVersion: 2
+            tipoCambio: addendum
+            motivo: Ampliación de personal por incremento de operación
+            fechaCambio: '2026-06-09T10:00:00.000Z'
+            snapshot:
+              fechaInicio: '2026-01-15'
+              fechaFin: '2026-12-31'
+              anexo15d:
+                folioRepse: REPSE-2026-001
+                objetoDetallado: Mantenimiento industrial.
+                numeroTrabajadoresAprox: 15
+              documentoVigenteId: 7
+            creadoPor: 1
+            createdAt: '2026-06-09T10:00:00.000Z'
+
+    VersionesContratoListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VersionContratoEspecializado'
+
+    VersionContratoEspecializadoSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/VersionContratoEspecializado'
+
     EmpresaContratanteBasica:
       type: object
       properties:
@@ -1195,6 +1421,218 @@ paths:
                 $ref: '#/components/schemas/ApiError'
         '404':
           description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/renovaciones:
+    post:
+      summary: Renovar vigencia del contrato conservando historial
+      description: |
+        Toma un snapshot inmutable del estado actual (anexo 15-D, vigencia y documento vigente)
+        y actualiza fechaInicio/fechaFin del contrato en una sola transacción.
+      tags: [VersionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenovarContratoRequest'
+      responses:
+        '201':
+          description: Contrato renovado con versión histórica generada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenovacionContratoSuccess'
+        '400':
+          description: Validación VineJS o key vigencia-incoherente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso update o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key contrato-no-renovable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/addendums:
+    post:
+      summary: Registrar addendum al anexo 15-D conservando historial
+      description: |
+        Toma un snapshot inmutable del anexo 15-D vigente y aplica los cambios addendables
+        sobre el head en una sola transacción. No altera la vigencia del contrato.
+        Solo contratos en estatus efectivo vigente.
+      tags: [VersionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddendumContratoRequest'
+      responses:
+        '201':
+          description: Addendum registrado con versión histórica generada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddendumContratoSuccess'
+        '400':
+          description: key addendum-invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso update o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key contrato-no-addendable o anexo 15-D ausente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/versiones:
+    get:
+      summary: Listar versiones históricas del contrato
+      description: |
+        Devuelve los estados superados ordenados por numeroVersion descendente.
+        Excluye versiones con soft delete. El param incluirEliminadas se añadirá
+        cuando exista endpoint de borrado lógico.
+      tags: [VersionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Listado de versiones históricas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionesContratoListSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/versiones/{numeroVersion}:
+    get:
+      summary: Detalle de una versión histórica
+      tags: [VersionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: numeroVersion
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Snapshot completo de la versión histórica
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionContratoEspecializadoSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado o version-no-encontrada
           content:
             application/json:
               schema:

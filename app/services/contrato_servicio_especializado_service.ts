@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Clausula15d, { type CompromisoDocumental } from '#models/clausula_15d'
 import ContratoServicioEspecializado, {
   type ContratoServicioEspecializadoEstatus,
@@ -17,6 +18,7 @@ import {
   findRepseSpecializedServicesInTenantOrFail,
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
+import { serializeAnexo15d } from '../helpers/anexo_15d_serializer.js'
 import { toBusinessDateString } from '#utils/business_date'
 
 export interface Anexo15dCreatePayload {
@@ -105,19 +107,6 @@ function assertDateRangeOrFail(
       'fecha-fin-anterior-a-fecha-inicio',
       'La fecha fin no puede ser anterior a la fecha inicio.'
     )
-  }
-}
-
-function serializeAnexo15d(row: Clausula15d) {
-  return {
-    folioRepse: row.folioRepse,
-    objetoDetallado: row.objetoDetallado,
-    numeroTrabajadoresAprox: row.numeroTrabajadoresAprox,
-    fechaInicioServicio: toIsoDateString(row.fechaInicioServicio),
-    fechaFinServicio: toIsoDateString(row.fechaFinServicio),
-    compromisosDocumentales: row.compromisosDocumentales,
-    responsabilidadSolidariaAceptada: row.responsabilidadSolidariaAceptada,
-    textoResponsabilidadSolidaria: row.textoResponsabilidadSolidaria,
   }
 }
 
@@ -421,36 +410,7 @@ export default class ContratoServicioEspecializadoService {
       await current.save()
 
       if (payload.anexo15d && current.clausula15d) {
-        const anexo = current.clausula15d
-        anexo.folioRepse = folioRepse
-        if (payload.anexo15d.objetoDetallado !== undefined) {
-          anexo.objetoDetallado = payload.anexo15d.objetoDetallado.trim()
-        }
-        if (payload.anexo15d.numeroTrabajadoresAprox !== undefined) {
-          anexo.numeroTrabajadoresAprox = payload.anexo15d.numeroTrabajadoresAprox
-        }
-        if (payload.anexo15d.fechaInicioServicio !== undefined) {
-          anexo.fechaInicioServicio = DateTime.fromJSDate(payload.anexo15d.fechaInicioServicio)
-        }
-        if (payload.anexo15d.fechaFinServicio !== undefined) {
-          anexo.fechaFinServicio =
-            payload.anexo15d.fechaFinServicio !== null
-              ? DateTime.fromJSDate(payload.anexo15d.fechaFinServicio)
-              : null
-        }
-        if (payload.anexo15d.compromisosDocumentales !== undefined) {
-          anexo.compromisosDocumentales = payload.anexo15d.compromisosDocumentales
-        }
-        if (payload.anexo15d.responsabilidadSolidariaAceptada !== undefined) {
-          anexo.responsabilidadSolidariaAceptada =
-            payload.anexo15d.responsabilidadSolidariaAceptada
-        }
-        if (payload.anexo15d.textoResponsabilidadSolidaria !== undefined) {
-          anexo.textoResponsabilidadSolidaria =
-            payload.anexo15d.textoResponsabilidadSolidaria.trim()
-        }
-        anexo.useTransaction(trx)
-        await anexo.save()
+        await this.aplicarCambiosAnexo15d(current.clausula15d, payload.anexo15d, trx)
       } else if (current.clausula15d) {
         current.clausula15d.folioRepse = folioRepse
         current.clausula15d.useTransaction(trx)
@@ -473,6 +433,54 @@ export default class ContratoServicioEspecializadoService {
     await this.loadRelations(current)
     const forResponse = await this.findForSerialization(current.contratoServicioEspecializadoId)
     return serializeContratoServicioEspecializado(forResponse)
+  }
+
+  /**
+   * Aplica cambios parciales al anexo 15-D head (folioRepse siempre server-side).
+   */
+  async aplicarCambiosAnexo15d(
+    anexo: Clausula15d,
+    payload: Anexo15dUpdatePayload,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const targetInicioServicio =
+      payload.fechaInicioServicio ?? anexo.fechaInicioServicio.toJSDate()
+    const targetFinServicio =
+      payload.fechaFinServicio !== undefined
+        ? payload.fechaFinServicio
+        : anexo.fechaFinServicio
+          ? anexo.fechaFinServicio.toJSDate()
+          : null
+    assertDateRangeOrFail(targetInicioServicio, targetFinServicio, 'Anexo 15-D')
+
+    const folioRepse = await findActiveRepseFolioForTenant()
+    anexo.folioRepse = folioRepse
+    if (payload.objetoDetallado !== undefined) {
+      anexo.objetoDetallado = payload.objetoDetallado.trim()
+    }
+    if (payload.numeroTrabajadoresAprox !== undefined) {
+      anexo.numeroTrabajadoresAprox = payload.numeroTrabajadoresAprox
+    }
+    if (payload.fechaInicioServicio !== undefined) {
+      anexo.fechaInicioServicio = DateTime.fromJSDate(payload.fechaInicioServicio)
+    }
+    if (payload.fechaFinServicio !== undefined) {
+      anexo.fechaFinServicio =
+        payload.fechaFinServicio !== null
+          ? DateTime.fromJSDate(payload.fechaFinServicio)
+          : null
+    }
+    if (payload.compromisosDocumentales !== undefined) {
+      anexo.compromisosDocumentales = payload.compromisosDocumentales
+    }
+    if (payload.responsabilidadSolidariaAceptada !== undefined) {
+      anexo.responsabilidadSolidariaAceptada = payload.responsabilidadSolidariaAceptada
+    }
+    if (payload.textoResponsabilidadSolidaria !== undefined) {
+      anexo.textoResponsabilidadSolidaria = payload.textoResponsabilidadSolidaria.trim()
+    }
+    anexo.useTransaction(trx)
+    await anexo.save()
   }
 
   async destroy(contratoServicioEspecializadoId: number) {
