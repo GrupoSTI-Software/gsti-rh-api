@@ -372,4 +372,32 @@ export default class UploadService {
       return { status: 500, data: null, message: `delete_failed: ${error.message}` }
     }
   }
+
+  /**
+   * Determina si un archivo almacenado en BD fue subido con ACL public-read.
+   *
+   * No llama a `getObjectAcl` del SDK porque DO Spaces y otros proveedores
+   * S3-compatibles no devuelven los grants de AllUsers de forma fiable.
+   *
+   * La heurística es segura: si `storedPath` es una URL pública
+   * (`http://` / `https://`) el archivo se subió con `public-read` (legacy).
+   * Si es una Key directa (sin esquema) se subió como `private`.
+   */
+  isStoredPathPublic(storedPath: string): boolean {
+    return storedPath.startsWith('http://') || storedPath.startsWith('https://')
+  }
+
+  /**
+   * Aplica la ACL indicada a un objeto existente en S3 sin re-subirlo.
+   * Lanza error si el objeto no existe o si las credenciales no tienen
+   * permiso para cambiar el ACL.
+   *
+   * @param bucket - Nombre del bucket.
+   * @param key    - Key del objeto dentro del bucket.
+   * @param acl    - Valor de ACL, p.ej. 'private' o 'public-read'.
+   */
+  async setObjectAcl(bucket: string, key: string, acl: string): Promise<void> {
+    const s3 = new AWS.S3(this.s3Config)
+    await s3.putObjectAcl({ Bucket: bucket, Key: key, ACL: acl }).promise()
+  }
 }
