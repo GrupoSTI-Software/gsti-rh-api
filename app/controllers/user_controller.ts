@@ -21,6 +21,7 @@ import Person from '#models/person'
 import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import AuthTokenService from '#services/auth_token_service'
+import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 
 export default class UserController {
   /**
@@ -395,14 +396,8 @@ export default class UserController {
       const authTokenService = new AuthTokenService()
       const verified = await authTokenService.verifyRefreshToken(refreshTokenValue)
 
-      if (!verified) {
-        response.status(401)
-        return {
-          type: 'warning',
-          title: 'Sesión expirada',
-          message: 'El refresh token es inválido o ha expirado',
-          data: null,
-        }
+      if (verified.status === 'error') {
+        return respondRefreshTokenUnauthorized(response, verified.code)
       }
 
       const { accessToken, refreshToken } = await authTokenService.rotateTokenPair(

@@ -1,14 +1,31 @@
 import { Secret } from '@adonisjs/core/helpers'
+import { AccessToken } from '@adonisjs/auth/access_tokens'
+import { DateTime } from 'luxon'
 import User from '#models/user'
 import ApiToken from '#models/api_token'
+import type {
+  AccessTokenErrorCode,
+  RefreshTokenErrorCode,
+} from '#constants/auth_token_error_codes'
+
+const ACCESS_TOKEN_PREFIX = 'oauth__sae__'
+const REFRESH_TOKEN_PREFIX = 'refresh__sae__'
 
 export interface TokenPair {
   accessToken: string
   refreshToken: string
 }
 
+export type AccessTokenVerifyResult =
+  | { status: 'valid'; user: User }
+  | { status: 'error'; code: AccessTokenErrorCode }
+
+export type RefreshTokenVerifyResult =
+  | { status: 'valid'; user: User; origin: string }
+  | { status: 'error'; code: RefreshTokenErrorCode }
+
 /**
- * Servicio centralizado para emisión y rotación de pares access + refresh token.
+ * Servicio centralizado para emisión, rotación y clasificación de tokens.
  * Reutiliza la tabla `api_tokens` distinguiendo tipos por la columna `type`.
  */
 export default class AuthTokenService {
@@ -24,10 +41,14 @@ export default class AuthTokenService {
    * Emite un par access + refresh y asigna el origin a ambos registros.
    */
   async issueTokenPair(user: User, origin: string): Promise<TokenPair> {
-    const accessToken = await User.accessTokens.create(user)
+    const accessToken = await User.accessTokens.create(user, undefined, {
+      expiresIn: User.accessTokenExpiresIn(),
+    })
     await ApiToken.query().where('id', String(accessToken.identifier)).update({ origin })
 
-    const refreshToken = await User.refreshTokens.create(user)
+    const refreshToken = await User.refreshTokens.create(user, undefined, {
+      expiresIn: User.refreshTokenExpiresIn(origin),
+    })
     await ApiToken.query().where('id', String(refreshToken.identifier)).update({ origin })
 
     return {
@@ -45,35 +66,133 @@ export default class AuthTokenService {
   }
 
   /**
-   * Verifica un refresh token opaco y devuelve el registro validado junto con su origin.
+   * Clasifica el motivo de fallo de un access token para responder 401 de forma no ambigua.
    */
-  async verifyRefreshToken(
-    refreshTokenValue: string
-  ): Promise<{ user: User; origin: string } | null> {
+  async classifyAccessToken(authorizationHeader?: string | null): Promise<AccessTokenVerifyResult> {
+    const tokenValue = this.extractBearerToken(authorizationHeader)
+
+    if (!tokenValue) {
+      return { status: 'error', code: 'token_missing' }
+    }
+
+    const decoded = AccessToken.decode(ACCESS_TOKEN_PREFIX, tokenValue)
+    if (!decoded) {
+      return { status: 'error', code: 'token_invalid' }
+    }
+
+    const verifiedToken = await User.accessTokens.verify(new Secret(tokenValue))
+
+    if (verifiedToken) {
+      if (verifiedToken.isExpired()) {
+        return { status: 'error', code: 'token_expired' }
+      }
+
+      const user = await this.findActiveUser(Number(verifiedToken.tokenableId))
+      if (!user) {
+        return { status: 'error', code: 'token_revoked' }
+      }
+
+      return { status: 'valid', user }
+    }
+
+    return this.classifyMissingAccessToken(decoded.identifier)
+  }
+
+  /**
+   * Verifica un refresh token y clasifica el motivo de fallo.
+   */
+  async verifyRefreshToken(refreshTokenValue: string): Promise<RefreshTokenVerifyResult> {
+    if (!refreshTokenValue || typeof refreshTokenValue !== 'string') {
+      return { status: 'error', code: 'refresh_token_missing' }
+    }
+
+    const decoded = AccessToken.decode(REFRESH_TOKEN_PREFIX, refreshTokenValue)
+    if (!decoded) {
+      return { status: 'error', code: 'refresh_token_invalid' }
+    }
+
     const verifiedToken = await User.refreshTokens.verify(new Secret(refreshTokenValue))
 
-    if (!verifiedToken || verifiedToken.isExpired()) {
+    if (verifiedToken) {
+      if (verifiedToken.isExpired()) {
+        return { status: 'error', code: 'refresh_token_expired' }
+      }
+
+      const apiTokenRow = await ApiToken.query()
+        .where('id', String(verifiedToken.identifier))
+        .first()
+
+      const origin = apiTokenRow?.origin || 'web'
+      const user = await this.findActiveUser(Number(verifiedToken.tokenableId))
+
+      if (!user) {
+        return { status: 'error', code: 'refresh_token_revoked' }
+      }
+
+      return { status: 'valid', user, origin }
+    }
+
+    const row = await ApiToken.query()
+      .where('id', String(decoded.identifier))
+      .where('type', 'refresh_token')
+      .first()
+
+    if (!row) {
+      return { status: 'error', code: 'refresh_token_revoked' }
+    }
+
+    if (this.isExpiredAt(row.expiresAt)) {
+      return { status: 'error', code: 'refresh_token_expired' }
+    }
+
+    return { status: 'error', code: 'refresh_token_invalid' }
+  }
+
+  private extractBearerToken(authorizationHeader?: string | null): string | null {
+    if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
       return null
     }
 
-    const apiTokenRow = await ApiToken.query()
-      .where('id', String(verifiedToken.identifier))
-      .first()
+    const tokenValue = authorizationHeader.slice(7).trim()
+    return tokenValue || null
+  }
 
-    const origin = apiTokenRow?.origin || 'web'
-
-    const userId = Number(verifiedToken.tokenableId)
-
-    const user = await User.query()
+  private async findActiveUser(userId: number): Promise<User | null> {
+    return User.query()
       .where('user_id', userId)
       .where('user_active', 1)
       .whereNull('user_deleted_at')
       .first()
+  }
 
-    if (!user) {
-      return null
+  private isExpiredAt(expiresAt: DateTime | null): boolean {
+    if (!expiresAt) {
+      return false
     }
 
-    return { user, origin }
+    return expiresAt < DateTime.now()
+  }
+
+  /**
+   * Cuando verify() devuelve null, distingue expirado, revocado o inválido
+   * consultando la fila persistida por id + type.
+   */
+  private async classifyMissingAccessToken(
+    identifier: string | number | BigInt
+  ): Promise<{ status: 'error'; code: AccessTokenErrorCode }> {
+    const row = await ApiToken.query()
+      .where('id', String(identifier))
+      .where('type', 'auth_token')
+      .first()
+
+    if (!row) {
+      return { status: 'error', code: 'token_revoked' }
+    }
+
+    if (this.isExpiredAt(row.expiresAt)) {
+      return { status: 'error', code: 'token_expired' }
+    }
+
+    return { status: 'error', code: 'token_invalid' }
   }
 }
