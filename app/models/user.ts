@@ -70,6 +70,14 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
     tokenSecretLength: 80,
   })
 
+  static refreshTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: 60 * 60 * 24 * 7,
+    prefix: 'refresh__sae__',
+    table: 'api_tokens',
+    type: 'refresh_token',
+    tokenSecretLength: 80,
+  })
+
   @column({ isPrimary: true })
   declare userId: number
 
