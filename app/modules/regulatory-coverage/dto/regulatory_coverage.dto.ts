@@ -103,3 +103,84 @@ export interface RegulatoryCoverageSummaryResponse {
   aggregate: SummaryAggregate
   regulations: RegulationSummaryRow[]
 }
+
+// ─── DTOs del detalle (GET /api/v1/regulatory-coverage/:regulationId) ──────────
+
+/** Módulo del sistema al que pertenece una feature. */
+export interface FeatureModuleInfo {
+  moduleId: number
+  moduleName: string
+  moduleSlug: string
+}
+
+/**
+ * Feature mapeada a un numeral regulatorio, con su módulo.
+ * Incluye todas las features no-deprecadas (planeado, en_desarrollo, disponible).
+ * El `coverage` refleja el grado de la pivote `regulation_clause_features`.
+ */
+export interface ClauseFeatureDetail {
+  systemFeatureId: number
+  featureName: string
+  featureSlug: string
+  /** Estado global de release. Nunca 'deprecado' en la respuesta. */
+  featureStatus: 'planeado' | 'en_desarrollo' | 'disponible'
+  /** Grado de cobertura de esta feature sobre el numeral (de la pivote). */
+  coverage: 'total' | 'parcial' | null
+  module: FeatureModuleInfo
+}
+
+/** Numeral hoja con su cobertura calculada y sus features mapeadas. */
+export interface RegulationClauseDetail {
+  regulationClauseId: number
+  /** Código del numeral (p. ej. "4.3.2"). */
+  code: string
+  /**
+   * Clave i18n del título del numeral.
+   * Puede ser null; el BO usa `code` como fallback de visualización.
+   */
+  titleKey: string | null
+  /**
+   * Clave i18n del texto de la obligación normativa del numeral.
+   * El BO la usa para mostrar el contenido en el drawer de detalle.
+   */
+  obligationKey: string
+  /**
+   * Clave i18n de la explicación adicional del numeral.
+   * Puede ser vacía si no aplica.
+   */
+  explanationKey: string
+  /**
+   * Mejor cobertura disponible calculada solo sobre features `disponible`.
+   * - 'total'  : al menos una feature disponible cubre totalmente el numeral.
+   * - 'parcial': la mejor cobertura disponible es parcial.
+   * - null     : sin cobertura disponible (puede haber features en_desarrollo/planeado).
+   */
+  bestCoverage: 'total' | 'parcial' | null
+  /** Features no-deprecadas mapeadas al numeral, con su módulo. */
+  features: ClauseFeatureDetail[]
+}
+
+/**
+ * Cabecera de la norma en la respuesta de detalle.
+ * Los conteos son consistentes con los que devuelve GET /api/v1/regulatory-coverage.
+ */
+export interface RegulationDetailHeader {
+  regulationId: number
+  code: string
+  title: string
+  type: string
+  version: string
+  status: string
+  authority: RegulatoryAuthorityInfo
+  evaluableClauses: number
+  coveredTotal: number
+  coveredPartial: number
+  uncovered: number
+  coveragePercentage: number | null
+}
+
+/** Respuesta completa de GET /api/v1/regulatory-coverage/:regulationId. */
+export interface RegulationDetailResponse {
+  regulation: RegulationDetailHeader
+  clauses: RegulationClauseDetail[]
+}

@@ -3,6 +3,8 @@ import type {
   CoverageBucketPercentages,
   RegulationSummaryRow,
   SummaryAggregate,
+  ClauseFeatureDetail,
+  RegulationClauseDetail,
 } from './dto/regulatory_coverage.dto.js'
 
 /** Conteos de numerales hoja por norma. */
@@ -276,6 +278,119 @@ export function buildRegulationSummaryRows(
     const counts = countsByRegulation.get(reg.regulation_id) ?? emptyBucketCoverageCounts()
     return buildRegulationSummaryRow(reg, counts)
   })
+}
+
+// ─── Detalle por norma (GET /api/v1/regulatory-coverage/:regulationId) ──────
+
+/**
+ * Fila cruda que devuelve la consulta SQL del detalle por norma.
+ * Una fila por cada par (numeral hoja × feature no-deprecada).
+ * Cuando un numeral hoja no tiene features mapeadas o todas son deprecadas,
+ * se devuelve una sola fila con todos los campos de feature y módulo en null.
+ */
+export interface ClauseFeatureRawRow {
+  regulation_clause_id: number
+  regulation_clause_code: string
+  regulation_clause_title_key: string | null
+  regulation_clause_obligation_key: string
+  regulation_clause_explanation_key: string
+  regulation_clause_feature_coverage: 'total' | 'parcial' | null
+  system_feature_id: number | null
+  system_feature_name: string | null
+  system_feature_slug: string | null
+  system_feature_status: string | null
+  system_module_id: number | null
+  system_module_name: string | null
+  system_module_slug: string | null
+}
+
+/**
+ * Agrega las filas crudas del detalle en un arreglo de `RegulationClauseDetail`
+ * y calcula los conteos de cobertura para el header de la norma.
+ *
+ * Reglas:
+ * - `bestCoverage` de cada numeral se calcula solo sobre features `disponible`.
+ * - `features` incluye todas las features no-deprecadas (disponible + en_desarrollo + planeado).
+ * - Features cuyo módulo fue soft-deleted quedan excluidas (ambas columnas de módulo son null).
+ * - El orden de los numerales respeta el que llegó en `rawRows` (ORDER BY en SQL).
+ */
+export function buildClauseDetails(rawRows: ClauseFeatureRawRow[]): {
+  clauses: RegulationClauseDetail[]
+  counts: CoverageCounts
+} {
+  type ClauseAccumulator = {
+    code: string
+    titleKey: string | null
+    obligationKey: string
+    explanationKey: string
+    featureRows: ClauseFeatureRawRow[]
+  }
+
+  const clauseMap = new Map<number, ClauseAccumulator>()
+
+  for (const row of rawRows) {
+    if (!clauseMap.has(row.regulation_clause_id)) {
+      clauseMap.set(row.regulation_clause_id, {
+        code: row.regulation_clause_code,
+        titleKey: row.regulation_clause_title_key,
+        obligationKey: row.regulation_clause_obligation_key,
+        explanationKey: row.regulation_clause_explanation_key,
+        featureRows: [],
+      })
+    }
+    if (row.system_feature_id !== null && row.system_module_id !== null) {
+      clauseMap.get(row.regulation_clause_id)!.featureRows.push(row)
+    }
+  }
+
+  const clauses: RegulationClauseDetail[] = []
+  const counts = emptyCoverageCounts()
+
+  for (const [clauseId, data] of clauseMap) {
+    let best: 'total' | 'parcial' | null = null
+
+    for (const fr of data.featureRows) {
+      if (fr.system_feature_status === 'disponible') {
+        if (fr.regulation_clause_feature_coverage === 'total') {
+          best = 'total'
+          break
+        }
+        if (fr.regulation_clause_feature_coverage === 'parcial' && best === null) {
+          best = 'parcial'
+        }
+      }
+    }
+
+    const features: ClauseFeatureDetail[] = data.featureRows.map((fr) => ({
+      systemFeatureId: fr.system_feature_id!,
+      featureName: fr.system_feature_name ?? '',
+      featureSlug: fr.system_feature_slug ?? '',
+      featureStatus: fr.system_feature_status as 'planeado' | 'en_desarrollo' | 'disponible',
+      coverage: fr.regulation_clause_feature_coverage,
+      module: {
+        moduleId: fr.system_module_id!,
+        moduleName: fr.system_module_name ?? '',
+        moduleSlug: fr.system_module_slug ?? '',
+      },
+    }))
+
+    clauses.push({
+      regulationClauseId: clauseId,
+      code: data.code,
+      titleKey: data.titleKey,
+      obligationKey: data.obligationKey,
+      explanationKey: data.explanationKey,
+      bestCoverage: best,
+      features,
+    })
+
+    counts.evaluableClauses++
+    if (best === 'total') counts.coveredTotal++
+    else if (best === 'parcial') counts.coveredPartial++
+    else counts.uncovered++
+  }
+
+  return { clauses, counts }
 }
 
 /**

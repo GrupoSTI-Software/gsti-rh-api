@@ -1,4 +1,8 @@
-import type { RegulationCoverageRow, RegulatoryCoverageSummaryResponse } from './dto/regulatory_coverage.dto.js'
+import type {
+  RegulationCoverageRow,
+  RegulatoryCoverageSummaryResponse,
+  RegulationDetailResponse,
+} from './dto/regulatory_coverage.dto.js'
 
 /**
  * Contrato del repositorio de regulatory-coverage.
@@ -28,4 +32,13 @@ export interface RegulatoryCoverageRepository {
    * `deprecado` quedan fuera de todos los buckets.
    */
   getCoverageSummary(): Promise<RegulatoryCoverageSummaryResponse>
+
+  /**
+   * Obtiene el detalle completo de una norma vigente: cabecera con los mismos
+   * conteos que `getCoverageByRegulation` y el listado de numerales hoja con
+   * su mejor cobertura disponible y todas las features no-deprecadas mapeadas.
+   *
+   * @returns El detalle de la norma, o `null` si no existe / no está vigente.
+   */
+  getRegulationDetail(regulationId: number): Promise<RegulationDetailResponse | null>
 }

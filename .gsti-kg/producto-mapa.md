@@ -1,7 +1,7 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-06-09T18:28:59+00:00"
-kg_head_sha: "6e2b754a6289838539df4ae967d7dfd1f5840db2"
+kg_built_at: "2026-06-09T21:01:33+00:00"
+kg_head_sha: "95b75fb2e9fe41e481ad1b10d463bdf2880595f8"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
@@ -10,14 +10,14 @@ prefijo_asana: "USRH"
 default_branch: "develop"
 counts:
   entidades_db: 163
-  endpoints: 774
+  endpoints: 775
   controllers: 150
   services: 153
   validators: 112
   middlewares: 7
   seeders: 31
   tablas_migradas: 178
-  i18n_keys: 1325
+  i18n_keys: 1335
 ---
 
 # Knowledge Graph — valanserh-api
@@ -2151,7 +2151,7 @@ counts:
   - `zoneAddress`: string
   - `zonePolygon`: string
 
-## Endpoints REST (774)
+## Endpoints REST (775)
 
 ### `/api/access-points` (middleware: auth)
 
@@ -2417,6 +2417,7 @@ counts:
 | GET | `/api/contratos-servicios-especializados/:contratoId/documentos` | `#controllers/documentos_contrato_especializado_controller.index` | `start/routes/documentos_contrato_especializado_routes.ts` |
 | POST | `/api/contratos-servicios-especializados/:contratoId/documentos` | `#controllers/documentos_contrato_especializado_controller.store` | `start/routes/documentos_contrato_especializado_routes.ts` |
 | POST | `/api/contratos-servicios-especializados/:contratoId/renovaciones` | `#controllers/version_contrato_especializado_controller.renew` | `start/routes/versiones_contrato_especializado_routes.ts` |
+| POST | `/api/contratos-servicios-especializados/:contratoId/addendums` | `#controllers/version_contrato_especializado_controller.addendum` | `start/routes/versiones_contrato_especializado_routes.ts` |
 | GET | `/api/contratos-servicios-especializados/:contratoId/versiones` | `#controllers/version_contrato_especializado_controller.index` | `start/routes/versiones_contrato_especializado_routes.ts` |
 | GET | `/api/contratos-servicios-especializados/:contratoId/versiones/:numeroVersion` | `#controllers/version_contrato_especializado_controller.show` | `start/routes/versiones_contrato_especializado_routes.ts` |
 
@@ -4283,7 +4284,7 @@ counts:
 
 ## i18n keys (top-level)
 
-### Idioma `en` (661 claves totales)
+### Idioma `en` (666 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -4427,6 +4428,7 @@ counts:
 - `contrato_servicio_especializado_unexpected_error_message.*` (1 claves)
 - `version_contrato_especializado_title.*` (1 claves)
 - `version_contrato_especializado_renewed_successfully.*` (1 claves)
+- `version_contrato_especializado_addendum_successfully.*` (1 claves)
 - `version_contrato_especializado_list_successfully.*` (1 claves)
 - `version_contrato_especializado_found_successfully.*` (1 claves)
 - `version_contrato_especializado_error_default_title.*` (1 claves)
@@ -4434,6 +4436,8 @@ counts:
 - `version_contrato_especializado_unauthorized_message.*` (1 claves)
 - `version_contrato_especializado_val_input_title.*` (1 claves)
 - `version_contrato_especializado_val_input_message.*` (1 claves)
+- `version_contrato_especializado_addendum_invalid_title.*` (1 claves)
+- `version_contrato_especializado_addendum_invalid_message.*` (1 claves)
 - `version_contrato_especializado_val_vigencia_title.*` (1 claves)
 - `version_contrato_especializado_val_vigencia_message.*` (1 claves)
 - `version_contrato_especializado_contrato_not_found_title.*` (1 claves)
@@ -4442,6 +4446,8 @@ counts:
 - `version_contrato_especializado_version_not_found_message.*` (1 claves)
 - `version_contrato_especializado_not_renewable_title.*` (1 claves)
 - `version_contrato_especializado_not_renewable_message.*` (1 claves)
+- `version_contrato_especializado_not_addendable_title.*` (1 claves)
+- `version_contrato_especializado_not_addendable_message.*` (1 claves)
 - `version_contrato_especializado_snapshot_incomplete_title.*` (1 claves)
 - `version_contrato_especializado_snapshot_incomplete_message.*` (1 claves)
 - `version_contrato_especializado_immutable_title.*` (1 claves)
@@ -4885,7 +4891,7 @@ counts:
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
 
-### Idioma `es` (664 claves totales)
+### Idioma `es` (669 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -5029,6 +5035,7 @@ counts:
 - `contrato_servicio_especializado_unexpected_error_message.*` (1 claves)
 - `version_contrato_especializado_title.*` (1 claves)
 - `version_contrato_especializado_renewed_successfully.*` (1 claves)
+- `version_contrato_especializado_addendum_successfully.*` (1 claves)
 - `version_contrato_especializado_list_successfully.*` (1 claves)
 - `version_contrato_especializado_found_successfully.*` (1 claves)
 - `version_contrato_especializado_error_default_title.*` (1 claves)
@@ -5036,6 +5043,8 @@ counts:
 - `version_contrato_especializado_unauthorized_message.*` (1 claves)
 - `version_contrato_especializado_val_input_title.*` (1 claves)
 - `version_contrato_especializado_val_input_message.*` (1 claves)
+- `version_contrato_especializado_addendum_invalid_title.*` (1 claves)
+- `version_contrato_especializado_addendum_invalid_message.*` (1 claves)
 - `version_contrato_especializado_val_vigencia_title.*` (1 claves)
 - `version_contrato_especializado_val_vigencia_message.*` (1 claves)
 - `version_contrato_especializado_contrato_not_found_title.*` (1 claves)
@@ -5044,6 +5053,8 @@ counts:
 - `version_contrato_especializado_version_not_found_message.*` (1 claves)
 - `version_contrato_especializado_not_renewable_title.*` (1 claves)
 - `version_contrato_especializado_not_renewable_message.*` (1 claves)
+- `version_contrato_especializado_not_addendable_title.*` (1 claves)
+- `version_contrato_especializado_not_addendable_message.*` (1 claves)
 - `version_contrato_especializado_snapshot_incomplete_title.*` (1 claves)
 - `version_contrato_especializado_snapshot_incomplete_message.*` (1 claves)
 - `version_contrato_especializado_immutable_title.*` (1 claves)

@@ -83,6 +83,9 @@ test.group('RegulatoryCoverageController — endpoint index', () => {
           regulations: [],
         }
       },
+      async getRegulationDetail() {
+        return null
+      },
     }
     const service = new RegulatoryCoverageService(mockRepo)
     const { ctx, captured } = makeHttpContext({ user: { userId: 1 } })
@@ -114,6 +117,9 @@ test.group('RegulatoryCoverageController — endpoint index', () => {
           },
           regulations: [],
         }
+      },
+      async getRegulationDetail() {
+        return null
       },
     }
     const service = new RegulatoryCoverageService(mockRepo)
