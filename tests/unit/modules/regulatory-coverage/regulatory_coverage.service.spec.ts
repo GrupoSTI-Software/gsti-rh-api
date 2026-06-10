@@ -39,6 +39,9 @@ function makeMockRepo(rows: RegulationCoverageRow[] = sampleRows): {
         regulations: [],
       }
     },
+    async getRegulationDetail() {
+      return null
+    },
   }
   return { repo, get calls() { return calls } }
 }
