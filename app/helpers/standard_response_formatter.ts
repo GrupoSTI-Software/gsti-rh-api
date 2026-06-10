@@ -106,6 +106,8 @@ export class StandardResponseFormatter {
       'Contratos de Servicios Especializados': 'contratosServiciosEspecializados',
       'Contrato de Servicios Especializados': 'contratoServicioEspecializado',
       'Documento del contrato': 'documentoContrato',
+      'Asignaciones de Contrato Especializado': 'asignaciones',
+      'Asignación de Contrato Especializado': 'asignacion',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Valanserh API - Compliance REPSE
-  version: 1.1.0
-  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT y documentos firmados.
+  version: 1.2.0
+  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT, documentos firmados y asignación de trabajadores.
 
 components:
   securitySchemes:
@@ -589,6 +589,184 @@ components:
           type: string
         data:
           $ref: '#/components/schemas/VersionContratoEspecializado'
+
+    AsignacionContratoAdvertencia:
+      type: object
+      required: [key, detail]
+      properties:
+        key:
+          type: string
+          example: porcentaje-dedicacion-excedido
+        detail:
+          type: string
+          example: El empleado suma 120.00% de dedicación en contratos vigentes solapados
+
+    AsignacionContratoEmpleado:
+      type: object
+      required: [id, nombre, nss]
+      properties:
+        id:
+          type: integer
+        nombre:
+          type: string
+        nss:
+          type: string
+          nullable: true
+
+    AsignacionContratoEspecializadoListItem:
+      type: object
+      required:
+        - id
+        - contratoServicioEspecializadoId
+        - empleado
+        - fechaInicio
+        - fechaFin
+        - porcentajeTiempo
+      properties:
+        id:
+          type: integer
+        contratoServicioEspecializadoId:
+          type: integer
+        empleado:
+          $ref: '#/components/schemas/AsignacionContratoEmpleado'
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        porcentajeTiempo:
+          type: string
+          example: '100.00'
+
+    AsignacionContratoEspecializadoResource:
+      allOf:
+        - $ref: '#/components/schemas/AsignacionContratoEspecializadoListItem'
+        - type: object
+          required: [advertencias]
+          properties:
+            advertencias:
+              type: array
+              items:
+                $ref: '#/components/schemas/AsignacionContratoAdvertencia'
+
+    AsignacionesContratoBulkCreate:
+      type: object
+      required: [asignaciones]
+      properties:
+        asignaciones:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [employeeId, fechaInicio]
+            properties:
+              employeeId:
+                type: integer
+                minimum: 1
+              fechaInicio:
+                type: string
+                format: date
+              fechaFin:
+                type: string
+                format: date
+                nullable: true
+              porcentajeTiempo:
+                type: number
+                minimum: 0.01
+                maximum: 100
+
+    AsignacionContratoUpdate:
+      type: object
+      properties:
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        porcentajeTiempo:
+          type: number
+          minimum: 0.01
+          maximum: 100
+
+    AsignacionesContratoCreateSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            asignaciones:
+              type: array
+              items:
+                $ref: '#/components/schemas/AsignacionContratoEspecializadoResource'
+      example:
+        type: success
+        title: Asignaciones de Contrato Especializado
+        message: Asignaciones creadas correctamente
+        data:
+          asignaciones:
+            - id: 1
+              contratoServicioEspecializadoId: 12
+              empleado:
+                id: 88
+                nombre: Juan Pérez García
+                nss: '12345678901'
+              fechaInicio: '2026-06-15'
+              fechaFin: null
+              porcentajeTiempo: '100.00'
+              advertencias: []
+
+    AsignacionesContratoListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            asignaciones:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AsignacionContratoEspecializadoListItem'
+
+    AsignacionContratoUpdateSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            asignacion:
+              $ref: '#/components/schemas/AsignacionContratoEspecializadoResource'
 
     EmpresaContratanteBasica:
       type: object
@@ -1633,6 +1811,230 @@ paths:
                 $ref: '#/components/schemas/ApiError'
         '404':
           description: key contrato-no-encontrado o version-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/asignaciones:
+    post:
+      summary: Alta en bloque de asignaciones de trabajadores
+      description: |
+        Crea 1..N asignaciones de forma atómica. Solo contratos con estatus efectivo vigente.
+        Las advertencias de porcentaje de dedicación no bloquean la operación.
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsignacionesContratoBulkCreate'
+      responses:
+        '201':
+          description: Asignaciones creadas con empleado poblado y advertencias por item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsignacionesContratoCreateSuccess'
+        '400':
+          description: Validación VineJS o employeeId repetido en el payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado o empleado-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key asignacion-duplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key contrato-no-vigente, asignacion-fuera-de-vigencia o fecha-fin-anterior-a-fecha-inicio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    get:
+      summary: Listado paginado de asignaciones del contrato
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: employeeId
+          in: query
+          schema:
+            type: integer
+        - name: vigentesEn
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+      responses:
+        '200':
+          description: Listado paginado con empleado poblado (sin advertencias; solo en POST/PATCH)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsignacionesContratoListSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/asignaciones/{id}:
+    patch:
+      summary: Actualizar fechas o porcentaje de dedicación
+      description: |
+        No exige contrato vigente; permite correcciones históricas.
+        Re-emite advertencias de porcentaje si la suma supera 100%.
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsignacionContratoUpdate'
+      responses:
+        '200':
+          description: Asignación actualizada con advertencias de porcentaje si aplica
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsignacionContratoUpdateSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso update o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Contrato o asignación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key asignacion-duplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key asignacion-fuera-de-vigencia o fecha-fin-anterior-a-fecha-inicio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    delete:
+      summary: Soft delete de asignación (solo errores de captura)
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Eliminado lógicamente (sin cuerpo)
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso delete o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Contrato o asignación no encontrada
           content:
             application/json:
               schema:
