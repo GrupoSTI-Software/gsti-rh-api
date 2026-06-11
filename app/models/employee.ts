@@ -21,6 +21,7 @@ import EmployeeBonus from './employee_bonus.js'
 import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
 import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
+import AsignacionContratoEspecializado from './asignacion_contrato_especializado.js'
 import EmployeeSalaryHistory from './employee_salary_history.js'
 import EmployeeCertification from './employee_certification.js'
 
@@ -395,7 +396,15 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
     },
   })
   declare temporaryAssignments: HasMany<typeof EmployeeTemporaryAssignment>
-  
+
+  @hasMany(() => AsignacionContratoEspecializado, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('asignacion_contrato_especializado_deleted_at')
+    },
+  })
+  declare asignacionesContratoEspecializado: HasMany<typeof AsignacionContratoEspecializado>
+
   /** Histórico de salarios diarios del empleado */
   @hasMany(() => EmployeeSalaryHistory, {
     foreignKey: 'employeeId',
