@@ -5,6 +5,7 @@ import SystemSetting from '#models/system_setting'
 import SystemSettingService from './system_setting_service.js'
 import SignupOtpMail from '#mails/signup_otp_mail'
 import WelcomeMail from '#mails/welcome_mail'
+import MagicLinkMail from '#mails/magic_link_mail'
 
 /**
  * Idiomas soportados por las plantillas de correo del flujo de signup.
@@ -53,6 +54,13 @@ interface SendWelcomeParams {
   to: string
   firstName: string
   businessUnitName: string
+  language: AuthMailLanguage
+}
+
+interface SendMagicLinkParams {
+  to: string
+  firstName: string
+  magicLinkUrl: string
   language: AuthMailLanguage
 }
 
@@ -163,6 +171,44 @@ export default class AuthMailService {
       logger.error(
         { err: error, to: this.redactEmail(to) },
         'AuthMailService.sendWelcome: fallo al enviar correo de bienvenida.'
+      )
+    }
+  }
+
+  /**
+   * Envía el correo con el enlace mágico de acceso sin contraseña al backoffice.
+   * Nunca lanza ante fallos de SMTP.
+   */
+  async sendMagicLink(params: SendMagicLinkParams): Promise<void> {
+    const { to, firstName, magicLinkUrl, language } = params
+
+    try {
+      const senderEmail = this.resolveSenderEmail()
+      if (!senderEmail) {
+        logger.error(
+          { to: this.redactEmail(to) },
+          'AuthMailService.sendMagicLink: SMTP_USERNAME no configurado; correo omitido.'
+        )
+        return
+      }
+
+      const branding = await this.resolveBranding()
+
+      await mail.send(
+        new MagicLinkMail({
+          to,
+          from: senderEmail,
+          firstName,
+          magicLinkUrl,
+          language,
+          branding,
+          validityMinutes: 15,
+        })
+      )
+    } catch (error) {
+      logger.error(
+        { err: error, to: this.redactEmail(to) },
+        'AuthMailService.sendMagicLink: fallo al enviar correo de magic link.'
       )
     }
   }

@@ -655,6 +655,16 @@
         "support": "Si necesitas ayuda durante la puesta en marcha, escríbenos respondiendo al equipo de soporte que te asignaron.",
         "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
       }
+    },
+    "magic_link": {
+      "subject": "Tu enlace de acceso a {tradeName}",
+      "preheader": "Usa este enlace para iniciar sesión sin contraseña. Válido por tiempo limitado.",
+      "greeting": "Hola, {firstName}",
+      "intro": "Solicitaste acceder a {tradeName} mediante enlace mágico. Haz clic en el botón para iniciar sesión sin contraseña:",
+      "cta": "Acceder al sistema",
+      "validity": "Este enlace es válido por {minutes} minutos y solo puede usarse una vez. Si expira, solicita uno nuevo desde la pantalla de inicio de sesión.",
+      "ignore_notice": "Si no solicitaste este acceso, ignora este correo. Tu cuenta permanece segura.",
+      "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
     }
   },
   "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
@@ -678,6 +688,13 @@
   "signup_password_requires_number": "La contraseña debe contener al menos un número",
   "signup_password_requires_symbol": "La contraseña debe contener al menos un símbolo",
   "signup_passwords_do_not_match": "Las contraseñas no coinciden",
+  "magic_link_title": "Enlace mágico",
+  "magic_link_request_message": "Si el correo está registrado, recibirás un enlace de acceso en breve. Revisa tu bandeja de entrada.",
+  "magic_link_token_missing_title": "Error de validación",
+  "magic_link_token_missing_detail": "El token del enlace mágico es requerido",
+  "magic_link_invalid_title": "Enlace no válido",
+  "magic_link_invalid_detail": "El enlace expiró o ya fue utilizado. Solicita uno nuevo desde el inicio de sesión.",
+  "magic_link_success_message": "Sesión iniciada exitosamente",
   "regulatory": {
     "authorities": {
       "stps": {

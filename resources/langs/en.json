@@ -652,6 +652,16 @@
         "support": "If you need help during onboarding, just reply to the support team assigned to you.",
         "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
       }
+    },
+    "magic_link": {
+      "subject": "Your sign-in link for {tradeName}",
+      "preheader": "Use this link to sign in without a password. Valid for a limited time.",
+      "greeting": "Hi, {firstName}",
+      "intro": "You requested to access {tradeName} via magic link. Click the button below to sign in without a password:",
+      "cta": "Access the system",
+      "validity": "This link is valid for {minutes} minutes and can only be used once. If it expires, request a new one from the sign-in screen.",
+      "ignore_notice": "If you did not request this access, please ignore this email. Your account remains secure.",
+      "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
     }
   },
   "attendance_stats_dates_required": "startDay and endDay are required",
@@ -675,6 +685,13 @@
   "signup_password_requires_number": "Password must contain at least one number",
   "signup_password_requires_symbol": "Password must contain at least one symbol",
   "signup_passwords_do_not_match": "Passwords do not match",
+  "magic_link_title": "Magic link",
+  "magic_link_request_message": "If the email is registered, you will receive a sign-in link shortly. Check your inbox.",
+  "magic_link_token_missing_title": "Validation error",
+  "magic_link_token_missing_detail": "The magic link token is required",
+  "magic_link_invalid_title": "Invalid link",
+  "magic_link_invalid_detail": "The link has expired or was already used. Request a new one from the sign-in page.",
+  "magic_link_success_message": "Signed in successfully",
   "regulatory": {
     "authorities": {
       "stps": {
