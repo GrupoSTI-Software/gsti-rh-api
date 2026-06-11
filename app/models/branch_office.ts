@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import EmployeeBranchOffice from './employee_branch_office.js'
+import EmpresaContratante from './empresa_contratante.js'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
@@ -49,6 +50,18 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *           type: string
  *           format: date-time
  *           nullable: true
+ *         empresaContratanteId:
+ *           type: integer
+ *           nullable: true
+ *           description: Empresa contratante ligada (sitio de servicio REPSE)
+ *         empresaContratante:
+ *           type: object
+ *           nullable: true
+ *           properties:
+ *             empresaContratanteId:
+ *               type: integer
+ *             razonSocial:
+ *               type: string
  */
 export default class BranchOffice extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
@@ -72,6 +85,9 @@ export default class BranchOffice extends compose(BaseModel, SoftDeletes, withBu
   @column()
   declare branchOfficeMinActiveEmployeesPerShift: number | null
 
+  @column()
+  declare empresaContratanteId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare branchOfficeCreatedAt: DateTime
 
@@ -90,6 +106,15 @@ export default class BranchOffice extends compose(BaseModel, SoftDeletes, withBu
     },
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @belongsTo(() => EmpresaContratante, {
+    foreignKey: 'empresaContratanteId',
+    localKey: 'empresaContratanteId',
+    onQuery: (query) => {
+      query.whereNull('empresa_contratante_deleted_at')
+    },
+  })
+  declare empresaContratante: BelongsTo<typeof EmpresaContratante>
 
   @hasMany(() => EmployeeBranchOffice, {
     foreignKey: 'branchOfficeId',

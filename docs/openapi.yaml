@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Valanserh API - Compliance REPSE
-  version: 1.2.0
-  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT, documentos firmados y asignación de trabajadores.
+  version: 1.3.0
+  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT, documentos firmados, asignación de trabajadores y sucursales como sitios de servicio REPSE.
 
 components:
   securitySchemes:
@@ -255,6 +255,176 @@ components:
           properties:
             empresaContratante:
               $ref: '#/components/schemas/EmpresaContratante'
+
+    EmpresaContratanteEmbed:
+      type: object
+      required: [empresaContratanteId, razonSocial]
+      properties:
+        empresaContratanteId:
+          type: integer
+        razonSocial:
+          type: string
+
+    BranchOffice:
+      type: object
+      properties:
+        branchOfficeId:
+          type: integer
+        businessUnitId:
+          type: integer
+        branchOfficeName:
+          type: string
+        branchOfficeSlug:
+          type: string
+        branchOfficeLocationAddress:
+          type: string
+          nullable: true
+        branchOfficeIdealTemplateCount:
+          type: integer
+          nullable: true
+        branchOfficeMinActiveEmployeesPerShift:
+          type: integer
+          nullable: true
+        empresaContratanteId:
+          type: integer
+          nullable: true
+        empresaContratante:
+          allOf:
+            - $ref: '#/components/schemas/EmpresaContratanteEmbed'
+          nullable: true
+        branchOfficeCreatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        branchOfficeUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        branchOfficeDeletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    BranchOfficeCreate:
+      type: object
+      required: [businessUnitId, branchOfficeName]
+      properties:
+        businessUnitId:
+          type: integer
+        branchOfficeName:
+          type: string
+          maxLength: 255
+        branchOfficeLocationAddress:
+          type: string
+          nullable: true
+        branchOfficeIdealTemplateCount:
+          type: integer
+          minimum: 0
+          nullable: true
+        branchOfficeMinActiveEmployeesPerShift:
+          type: integer
+          minimum: 0
+          nullable: true
+        empresaContratanteId:
+          type: integer
+          nullable: true
+
+    BranchOfficeUpdate:
+      type: object
+      properties:
+        businessUnitId:
+          type: integer
+        branchOfficeName:
+          type: string
+        branchOfficeLocationAddress:
+          type: string
+          nullable: true
+        branchOfficeIdealTemplateCount:
+          type: integer
+          nullable: true
+        branchOfficeMinActiveEmployeesPerShift:
+          type: integer
+          nullable: true
+        empresaContratanteId:
+          type: integer
+          nullable: true
+
+    BranchOfficeSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            branchOffice:
+              $ref: '#/components/schemas/BranchOffice'
+
+    BranchOfficesListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            branchOffices:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/BranchOffice'
+
+    ApiErrorEmpresaContratanteNoEncontrada:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Empresa contratante no encontrada
+        message: No se encontró la empresa contratante indicada
+        detail: No se encontró la empresa contratante indicada
+        key: empresa-contratante-no-encontrada
+        errorCode: ECNT.NF.001
+        data: null
+
+    ApiErrorSucursalYaLigada:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Sucursal ya ligada
+        message: La sucursal ya está ligada a otra empresa contratante.
+        detail: La sucursal ya está ligada a otra empresa contratante.
+        key: sucursal-ya-ligada
+        errorCode: BRCH.CONFLICT.LINK.001
+        data: null
+
+    ApiErrorEmpresaConSitiosLigados:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Empresa con sitios de servicio
+        message: Desliga las 2 sucursales ligadas antes de eliminar la empresa
+        detail: Desliga las 2 sucursales ligadas antes de eliminar la empresa
+        key: empresa-con-sitios-ligados
+        errorCode: ECNT.CONFLICT.SITIOS.001
+        data: null
 
     ContratosServiciosEspecializadosListSuccess:
       type: object
@@ -1333,6 +1503,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Empresa con sitios de servicio ligados (key empresa-con-sitios-ligados)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaConSitiosLigados'
 
   /api/contratos-servicios-especializados:
     get:
@@ -2087,3 +2263,256 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorServicioConContratosActivos'
+
+  /api/branch-offices:
+    get:
+      summary: Listar sucursales con paginación y filtros
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 1000
+        - name: businessUnitId
+          in: query
+          schema:
+            type: integer
+        - name: empresaContratanteId
+          in: query
+          description: Filtra sucursales ligadas como sitios de servicio de la empresa
+          schema:
+            type: integer
+        - name: branchOfficeName
+          in: query
+          schema:
+            type: string
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: includeDeleted
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Lista paginada de sucursales
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficesListSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key empresa-contratante-no-encontrada (filtro inválido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaContratanteNoEncontrada'
+    post:
+      summary: Crear sucursal
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchOfficeCreate'
+      responses:
+        '201':
+          description: Sucursal creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaContratanteNoEncontrada'
+        '409':
+          description: key sucursal-ya-ligada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorSucursalYaLigada'
+
+  /api/branch-offices/{id}:
+    get:
+      summary: Obtener sucursal por ID
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalle de sucursal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    put:
+      summary: Actualizar sucursal
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchOfficeUpdate'
+      responses:
+        '200':
+          description: Sucursal actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada o key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaContratanteNoEncontrada'
+        '409':
+          description: key sucursal-ya-ligada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorSucursalYaLigada'
+    delete:
+      summary: Eliminar sucursal (baja lógica)
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Sucursal eliminada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    nullable: true
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
