@@ -554,6 +554,27 @@ Cross-tenant o contrato inexistente reutiliza `CSE.NF.001` / key `contrato-no-en
 
 ---
 
+## Asignaciones de trabajadores a contratos REPSE (`ACE.*`)
+
+Módulo: asignaciones bajo `/api/contratos-servicios-especializados/{contratoId}/asignaciones`. Permisos: `compliance-contratos` / `read`, `create`, `update`, `delete` o `gestion`.
+
+| Código | Escenario | HTTP | Key |
+|--------|-----------|------|-----|
+| ACE.VAL.001 | Validación VineJS o input inválido | 400 | — |
+| ACE.VAL.EMP.DUP.001 | employeeId repetido en el payload bulk | 400 | — |
+| ACE.VAL.FECHAS.001 | fechaFin anterior a fechaInicio | 422 | `fecha-fin-anterior-a-fecha-inicio` |
+| ACE.NF.001 | Asignación inexistente o cross-tenant | 404 | — |
+| ACE.NF.EMP.001 | Empleado inexistente, inactivo o cross-tenant | 404 | `empleado-no-encontrado` |
+| ACE.VAL.CONTRATO.001 | Contrato no vigente (solo POST) | 422 | `contrato-no-vigente` |
+| ACE.VAL.VIGENCIA.001 | Fechas fuera de la vigencia efectiva del contrato | 422 | `asignacion-fuera-de-vigencia` |
+| ACE.CONFLICT.DUP.001 | Solape mismo empleado+contrato | 409 | `asignacion-duplicada` |
+| ACE.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
+| ACE.SYS.001 | Error no clasificado | 5xx | — |
+
+Cross-tenant de contrato reutiliza `CSE.NF.001` / key `contrato-no-encontrado`.
+
+---
+
 ## Registro REPSE (`REPSE.*`)
 
 Módulo: `/api/repse-registrations` y `/api/repse-specialized-services`. Permisos: `repse-registrations` / `read`, `create`, `update`, `delete` o `gestion`.

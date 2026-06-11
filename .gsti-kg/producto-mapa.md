@@ -1,23 +1,23 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-06-09T21:01:33+00:00"
-kg_head_sha: "95b75fb2e9fe41e481ad1b10d463bdf2880595f8"
+kg_built_at: "2026-06-11T15:55:30+00:00"
+kg_head_sha: "c18cb5672429916c799030fb582d6931eb3f5cb5"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
-producto: "Valanserh"
+producto: "valanserh"
 prefijo_asana: "USRH"
 default_branch: "develop"
 counts:
-  entidades_db: 163
-  endpoints: 775
-  controllers: 150
-  services: 153
+  entidades_db: 164
+  endpoints: 781
+  controllers: 151
+  services: 155
   validators: 112
   middlewares: 7
   seeders: 31
-  tablas_migradas: 178
-  i18n_keys: 1335
+  tablas_migradas: 179
+  i18n_keys: 2393
 ---
 
 # Knowledge Graph — valanserh-api
@@ -34,7 +34,7 @@ counts:
 - **i18n del backend**: resources/langs/{es,en}.json
 - **Stack**: AdonisJS 6, Lucid ORM (MySQL), soft deletes via adonis-lucid-soft-deletes
 
-## Entidades de BD (163)
+## Entidades de BD (164)
 
 ### `AccessPoint`
 
@@ -176,6 +176,18 @@ counts:
   - `name`: string
   - `userId`: number
   - `apiTokenBrowser`: string
+
+### `AsignacionContratoEspecializado`
+
+- **Archivo**: `app/models/asignacion_contrato_especializado.ts`
+- **PK**: `asignacionContratoEspecializadoId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `asignacionContratoEspecializadoId`: number (PK)
+  - `contratoServicioEspecializadoId`: number
+  - `employeeId`: number
+  - `businessUnitId`: number
+  - `porcentajeTiempo`: number
 
 ### `AssessmentTemplate`
 
@@ -2151,7 +2163,7 @@ counts:
   - `zoneAddress`: string
   - `zonePolygon`: string
 
-## Endpoints REST (775)
+## Endpoints REST (781)
 
 ### `/api/access-points` (middleware: auth)
 
@@ -2287,6 +2299,7 @@ counts:
 | POST | `/api/auth/signup/verify-otp` | `#controllers/auth_signup_controller.verifyOtp` | `start/routes/auth_signup_routes.ts` |
 | POST | `/api/auth/signup/complete` | `#controllers/auth_signup_controller.completeSignup` | `start/routes/auth_signup_routes.ts` |
 | POST | `/api/auth/login` | `#controllers/user_controller.login` | `start/routes/login_routes.ts` |
+| POST | `/api/auth/refresh` | `#controllers/user_controller.refresh` | `start/routes/login_routes.ts` |
 | POST | `/api/auth/logout` | `#controllers/user_controller.logout` | `start/routes/login_routes.ts` |
 | POST | `/api/auth/recovery` | `#controllers/user_controller.recoveryPassword` | `start/routes/login_routes.ts` |
 | POST | `/api/auth/request/verify/:token` | `#controllers/user_controller.verifyRequestRecovery` | `start/routes/login_routes.ts` |
@@ -2407,6 +2420,10 @@ counts:
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
+| POST | `/api/contratos-servicios-especializados/:contratoId/asignaciones` | `#controllers/asignaciones_contrato_especializado_controller.store` | `start/routes/asignaciones_contrato_especializado_routes.ts` |
+| GET | `/api/contratos-servicios-especializados/:contratoId/asignaciones` | `#controllers/asignaciones_contrato_especializado_controller.index` | `start/routes/asignaciones_contrato_especializado_routes.ts` |
+| PATCH | `/api/contratos-servicios-especializados/:contratoId/asignaciones/:id` | `#controllers/asignaciones_contrato_especializado_controller.update` | `start/routes/asignaciones_contrato_especializado_routes.ts` |
+| DELETE | `/api/contratos-servicios-especializados/:contratoId/asignaciones/:id` | `#controllers/asignaciones_contrato_especializado_controller.destroy` | `start/routes/asignaciones_contrato_especializado_routes.ts` |
 | GET | `/api/contratos-servicios-especializados` | `#controllers/contratos_servicios_especializados_controller.index` | `start/routes/contratos_servicios_especializados_routes.ts` |
 | GET | `/api/contratos-servicios-especializados/:id` | `#controllers/contratos_servicios_especializados_controller.show` | `start/routes/contratos_servicios_especializados_routes.ts` |
 | POST | `/api/contratos-servicios-especializados` | `#controllers/contratos_servicios_especializados_controller.store` | `start/routes/contratos_servicios_especializados_routes.ts` |
@@ -3545,6 +3562,7 @@ counts:
 | GET | `/api/v1/employee-assist-calendars` | `#controllers/employee_assist_calendar_controller.index` | `start/routes/employee_assist_calendar_routes.ts` |
 | GET | `/api/v1/regulatory-coverage` | `#modules/regulatory-coverage/regulatory_coverage.controller.index` | `start/routes/regulatory_coverage_routes.ts` |
 | GET | `/api/v1/regulatory-coverage/summary` | `#modules/regulatory-coverage/regulatory_coverage.controller.summary` | `start/routes/regulatory_coverage_routes.ts` |
+| GET | `/api/v1/regulatory-coverage/:regulationId` | `#modules/regulatory-coverage/regulatory_coverage.controller.show` | `start/routes/regulatory_coverage_routes.ts` |
 
 ### `/api/vacation-authorizations` (middleware: auth)
 
@@ -3633,7 +3651,7 @@ counts:
 | DELETE | `/api/zones/:zoneId` | `#controllers/zone_controller.delete` | `start/routes/zone_routes.ts` |
 | PUT | `/api/zones/:zoneId/thumbnail` | `#controllers/zone_controller.uploadThumbnail` | `start/routes/zone_routes.ts` |
 
-## Controllers (150)
+## Controllers (151)
 
 - `app/controllers/access_point_controller.ts`
 - `app/controllers/address_controller.ts`
@@ -3646,6 +3664,7 @@ counts:
 - `app/controllers/aircraft_properties_controller.ts`
 - `app/controllers/aircrafts_controller.ts`
 - `app/controllers/airports_controller.ts`
+- `app/controllers/asignaciones_contrato_especializado_controller.ts`
 - `app/controllers/assessment_template_controller.ts`
 - `app/controllers/assessment_template_dimension_controller.ts`
 - `app/controllers/assists_controller.ts`
@@ -3786,7 +3805,7 @@ counts:
 - `app/controllers/work_disability_type_controller.ts`
 - `app/controllers/zone_controller.ts`
 
-## Services (153)
+## Services (155)
 
 - `app/services/access_point_service.ts`
 - `app/services/address_service.ts`
@@ -3796,12 +3815,14 @@ counts:
 - `app/services/aircraft_maintenance_urgency_level_service.ts`
 - `app/services/aircraft_operator_service.ts`
 - `app/services/aircraft_proceeding_file_service.ts`
+- `app/services/asignacion_contrato_especializado_service.ts`
 - `app/services/assessment_data_type_coherence.ts`
 - `app/services/assessment_template_dimension_service.ts`
 - `app/services/assessment_template_service.ts`
 - `app/services/assist_service.ts`
 - `app/services/attendance_fault_hr_notification_service.ts`
 - `app/services/auth_mail_service.ts`
+- `app/services/auth_token_service.ts`
 - `app/services/bank_service.ts`
 - `app/services/branch_office_service.ts`
 - `app/services/business_access_scope_service.ts`
@@ -4101,7 +4122,7 @@ counts:
 - `database/seeders/0033_regulation_clause_feature_baseline_seeder.ts`
 - `database/seeders/0034_working_time_overrides_module_seeder.ts`
 
-## Tablas migradas (178)
+## Tablas migradas (179)
 
 - `access_point_employees`
 - `access_points`
@@ -4117,6 +4138,7 @@ counts:
 - `aircrafts`
 - `airports`
 - `api_tokens`
+- `asignaciones_contrato_especializado`
 - `assessment_template_dimensions`
 - `assessment_templates`
 - `assists`
@@ -4284,7 +4306,7 @@ counts:
 
 ## i18n keys (top-level)
 
-### Idioma `en` (666 claves totales)
+### Idioma `en` (1195 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -4454,6 +4476,32 @@ counts:
 - `version_contrato_especializado_immutable_message.*` (1 claves)
 - `version_contrato_especializado_forbidden_read_title.*` (1 claves)
 - `version_contrato_especializado_forbidden_read_message.*` (1 claves)
+- `asignacion_contrato_especializado_title.*` (1 claves)
+- `asignacion_contrato_especializado_created_successfully.*` (1 claves)
+- `asignacion_contrato_especializado_listed_successfully.*` (1 claves)
+- `asignacion_contrato_especializado_updated_successfully.*` (1 claves)
+- `asignacion_contrato_especializado_error_default_title.*` (1 claves)
+- `asignacion_contrato_especializado_unauthorized_title.*` (1 claves)
+- `asignacion_contrato_especializado_unauthorized_message.*` (1 claves)
+- `asignacion_contrato_val_input_title.*` (1 claves)
+- `asignacion_contrato_val_input_message.*` (1 claves)
+- `asignacion_contrato_val_employee_duplicate_title.*` (1 claves)
+- `asignacion_contrato_val_employee_duplicate_message.*` (1 claves)
+- `asignacion_contrato_val_fechas_title.*` (1 claves)
+- `asignacion_contrato_val_fechas_message.*` (1 claves)
+- `asignacion_contrato_not_found_title.*` (1 claves)
+- `asignacion_contrato_not_found_message.*` (1 claves)
+- `asignacion_contrato_employee_not_found_title.*` (1 claves)
+- `asignacion_contrato_employee_not_found_message.*` (1 claves)
+- `asignacion_contrato_contrato_no_vigente_title.*` (1 claves)
+- `asignacion_contrato_contrato_no_vigente_message.*` (1 claves)
+- `asignacion_contrato_fuera_de_vigencia_title.*` (1 claves)
+- `asignacion_contrato_fuera_de_vigencia_message.*` (1 claves)
+- `asignacion_contrato_duplicada_title.*` (1 claves)
+- `asignacion_contrato_duplicada_message.*` (1 claves)
+- `asignacion_contrato_forbidden_title.*` (1 claves)
+- `asignacion_contrato_forbidden_message.*` (1 claves)
+- `asignacion_contrato_unexpected_error_message.*` (1 claves)
 - `version_contrato_especializado_forbidden_write_title.*` (1 claves)
 - `version_contrato_especializado_forbidden_write_message.*` (1 claves)
 - `version_contrato_especializado_unexpected_error_message.*` (1 claves)
@@ -4890,8 +4938,9 @@ counts:
 - `signup_password_requires_number.*` (1 claves)
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
+- `regulatory.*` (503 claves)
 
-### Idioma `es` (669 claves totales)
+### Idioma `es` (1198 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -5061,6 +5110,32 @@ counts:
 - `version_contrato_especializado_immutable_message.*` (1 claves)
 - `version_contrato_especializado_forbidden_read_title.*` (1 claves)
 - `version_contrato_especializado_forbidden_read_message.*` (1 claves)
+- `asignacion_contrato_especializado_title.*` (1 claves)
+- `asignacion_contrato_especializado_created_successfully.*` (1 claves)
+- `asignacion_contrato_especializado_listed_successfully.*` (1 claves)
+- `asignacion_contrato_especializado_updated_successfully.*` (1 claves)
+- `asignacion_contrato_especializado_error_default_title.*` (1 claves)
+- `asignacion_contrato_especializado_unauthorized_title.*` (1 claves)
+- `asignacion_contrato_especializado_unauthorized_message.*` (1 claves)
+- `asignacion_contrato_val_input_title.*` (1 claves)
+- `asignacion_contrato_val_input_message.*` (1 claves)
+- `asignacion_contrato_val_employee_duplicate_title.*` (1 claves)
+- `asignacion_contrato_val_employee_duplicate_message.*` (1 claves)
+- `asignacion_contrato_val_fechas_title.*` (1 claves)
+- `asignacion_contrato_val_fechas_message.*` (1 claves)
+- `asignacion_contrato_not_found_title.*` (1 claves)
+- `asignacion_contrato_not_found_message.*` (1 claves)
+- `asignacion_contrato_employee_not_found_title.*` (1 claves)
+- `asignacion_contrato_employee_not_found_message.*` (1 claves)
+- `asignacion_contrato_contrato_no_vigente_title.*` (1 claves)
+- `asignacion_contrato_contrato_no_vigente_message.*` (1 claves)
+- `asignacion_contrato_fuera_de_vigencia_title.*` (1 claves)
+- `asignacion_contrato_fuera_de_vigencia_message.*` (1 claves)
+- `asignacion_contrato_duplicada_title.*` (1 claves)
+- `asignacion_contrato_duplicada_message.*` (1 claves)
+- `asignacion_contrato_forbidden_title.*` (1 claves)
+- `asignacion_contrato_forbidden_message.*` (1 claves)
+- `asignacion_contrato_unexpected_error_message.*` (1 claves)
 - `version_contrato_especializado_forbidden_write_title.*` (1 claves)
 - `version_contrato_especializado_forbidden_write_message.*` (1 claves)
 - `version_contrato_especializado_unexpected_error_message.*` (1 claves)
@@ -5500,3 +5575,4 @@ counts:
 - `signup_password_requires_number.*` (1 claves)
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
+- `regulatory.*` (503 claves)
