@@ -142,6 +142,372 @@ export default class RegulatoryCoverageController {
   async index(ctx: HttpContext) {
     return runRegulatoryCoverageIndex(ctx)
   }
+
+  /**
+   * @swagger
+   * /api/v1/regulatory-coverage/summary:
+   *   get:
+   *     summary: Resumen ejecutivo de cobertura regulatoria agregada y proyectada
+   *     description: |
+   *       Devuelve el porcentaje de cobertura del producto Valanserh sobre todas las
+   *       normas vigentes, desglosado por bucket acumulativo de `system_feature_status`:
+   *
+   *       - **disponible**   : solo funcionalidades ya liberadas (cobertura actual).
+   *       - **enDesarrollo** : disponible + en desarrollo (proyección a corto plazo).
+   *       - **planeado**     : disponible + en desarrollo + planeado (roadmap completo).
+   *
+   *       Las features con status `deprecado` quedan fuera de todos los buckets.
+   *
+   *       **Agregado cross-norma**: porcentaje global sobre el total de numerales hoja
+   *       de todas las normas vigentes combinadas.
+   *
+   *       **Por norma**: una fila por norma vigente con sus tres porcentajes, donde
+   *       el bucket `disponible` coincide con el del endpoint por-norma
+   *       `GET /api/v1/regulatory-coverage`.
+   *
+   *       **Caché**: caché en memoria propio (TTL 5 min), independiente del endpoint
+   *       por-norma.
+   *
+   *       **Sin denominador**: cuando `evaluableClauses` es 0, todos los
+   *       `coveragePercentage` del bucket son `null` (sin división entre cero).
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - RegulatoryCoverage
+   *     responses:
+   *       200:
+   *         description: Resumen de cobertura calculado correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     aggregate:
+   *                       type: object
+   *                       description: Agregado cross-norma de todas las normas vigentes
+   *                       properties:
+   *                         evaluableClauses:
+   *                           type: integer
+   *                           example: 80
+   *                           description: Total de numerales hoja en todas las normas vigentes
+   *                         coveragePercentage:
+   *                           type: object
+   *                           properties:
+   *                             disponible:
+   *                               type: number
+   *                               nullable: true
+   *                               example: 43.8
+   *                               description: >
+   *                                 % cubierto hoy (solo features disponibles).
+   *                                 null cuando evaluableClauses = 0.
+   *                             enDesarrollo:
+   *                               type: number
+   *                               nullable: true
+   *                               example: 61.3
+   *                               description: >
+   *                                 % proyectado al liberar features en_desarrollo.
+   *                                 null cuando evaluableClauses = 0.
+   *                             planeado:
+   *                               type: number
+   *                               nullable: true
+   *                               example: 78.1
+   *                               description: >
+   *                                 % alcanzable con todo el roadmap.
+   *                                 null cuando evaluableClauses = 0.
+   *                     regulations:
+   *                       type: array
+   *                       description: Una fila por norma vigente con sus tres porcentajes
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           regulationId:
+   *                             type: integer
+   *                             example: 1
+   *                           regulationCode:
+   *                             type: string
+   *                             example: "NOM-035-STPS"
+   *                           regulationTitle:
+   *                             type: string
+   *                             example: "Factores de Riesgo en el Trabajo"
+   *                           regulationVersion:
+   *                             type: string
+   *                             example: "2018"
+   *                           authority:
+   *                             type: object
+   *                             properties:
+   *                               slug:
+   *                                 type: string
+   *                                 example: "stps"
+   *                               shortName:
+   *                                 type: string
+   *                                 example: "STPS"
+   *                           evaluableClauses:
+   *                             type: integer
+   *                             example: 35
+   *                             description: Numerales hoja de esta norma (denominador)
+   *                           coveragePercentage:
+   *                             type: object
+   *                             properties:
+   *                               disponible:
+   *                                 type: number
+   *                                 nullable: true
+   *                                 example: 45.7
+   *                               enDesarrollo:
+   *                                 type: number
+   *                                 nullable: true
+   *                                 example: 62.9
+   *                               planeado:
+   *                                 type: number
+   *                                 nullable: true
+   *                                 example: 80.0
+   *       401:
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: no-autenticado
+   *       500:
+   *         description: Error interno en el cálculo del summary
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: error-calculo-cobertura-summary
+   */
+  async summary(ctx: HttpContext) {
+    return runRegulatoryCoverageSummary(ctx)
+  }
+
+  /**
+   * @swagger
+   * /api/v1/regulatory-coverage/{regulationId}:
+   *   get:
+   *     summary: Detalle de cobertura de una norma con numerales hoja y módulos
+   *     description: |
+   *       Devuelve la cabecera de la norma (mismos conteos que el endpoint index)
+   *       más el listado completo de sus numerales hoja, cada uno con:
+   *
+   *       - `bestCoverage`: mejor cobertura calculada sobre features `disponible`
+   *         (igual que el criterio del endpoint index).
+   *       - `features`: lista de todas las features **no-deprecadas** mapeadas al
+   *         numeral (disponible, en_desarrollo, planeado), con su módulo.
+   *
+   *       Un numeral con `bestCoverage: null` puede aún listar features en
+   *       desarrollo o planeadas, reflejando el roadmap de cobertura futura.
+   *
+   *       **Caché**: respuesta cacheada por `regulationId` con TTL 5 minutos.
+   *
+   *       **404**: la norma no existe, está soft-deleted o su estado no es `vigente`.
+   *
+   *       **400**: `regulationId` no es un entero positivo.
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - RegulatoryCoverage
+   *     parameters:
+   *       - in: path
+   *         name: regulationId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           example: 1
+   *         description: ID numérico de la norma
+   *     responses:
+   *       200:
+   *         description: Detalle calculado correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     regulation:
+   *                       type: object
+   *                       properties:
+   *                         regulationId:
+   *                           type: integer
+   *                           example: 1
+   *                         code:
+   *                           type: string
+   *                           example: "NOM-035-STPS"
+   *                         title:
+   *                           type: string
+   *                           example: "Factores de Riesgo en el Trabajo"
+   *                         type:
+   *                           type: string
+   *                           example: "NOM"
+   *                         version:
+   *                           type: string
+   *                           example: "2018"
+   *                         status:
+   *                           type: string
+   *                           example: "vigente"
+   *                         authority:
+   *                           type: object
+   *                           properties:
+   *                             slug:
+   *                               type: string
+   *                               example: "stps"
+   *                             shortName:
+   *                               type: string
+   *                               example: "STPS"
+   *                         evaluableClauses:
+   *                           type: integer
+   *                           example: 35
+   *                         coveredTotal:
+   *                           type: integer
+   *                           example: 12
+   *                         coveredPartial:
+   *                           type: integer
+   *                           example: 8
+   *                         uncovered:
+   *                           type: integer
+   *                           example: 15
+   *                         coveragePercentage:
+   *                           type: number
+   *                           nullable: true
+   *                           example: 45.7
+   *                     clauses:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           regulationClauseId:
+   *                             type: integer
+   *                             example: 42
+   *                           code:
+   *                             type: string
+   *                             example: "4.3.2"
+   *                           titleKey:
+   *                             type: string
+   *                             nullable: true
+   *                             example: "nom035.4.3.2.title"
+   *                           bestCoverage:
+   *                             type: string
+   *                             nullable: true
+   *                             enum: [total, parcial, null]
+   *                             example: "parcial"
+   *                           features:
+   *                             type: array
+   *                             items:
+   *                               type: object
+   *                               properties:
+   *                                 systemFeatureId:
+   *                                   type: integer
+   *                                 featureName:
+   *                                   type: string
+   *                                 featureSlug:
+   *                                   type: string
+   *                                 featureStatus:
+   *                                   type: string
+   *                                   enum: [disponible, en_desarrollo, planeado]
+   *                                 coverage:
+   *                                   type: string
+   *                                   nullable: true
+   *                                   enum: [total, parcial, null]
+   *                                 module:
+   *                                   type: object
+   *                                   properties:
+   *                                     moduleId:
+   *                                       type: integer
+   *                                     moduleName:
+   *                                       type: string
+   *                                     moduleSlug:
+   *                                       type: string
+   *       400:
+   *         description: regulationId no es un entero positivo
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: id-no-numerico
+   *       401:
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: no-autenticado
+   *       404:
+   *         description: Norma no encontrada o no vigente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: norma-no-encontrada
+   *       500:
+   *         description: Error interno en el cálculo del detalle
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: error-calculo-cobertura-detalle
+   */
+  async show(ctx: HttpContext) {
+    return runRegulatoryCoverageShow(ctx)
+  }
 }
 
 /**
@@ -179,6 +545,113 @@ export async function runRegulatoryCoverageIndex(
       title: t('server_error'),
       detail,
       key: 'error-calculo-cobertura',
+    })
+  }
+}
+
+/**
+ * Lógica del endpoint show (detalle por norma), extraída para facilitar
+ * pruebas unitarias sin pasar por el contenedor IoC de AdonisJS.
+ */
+export async function runRegulatoryCoverageShow(
+  ctx: HttpContext,
+  service: RegulatoryCoverageService = new RegulatoryCoverageService()
+) {
+  const { response, auth, params, i18n } = ctx
+  const t = i18n.formatMessage.bind(i18n)
+
+  const user = auth.user
+  if (!user) {
+    return response.status(401).json({
+      title: t('unauthenticated'),
+      detail: t('unauthenticated'),
+      key: 'no-autenticado',
+    })
+  }
+
+  const rawId = params.regulationId
+  const regulationId = Number(rawId)
+  if (!Number.isInteger(regulationId) || regulationId <= 0) {
+    return response.status(400).json({
+      title: t('validation_error'),
+      detail: 'El parámetro regulationId debe ser un entero positivo.',
+      key: 'id-no-numerico',
+    })
+  }
+
+  try {
+    const detail = await service.getDetail(regulationId)
+    if (!detail) {
+      return response.status(404).json({
+        title: t('not_found'),
+        detail: 'La norma solicitada no existe o no está vigente.',
+        key: 'norma-no-encontrada',
+      })
+    }
+
+    // Traducir las llaves i18n de obligación y explicación antes de enviar al cliente.
+    // El BO no tiene acceso a los archivos de idioma de la API, por lo que la
+    // resolución debe ocurrir aquí usando el contexto i18n de la petición.
+    const translatedDetail = {
+      ...detail,
+      clauses: detail.clauses.map((clause) => ({
+        ...clause,
+        obligationKey: i18n.t(clause.obligationKey, undefined, clause.obligationKey),
+        explanationKey: i18n.t(clause.explanationKey, undefined, clause.explanationKey),
+      })),
+    }
+
+    return response.status(200).json({
+      type: 'success',
+      title: t('resources'),
+      message: t('resources_were_found_successfully'),
+      data: translatedDetail,
+    })
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return response.status(500).json({
+      title: t('server_error'),
+      detail,
+      key: 'error-calculo-cobertura-detalle',
+    })
+  }
+}
+
+/**
+ * Lógica del endpoint summary, extraída para facilitar pruebas unitarias
+ * sin pasar por el contenedor IoC de AdonisJS.
+ */
+export async function runRegulatoryCoverageSummary(
+  ctx: HttpContext,
+  service: RegulatoryCoverageService = new RegulatoryCoverageService()
+) {
+  const { response, auth, i18n } = ctx
+  const t = i18n.formatMessage.bind(i18n)
+
+  try {
+    const user = auth.user
+    if (!user) {
+      return response.status(401).json({
+        title: t('unauthenticated'),
+        detail: t('unauthenticated'),
+        key: 'no-autenticado',
+      })
+    }
+
+    const summaryData = await service.getSummary()
+
+    return response.status(200).json({
+      type: 'success',
+      title: t('resources'),
+      message: t('resources_were_found_successfully'),
+      data: summaryData,
+    })
+  } catch (error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return response.status(500).json({
+      title: t('server_error'),
+      detail,
+      key: 'error-calculo-cobertura-summary',
     })
   }
 }

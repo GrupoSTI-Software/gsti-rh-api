@@ -74,6 +74,18 @@ test.group('RegulatoryCoverageController — endpoint index', () => {
       async getCoverageByRegulation() {
         return sampleRows
       },
+      async getCoverageSummary() {
+        return {
+          aggregate: {
+            evaluableClauses: 0,
+            coveragePercentage: { disponible: null, enDesarrollo: null, planeado: null },
+          },
+          regulations: [],
+        }
+      },
+      async getRegulationDetail() {
+        return null
+      },
     }
     const service = new RegulatoryCoverageService(mockRepo)
     const { ctx, captured } = makeHttpContext({ user: { userId: 1 } })
@@ -96,6 +108,18 @@ test.group('RegulatoryCoverageController — endpoint index', () => {
     const mockRepo = {
       async getCoverageByRegulation() {
         throw new Error('fallo de base de datos')
+      },
+      async getCoverageSummary() {
+        return {
+          aggregate: {
+            evaluableClauses: 0,
+            coveragePercentage: { disponible: null, enDesarrollo: null, planeado: null },
+          },
+          regulations: [],
+        }
+      },
+      async getRegulationDetail() {
+        return null
       },
     }
     const service = new RegulatoryCoverageService(mockRepo)

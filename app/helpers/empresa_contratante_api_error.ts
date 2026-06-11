@@ -19,6 +19,8 @@ const ERROR_CODE_TO_I18N_BASE: Record<EmpresaContratanteErrorCode, string> = {
   [EMPRESA_CONTRATANTE_ERROR_CODES.VAL_INPUT]: 'empresa_contratante_val_input',
   [EMPRESA_CONTRATANTE_ERROR_CODES.RFC_INVALID]: 'empresa_contratante_rfc_invalid',
   [EMPRESA_CONTRATANTE_ERROR_CODES.RFC_DUPLICATE]: 'empresa_contratante_rfc_duplicate',
+  [EMPRESA_CONTRATANTE_ERROR_CODES.CONTRATOS_ACTIVOS]: 'empresa_contratante_contratos_activos',
+  [EMPRESA_CONTRATANTE_ERROR_CODES.SITIOS_LIGADOS]: 'empresa_contratante_sitios_ligados',
   [EMPRESA_CONTRATANTE_ERROR_CODES.NOT_FOUND]: 'empresa_contratante_not_found',
   [EMPRESA_CONTRATANTE_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND]: 'empresa_contratante_business_unit_not_found',
   [EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN]: 'empresa_contratante_forbidden',
@@ -35,9 +37,14 @@ function resolveTitleKey(errorCode: EmpresaContratanteErrorCode): string | undef
   return base ? `${base}_title` : undefined
 }
 
-function translate(i18n: I18n | undefined, key: string | undefined, fallback: string): string {
+function translate(
+  i18n: I18n | undefined,
+  key: string | undefined,
+  fallback: string,
+  replacements?: Record<string, string | number>
+): string {
   if (!i18n || !key) return fallback
-  return i18n.t(key, undefined, fallback)
+  return i18n.t(key, replacements, fallback)
 }
 
 function isRfcValidationFailure(error: unknown): boolean {
@@ -94,6 +101,29 @@ export function resolveEmpresaContratanteApiError(
   }
 
   if (error instanceof EmpresaContratanteError) {
+    if (error.errorCode === EMPRESA_CONTRATANTE_ERROR_CODES.SITIOS_LIGADOS) {
+      const countMatch = error.detail?.match(/\d+/)
+      const count = countMatch ? countMatch[0] : '0'
+      const detail = translate(
+        i18n,
+        'empresa_contratante_sitios_ligados_message',
+        error.detail ?? error.message,
+        { count }
+      )
+      return {
+        message: detail,
+        title: translate(
+          i18n,
+          'empresa_contratante_sitios_ligados_title',
+          'Empresa con sitios de servicio'
+        ),
+        status: error.httpStatus,
+        errorCode: error.errorCode,
+        key: error.key ?? 'empresa-con-sitios-ligados',
+        detail,
+      }
+    }
+
     const message = translate(i18n, resolveMessageKey(error.errorCode), error.message)
     return {
       message,

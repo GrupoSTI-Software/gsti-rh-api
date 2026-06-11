@@ -83,6 +83,8 @@
   "repse_specialized_service_parent_not_found_message": "El registro REPSE no existe o no pertenece al tenant actual.",
   "repse_specialized_service_name_duplicate_title": "Nombre de servicio duplicado",
   "repse_specialized_service_name_duplicate_message": "Ya existe un servicio especializado con ese nombre para esta empresa.",
+  "repse_specialized_service_linked_contratos_title": "Servicio con contratos asociados",
+  "repse_specialized_service_linked_contratos_message": "No se puede eliminar el servicio mientras esté vinculado a contratos activos.",
   "repse_specialized_service_unexpected_error_message": "Ocurrió un error inesperado al procesar el servicio especializado REPSE.",
   "empresas_contratantes_title": "Empresas Contratantes",
   "empresa_contratante_title": "Empresa Contratante",
@@ -107,6 +109,101 @@
   "empresa_contratante_forbidden_title": "Sin permiso",
   "empresa_contratante_forbidden_message": "No tienes permiso para gestionar empresas contratantes.",
   "empresa_contratante_unexpected_error_message": "Ocurrió un error inesperado al procesar la empresa contratante.",
+  "empresa_contratante_contratos_activos_title": "Empresa con contratos activos",
+  "empresa_contratante_contratos_activos_message": "No se puede eliminar la empresa contratante mientras tenga contratos asociados.",
+  "empresa_contratante_sitios_ligados_title": "Empresa con sitios de servicio",
+  "empresa_contratante_sitios_ligados_message": "Desliga las {count} sucursales ligadas antes de eliminar la empresa",
+  "empresa_contratante_not_found_branch_detail": "No se encontró la empresa contratante indicada",
+  "branch_office_error_default_title": "Error",
+  "branch_office_val_input_title": "Datos inválidos",
+  "branch_office_not_found_title": "Sucursal no encontrada",
+  "branch_office_already_linked_title": "Sucursal ya ligada",
+  "branch_office_already_linked_message": "La sucursal ya está ligada a otra empresa contratante.",
+  "contratos_servicios_especializados_title": "Contratos de Servicios Especializados",
+  "contrato_servicio_especializado_title": "Contrato de Servicios Especializados",
+  "contratos_servicios_especializados_listed_successfully": "Contratos obtenidos correctamente",
+  "contrato_servicio_especializado_found_successfully": "Contrato encontrado correctamente",
+  "contrato_servicio_especializado_created_successfully": "Contrato creado correctamente",
+  "contrato_servicio_especializado_updated_successfully": "Contrato actualizado correctamente",
+  "contrato_servicio_especializado_error_default_title": "Error",
+  "contrato_servicio_especializado_unauthorized_title": "No autorizado",
+  "contrato_servicio_especializado_unauthorized_message": "Usuario no autenticado",
+  "contrato_servicio_especializado_val_input_title": "Datos inválidos",
+  "contrato_servicio_especializado_val_input_message": "Los datos enviados no son válidos.",
+  "contrato_servicio_especializado_val_fechas_title": "Fechas inválidas",
+  "contrato_servicio_especializado_val_fechas_message": "La fecha fin no puede ser anterior a la fecha inicio.",
+  "contrato_servicio_especializado_not_found_title": "Contrato no encontrado",
+  "contrato_servicio_especializado_not_found_message": "El contrato no existe o no pertenece al tenant actual.",
+  "contrato_servicio_especializado_contratante_not_found_title": "Empresa contratante no encontrada",
+  "contrato_servicio_especializado_contratante_not_found_message": "La empresa contratante no existe o no pertenece al tenant actual.",
+  "contrato_servicio_especializado_repse_not_found_title": "Registro REPSE no encontrado",
+  "contrato_servicio_especializado_repse_not_found_message": "No hay registro REPSE activo para el tenant actual.",
+  "contrato_servicio_especializado_numero_duplicate_title": "Número de contrato duplicado",
+  "contrato_servicio_especializado_numero_duplicate_message": "Ya existe un contrato con ese número en su tenant.",
+  "contrato_servicio_especializado_servicios_registrados_requeridos_title": "Servicios registrados requeridos",
+  "contrato_servicio_especializado_servicios_registrados_requeridos_message": "Debe indicar al menos un servicio del catálogo REPSE registrado.",
+  "contrato_servicio_especializado_servicio_registrado_not_found_title": "Servicio registrado no encontrado",
+  "contrato_servicio_especializado_servicio_registrado_not_found_message": "Uno o más servicios registrados no existen o no pertenecen al tenant actual.",
+  "contrato_servicio_especializado_forbidden_title": "Sin permiso",
+  "contrato_servicio_especializado_forbidden_message": "No tienes permiso para gestionar contratos de servicios especializados.",
+  "contrato_servicio_especializado_unexpected_error_message": "Ocurrió un error inesperado al procesar el contrato.",
+  "version_contrato_especializado_title": "Versión de contrato",
+  "version_contrato_especializado_renewed_successfully": "Contrato renovado correctamente",
+  "version_contrato_especializado_addendum_successfully": "Addendum registrado correctamente",
+  "version_contrato_especializado_list_successfully": "Versiones históricas obtenidas correctamente",
+  "version_contrato_especializado_found_successfully": "Versión histórica obtenida correctamente",
+  "version_contrato_especializado_error_default_title": "Error",
+  "version_contrato_especializado_unauthorized_title": "No autorizado",
+  "version_contrato_especializado_unauthorized_message": "Usuario no autenticado",
+  "version_contrato_especializado_val_input_title": "Datos inválidos",
+  "version_contrato_especializado_val_input_message": "Los datos enviados no son válidos.",
+  "version_contrato_especializado_addendum_invalid_title": "Addendum inválido",
+  "version_contrato_especializado_addendum_invalid_message": "El payload del addendum no es válido. Debe incluir al menos un campo addendable del anexo.",
+  "version_contrato_especializado_val_vigencia_title": "Vigencia incoherente",
+  "version_contrato_especializado_val_vigencia_message": "La fecha de inicio debe ser anterior o igual a la fecha de fin.",
+  "version_contrato_especializado_contrato_not_found_title": "Contrato no encontrado",
+  "version_contrato_especializado_contrato_not_found_message": "El contrato no existe o no pertenece al tenant actual.",
+  "version_contrato_especializado_version_not_found_title": "Versión no encontrada",
+  "version_contrato_especializado_version_not_found_message": "La versión histórica solicitada no existe.",
+  "version_contrato_especializado_not_renewable_title": "Contrato no renovable",
+  "version_contrato_especializado_not_renewable_message": "Solo se pueden renovar contratos en estatus vigente o vencido.",
+  "version_contrato_especializado_not_addendable_title": "Contrato no addendable",
+  "version_contrato_especializado_not_addendable_message": "Solo se pueden addendar contratos en estatus vigente.",
+  "version_contrato_especializado_snapshot_incomplete_title": "Snapshot incompleto",
+  "version_contrato_especializado_snapshot_incomplete_message": "El contrato no tiene anexo 15-D para generar el historial.",
+  "version_contrato_especializado_immutable_title": "Versión inmutable",
+  "version_contrato_especializado_immutable_message": "El contenido de una versión histórica no puede modificarse.",
+  "version_contrato_especializado_forbidden_read_title": "Sin permiso de consulta",
+  "version_contrato_especializado_forbidden_read_message": "No tienes permiso para consultar el historial de versiones.",
+  "asignacion_contrato_especializado_title": "Asignaciones de Contrato Especializado",
+  "asignacion_contrato_especializado_created_successfully": "Asignaciones creadas correctamente",
+  "asignacion_contrato_especializado_listed_successfully": "Asignaciones obtenidas correctamente",
+  "asignacion_contrato_especializado_updated_successfully": "Asignación actualizada correctamente",
+  "asignacion_contrato_especializado_error_default_title": "Error",
+  "asignacion_contrato_especializado_unauthorized_title": "No autorizado",
+  "asignacion_contrato_especializado_unauthorized_message": "Usuario no autenticado",
+  "asignacion_contrato_val_input_title": "Datos inválidos",
+  "asignacion_contrato_val_input_message": "Los datos enviados no son válidos.",
+  "asignacion_contrato_val_employee_duplicate_title": "Empleado repetido en el lote",
+  "asignacion_contrato_val_employee_duplicate_message": "El mismo employeeId aparece en más de un item del payload.",
+  "asignacion_contrato_val_fechas_title": "Fechas inválidas",
+  "asignacion_contrato_val_fechas_message": "La fecha fin no puede ser anterior a la fecha inicio.",
+  "asignacion_contrato_not_found_title": "Asignación no encontrada",
+  "asignacion_contrato_not_found_message": "La asignación no existe o no pertenece al contrato indicado.",
+  "asignacion_contrato_employee_not_found_title": "Empleado no encontrado",
+  "asignacion_contrato_employee_not_found_message": "El empleado no existe, está inactivo o no pertenece al tenant actual.",
+  "asignacion_contrato_contrato_no_vigente_title": "Contrato no vigente",
+  "asignacion_contrato_contrato_no_vigente_message": "Solo se pueden asignar trabajadores a contratos vigentes.",
+  "asignacion_contrato_fuera_de_vigencia_title": "Asignación fuera de vigencia",
+  "asignacion_contrato_fuera_de_vigencia_message": "Las fechas de la asignación salen de la vigencia del contrato.",
+  "asignacion_contrato_duplicada_title": "Asignación duplicada",
+  "asignacion_contrato_duplicada_message": "El empleado ya está asignado a este contrato en el periodo indicado.",
+  "asignacion_contrato_forbidden_title": "Sin permiso",
+  "asignacion_contrato_forbidden_message": "No tienes permiso para gestionar asignaciones de contratos.",
+  "asignacion_contrato_unexpected_error_message": "Ocurrió un error inesperado al procesar la asignación.",
+  "version_contrato_especializado_forbidden_write_title": "Sin permiso",
+  "version_contrato_especializado_forbidden_write_message": "No tienes permiso para renovar contratos o registrar addendums.",
+  "version_contrato_especializado_unexpected_error_message": "Ocurrió un error inesperado al procesar la versión del contrato.",
   "address": "Dirección",
   "the_address": "La dirección",
   "address_type": "Tipo de dirección",
@@ -509,6 +606,64 @@
   "employee_lactation_period_no_active_shift_title": "Empleada sin turno activo en el rango del periodo",
   "employee_lactation_period_no_active_shift_detail": "La empleada no tiene ningún turno activo en el rango del periodo de lactancia. Asigna un turno antes de regenerar las excepciones.",
   "employee_lactation_period_shift_exceptions_regenerated": "Excepciones de turno regeneradas correctamente",
+  "employee_lactation_period_evidence": "Evidencia de lactancia",
+  "employee_lactation_period_evidences": "Evidencias de lactancia",
+  "employee_lactation_period_evidence_uploaded": "Evidencia subida correctamente",
+  "employee_lactation_period_evidence_deleted": "Evidencia eliminada correctamente",
+  "employee_lactation_period_evidence_list_empty": "Aún no hay evidencias adjuntas a este periodo",
+  "employee_lactation_period_evidence_file_required_title": "Archivo requerido",
+  "employee_lactation_period_evidence_file_required_detail": "Debes seleccionar un archivo PDF",
+  "employee_lactation_period_evidence_invalid_file_type_title": "Tipo de archivo no permitido",
+  "employee_lactation_period_evidence_invalid_file_type_detail": "Sólo se aceptan archivos PDF",
+  "employee_lactation_period_evidence_file_too_large_title": "Archivo demasiado grande",
+  "employee_lactation_period_evidence_file_too_large_detail": "El archivo excede el tamaño máximo de 10 MB",
+  "employee_lactation_period_evidence_invalid_category_title": "Categoría inválida",
+  "employee_lactation_period_evidence_invalid_category_detail": "Categoría fuera del set: acuerdo, sustento, otro",
+  "employee_lactation_period_evidence_not_found_title": "Evidencia no encontrada",
+  "employee_lactation_period_evidence_not_found_detail": "La evidencia no existe o no pertenece al periodo indicado",
+  "employee_lactation_period_evidence_upload_failed_title": "Error al subir la evidencia",
+  "employee_lactation_period_evidence_upload_failed_detail": "No fue posible almacenar el archivo en el repositorio seguro",
+  "employee_lactation_period_evidence_download_failed_title": "Error al generar enlace de descarga",
+  "employee_lactation_period_evidence_download_failed_detail": "No fue posible generar la URL temporal del archivo",
+  "employee_lactation_period_evidence_category_agreement": "Acuerdo patrón-empleada",
+  "employee_lactation_period_evidence_category_birth_support": "Sustento de nacimiento",
+  "employee_lactation_period_evidence_category_other": "Otro",
+  "employee_lactation_period_type_two_rest_periods": "Dos reposos de 30 minutos",
+  "employee_lactation_period_type_reduced_hour": "Reducción de 1 hora de jornada",
+  "employee_lactation_reduction_application_start": "Al inicio de jornada",
+  "employee_lactation_reduction_application_end": "Al final de jornada",
+  "employee_lactation_reduction_application_split": "Dividida (entrada + salida)",
+  "employee_lactation_compliance_report_title": "Reporte de cumplimiento de periodos de lactancia",
+  "employee_lactation_compliance_report_generated_at": "Generado el",
+  "employee_lactation_compliance_report_filters": "Filtros aplicados",
+  "employee_lactation_compliance_report_range": "Rango",
+  "employee_lactation_compliance_report_status": "Estado",
+  "employee_lactation_compliance_report_employee": "Empleada ID",
+  "employee_lactation_compliance_report_code": "Código",
+  "employee_lactation_compliance_report_period": "Periodo",
+  "employee_lactation_compliance_report_duration": "Duración",
+  "employee_lactation_compliance_report_type": "Tipo",
+  "employee_lactation_compliance_report_modality": "Modalidad",
+  "employee_lactation_compliance_report_applied_days": "Días con reducción aplicada",
+  "employee_lactation_compliance_report_evidences": "Evidencias documentales adjuntas",
+  "employee_lactation_compliance_report_days": "días",
+  "employee_lactation_compliance_report_empty": "No se encontraron periodos que cumplan con los filtros seleccionados.",
+  "employee_lactation_compliance_report_empty_title": "Sin registros",
+  "employee_lactation_compliance_report_subtitle": "Cumplimiento NOM-037-STPS-2023 / LFT artículo 170",
+  "employee_lactation_compliance_report_summary_table": "Resumen de periodos",
+  "employee_lactation_compliance_report_detailed_sections": "Ficha detallada por periodo",
+  "employee_lactation_compliance_report_kpi_total": "Total",
+  "employee_lactation_compliance_report_table_employee": "Empleada",
+  "employee_lactation_compliance_report_table_applied": "Aplicados",
+  "employee_lactation_compliance_report_table_evid": "Evid.",
+  "employee_lactation_compliance_report_no_lower_bound": "Sin límite inferior",
+  "employee_lactation_compliance_report_no_upper_bound": "Sin límite superior",
+  "employee_lactation_compliance_report_legal_basis": "Fundamento legal: LFT artículo 170 fracciones II y IV; NOM-037-STPS-2023 numeral 5.2.h.",
+  "employee_lactation_compliance_report_range_invalid_title": "Rango de fechas inválido",
+  "employee_lactation_compliance_report_range_invalid_detail": "La fecha inicial es posterior a la fecha final del reporte.",
+  "employee_lactation_compliance_status_active": "Activa",
+  "employee_lactation_compliance_status_expiring": "Por vencer",
+  "employee_lactation_compliance_status_expired": "Vencida",
   "auth": {
     "signup": {
       "otp": {
@@ -556,5 +711,742 @@
   "signup_password_requires_uppercase": "La contraseña debe contener al menos una letra mayúscula",
   "signup_password_requires_number": "La contraseña debe contener al menos un número",
   "signup_password_requires_symbol": "La contraseña debe contener al menos un símbolo",
-  "signup_passwords_do_not_match": "Las contraseñas no coinciden"
+  "signup_passwords_do_not_match": "Las contraseñas no coinciden",
+  "regulatory": {
+    "authorities": {
+      "stps": {
+        "description": "La Secretaría del Trabajo y Previsión Social (STPS) es la dependencia del gobierno federal mexicano responsable de promover el empleo, regular las relaciones laborales y garantizar condiciones de trabajo dignas y seguras para los trabajadores.",
+        "audit_description": "La STPS emite Normas Oficiales Mexicanas (NOM) de seguridad y salud en el trabajo, realiza inspecciones laborales y sanciona incumplimientos. Sus normas son de observancia obligatoria para todos los centros de trabajo en México."
+      },
+      "imss": {
+        "description": "El Instituto Mexicano del Seguro Social (IMSS) es el organismo de seguridad social más grande de México, responsable de brindar servicios de salud, pensiones y prestaciones sociales a trabajadores y sus familias.",
+        "audit_description": "El IMSS verifica el cumplimiento de las obligaciones patronales en materia de afiliación, pago de cuotas obrero-patronales y prestaciones de seguridad social. Las irregularidades pueden resultar en créditos fiscales, multas y recargos."
+      },
+      "infonavit": {
+        "description": "El Instituto del Fondo Nacional de la Vivienda para los Trabajadores (INFONAVIT) administra el fondo de vivienda de los trabajadores y otorga créditos hipotecarios a los derechohabientes.",
+        "audit_description": "El INFONAVIT fiscaliza el correcto entero de las aportaciones patronales del 5% sobre el salario integrado de los trabajadores. El incumplimiento genera créditos fiscales y puede afectar el acceso de los trabajadores a sus derechos habitacionales."
+      },
+      "repse": {
+        "description": "El Registro de Prestadoras de Servicios Especializados u Obras Especializadas (REPSE) es el padrón obligatorio para empresas que prestan servicios especializados o ejecutan obras especializadas mediante subcontratación.",
+        "audit_description": "La STPS, a través del REPSE, verifica que las empresas contratistas y subcontratistas estén debidamente registradas y que los contratos de servicios especializados cumplan con los requisitos de la reforma en materia de subcontratación (Decreto DOF 23/04/2021)."
+      },
+      "jfca": {
+        "description": "La Junta Federal de Conciliación y Arbitraje (JFCA) es el tribunal laboral federal encargado de resolver conflictos individuales y colectivos de trabajo en industrias de jurisdicción federal.",
+        "audit_description": "La JFCA atiende demandas laborales individuales y colectivas, conflictos sindicales y registros de contratos colectivos. Es esencial llevar un expediente laboral completo y actualizado para defender adecuadamente a la empresa ante esta autoridad."
+      },
+      "sat": {
+        "description": "El Servicio de Administración Tributaria (SAT) es el organismo desconcentrado de la Secretaría de Hacienda encargado de la recaudación y fiscalización de impuestos federales en México.",
+        "audit_description": "El SAT fiscaliza el cumplimiento de obligaciones fiscales relacionadas con nómina: ISR por salarios, IVA en servicios especializados, emisión de CFDI de nómina y correcta deducción de gastos laborales. Las irregularidades pueden resultar en créditos fiscales, multas y posibles sanciones penales."
+      },
+      "inai": {
+        "description": "El Instituto Nacional de Transparencia, Acceso a la Información y Protección de Datos Personales (INAI) es el organismo autónomo que garantiza el derecho de acceso a la información pública y la protección de datos personales.",
+        "audit_description": "El INAI supervisa el cumplimiento de la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP). Los empleadores deben implementar un aviso de privacidad para empleados, obtener consentimiento para tratamiento de datos sensibles y establecer medidas de seguridad adecuadas."
+      },
+      "consar": {
+        "description": "La Comisión Nacional del Sistema de Ahorro para el Retiro (CONSAR) regula y supervisa el Sistema de Ahorro para el Retiro (SAR), incluyendo las AFORES y SIEFORES que administran el ahorro para el retiro de los trabajadores.",
+        "audit_description": "La CONSAR verifica el correcto entero de las aportaciones al SAR (cuotas de retiro, cesantía y vejez), tanto patronales como del gobierno. Los errores en el registro de salarios o en la transmisión de movimientos afiliatorios pueden resultar en descuentos al saldo de retiro del trabajador."
+      }
+    },
+    "regulations": {
+      "nom_035_stps_2018": {
+        "scope": "Aplica a todos los centros de trabajo en México. Centros con hasta 15 trabajadores implementan medidas básicas; los de 16 a 50 aplican la política y los controles mínimos; los de más de 50 trabajadores cumplen con todos los requisitos incluyendo evaluación de factores de riesgo psicosocial.",
+        "audit_description": "Norma de cumplimiento obligatorio que establece elementos para identificar, analizar y prevenir los factores de riesgo psicosocial. La STPS puede sancionar con multas de 50 a 5,000 veces la UMA (aprox. $5,200 a $520,000 MXN) por incumplimiento de sus disposiciones."
+      },
+      "nom_037_stps_2023": {
+        "scope": "Aplica a los centros de trabajo con modalidad de teletrabajo cuando el número de teletrabajadores represente el 40% o más de la plantilla laboral del centro de trabajo. El patrón puede optar por su aplicación con porcentajes menores.",
+        "audit_description": "La NOM-037-STPS-2023 establece las condiciones de seguridad y salud en el teletrabajo. La STPS puede verificar su cumplimiento mediante inspecciones y sancionar incumplimientos con multas de 50 a 5,000 veces la UMA por cada violación detectada."
+      }
+    },
+    "clauses": {
+      "nom_035_stps_2018": {
+        "5": {
+          "title": "Capítulo 5 — Obligaciones del empleador",
+          "obligation": "El empleador debe cumplir con las obligaciones establecidas en el Capítulo 5 de la presente Norma, relativas a: establecer una política de prevención de riesgos psicosociales; identificar, analizar y evaluar los factores de riesgo psicosocial y el entorno organizacional; adoptar medidas de prevención y control; identificar a trabajadores sujetos a acontecimientos traumáticos severos; practicar exámenes médicos; difundir información; y llevar los registros correspondientes.",
+          "explanation": "El empleador es el principal responsable de garantizar un entorno organizacional favorable y de implementar todas las acciones requeridas por la NOM-035.",
+          "rationale": "Las obligaciones del empleador son la base de la norma; sin su cumplimiento no es posible proteger la salud mental de los trabajadores.",
+          "audit_criteria": "Verificar que el empleador cuente con política, diagnósticos, planes de acción y registros actualizados conforme a la norma."
+        },
+        "5_1": {
+          "title": "5.1 — Política de prevención de riesgos psicosociales",
+          "obligation": "Establecer por escrito, implantar, mantener y difundir en el centro de trabajo una política de prevención de riesgos psicosociales que contemple: a) La prevención de los factores de riesgo psicosocial; b) La prevención de la violencia laboral, y c) La promoción de un entorno organizacional favorable.",
+          "explanation": "Se requiere redactar, aprobar y difundir un documento de política firmado por la dirección que cubra los tres elementos obligatorios.",
+          "rationale": "La política es la declaración formal del compromiso de la organización con la salud mental laboral.",
+          "audit_criteria": "Revisar el documento de política: existencia, firma de dirección, fecha, contenido de los tres elementos y evidencia de difusión."
+        },
+        "5_1_1": {
+          "title": null,
+          "obligation": "La política de prevención de riesgos psicosociales debe contemplar la prevención de los factores de riesgo psicosocial.",
+          "explanation": "Incluir explícitamente en la política la intención de identificar y controlar los factores de riesgo psicosocial.",
+          "rationale": "Sin esta declaración explícita la política no cumple el requisito mínimo de la norma.",
+          "audit_criteria": "Confirmar que el texto de la política menciona la prevención de factores de riesgo psicosocial."
+        },
+        "5_1_2": {
+          "title": null,
+          "obligation": "La política de prevención de riesgos psicosociales debe contemplar la prevención de la violencia laboral.",
+          "explanation": "El documento debe comprometerse a crear condiciones de trabajo que favorezcan el bienestar y la salud mental.",
+          "rationale": "El entorno organizacional favorable es el objetivo central de la NOM-035.",
+          "audit_criteria": "Verificar que la política declara el compromiso de promover un entorno organizacional favorable."
+        },
+        "5_1_3": {
+          "title": null,
+          "obligation": "La política de prevención de riesgos psicosociales debe contemplar la promoción de un entorno organizacional favorable.",
+          "explanation": "Declarar expresamente el compromiso de prevenir, atender y sancionar cualquier acto de violencia laboral.",
+          "rationale": "La violencia laboral es uno de los factores de riesgo psicosocial más graves y tiene consecuencias legales directas.",
+          "audit_criteria": "Confirmar que la política aborda la prevención de la violencia laboral con mecanismos de atención definidos."
+        },
+        "5_2": {
+          "title": "5.2 — Identificación y análisis de factores de riesgo psicosocial",
+          "obligation": "Identificar y analizar los factores de riesgo psicosocial, de acuerdo con lo establecido en los numerales 7.1, inciso a), y 7.2, de esta Norma, tratándose de centros de trabajo que tengan entre 16 y 50 trabajadores.",
+          "explanation": "Aplicar el cuestionario o guía de referencia a todos los trabajadores para detectar las condiciones que generan riesgo psicosocial.",
+          "rationale": "Sin identificación no es posible implementar controles efectivos; este paso es el diagnóstico de la norma.",
+          "audit_criteria": "Solicitar el instrumento de evaluación aplicado, el universo de trabajadores evaluados, la fecha y los resultados obtenidos."
+        },
+        "5_2_1": {
+          "title": null,
+          "obligation": "La identificación y análisis de los factores de riesgo psicosocial debe contemplar: a) Las condiciones en el ambiente de trabajo; b) Las cargas de trabajo; c) La falta de control sobre el trabajo; d) Las jornadas de trabajo y rotación de turnos que exceden lo establecido en la LFT; e) Interferencia en la relación trabajo-familia; f) Liderazgo negativo y relaciones negativas en el trabajo, y g) La violencia laboral.",
+          "explanation": "El instrumento aplicado debe cubrir sin excepción todos los dominios de riesgo psicosocial listados en la NOM-035.",
+          "rationale": "Omitir algún factor invalida el diagnóstico y deja sin cobertura áreas de riesgo real para los trabajadores.",
+          "audit_criteria": "Revisar que el instrumento y el informe de resultados contengan análisis de todos los factores listados en la norma."
+        },
+        "5_2_2": {
+          "title": null,
+          "obligation": "El resultado de la identificación y análisis de los factores de riesgo psicosocial deberá constar en un informe que contenga: objetivo, actividades, método utilizado, resultados obtenidos, conclusiones, recomendaciones y acciones de intervención, así como datos del responsable de la evaluación. El resultado deberá estar disponible para consulta de los trabajadores y la identificación y análisis deberá realizarse al menos cada dos años.",
+          "explanation": "Los resultados del diagnóstico deben procesarse para priorizar los controles según el nivel de riesgo identificado.",
+          "rationale": "El análisis convierte los datos crudos en información accionable para proteger la salud de los trabajadores.",
+          "audit_criteria": "Verificar que existe un informe de análisis posterior a la evaluación con priorización de riesgos y propuesta de controles."
+        },
+        "5_3": {
+          "title": "5.3 — Adopción de medidas de prevención y control",
+          "obligation": "Identificar y analizar los factores de riesgo psicosocial y evaluar el entorno organizacional, de conformidad con lo señalado en los numerales 7.1, inciso b), 7.2 y 7.3, respectivamente, de la presente Norma, tratándose de centros de trabajo que tengan más de 50 trabajadores.",
+          "explanation": "Con base en el análisis, implementar acciones concretas para eliminar o reducir los factores de riesgo identificados.",
+          "rationale": "La implementación de controles es el corazón de la norma; el diagnóstico sin acción no cumple el objetivo de proteger la salud.",
+          "audit_criteria": "Solicitar el plan de acción con medidas, responsables, fechas y evidencia de implementación."
+        },
+        "5_3_1": {
+          "title": null,
+          "obligation": "Además de los factores de riesgo psicosocial del numeral 7.2, la evaluación del entorno organizacional favorable deberá comprender: a) El sentido de pertenencia de los trabajadores a la empresa; b) La formación para la adecuada realización de las tareas encomendadas; c) La definición precisa de responsabilidades para los trabajadores; d) La participación proactiva y comunicación entre el patrón, sus representantes y los trabajadores; e) La distribución adecuada de cargas de trabajo, con jornadas laborales regulares, y f) La evaluación y el reconocimiento del desempeño.",
+          "explanation": "Priorizar la eliminación de la fuente del riesgo; cuando no sea posible, reducir su intensidad o duración.",
+          "rationale": "La jerarquía de controles exige actuar primero sobre la fuente antes de recurrir a controles administrativos o EPP.",
+          "audit_criteria": "Verificar que las medidas del plan de acción corresponden directamente a los factores de riesgo identificados en el diagnóstico."
+        },
+        "5_3_2": {
+          "title": null,
+          "obligation": "Los centros de trabajo podrán utilizar para identificar y analizar los factores de riesgo psicosocial y evaluar el entorno organizacional, cualquier método que contemple: a) La aplicación de cuestionarios que cumplan con lo dispuesto por los numerales 7.2 y/o 7.3; b) La forma como se deberá realizar la aplicación de los cuestionarios; c) La manera de evaluar los cuestionarios, y d) Los niveles de riesgo y la forma de determinarlos conforme a los resultados de los cuestionarios.",
+          "explanation": "Además de eliminar riesgos, implementar acciones proactivas que mejoren el clima organizacional y el bienestar de los trabajadores.",
+          "rationale": "El enfoque de la norma es dual: eliminar lo negativo y fortalecer lo positivo en el entorno de trabajo.",
+          "audit_criteria": "Confirmar que el plan incluye acciones de mejora del entorno organizacional, no solo controles reactivos."
+        },
+        "5_4": {
+          "title": "5.4 — Difusión de la política y los resultados",
+          "obligation": "Adoptar las medidas para prevenir y controlar los factores de riesgo psicosocial, promover el entorno organizacional favorable, así como para atender las prácticas opuestas al entorno organizacional favorable y los actos de violencia laboral, con base en lo dispuesto por el Capítulo 8 de la presente Norma.",
+          "explanation": "Comunicar formalmente a todos los trabajadores la política vigente y los hallazgos del diagnóstico aplicado.",
+          "rationale": "La participación informada de los trabajadores es un requisito de la norma y un factor clave de éxito del programa.",
+          "audit_criteria": "Revisar registros de difusión: listas de asistencia, constancias de comunicación o publicación visible en instalaciones."
+        },
+        "5_4_1": {
+          "title": null,
+          "obligation": "Para la prevención de los factores de riesgo psicosocial y la violencia laboral, así como para la promoción del entorno organizacional favorable, el centro de trabajo deberá: a) Establecer acciones para la prevención de los factores de riesgo psicosocial que impulsen: el apoyo social, la difusión de la información y la capacitación; b) Disponer de mecanismos seguros y confidenciales para la recepción de quejas por prácticas opuestas al entorno organizacional favorable y para denunciar actos de violencia laboral.",
+          "explanation": "Garantizar que el 100% de los trabajadores conocen la política, utilizando los medios de comunicación apropiados para el centro de trabajo.",
+          "rationale": "Una política que los trabajadores desconocen no genera el cambio cultural que la norma persigue.",
+          "audit_criteria": "Solicitar evidencia de difusión con fechas y cobertura: publicaciones, correos, reuniones o carteles."
+        },
+        "5_4_2": {
+          "title": null,
+          "obligation": "Realizar acciones que promuevan el sentido de pertenencia de los trabajadores a la organización; la capacitación para la adecuada realización de las tareas encomendadas; la definición precisa de responsabilidades para los miembros de la organización; la participación proactiva y comunicación entre sus integrantes; la distribución adecuada de cargas de trabajo, con jornadas laborales regulares conforme a la Ley Federal del Trabajo, y la evaluación y el reconocimiento del desempeño.",
+          "explanation": "Comunicar los resultados del diagnóstico de manera comprensible, sin comprometer la confidencialidad individual.",
+          "rationale": "La transparencia genera confianza y motiva la participación activa de los trabajadores en las soluciones.",
+          "audit_criteria": "Verificar que los trabajadores recibieron comunicación sobre los resultados generales del diagnóstico."
+        },
+        "5_5": {
+          "title": "5.5 — Promover el entorno organizacional favorable",
+          "obligation": "Identificar a los trabajadores que fueron sujetos a acontecimientos traumáticos severos durante o con motivo del trabajo y, canalizarlos para su atención a la institución de seguridad social o privada, o al médico del centro de trabajo o de la empresa.",
+          "explanation": "Implementar programas y prácticas que fortalezcan los factores protectores del ambiente laboral.",
+          "rationale": "Un entorno organizacional favorable reduce la incidencia de estrés, burnout y violencia laboral.",
+          "audit_criteria": "Revisar evidencia de acciones de mejora del entorno: programas de bienestar, capacitaciones, reconocimientos y encuestas de clima."
+        },
+        "5_6": {
+          "title": "5.6 — Atención a trabajadores expuestos a violencia laboral",
+          "obligation": "Practicar exámenes médicos y evaluaciones psicológicas a los trabajadores expuestos a violencia laboral y/o a los factores de riesgo psicosocial, cuando existan signos o síntomas que denoten alguna alteración a su salud y el resultado de la identificación y análisis de los factores de riesgo psicosocial, a que se refiere el numeral 7.1 y 7.2 de esta Norma, así lo sugiera y/o existan quejas de violencia laboral mediante los mecanismos a que alude el numeral 8.1, inciso b) de la presente Norma.",
+          "explanation": "Establecer canales de reporte, protocolos de atención y derivación a servicios de salud cuando sea necesario.",
+          "rationale": "La atención oportuna reduce el daño en la salud y las responsabilidades legales del empleador.",
+          "audit_criteria": "Verificar la existencia de protocolos de atención, registros de casos atendidos y mecanismos de seguimiento."
+        },
+        "5_7": {
+          "title": "5.7 — Práctica de exámenes médicos",
+          "obligation": "Difundir y proporcionar información a los trabajadores sobre: a) La política de prevención de riesgos psicosociales; b) Las medidas adoptadas para combatir las prácticas opuestas al entorno organizacional favorable y los actos de violencia laboral; c) Las medidas y acciones de prevención y, en su caso, las acciones de control de los factores de riesgo psicosocial; d) Los mecanismos para presentar quejas por prácticas opuestas al entorno organizacional favorable y para denunciar actos de violencia laboral; e) Los resultados de la identificación y análisis de los factores de riesgo psicosocial (y de la evaluación del entorno organizacional para centros de más de 50 trabajadores), y f) Las posibles alteraciones a la salud por la exposición a los factores de riesgo psicosocial.",
+          "explanation": "Realizar, con la periodicidad indicada, exámenes específicos para detectar daños a la salud derivados de la exposición a riesgos psicosociales.",
+          "rationale": "La vigilancia médica permite detectar afectaciones tempranas y actuar preventivamente antes de que escalen.",
+          "audit_criteria": "Solicitar los registros de los exámenes médicos y evaluaciones psicológicas practicados, incluyendo fechas y cobertura del personal expuesto."
+        },
+        "5_8": {
+          "title": "5.8 — Registros y conservación de información",
+          "obligation": "Llevar los registros sobre: a) Los resultados de la identificación y análisis de los factores de riesgo psicosocial y, además, tratándose de centros de trabajo de más de 50 trabajadores, de las evaluaciones del entorno organizacional; b) Las medidas de control adoptadas cuando el resultado de la identificación y análisis de los factores de riesgo psicosocial y evaluación del entorno organizacional lo señale, y c) Los nombres de los trabajadores a los que se les practicaron los exámenes o evaluaciones clínicas y que se comprobó la exposición a factores de riesgo psicosocial, a actos de violencia laboral o acontecimientos traumáticos severos.",
+          "explanation": "Mantener expedientes actualizados con toda la documentación generada en la implementación de la norma, durante el tiempo mínimo establecido.",
+          "rationale": "Los registros son la evidencia del cumplimiento ante una inspección de la STPS y demuestran la trazabilidad del programa.",
+          "audit_criteria": "Solicitar los registros de las evaluaciones, planes de acción, exámenes médicos y cualquier documentación generada en la implementación de la norma."
+        },
+        "5_8_a": {
+          "title": null,
+          "obligation": "Los resultados de la identificación y análisis de los factores de riesgo psicosocial y, además, tratándose de centros de trabajo de más de 50 trabajadores, de las evaluaciones del entorno organizacional.",
+          "explanation": "Archivar los instrumentos aplicados, los resultados crudos y los informes de análisis de cada ciclo de evaluación.",
+          "rationale": "La retención de 4 años permite comparar tendencias entre ciclos y demuestra continuidad del programa ante la autoridad.",
+          "audit_criteria": "Verificar que los registros de identificación y análisis están disponibles para los últimos 4 años de operación."
+        },
+        "5_8_b": {
+          "title": null,
+          "obligation": "Las medidas de control adoptadas cuando el resultado de la identificación y análisis de los factores de riesgo psicosocial y evaluación del entorno organizacional lo señale.",
+          "explanation": "Documentar y archivar todos los planes de acción, sus avances, modificaciones y resultados obtenidos.",
+          "rationale": "El historial de acciones implementadas es evidencia del esfuerzo de mejora continua y de cumplimiento proactivo.",
+          "audit_criteria": "Solicitar los planes de acción de los últimos 4 años con fechas de implementación y evidencia de seguimiento."
+        },
+        "5_8_c": {
+          "title": null,
+          "obligation": "Los nombres de los trabajadores a los que se les practicaron los exámenes o evaluaciones clínicas y que se comprobó la exposición a factores de riesgo psicosocial, a actos de violencia laboral o acontecimientos traumáticos severos.",
+          "explanation": "Mantener expedientes médicos individuales y resultados de evaluaciones psicológicas bajo resguardo confidencial durante el periodo mínimo exigido.",
+          "rationale": "Los expedientes médicos son evidencia de vigilancia de la salud y de cumplimiento con las obligaciones de la norma.",
+          "audit_criteria": "Verificar que los expedientes médicos y evaluaciones psicológicas de los últimos 4 años están disponibles y bajo resguardo adecuado."
+        },
+        "8": {
+          "title": "Capítulo 8 — Evaluación de la conformidad",
+          "obligation": "Los aspectos a verificar durante la evaluación de la conformidad de la presente Norma se realizarán, según aplique, mediante la constatación, revisión documental, registros o entrevistas, de conformidad con lo establecido en el Capítulo 10 de esta Norma. Este procedimiento aplica tanto a las visitas de inspección desarrolladas por la autoridad laboral, como a las visitas de verificación que realicen las unidades de verificación.",
+          "explanation": "Define cómo la STPS y sus verificadores evalúan si el centro de trabajo cumple con las disposiciones de la norma.",
+          "rationale": "La evaluación de la conformidad es el mecanismo de fiscalización que garantiza la efectividad de la norma.",
+          "audit_criteria": "Conocer el procedimiento de verificación para preparar la documentación y facilitar las inspecciones."
+        },
+        "8_1": {
+          "title": "8.1 — Verificación en los centros de trabajo",
+          "obligation": "La verificación del cumplimiento con las disposiciones de la presente Norma se realizará conforme al Procedimiento para la Evaluación de la Conformidad establecido en el Capítulo 10. El verificador constatará mediante revisión documental, registros o entrevistas el cumplimiento de las obligaciones del patrón establecidas en el Capítulo 5 de esta Norma.",
+          "explanation": "Las inspecciones de la STPS seguirán el protocolo definido, con notificación previa o de manera sorpresiva según la ley.",
+          "rationale": "Conocer el proceso de verificación permite preparar adecuadamente la evidencia documental requerida.",
+          "audit_criteria": "Mantener toda la documentación de la norma actualizada, accesible y ordenada para facilitar cualquier inspección."
+        },
+        "8_1_1": {
+          "title": null,
+          "obligation": "El patrón cumple cuando presenta evidencia documental de que: establece, implanta y mantiene una política de prevención de riesgos psicosociales que contempla la promoción de un entorno organizacional favorable, la prevención de los factores de riesgo psicosocial y la prevención de la violencia laboral; y difunde en el centro de trabajo la política de prevención de riesgos psicosociales. (Nota: La evidencia para dar cumplimiento a la difusión puede ser a través de folletos, boletines y/o carteles.)",
+          "explanation": "Durante la inspección, el verificador solicitará el documento de política y evaluará que cumpla con los requisitos del numeral 5.1.",
+          "rationale": "La política es el primer elemento verificado por ser la declaración formal del compromiso del empleador.",
+          "audit_criteria": "Tener disponible el documento de política firmado, con fecha y evidencia de difusión a los trabajadores."
+        },
+        "8_1_2": {
+          "title": null,
+          "obligation": "El patrón cumple cuando presenta evidencia de que: realiza la identificación y análisis de los factores de riesgo psicosocial que abarca a todos los trabajadores y contempla, al menos, las condiciones en el ambiente de trabajo, cargas de trabajo, falta de control sobre el trabajo, jornadas de trabajo y rotación de turnos, interferencia en la relación trabajo-familia, liderazgo y relaciones negativas en el trabajo, y la violencia laboral; utiliza un método con cuestionarios validados; integra la evaluación al diagnóstico de seguridad y salud (NOM-030); cuenta con informe de resultados disponible para consulta de los trabajadores; y realiza la identificación al menos cada dos años.",
+          "explanation": "Se solicitarán los instrumentos de evaluación aplicados, los resultados obtenidos y el análisis correspondiente.",
+          "rationale": "Los registros del diagnóstico son la evidencia central del cumplimiento técnico de la norma.",
+          "audit_criteria": "Preparar expediente con instrumento de evaluación, resultados individuales y consolidados, y el informe de análisis."
+        },
+        "8_1_3": {
+          "title": null,
+          "obligation": "El patrón cumple cuando presenta evidencia de que además de la identificación y análisis de factores de riesgo psicosocial, realiza la evaluación del entorno organizacional que abarca: sentido de pertenencia, formación, definición de responsabilidades, participación proactiva y comunicación, distribución adecuada de cargas de trabajo y evaluación y reconocimiento del desempeño. La evaluación puede realizarse con muestra representativa conforme a la Guía de referencia III.",
+          "explanation": "Se revisará el plan de acción con las medidas adoptadas, los responsables, las fechas y el avance de implementación.",
+          "rationale": "El plan de acción demuestra que los resultados del diagnóstico se tradujeron en medidas concretas.",
+          "audit_criteria": "Contar con un plan de acción formal con fechas, responsables, indicadores de avance y evidencia de implementación."
+        },
+        "8_1_4": {
+          "title": null,
+          "obligation": "El patrón cumple cuando presenta evidencia de que: adopta medidas para prevenir y controlar los factores de riesgo psicosocial, para promover el entorno organizacional favorable, y para atender las prácticas opuestas al entorno organizacional favorable y los actos de violencia laboral. Cuando el resultado de las evaluaciones determina la necesidad de desarrollar acciones de control, éstas se implementan a través de un Programa que contemple: las áreas y trabajadores sujetos al programa, el tipo de acciones y medidas de control, las fechas programadas, el control de avances, la evaluación posterior y el responsable.",
+          "explanation": "Se solicitarán los expedientes médicos y las evaluaciones psicológicas con sus respectivas fechas y cobertura.",
+          "rationale": "La vigilancia médica es la evidencia de que el empleador monitorea el impacto de los riesgos en la salud de sus trabajadores.",
+          "audit_criteria": "Tener disponibles los expedientes médicos y evaluaciones psicológicas de los últimos 4 años, bajo resguardo confidencial."
+        },
+        "8_2": {
+          "title": "8.2 — Criterios de verificación para centros de trabajo con hasta 15 trabajadores",
+          "obligation": "Los centros de trabajo con hasta 15 trabajadores deben cumplir únicamente con las obligaciones del numeral 5.1 (política de prevención de riesgos psicosociales), numeral 5.7 (difundir información a los trabajadores sobre la política y las medidas adoptadas), y numeral 5.8 (llevar los registros sobre las medidas de control adoptadas y los trabajadores a quienes se les practicaron exámenes o evaluaciones).",
+          "explanation": "Los centros de trabajo más pequeños tienen requisitos reducidos: política básica, difusión de medidas de control y registros mínimos.",
+          "rationale": "La norma reconoce que los centros de trabajo pequeños tienen capacidades y recursos limitados para implementar programas complejos.",
+          "audit_criteria": "Para centros de hasta 15 trabajadores, verificar: política, medidas de control básicas y registro de acciones realizadas."
+        },
+        "8_2_1": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: el patrón cumple con el numeral 5.1 cuando presenta evidencia documental de que establece, implanta, mantiene y difunde una política de prevención de riesgos psicosociales que contempla la prevención de factores de riesgo psicosocial, la prevención de la violencia laboral y la promoción del entorno organizacional favorable.",
+          "explanation": "Aun en los centros más pequeños, la política es obligatoria y debe estar documentada y difundida.",
+          "rationale": "La política es el requisito mínimo universal de la norma, sin importar el tamaño del centro de trabajo.",
+          "audit_criteria": "Revisar la existencia del documento de política y evidencia de que fue comunicado a los trabajadores."
+        },
+        "8_2_2": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: el patrón cumple con el numeral 5.7 cuando presenta evidencia de haber difundido y proporcionado información a los trabajadores sobre la política de prevención de riesgos psicosociales y las medidas adoptadas para combatir las prácticas opuestas al entorno organizacional favorable y los actos de violencia laboral.",
+          "explanation": "Comunicar a los trabajadores las acciones implementadas para controlar los riesgos psicosociales identificados.",
+          "rationale": "La participación de los trabajadores en el programa depende de que conozcan las medidas adoptadas.",
+          "audit_criteria": "Solicitar evidencia de difusión: registros de comunicación, listas de asistencia o publicaciones internas."
+        },
+        "8_2_3": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: el patrón cumple con el numeral 5.8, inciso b), cuando presenta evidencia de llevar registros de las medidas de control adoptadas cuando el resultado de la identificación y análisis lo señale.",
+          "explanation": "Documentar, aunque sea de forma sencilla, las acciones implementadas para prevenir y controlar los riesgos.",
+          "rationale": "Los registros, incluso básicos, son evidencia del esfuerzo de cumplimiento ante una inspección.",
+          "audit_criteria": "Revisar que existen registros de las acciones realizadas con fechas y descripción de las medidas implementadas."
+        },
+        "8_2_4": {
+          "title": null,
+          "obligation": "Para centros con hasta 15 trabajadores: el patrón cumple con el numeral 5.8, inciso c), cuando presenta evidencia de llevar registros de los nombres de los trabajadores a los que se les practicaron los exámenes o evaluaciones clínicas y que se comprobó la exposición a factores de riesgo psicosocial, a actos de violencia laboral o a acontecimientos traumáticos severos.",
+          "explanation": "Contar con un mecanismo básico para que los trabajadores puedan reportar situaciones de riesgo y recibir atención.",
+          "rationale": "La atención oportuna reduce el daño en la salud y es un requisito básico de la norma para todos los tamaños de centro.",
+          "audit_criteria": "Verificar que existe un mecanismo de reporte y atención, y que los trabajadores lo conocen."
+        },
+        "8_3": {
+          "title": "8.3 — Criterios de verificación para centros de trabajo de 16 a 50 trabajadores",
+          "obligation": "Los centros de trabajo que tengan entre 16 y 50 trabajadores deben cumplir, además de las obligaciones aplicables a centros con hasta 15 trabajadores, con los numerales 5.2, 7.1 inciso a), 7.2, 7.4, 7.5, 7.6, 7.7, 7.8 y 7.9, relativos a la identificación y análisis de los factores de riesgo psicosocial. Esta disposición entra en vigor a los dos años posteriores a su publicación en el Diario Oficial de la Federación.",
+          "explanation": "Estos centros deben cumplir con la política, las medidas básicas de control y los registros, sin la obligación de la evaluación completa de la Guía de Referencia III.",
+          "rationale": "La Fase 1 introduce requisitos progresivos para centros medianos, reconociendo su mayor capacidad operativa.",
+          "audit_criteria": "Para centros de 16-50 trabajadores, verificar: política, identificación básica de factores, medidas de control y registros de las acciones."
+        },
+        "8_3_1": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: el patrón cumple con el numeral 5.1 cuando presenta evidencia documental de que establece, implanta, mantiene y difunde la política de prevención de riesgos psicosociales con los elementos requeridos.",
+          "explanation": "La política debe estar documentada, aprobada por la dirección y difundida a todos los trabajadores del centro.",
+          "rationale": "La política formal es el punto de partida para cualquier programa de gestión de riesgos psicosociales.",
+          "audit_criteria": "Solicitar el documento de política con firma de dirección y evidencia de difusión a todos los trabajadores."
+        },
+        "8_3_2": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: el patrón cumple con los numerales 5.2 y 7.1 a) cuando presenta evidencia de que realiza la identificación y análisis de los factores de riesgo psicosocial utilizando cuestionarios validados que contemplan todos los factores requeridos por el numeral 7.2, con un método que cumple con los numerales 7.4 y 7.5.",
+          "explanation": "Aplicar la Guía de Referencia II u otro instrumento equivalente para identificar los factores de riesgo en el centro.",
+          "rationale": "La identificación formal de riesgos es el requisito técnico central que diferencia a la Fase 1 del nivel básico.",
+          "audit_criteria": "Solicitar el instrumento aplicado, la fecha de aplicación, la cobertura de trabajadores y los resultados obtenidos."
+        },
+        "8_3_3": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: el patrón cumple con el numeral 5.4 cuando presenta evidencia de que adopta medidas para prevenir y controlar los factores de riesgo psicosocial identificados, promoviendo el entorno organizacional favorable y atendiendo las prácticas de violencia laboral conforme al Capítulo 8.",
+          "explanation": "Con base en los resultados de la identificación, implementar acciones concretas de prevención y control.",
+          "rationale": "La implementación de controles cierra el ciclo de la norma y es el indicador de cumplimiento efectivo.",
+          "audit_criteria": "Revisar el plan de acción con medidas específicas correspondientes a los factores de riesgo identificados."
+        },
+        "8_3_4": {
+          "title": null,
+          "obligation": "Para centros de 16 a 50 trabajadores: el patrón cumple con el numeral 5.8 cuando presenta evidencia de llevar los registros sobre los resultados de la identificación y análisis, las medidas de control adoptadas y los trabajadores evaluados clínicamente, conforme a los incisos a), b) y c) de ese numeral.",
+          "explanation": "Documentar y archivar los resultados del diagnóstico y las acciones implementadas durante el tiempo mínimo requerido.",
+          "rationale": "Los registros son la evidencia primaria del cumplimiento ante una inspección de la STPS.",
+          "audit_criteria": "Verificar la existencia y completitud de los registros durante el periodo de retención mínimo de 4 años."
+        },
+        "8_4": {
+          "title": "8.4 — Criterios de verificación para centros de trabajo con más de 50 trabajadores",
+          "obligation": "Los centros de trabajo que tengan más de 50 trabajadores deben cumplir con todos los numerales aplicables de la norma, incluyendo los numerales 5.3, 7.1 b), 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8 y 7.9, relativos a la identificación y análisis de los factores de riesgo psicosocial y la evaluación del entorno organizacional. Esta disposición entra en vigor a los dos años posteriores a su publicación en el DOF.",
+          "explanation": "Estos centros deben cumplir con todos los requisitos de la norma: política, evaluación completa con la Guía de Referencia III, plan de acción, medidas de control, seguimiento y exámenes médicos.",
+          "rationale": "Los centros grandes tienen mayor capacidad de recursos y su escala amplifica el impacto de los riesgos psicosociales.",
+          "audit_criteria": "Verificar el cumplimiento integral: política, evaluación con Guía III, análisis, plan de acción, exámenes médicos y registros completos."
+        },
+        "8_4_1": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: el patrón cumple con los numerales 5.3 y 7.1 b) cuando presenta evidencia de que realiza la identificación y análisis de los factores de riesgo psicosocial y la evaluación del entorno organizacional, abarcando a todos los trabajadores o a una muestra representativa conforme a la Guía de referencia III, con un método que cumple los numerales 7.4 y 7.5.",
+          "explanation": "La política debe ser revisada al menos una vez al año y actualizada cuando cambien las condiciones de trabajo.",
+          "rationale": "La revisión periódica garantiza que la política refleje la realidad actual del centro de trabajo.",
+          "audit_criteria": "Solicitar el historial de revisiones de la política y evidencia de difusión de la versión vigente."
+        },
+        "8_4_2": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: el patrón cumple con el numeral 5.4 cuando presenta evidencia de que adopta medidas para prevenir y controlar los factores de riesgo psicosocial, promueve el entorno organizacional favorable y atiende las prácticas de violencia laboral. Cuando las evaluaciones determinen la necesidad de acciones de control, éstas se implementan a través de un Programa que cumple con el numeral 8.4.",
+          "explanation": "Aplicar la evaluación completa a todos los trabajadores y procesar los resultados con la metodología establecida.",
+          "rationale": "La evaluación completa con la Guía III proporciona un diagnóstico detallado y estadísticamente válido.",
+          "audit_criteria": "Revisar que la evaluación se aplicó a la totalidad de los trabajadores, con los resultados analizados por área o departamento."
+        },
+        "8_4_3": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: el patrón cumple con el numeral 5.6 cuando presenta evidencia de que practica exámenes médicos y evaluaciones psicológicas a los trabajadores expuestos a violencia laboral y/o a factores de riesgo psicosocial, cuando existan signos o síntomas de alteración a su salud o cuando el resultado de la identificación y análisis lo sugiera.",
+          "explanation": "Implementar las medidas del plan de acción, monitorear su impacto y documentar los resultados del seguimiento.",
+          "rationale": "El seguimiento cierra el ciclo de mejora continua y demuestra que las medidas implementadas están siendo efectivas.",
+          "audit_criteria": "Solicitar el plan de acción con indicadores, fechas de revisión, resultados del seguimiento y ajustes realizados."
+        },
+        "8_4_4": {
+          "title": null,
+          "obligation": "Para centros con más de 50 trabajadores: el patrón cumple con el numeral 5.8 cuando presenta evidencia de llevar los registros sobre los resultados de la identificación, análisis y evaluación del entorno organizacional; las medidas de control adoptadas; y los nombres de los trabajadores evaluados clínicamente, conforme a los incisos a), b) y c) del numeral 5.8.",
+          "explanation": "Realizar los exámenes de entrada, periódicos y de egreso al personal expuesto a factores de riesgo psicosocial.",
+          "rationale": "La vigilancia médica continua es el indicador más preciso del impacto real de los riesgos psicosociales en la salud de los trabajadores.",
+          "audit_criteria": "Verificar que se practican exámenes a todo el personal expuesto con la periodicidad indicada y que los expedientes están actualizados."
+        },
+        "8_5": {
+          "title": "8.5 — Unidades de verificación",
+          "obligation": "El patrón tendrá la opción de contratar una unidad de verificación acreditada y aprobada, en los términos de la Ley Federal sobre Metrología y Normalización y su Reglamento, para verificar el grado de cumplimiento con esta Norma.",
+          "explanation": "Los centros de trabajo pueden contratar una unidad de verificación acreditada para obtener una constancia de cumplimiento voluntario.",
+          "rationale": "La verificación por terceros acreditados ofrece mayor objetividad y puede ser útil para clientes o inversionistas que exijan evidencia de cumplimiento.",
+          "audit_criteria": "Si se contrató una unidad de verificación, solicitar el informe y la constancia emitidos; verificar la vigencia de la acreditación."
+        },
+        "8_5_1": {
+          "title": null,
+          "obligation": "Las unidades de verificación que evalúen la conformidad con la presente Norma deberán aplicar los criterios de cumplimiento que prevé el procedimiento para la evaluación de la conformidad, de acuerdo con lo señalado en el Capítulo 10 de la misma.",
+          "explanation": "Antes de contratar una unidad de verificación, confirmar que está acreditada específicamente para la NOM-035 en la EMA.",
+          "rationale": "Solo las unidades acreditadas por la EMA pueden emitir constancias de cumplimiento con validez oficial.",
+          "audit_criteria": "Verificar el número de acreditación de la unidad de verificación en el directorio público de la EMA."
+        },
+        "8_5_2": {
+          "title": null,
+          "obligation": "Las unidades de verificación acreditadas y aprobadas que evalúen el cumplimiento con esta Norma deberán emitir un dictamen que contenga: datos del centro de trabajo verificado (nombre, RFC, domicilio, teléfono y actividad principal), datos de la unidad de verificación (nombre, número de acreditación, número de aprobación STPS y domicilio) y datos del dictamen (clave y nombre de la norma, nombre del verificador, fecha, número, vigencia, lugar y fecha de emisión, y número de registro STPS).",
+          "explanation": "La revisión documental es la primera etapa de la verificación y determina si el centro cumple con los requisitos de su categoría.",
+          "rationale": "La revisión documental sistemática garantiza que no se omitan requisitos en el proceso de evaluación.",
+          "audit_criteria": "El informe de la unidad de verificación debe indicar qué documentos fueron revisados y cuáles presentan conformidad o no conformidad."
+        },
+        "8_5_3": {
+          "title": null,
+          "obligation": "La vigencia de los dictámenes emitidos por las unidades de verificación será de dos años, siempre y cuando no sean modificadas las condiciones que sirvieron para su emisión.",
+          "explanation": "La visita in situ complementa la revisión documental y permite verificar condiciones físicas y organizacionales reales.",
+          "rationale": "La verificación en sitio detecta situaciones que no quedan documentadas pero que representan riesgos reales para los trabajadores.",
+          "audit_criteria": "El informe debe incluir los hallazgos de la visita en sitio con descripción de las condiciones observadas."
+        },
+        "8_5_4": {
+          "title": null,
+          "obligation": "Las unidades de verificación que evalúen la conformidad con la presente Norma deberán indicar en el dictamen el método que se utilizó para la identificación y análisis de los factores de riesgo psicosocial y el entorno organizacional, según aplique: los propuestos por las guías de referencia II o III de la presente Norma, o métodos desarrollados por el patrón que cumplan con lo dispuesto por los numerales 7.4 y 7.5 de esta Norma.",
+          "explanation": "Al concluir la verificación, la unidad emite un dictamen formal indicando el grado de cumplimiento del centro de trabajo.",
+          "rationale": "El dictamen formal es el documento que certifica el resultado de la verificación y puede ser presentado ante clientes, autoridades o socios.",
+          "audit_criteria": "Solicitar el dictamen emitido por la unidad de verificación con fecha, alcance, hallazgos y resolución de conformidad."
+        }
+      },
+      "nom_037_stps_2023": {
+        "5": {
+          "title": "Capítulo 5 — Obligaciones del Patrón",
+          "obligation": "El patrón debe cumplir con las obligaciones establecidas en el Capítulo 5 de la presente Norma Oficial Mexicana, para garantizar condiciones de seguridad y salud en el trabajo en la modalidad de Teletrabajo.",
+          "explanation": "El patrón es el responsable principal de asegurar que las condiciones de teletrabajo sean seguras, ergonómicas y respetuosas de los derechos de los trabajadores.",
+          "rationale": "Las obligaciones patronales en teletrabajo son la base de la NOM-037; sin su cumplimiento no es posible garantizar la integridad física y mental del teletrabajador.",
+          "audit_criteria": "Verificar que el patrón cuente con política, equipos, acuerdos de teletrabajo, registros y evidencias de capacitación conforme a la norma."
+        },
+        "5_1": {
+          "title": "5.1 — Condiciones de seguridad y salud en el lugar de teletrabajo",
+          "obligation": "Contar con un listado actualizado de las personas trabajadoras bajo la modalidad de Teletrabajo con, al menos, la información siguiente: nombre; género; estado civil; actividades a desarrollar; nombre y perfil de puesto; tiempo (en porcentaje) de la relación laboral que usa para realizar Teletrabajo; número telefónico de contacto; domicilio; lugares de trabajo propuestos y convenidos con el patrón; razón social y domicilio del centro de trabajo; y listado del equipo de cómputo y ergonómico otorgado. Los lugares de trabajo deberán cumplir con: a) Disponer de conectividad para el uso y manejo de las Tecnologías de la Información y Comunicación, y b) Contar con condiciones de seguridad y salud en el trabajo, con énfasis en el buen estado de las instalaciones eléctricas; con iluminación, ventilación y condiciones ergonómicas.",
+          "explanation": "Antes de autorizar el teletrabajo, el patrón debe confirmar que el espacio doméstico o externo que usará el trabajador cumple con condiciones mínimas de seguridad, iluminación, ventilación y ergonomía.",
+          "rationale": "El patrón conserva la obligación de proteger la seguridad y salud del trabajador aun cuando la actividad se realice fuera del centro de trabajo.",
+          "audit_criteria": "Solicitar el mecanismo de verificación del lugar de teletrabajo (checklist, visita virtual, declaración del trabajador) y los registros de las verificaciones realizadas."
+        },
+        "5_1_I": {
+          "title": null,
+          "obligation": "Verificar que el área de trabajo esté iluminada, por luz natural o artificial, que no provoque deslumbramiento debido al exceso de iluminación o por ubicación inadecuada de la fuente de iluminación, ni fatiga visual por iluminación deficiente. (NOM-037-STPS-2023, numeral 7.1, inciso b)",
+          "explanation": "El espacio debe tener suficiente luz para evitar fatiga visual; se puede validar mediante autoevaluación guiada o visita virtual.",
+          "rationale": "La iluminación inadecuada es una de las principales causas de fatiga ocular y trastornos musculoesqueléticos en el trabajo de oficina.",
+          "audit_criteria": "Verificar que el proceso de validación del lugar incluye criterios de iluminación y que existen registros de la evaluación realizada."
+        },
+        "5_1_II": {
+          "title": null,
+          "obligation": "Verificar que el área de trabajo se encuentre limpia y ordenada, sin materiales, objetos o equipos no necesarios en el lugar de trabajo, y con temperatura y ventilación que se perciba agradable para el tipo de actividad que realice en la jornada laboral. (NOM-037-STPS-2023, numerales 7.1, incisos a) y c)",
+          "explanation": "El espacio debe permitir renovación de aire suficiente y condiciones de higiene que no representen riesgo para la salud del teletrabajador.",
+          "rationale": "Las condiciones ambientales deficientes pueden afectar la salud respiratoria y el bienestar general del teletrabajador.",
+          "audit_criteria": "Confirmar que el protocolo de validación incluye criterios de ventilación e higiene del espacio de trabajo."
+        },
+        "5_1_III": {
+          "title": null,
+          "obligation": "Verificar que los lugares de trabajo propuestos cuenten con condiciones de seguridad y salud en el trabajo, con énfasis en el buen estado de las instalaciones eléctricas. (NOM-037-STPS-2023, numeral 5.1.1, inciso b)",
+          "explanation": "Las instalaciones eléctricas del espacio de teletrabajo no deben representar riesgo de corto circuito, sobrecarga ni contacto eléctrico accidental.",
+          "rationale": "Las deficiencias eléctricas son una causa frecuente de accidentes en el hogar y pueden provocar desde quemaduras hasta incendios.",
+          "audit_criteria": "Incluir verificación de instalaciones eléctricas en el protocolo de validación del espacio de teletrabajo."
+        },
+        "5_1_IV": {
+          "title": null,
+          "obligation": "Verificar que el lugar de trabajo cuente con un área que le permita a la persona trabajadora bajo la modalidad de Teletrabajo sentirse cómoda para realizar sus actividades, de tal manera que (por el mobiliario, o posiciones sedentarias prolongadas) evite que espalda, hombros o cuello acumulen tensiones. Ese lugar de trabajo al menos debe contar con: a) Escritorio, mesa o plano de trabajo donde pueda apoyar cómodamente los brazos; b) Silla ergonómica o de otro tipo, apropiada a las actividades a desarrollar, y c) En su caso, aditamentos ergonómicos o posturales. (NOM-037-STPS-2023, numeral 7.2)",
+          "explanation": "La silla, escritorio y disposición del equipo deben permitir una postura correcta que prevenga trastornos musculoesqueléticos.",
+          "rationale": "El trabajo prolongado en postura inadecuada es una de las principales causas de enfermedad laboral en el teletrabajo.",
+          "audit_criteria": "Revisar que se evalúen las condiciones ergonómicas del mobiliario y que existan registros de la evaluación."
+        },
+        "5_1_V": {
+          "title": null,
+          "obligation": "Verificar que los lugares de trabajo propuestos dispongan de conectividad para el uso y manejo de las Tecnologías de la Información y Comunicación. (NOM-037-STPS-2023, numeral 5.1.1, inciso a)",
+          "explanation": "La conectividad debe ser suficiente para las herramientas de trabajo digitales requeridas, sin interrupciones que generen carga adicional.",
+          "rationale": "Una conectividad deficiente genera estrés, afecta la productividad y puede traducirse en jornadas extendidas.",
+          "audit_criteria": "Confirmar que el proceso de validación incluye criterios de conectividad y que el patrón apoya al trabajador en resolverlos."
+        },
+        "5_1_VI": {
+          "title": null,
+          "obligation": "Verificar que el lugar de trabajo se encuentre limpio, ordenado y libre de materiales, objetos o equipos no necesarios que puedan representar un riesgo de trabajo, y que preferentemente disponga de un espacio físico que permita privacidad a la persona trabajadora bajo la modalidad de Teletrabajo cuando se encuentre en su jornada de trabajo. (NOM-037-STPS-2023, numerales 7.1, inciso a) y 7.3, inciso a)",
+          "explanation": "El espacio no debe tener obstáculos, superficies resbaladizas, cables expuestos u otras condiciones que representen riesgo de caída o lesión.",
+          "rationale": "Los accidentes en el lugar de teletrabajo son considerados accidentes de trabajo y generan responsabilidad patronal.",
+          "audit_criteria": "Confirmar que el protocolo de validación incluye un recorrido visual o checklist de condiciones de riesgo general."
+        },
+        "5_2": {
+          "title": "5.2 — Equipos y herramientas de trabajo",
+          "obligation": "Proporcionar a las personas trabajadoras bajo la modalidad de Teletrabajo para desarrollar sus actividades fuera del centro de trabajo, lo siguiente: a) Silla ergonómica o de otro tipo apropiada a las actividades a desarrollar; b) Los insumos necesarios para su adecuado desempeño, como por ejemplo para el envío de la información vía digital, o impresión de ésta, y c) En su caso, los aditamentos que garanticen condiciones ergonómicas o posturales, del trabajador en su jornada laboral. (NOM-037-STPS-2023, numeral 5.7)",
+          "explanation": "El patrón es responsable de proveer el equipo tecnológico necesario (computadora, teléfono, software) y de mantenerlo funcional.",
+          "rationale": "El teletrabajador no debe asumir el costo ni la responsabilidad del equipo de trabajo; esta obligación recae en el patrón.",
+          "audit_criteria": "Solicitar el inventario de equipos asignados a teletrabajadores, contratos de comodato o resguardo, y registros de mantenimiento."
+        },
+        "5_2_I": {
+          "title": null,
+          "obligation": "Proporcionar a las personas trabajadoras bajo la modalidad de Teletrabajo los equipos necesarios para el desempeño de sus actividades, incluyendo silla ergonómica, insumos para el manejo y envío de información, y en su caso los aditamentos que garanticen condiciones ergonómicas o posturales durante la jornada laboral. (NOM-037-STPS-2023, numeral 5.7)",
+          "explanation": "Antes del inicio del teletrabajo, el patrón debe entregar o garantizar acceso a los equipos necesarios, con documentación del resguardo.",
+          "rationale": "El trabajador no puede ser responsabilizado de adquirir equipo de trabajo; la norma es clara en que esta es una obligación patronal.",
+          "audit_criteria": "Revisar contratos de comodato, actas de entrega-recepción de equipo o cualquier documento que acredite la provisión del equipo."
+        },
+        "5_2_II": {
+          "title": null,
+          "obligation": "Establecer y documentar programas, y la manera de proporcionar mantenimiento, en condiciones de seguridad a los equipos para el manejo de las TIC proporcionados a las personas trabajadoras bajo la modalidad de Teletrabajo para realizar sus actividades. (NOM-037-STPS-2023, numeral 5.8)",
+          "explanation": "El patrón debe asegurarse de que el equipo llega en condiciones operativas al trabajador y que existe un proceso de mantenimiento preventivo y correctivo.",
+          "rationale": "El equipo deficiente genera interrupciones, estrés y riesgos de seguridad informática que impactan negativamente al teletrabajador.",
+          "audit_criteria": "Solicitar registros de mantenimiento de equipos asignados a teletrabajadores y los tiempos de respuesta ante fallas reportadas."
+        },
+        "5_2_III": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá señalar que los derechos de las personas trabajadoras bajo la modalidad de Teletrabajo no podrán ser inferiores a los que realicen trabajo presencial en el centro de trabajo, en cumplimiento a lo establecido en los artículos 330-C, 330-D y 330-E de la Ley Federal del Trabajo, incluyendo lo relativo al pago proporcional de servicios de telecomunicaciones y de la parte de energía eléctrica que corresponda al Teletrabajo. (NOM-037-STPS-2023, numeral 5.2, inciso f), y LFT artículo 330-E)",
+          "explanation": "El patrón debe cubrir los gastos adicionales de internet y electricidad en que incurra el trabajador por el teletrabajo, conforme a lo acordado.",
+          "rationale": "Los costos del teletrabajo no deben trasladarse al trabajador; la norma los define como una obligación patronal.",
+          "audit_criteria": "Verificar que existe un mecanismo documentado de reembolso o pago de servicios de telecomunicaciones y energía al teletrabajador."
+        },
+        "5_2_IV": {
+          "title": null,
+          "obligation": "El listado actualizado de las personas trabajadoras bajo la modalidad de Teletrabajo deberá incluir el listado del equipo de cómputo y ergonómico otorgado a la persona trabajadora, y la documentación que resulte del cumplimiento de la presente Norma deberá compartirse con la Comisión de Seguridad e Higiene, incluyendo los listados que comprueben los bienes y equipo de cómputo proporcionados. (NOM-037-STPS-2023, numerales 5.1, inciso k) y 5.12, inciso d)",
+          "explanation": "Mantener un inventario actualizado de los bienes asignados en modalidad de teletrabajo, con datos del trabajador, descripción del equipo y fechas.",
+          "rationale": "El registro permite trazabilidad del equipo, facilita la recuperación al término de la modalidad y acredita el cumplimiento ante la autoridad.",
+          "audit_criteria": "Solicitar el registro o inventario de equipos asignados a teletrabajadores, verificar que esté actualizado."
+        },
+        "5_3": {
+          "title": "5.3 — Ergonomía",
+          "obligation": "Informar a las personas trabajadoras bajo la modalidad de Teletrabajo y a la comisión de seguridad e higiene del centro de trabajo, sobre los riesgos relacionados con el Teletrabajo, y de la posible exposición de las personas trabajadoras bajo la modalidad de Teletrabajo a agentes y a factores de riesgo (ergonómico y psicosocial). (NOM-037-STPS-2023, numeral 5.3)",
+          "explanation": "Instruir al trabajador sobre la correcta configuración de su estación de trabajo, postura y pausas activas para prevenir lesiones.",
+          "rationale": "La ergonomía deficiente es la principal causa de enfermedades laborales en trabajo de oficina; su prevención requiere formación específica.",
+          "audit_criteria": "Solicitar el programa o materiales de capacitación en ergonomía y los registros de los trabajadores que la recibieron."
+        },
+        "5_3_I": {
+          "title": null,
+          "obligation": "Informar a las personas trabajadoras bajo la modalidad de Teletrabajo sobre los riesgos relacionados con el Teletrabajo y de la posible exposición a factores de riesgo ergonómico y psicosocial, de acuerdo con el numeral 5.3 de esta Norma.",
+          "explanation": "Entregar guías, manuales o infografías con criterios de configuración del puesto, postura correcta y señales de alerta de trastornos musculoesqueléticos.",
+          "rationale": "El trabajador que comprende los riesgos ergonómicos puede adoptar medidas preventivas de forma autónoma en su espacio de trabajo.",
+          "audit_criteria": "Revisar los materiales informativos entregados y los registros de recepción del trabajador."
+        },
+        "5_3_II": {
+          "title": null,
+          "obligation": "Capacitar al personal en el reconocimiento de los factores de riesgo ergonómico por posturas forzosas, movimientos repetitivos y sedestación prolongada, mediante la aplicación de la Lista de verificación de las condiciones de seguridad y salud en el trabajo. (NOM-037-STPS-2023, numeral 8.1, inciso a), fracción 2)",
+          "explanation": "Incluir en el programa de capacitación criterios de altura de monitor, posición de teclado, soporte lumbar y distancia visual.",
+          "rationale": "La configuración incorrecta del puesto es corregible con formación; la capacitación es la medida preventiva más costo-efectiva.",
+          "audit_criteria": "Solicitar el contenido de la capacitación ergonómica y los registros de asistencia o constancias de los teletrabajadores."
+        },
+        "5_3_III": {
+          "title": null,
+          "obligation": "Garantizar que las personas trabajadoras bajo la modalidad de Teletrabajo cuenten con pausas y tiempos de descanso adecuados durante su jornada laboral. (NOM-037-STPS-2023, numeral 7.3, inciso d)",
+          "explanation": "Implementar mecanismos que recuerden al teletrabajador realizar descansos breves y estiramientos para contrarrestar los efectos de la postura prolongada.",
+          "rationale": "Las pausas activas reducen la tensión muscular, mejoran la circulación y contribuyen al bienestar general del teletrabajador.",
+          "audit_criteria": "Verificar que existe un programa formal de pausas activas y que los teletrabajadores están informados de su implementación."
+        },
+        "5_4": {
+          "title": "5.4 — Capacitación y formación",
+          "obligation": "Proporcionar, de acuerdo con lo dispuesto en el Capítulo 8 de la presente Norma, capacitación al menos una vez al año a los trabajadores bajo la modalidad de Teletrabajo, sobre las condiciones de seguridad y salud que deben tener y mantener en su lugar de trabajo. (NOM-037-STPS-2023, numeral 5.9)",
+          "explanation": "Diseñar e impartir un programa de capacitación específico para el teletrabajo que cubra herramientas tecnológicas, seguridad de la información, ergonomía y disposiciones de la NOM-037.",
+          "rationale": "La capacitación adecuada es condición necesaria para que el teletrabajo sea seguro, productivo y conforme a derecho.",
+          "audit_criteria": "Solicitar el programa de capacitación para teletrabajadores, constancias de asistencia y evidencia de que cubre los temas requeridos por la norma."
+        },
+        "5_4_I": {
+          "title": null,
+          "obligation": "Capacitar a las personas trabajadoras bajo la modalidad de Teletrabajo en los conocimientos necesarios para el manejo de las Tecnologías de la Información y Comunicación (TIC) para la modalidad de Teletrabajo. (NOM-037-STPS-2023, numeral 8.1, inciso c)",
+          "explanation": "Instruir al trabajador en el manejo correcto del equipo asignado, incluyendo medidas de seguridad informática básica.",
+          "rationale": "El desconocimiento en el uso del equipo puede derivar en incidentes de seguridad o daños al hardware que afecten la operación.",
+          "audit_criteria": "Revisar las constancias de capacitación en uso de equipo de los teletrabajadores."
+        },
+        "5_4_II": {
+          "title": null,
+          "obligation": "Capacitar a las personas trabajadoras en el reconocimiento de los factores de riesgo psicosocial, haciendo énfasis en aquellos que pudieran estar presentes en la modalidad de Teletrabajo, como la interferencia en la relación trabajo-familia, los ritmos de trabajo acelerado, la carga de trabajo, la comunicación entre trabajadores, el apoyo social y la violencia laboral, entre otros. (NOM-037-STPS-2023, numeral 8.1, inciso a), fracción 3)",
+          "explanation": "Incluir en la capacitación los riesgos ergonómicos, de aislamiento, de violencia laboral y psicosociales asociados al teletrabajo.",
+          "rationale": "El teletrabajador expuesto a riesgos que desconoce no puede protegerse; la capacitación preventiva es obligación del patrón.",
+          "audit_criteria": "Verificar que la capacitación cubre los riesgos específicos del teletrabajo y que incluye las medidas de prevención correspondientes."
+        },
+        "5_4_III": {
+          "title": null,
+          "obligation": "Capacitar a las personas trabajadoras bajo la modalidad de Teletrabajo en la comprensión y aplicación de la Política de Teletrabajo del centro de trabajo, incluyendo sus derechos y obligaciones conforme a lo establecido en la NOM-037-STPS-2023 y la Ley Federal del Trabajo. (NOM-037-STPS-2023, numeral 8.1, inciso b)",
+          "explanation": "Comunicar de forma accesible los derechos del teletrabajador (derecho a la desconexión, privacidad, reversibilidad) y sus obligaciones.",
+          "rationale": "Un trabajador informado de sus derechos puede ejercerlos; un trabajador informado de sus obligaciones puede cumplirlas.",
+          "audit_criteria": "Revisar si existe material informativo sobre derechos y obligaciones de teletrabajadores y los registros de su entrega."
+        },
+        "5_4_IV": {
+          "title": null,
+          "obligation": "Proporcionar la capacitación al menos una vez al año, con la participación de la Comisión mixta de capacitación, adiestramiento y productividad en los casos aplicables. El proceso de capacitación o adiestramiento podrá realizarse en modalidad remota, presencial o mixta, como parte de la jornada de trabajo. (NOM-037-STPS-2023, numerales 5.9 y 8.1)",
+          "explanation": "Revisar y actualizar periódicamente los contenidos de capacitación para reflejar cambios en herramientas, procesos y regulación aplicable.",
+          "rationale": "La obsolescencia de los programas de capacitación genera brechas de conocimiento que pueden derivar en riesgos no atendidos.",
+          "audit_criteria": "Verificar la fecha de la última actualización del programa de capacitación y su correspondencia con los cambios en la organización."
+        },
+        "5_5": {
+          "title": "5.5 — Factores de riesgo propios del teletrabajo",
+          "obligation": "La Política de Teletrabajo deberá instaure mecanismos de comunicación con las personas trabajadoras bajo la modalidad de Teletrabajo a través de reuniones presenciales en el centro de trabajo, o por medio de las TIC, con el fin de evitar el aislamiento social; indicar los mecanismos y reglas de contacto que no interfieran en la relación trabajo-familia; y establecer la duración del horario de labores pactado incluyendo el derecho a las pausas para descanso y a la desconexión. (NOM-037-STPS-2023, numeral 5.2, incisos b), d) y e)",
+          "explanation": "Implementar mecanismos de detección y atención de los riesgos específicos del teletrabajo que no existen o son diferentes en el trabajo presencial.",
+          "rationale": "El teletrabajo introduce riesgos específicos —aislamiento, hiperconectividad, dificultad para desconectarse— que requieren gestión activa.",
+          "audit_criteria": "Solicitar el análisis de riesgos del teletrabajo, el plan de control y los registros de seguimiento."
+        },
+        "5_5_I": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá instaurar mecanismos de comunicación con las personas trabajadoras bajo la modalidad de Teletrabajo a través de reuniones presenciales en el centro de trabajo, o por medio de las TIC, con el fin de evitar el aislamiento social de éstas. (NOM-037-STPS-2023, numeral 5.2, inciso b)",
+          "explanation": "Implementar mecanismos de comunicación y contacto social que prevengan el aislamiento, como reuniones virtuales, espacios de intercambio y visitas periódicas al centro de trabajo.",
+          "rationale": "El aislamiento social es un riesgo psicosocial del teletrabajo que puede derivar en ansiedad, depresión y reducción del compromiso laboral.",
+          "audit_criteria": "Revisar los mecanismos implementados para fomentar la integración social de los teletrabajadores."
+        },
+        "5_5_II": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá indicar los mecanismos y reglas de contacto entre el centro de trabajo y las personas trabajadoras bajo la modalidad de Teletrabajo, siempre que se garantice el derecho a la privacidad y que dichos mecanismos o reglas no interfieran en la relación trabajo-familia, y que sean proporcionales a su objetivo. Se observará una perspectiva de género que permita conciliar el trabajo con la vida familiar y personal, incluyendo la posibilidad de contar con jornadas flexibles. (NOM-037-STPS-2023, numerales 5.2, inciso d), y 7.3, inciso b)",
+          "explanation": "Establecer políticas de desconexión, horarios claros y canales de comunicación que respeten los tiempos de descanso y vida familiar.",
+          "rationale": "La interferencia trabajo-familia es uno de los factores de riesgo más frecuentes en el teletrabajo y afecta tanto la salud del trabajador como su productividad.",
+          "audit_criteria": "Verificar que existe una política de desconexión digital y mecanismos para garantizar que se respete."
+        },
+        "5_5_III": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá establecer la duración del horario de labores pactado, y/o la distribución convenida de los horarios de las jornadas de trabajo de éstas, siempre que no excedan los máximos legales y contractuales, incluyendo el derecho a las pausas para descanso y a la desconexión al término de la jornada laboral, en los horarios no laborables, vacaciones, permisos y licencias. Se deberá garantizar que las personas trabajadoras bajo la modalidad de Teletrabajo cuenten con pausas y tiempos de descanso adecuados para las personas trabajadoras. (NOM-037-STPS-2023, numerales 5.2, inciso e), y 7.3, inciso d)",
+          "explanation": "Monitorear la carga de trabajo asignada a los teletrabajadores y ajustarla para evitar horas extraordinarias sistemáticas o trabajo fuera de jornada.",
+          "rationale": "La invisibilidad del teletrabajador puede facilitar que la carga de trabajo se expanda más allá de los límites legales sin detección oportuna.",
+          "audit_criteria": "Revisar los mecanismos de control de jornada para teletrabajadores y verificar que se respetan los tiempos de descanso."
+        },
+        "5_6": {
+          "title": "5.6 — Acuerdo de teletrabajo",
+          "obligation": "Establecer y documentar, en su caso, el proceso de implementación del Teletrabajo para el centro de trabajo que cambie de la modalidad presencial a Teletrabajo y viceversa, y que al menos contemple lo siguiente: a) La manera de mantener y establecer comunicación entre la persona trabajadora bajo la modalidad de Teletrabajo y el centro de trabajo; b) Los momentos, condiciones o causas en que la persona trabajadora bajo la modalidad de Teletrabajo asistirá al centro de trabajo; c) Indicar la forma en que se supervisará el desarrollo del Teletrabajo, y d) Establecer la manera en que se dará mantenimiento al equipo de cómputo o herramientas (incluidas las TIC) de trabajo utilizadas y/o asignadas para el Teletrabajo. (NOM-037-STPS-2023, numeral 5.6)",
+          "explanation": "Formalizar por escrito las condiciones del teletrabajo: lugar, horario, equipos, costos, derecho a la desconexión y reversibilidad.",
+          "rationale": "El acuerdo formaliza las condiciones del teletrabajo y protege tanto al trabajador como al patrón ante posibles controversias.",
+          "audit_criteria": "Solicitar los acuerdos de teletrabajo firmados y verificar que contengan todos los elementos requeridos por la norma."
+        },
+        "5_6_I": {
+          "title": null,
+          "obligation": "Establecer la manera de mantener y establecer comunicación entre la persona trabajadora bajo la modalidad de Teletrabajo y el centro de trabajo, así como los momentos, condiciones o causas en que la persona trabajadora asistirá al centro de trabajo. (NOM-037-STPS-2023, numeral 5.6, incisos a) y b)",
+          "explanation": "Documentar en el acuerdo la dirección o descripción del espacio desde el cual el trabajador desempeñará sus funciones.",
+          "rationale": "La definición del lugar de teletrabajo es indispensable para que el patrón pueda verificar las condiciones de seguridad y salud.",
+          "audit_criteria": "Revisar que el acuerdo incluye el lugar de teletrabajo autorizado y cualquier procedimiento para cambios de lugar."
+        },
+        "5_6_II": {
+          "title": null,
+          "obligation": "Indicar la forma en que se supervisará el desarrollo del Teletrabajo, en el marco de los mecanismos y reglas de contacto establecidos en la Política de Teletrabajo que garanticen el derecho a la privacidad y que no interfieran en la relación trabajo-familia. (NOM-037-STPS-2023, numerales 5.6, inciso c), y 5.2, inciso d)",
+          "explanation": "Especificar en el acuerdo el horario ordinario, los canales y frecuencia de contacto, y los horarios en los que el trabajador no estará obligado a responder comunicaciones.",
+          "rationale": "Sin un acuerdo claro de horarios y desconexión, el teletrabajador queda expuesto a disponibilidad permanente que viola sus derechos.",
+          "audit_criteria": "Confirmar que el acuerdo incluye horario, mecanismos de supervisión y disposiciones explícitas sobre el derecho a la desconexión."
+        },
+        "5_6_III": {
+          "title": null,
+          "obligation": "Establecer la manera en que se dará mantenimiento al equipo de cómputo o herramientas (incluidas las TIC) de trabajo utilizadas y/o asignadas para el Teletrabajo, y establecer los mecanismos para aplicar, en su caso, la reversibilidad del Teletrabajo (inclusive de forma temporal), de acuerdo con lo previsto en el artículo 330-G de la Ley. (NOM-037-STPS-2023, numerales 5.6, inciso d), y 5.2, inciso l)",
+          "explanation": "Documentar el proceso de retorno al trabajo presencial, el inventario de equipos entregados y el mecanismo de reembolso de costos.",
+          "rationale": "La reversibilidad y la gestión de equipos y costos son elementos que, de no estar acordados, generan conflictos al término de la modalidad.",
+          "audit_criteria": "Verificar que el acuerdo incluye cláusulas de reversibilidad, descripción de equipos y el mecanismo de compensación de costos."
+        },
+        "5_7": {
+          "title": "5.7 — Registro y control del teletrabajo",
+          "obligation": "Contar con la Lista de verificación de las condiciones de seguridad y salud en el Teletrabajo, a fin de que se cumplan con las condiciones de seguridad y salud en el trabajo a que se refiere el Capítulo 7 de la presente Norma, así como cumplir con las medidas de seguridad e higiene en el lugar de trabajo que hayan sido establecidas por la Comisión de Seguridad e Higiene, y que se contienen en la Lista de verificación de las condiciones de seguridad y salud en el Teletrabajo. (NOM-037-STPS-2023, numeral 5.4)",
+          "explanation": "Mantener un expediente por teletrabajador con el acuerdo firmado, el resultado de la verificación del lugar de trabajo y los registros de capacitación y equipo.",
+          "rationale": "Los registros son la evidencia de cumplimiento ante una inspección de la STPS y facilitan la gestión y el seguimiento del programa de teletrabajo.",
+          "audit_criteria": "Solicitar el registro de teletrabajadores y los expedientes individuales; verificar que están completos y actualizados."
+        },
+        "5_7_I": {
+          "title": null,
+          "obligation": "Contar con un listado actualizado de las personas trabajadoras bajo la modalidad de Teletrabajo con, al menos, la información siguiente: nombre, género, estado civil, actividades a desarrollar, nombre y perfil de puesto, tiempo (en porcentaje) de Teletrabajo, número telefónico de contacto, domicilio, lugares de trabajo convenidos, razón social y domicilio del centro de trabajo, y listado del equipo otorgado. (NOM-037-STPS-2023, numeral 5.1)",
+          "explanation": "Mantener un padrón de teletrabajadores con información básica que permita identificar el universo de trabajadores sujetos a la norma.",
+          "rationale": "El registro es el punto de partida para gestionar cualquier obligación de la norma; sin él no es posible demostrar el universo de aplicación.",
+          "audit_criteria": "Verificar que el registro existe, está actualizado y contiene los datos mínimos requeridos para todos los teletrabajadores."
+        },
+        "5_7_II": {
+          "title": null,
+          "obligation": "Compartir la documentación que resulte del cumplimiento de la presente Norma a la Comisión de Seguridad e Higiene, incluyendo según aplique: la lista de verificación de las condiciones de seguridad y salud en el Teletrabajo; la validación de la lista de verificación; la evidencia fotográfica o de video que en su caso se cuente de las condiciones de seguridad y salud en el Teletrabajo, y los listados que comprueben los bienes y equipo de cómputo proporcionados a la persona trabajadora bajo la modalidad de Teletrabajo. (NOM-037-STPS-2023, numeral 5.12)",
+          "explanation": "Archivar los acuerdos firmados y las evidencias de la verificación del espacio de trabajo de cada teletrabajador durante el tiempo que dure la modalidad.",
+          "rationale": "La conservación de documentos acredita el cumplimiento ante cualquier autoridad laboral o en caso de un accidente de trabajo.",
+          "audit_criteria": "Solicitar los acuerdos y verificaciones archivados; revisar que están disponibles y que corresponden a los teletrabajadores activos."
+        },
+        "5_7_III": {
+          "title": null,
+          "obligation": "Otorgar las facilidades para que la Comisión de Seguridad e Higiene realice la validación de la Lista de verificación de las condiciones de seguridad y salud en el Teletrabajo (incluidas las evidencias fotográficas o de video). El patrón podrá optar por: a) Realizar una visita al lugar de trabajo propuesto, previa autorización del trabajador, o b) Proporcionar al trabajador la lista de verificación para su autoaplicación. Una segunda versión de la lista deberá aplicarse periódicamente para constatar la continuidad de las condiciones. (NOM-037-STPS-2023, numerales 5.5 y 5.5.1)",
+          "explanation": "Documentar las sesiones de capacitación realizadas, los temas cubiertos y los trabajadores que las recibieron, con las fechas correspondientes.",
+          "rationale": "Los registros de capacitación son la evidencia de que el patrón ha cumplido con sus obligaciones formativas conforme a la NOM-037.",
+          "audit_criteria": "Solicitar listas de asistencia, constancias de capacitación o cualquier registro que acredite la formación de los teletrabajadores."
+        },
+        "5_8": {
+          "title": "5.8 — Reversibilidad del teletrabajo",
+          "obligation": "Establecer mecanismos para la reversibilidad de la modalidad de Teletrabajo a presencial, cuando la persona trabajadora bajo la modalidad de Teletrabajo informe al patrón de alguna condición, o alteración de las condiciones de seguridad y salud en el trabajo, que justifique el regreso al trabajo presencial, o porque así convenga a sus intereses laborales, de acuerdo con lo que al respecto se hubiere asentado por escrito en cumplimiento con lo previsto por el artículo 330-G de la Ley. (NOM-037-STPS-2023, numeral 5.10)",
+          "explanation": "Cuando el trabajador solicite regresar al trabajo presencial, el patrón debe facilitar la transición dentro del plazo acordado.",
+          "rationale": "La reversibilidad es un derecho fundamental del teletrabajador reconocido en la LFT; su vulneración genera responsabilidad laboral.",
+          "audit_criteria": "Verificar que el acuerdo de teletrabajo contempla el proceso de reversibilidad y que existen casos documentados de retorno al presencial cuando fue solicitado."
+        },
+        "5_8_I": {
+          "title": null,
+          "obligation": "Establecer los mecanismos para aplicar, en su caso, la reversibilidad del Teletrabajo (inclusive de forma temporal), de acuerdo con lo previsto en el artículo 330-G de la Ley, y conforme a lo que al respecto se hubiere asentado por escrito. (NOM-037-STPS-2023, numeral 5.2, inciso l)",
+          "explanation": "El proceso de retorno debe estar documentado en el acuerdo de teletrabajo, con plazos razonables y condiciones claras.",
+          "rationale": "Sin un proceso formal de reversibilidad, el trabajador puede enfrentar obstáculos prácticos que limiten el ejercicio de su derecho.",
+          "audit_criteria": "Revisar que el acuerdo establece el proceso y plazo de reversibilidad y que se ha respetado en los casos en que fue solicitada."
+        },
+        "5_8_II": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá señalar que los derechos de las personas trabajadoras bajo la modalidad de Teletrabajo no podrán ser inferiores a los que realicen trabajo presencial en el centro de trabajo. (NOM-037-STPS-2023, numeral 5.2, inciso f)",
+          "explanation": "El retorno al trabajo presencial no debe implicar pérdida de salario, categoría, beneficios ni derechos laborales adquiridos.",
+          "rationale": "La intangibilidad de los derechos es un principio laboral protegido por la LFT; cualquier perjuicio al trabajador por revertir el teletrabajo es ilegal.",
+          "audit_criteria": "Verificar que en los casos de reversión se conservaron las condiciones laborales del trabajador sin modificaciones perjudiciales."
+        },
+        "5_8_III": {
+          "title": null,
+          "obligation": "La documentación que resulte del cumplimiento de la presente Norma, incluyendo los listados que comprueben los bienes y equipo de cómputo proporcionados a la persona trabajadora bajo la modalidad de Teletrabajo, deberá compartirse con la Comisión de Seguridad e Higiene. (NOM-037-STPS-2023, numeral 5.12, inciso d)",
+          "explanation": "Al terminar el teletrabajo, formalizar la devolución de todos los equipos asignados mediante acta o documento equivalente.",
+          "rationale": "La documentación de la devolución protege al patrón de reclamaciones por equipos y al trabajador de responsabilidades indebidas.",
+          "audit_criteria": "Solicitar las actas de devolución de equipo en los casos de reversión al trabajo presencial."
+        },
+        "5_9": {
+          "title": "5.9 — Perspectiva de género y no discriminación",
+          "obligation": "La Política de Teletrabajo deberá promover la perspectiva de género y permitir conciliar la vida personal de las personas trabajadoras bajo la modalidad de Teletrabajo, y considerar las disposiciones del protocolo al que se refiere el artículo 132 fracción XXXI de la Ley, así como observar una perspectiva de género que permita conciliar el trabajo con la vida familiar y personal, incluyendo la posibilidad de contar con jornadas flexibles para facilitar la atención de responsabilidades familiares. (NOM-037-STPS-2023, numerales 5.2, inciso g), y 7.3, inciso b)",
+          "explanation": "Las políticas y prácticas de teletrabajo deben diseñarse con perspectiva de género para evitar que la modalidad recaiga desproporcionadamente en las mujeres o reproduzca roles de cuidado.",
+          "rationale": "El teletrabajo puede reforzar desigualdades de género si no se gestiona con perspectiva de equidad; la norma exige una gestión activa de este riesgo.",
+          "audit_criteria": "Revisar si la política de teletrabajo incluye perspectiva de género y si el patrón monitorea la distribución equitativa de la modalidad entre hombres y mujeres."
+        },
+        "5_9_I": {
+          "title": null,
+          "obligation": "Promover la perspectiva de género y permitir conciliar la vida personal de las personas trabajadoras bajo la modalidad de Teletrabajo, considerando las disposiciones del protocolo al que se refiere el artículo 132 fracción XXXI de la Ley Federal del Trabajo. (NOM-037-STPS-2023, numeral 5.2, inciso g)",
+          "explanation": "Las condiciones, criterios de acceso, capacitación y beneficios del teletrabajo deben aplicarse de manera igualitaria sin distinción de género.",
+          "rationale": "Una política de teletrabajo sin perspectiva de género puede convertirse en un mecanismo de segregación laboral involuntario.",
+          "audit_criteria": "Verificar que la política de teletrabajo establece criterios objetivos y no discriminatorios para el acceso y las condiciones de la modalidad."
+        },
+        "5_9_II": {
+          "title": null,
+          "obligation": "Observar una perspectiva de género que permita conciliar el trabajo con la vida familiar y personal, incluyendo la posibilidad de contar con jornadas flexibles para facilitar la atención de responsabilidades familiares. (NOM-037-STPS-2023, numeral 7.3, inciso b)",
+          "explanation": "Implementar mecanismos que separen claramente el tiempo de trabajo remunerado de las responsabilidades del hogar durante la jornada laboral.",
+          "rationale": "Las trabajadoras en teletrabajo enfrentan frecuentemente la doble presencia (trabajo y cuidados), que la norma busca prevenir explícitamente.",
+          "audit_criteria": "Revisar si existen medidas concretas para prevenir la doble presencia y cómo se verifica su efectividad."
+        },
+        "5_9_III": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá determinar el horario dentro de la jornada laboral en el que, durante un máximo de seis meses, las madres trabajadoras bajo la modalidad de Teletrabajo en periodo de lactancia contarán con tiempo para alimentar a sus hijos e hijas, pudiendo elegir entre tomar dos reposos extraordinarios por día de media hora cada uno, o reducir una hora su jornada laboral, en los términos del artículo 170 de la Ley Federal del Trabajo. (NOM-037-STPS-2023, numeral 5.2, inciso h)",
+          "explanation": "Las trabajadoras en teletrabajo deben tener las mismas oportunidades de capacitación, promoción y participación que sus colegas presenciales.",
+          "rationale": "La invisibilidad del teletrabajador puede traducirse en exclusión de oportunidades de desarrollo; la norma exige igualdad de acceso.",
+          "audit_criteria": "Verificar que la distribución de promociones, capacitaciones y proyectos estratégicos es equitativa entre teletrabajadores presenciales y remotos."
+        },
+        "5_10": {
+          "title": "5.10 — Privacidad y protección de datos",
+          "obligation": "La Política de Teletrabajo deberá indicar los mecanismos y reglas de contacto entre el centro de trabajo y las personas trabajadoras bajo la modalidad de Teletrabajo, siempre que se garantice el derecho a la privacidad de las personas trabajadoras bajo la modalidad de Teletrabajo, y que dichos mecanismos o reglas no interfieran en la relación trabajo-familia, y que sean proporcionales a su objetivo. (NOM-037-STPS-2023, numeral 5.2, inciso d)",
+          "explanation": "Implementar políticas de seguridad de la información para el teletrabajo y respetar los límites del domicilio del trabajador en los mecanismos de supervisión.",
+          "rationale": "El teletrabajo en el domicilio del trabajador crea una tensión entre la supervisión legítima del trabajo y el derecho a la privacidad en el hogar.",
+          "audit_criteria": "Revisar las políticas de seguridad de la información para teletrabajadores y los mecanismos de supervisión implementados."
+        },
+        "5_10_I": {
+          "title": null,
+          "obligation": "La Política de Teletrabajo deberá garantizar el derecho a la privacidad de las personas trabajadoras bajo la modalidad de Teletrabajo, y los mecanismos de contacto deberán ser proporcionales a su objetivo y no interferir en la relación trabajo-familia. (NOM-037-STPS-2023, numeral 5.2, inciso d)",
+          "explanation": "Las herramientas de monitoreo del trabajo remoto deben limitarse a verificar el desempeño laboral sin invadir la privacidad del espacio doméstico.",
+          "rationale": "La supervisión invasiva del domicilio viola derechos fundamentales del trabajador y puede constituir un acto discriminatorio.",
+          "audit_criteria": "Revisar las herramientas de supervisión en uso y confirmar que están limitadas al desempeño laboral sin acceso a entornos privados."
+        },
+        "5_10_II": {
+          "title": null,
+          "obligation": "Las personas trabajadoras bajo la modalidad de Teletrabajo deberán atender las políticas y mecanismos de protección de datos e información establecidos por el patrón en el desempeño de sus actividades, así como las restricciones sobre su uso y almacenamiento. (NOM-037-STPS-2023, numeral 6.6 — obligación del trabajador)",
+          "explanation": "Establecer políticas de uso de redes seguras, manejo de información confidencial, uso de VPN y gestión de contraseñas para el teletrabajo.",
+          "rationale": "El trabajo desde redes domésticas o públicas expone a la empresa a riesgos de seguridad informática que deben gestionarse proactivamente.",
+          "audit_criteria": "Solicitar la política de seguridad de la información para teletrabajadores y los controles técnicos implementados."
+        },
+        "5_11": {
+          "title": "5.11 — Derecho a la desconexión",
+          "obligation": "La Política de Teletrabajo deberá establecer la duración del horario de labores pactado, y/o la distribución convenida de los horarios de las jornadas de trabajo, siempre que no excedan los máximos legales y contractuales, incluyendo el derecho a las pausas para descanso y a la desconexión (incluida la desconexión de las TIC de manera digital) al término de la jornada laboral, en los horarios no laborables, vacaciones, permisos y licencias. Se deberá respetar el derecho a la desconexión de las personas trabajadoras bajo la modalidad de Teletrabajo al término de la jornada laboral, durante las pausas convenidas en horarios flexibles, en los horarios no laborables, vacaciones, permisos y licencias. (NOM-037-STPS-2023, numerales 5.2, inciso e), y 7.3, inciso e)",
+          "explanation": "Establecer una política de desconexión digital que prohíba requerir atención del teletrabajador fuera de su jornada ordinaria y durante sus periodos de descanso.",
+          "rationale": "El derecho a la desconexión es un derecho laboral reconocido que protege la salud y el tiempo personal del trabajador.",
+          "audit_criteria": "Verificar la existencia de la política de desconexión y los mecanismos para garantizar su cumplimiento efectivo."
+        },
+        "5_12": {
+          "title": "5.12 — Atención a emergencias y accidentes",
+          "obligation": "Compartir la documentación que resulte del cumplimiento de la presente Norma a la Comisión de Seguridad e Higiene, incluyendo según aplique: a) La lista de verificación de las condiciones de seguridad y salud en el Teletrabajo; b) La validación de la lista de verificación de las condiciones de seguridad y salud en el Teletrabajo; c) La evidencia fotográfica o de video que en su caso se cuente de las condiciones de seguridad y salud en el Teletrabajo, y d) Los listados que comprueben los bienes y equipo de cómputo proporcionados a la persona trabajadora bajo la modalidad de Teletrabajo, a que se refiere el numeral 5.7 de esta NOM. (NOM-037-STPS-2023, numeral 5.12)",
+          "explanation": "Definir el protocolo de reporte y atención de accidentes de trabajo en la modalidad de teletrabajo, incluyendo los canales de comunicación con el patrón.",
+          "rationale": "Los accidentes ocurridos durante la jornada de teletrabajo son accidentes de trabajo; el patrón tiene las mismas obligaciones que en el trabajo presencial.",
+          "audit_criteria": "Solicitar el protocolo de atención de emergencias y accidentes para teletrabajadores y los registros de incidentes reportados."
+        },
+        "5_13": {
+          "title": "5.13 — Servicios de salud y seguridad social",
+          "obligation": "Contar con mecanismos de atención para casos de violencia familiar que consideren, entre otras cosas, el retorno a la modalidad presencial de manera temporal o permanente. (NOM-037-STPS-2023, numeral 5.13)",
+          "explanation": "Los teletrabajadores deben estar afiliados al IMSS o el sistema de seguridad social correspondiente en las mismas condiciones que cualquier otro trabajador.",
+          "rationale": "La modalidad de teletrabajo no modifica los derechos de seguridad social del trabajador; cualquier diferencia constituye un acto discriminatorio.",
+          "audit_criteria": "Verificar que los teletrabajadores están registrados ante el IMSS con salarios correctos y que tienen acceso a todas las prestaciones de ley."
+        },
+        "5_14": {
+          "title": "5.14 — Vigilancia de la salud",
+          "obligation": "Brindar el apoyo y las facilidades necesarias para que, en su caso, las personas trabajadoras bajo la modalidad de Teletrabajo participen en la Comisión de Seguridad e Higiene o en la Comisión mixta de capacitación, adiestramiento y productividad. (NOM-037-STPS-2023, numeral 5.14)",
+          "explanation": "Incluir a los teletrabajadores en el programa de vigilancia médica de la empresa, con énfasis en los riesgos específicos del teletrabajo: trastornos musculoesqueléticos, fatiga visual y riesgos psicosociales.",
+          "rationale": "La vigilancia de la salud permite detectar afectaciones tempranas y actuar preventivamente; el teletrabajador tiene el mismo derecho a este servicio que el presencial.",
+          "audit_criteria": "Solicitar los registros de exámenes médicos practicados a teletrabajadores y verificar que el programa de vigilancia los incluye."
+        }
+      }
+    },
+    "evidence": {
+      "nom_035_stps_2018": {
+        "5_8_a": {
+          "description": "Registros de la identificación y análisis de los factores de riesgo psicosocial: instrumentos aplicados, resultados individuales consolidados e informes de análisis de cada ciclo de evaluación, conservados durante un mínimo de 4 años."
+        },
+        "5_8_b": {
+          "description": "Registros de las medidas adoptadas para prevenir y controlar los factores de riesgo psicosocial: planes de acción, avances de implementación, modificaciones realizadas y resultados obtenidos, conservados durante un mínimo de 4 años."
+        },
+        "5_8_c": {
+          "description": "Registros de los exámenes médicos y evaluaciones psicológicas practicados al personal expuesto a factores de riesgo psicosocial, conservados bajo resguardo confidencial durante un mínimo de 4 años."
+        }
+      }
+    }
+  }
 }

@@ -3270,7 +3270,6 @@ export default class EmployeeController {
    *         description: Business Unit Id
    *         schema:
    *           type: integer
-   *         description: ID of the business unit to filter
    *       - in: query
    *         name: departmentId
    *         schema:

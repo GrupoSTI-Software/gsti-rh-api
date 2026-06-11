@@ -206,8 +206,47 @@ export default class EmpresaContratanteService {
   /** Soft delete sin validar contratos asociados (ESB-08-11-02-03). */
   async destroy(empresaContratanteId: number) {
     const row = await findEmpresaContratanteInTenantOrFail(empresaContratanteId)
-    await row.delete()
-    return serializeEmpresaContratante(row)
+
+    await db.transaction(async (trx) => {
+      const blocking = await trx
+        .from('contratos_servicios_especializados')
+        .where('empresa_contratante_id', empresaContratanteId)
+        .whereNull('contrato_servicio_especializado_deleted_at')
+        .select('contrato_servicio_especializado_id')
+        .forUpdate()
+        .limit(1)
+
+      if (blocking.length > 0) {
+        throw new EmpresaContratanteError(
+          'No se puede eliminar la empresa contratante mientras tenga contratos asociados.',
+          EMPRESA_CONTRATANTE_ERROR_CODES.CONTRATOS_ACTIVOS,
+          409,
+          'empresa-con-contratos-activos',
+          'Empresa con contratos activos'
+        )
+      }
+
+      const linkedSites = await trx
+        .from('branch_offices')
+        .where('empresa_contratante_id', empresaContratanteId)
+        .whereNull('branch_office_deleted_at')
+        .count('* as total')
+        .forUpdate()
+
+      const linkedCount = Number(linkedSites[0]?.total ?? 0)
+      if (linkedCount > 0) {
+        throw new EmpresaContratanteError(
+          `Desliga las ${linkedCount} sucursales ligadas antes de eliminar la empresa`,
+          EMPRESA_CONTRATANTE_ERROR_CODES.SITIOS_LIGADOS,
+          422,
+          'empresa-con-sitios-ligados',
+          `Desliga las ${linkedCount} sucursales ligadas antes de eliminar la empresa`
+        )
+      }
+
+      row.useTransaction(trx)
+      await row.delete()
+    })
   }
 
   /**

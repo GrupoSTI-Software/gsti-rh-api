@@ -446,6 +446,19 @@ export default class EmployeeLactationPeriodService {
   // }
 
   /**
+   * Variante pública de `findPeriodInCompanyOrFail` para que servicios vecinos
+   * (por ejemplo `EmployeeLactationPeriodEvidenceService`) puedan validar la
+   * pertenencia tenant de un periodo antes de operar sobre sus recursos hijos,
+   * sin duplicar el query ni la lógica multitenant.
+   */
+  async ensurePeriodAccessible(
+    periodId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<EmployeeLactationPeriod> {
+    return this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
+  }
+
+  /**
    * Recupera un periodo no borrado cuya empleada pertenezca a la empresa actual.
    * Lanza 404 cuando no existe o vive en otra empresa.
    */

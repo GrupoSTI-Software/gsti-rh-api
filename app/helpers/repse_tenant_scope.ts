@@ -1,9 +1,17 @@
 import env from '#start/env'
+import logger from '@adonisjs/core/services/logger'
 import BusinessUnit from '#models/business_unit'
+import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 import EmpresaContratante from '#models/empresa_contratante'
 import RepseRegistration from '#models/repse_registration'
+import RepseSpecializedService from '#models/repse_specialized_service'
+import Employee from '#models/employee'
+import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
+import { ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES } from '../constants/asignacion_contrato_especializado_error_codes.js'
+import { AsignacionContratoEspecializadoError } from '../exceptions/asignacion_contrato_especializado_error.js'
 import { EMPRESA_CONTRATANTE_ERROR_CODES } from '../constants/empresa_contratante_error_codes.js'
 import { REPSE_ERROR_CODES } from '../constants/repse_registration_error_codes.js'
+import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
 import { EmpresaContratanteError } from '../exceptions/empresa_contratante_error.js'
 import { RepseRegistrationError } from '../exceptions/repse_registration_error.js'
 
@@ -130,6 +138,216 @@ export async function findEmpresaContratanteInTenantOrFail(
       404,
       notFoundKey,
       'La empresa contratante no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  return row
+}
+
+export type FindContratoInTenantOptions = {
+  notFoundKey?: string
+  /** Incluye subconsulta de fecha_vencimiento del documento firmado vigente en `$extras`. */
+  withDocumentoVigenteFecha?: boolean
+}
+
+/**
+ * Recupera un contrato de servicios especializados no borrado cuya BU pertenezca
+ * al tenant actual. Lanza 404 cuando no existe o vive en otra instancia.
+ */
+export async function findContratoInTenantOrFail(
+  contratoServicioEspecializadoId: number,
+  notFoundKeyOrOptions: string | FindContratoInTenantOptions = 'contrato-no-encontrado'
+): Promise<ContratoServicioEspecializado> {
+  const options: FindContratoInTenantOptions =
+    typeof notFoundKeyOrOptions === 'string'
+      ? { notFoundKey: notFoundKeyOrOptions }
+      : notFoundKeyOrOptions
+  const notFoundKey = options.notFoundKey ?? 'contrato-no-encontrado'
+
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'El contrato no existe o no pertenece al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'El contrato no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  let query = ContratoServicioEspecializado.query()
+    .where('contrato_servicio_especializado_id', contratoServicioEspecializadoId)
+    .whereNull('contrato_servicio_especializado_deleted_at')
+    .whereIn('business_unit_id', allowed)
+
+  if (options.withDocumentoVigenteFecha) {
+    query = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(query)
+  }
+
+  const row = await query.first()
+
+  if (!row) {
+    throw new ContratoServicioEspecializadoError(
+      'El contrato no existe o no pertenece al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'El contrato no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  return row
+}
+
+/**
+ * Obtiene el folio REPSE activo del tenant (persona moral/física prestadora).
+ * Busca en todas las BUs permitidas; un prestador tiene un solo folio REPSE.
+ */
+export async function findActiveRepseFolioForTenant(): Promise<string> {
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'No hay registro REPSE activo para el tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.REPSE_NOT_FOUND,
+      422,
+      'registro-repse-no-encontrado',
+      'No hay registro REPSE activo para el tenant actual.'
+    )
+  }
+
+  const registrations = await RepseRegistration.query()
+    .whereNull('repse_registration_deleted_at')
+    .where('repse_registration_status', 'active')
+    .whereIn('business_unit_id', allowed)
+    .orderBy('repse_registration_id', 'asc')
+
+  if (registrations.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'No hay registro REPSE activo para el tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.REPSE_NOT_FOUND,
+      422,
+      'registro-repse-no-encontrado',
+      'No hay registro REPSE activo para el tenant actual.'
+    )
+  }
+
+  const folios = [...new Set(registrations.map((r) => r.folio.trim()))]
+  if (folios.length > 1) {
+    logger.warn(
+      { foliosCount: folios.length },
+      'Inconsistencia: múltiples folios REPSE activos en el tenant; se usa el primero.'
+    )
+  }
+
+  return registrations[0].folio.trim()
+}
+
+/**
+ * Normaliza ids duplicados del body antes de validar y sincronizar la pivote.
+ */
+export function dedupeServiciosRegistradosIds(ids: number[]): number[] {
+  return [...new Set(ids)]
+}
+
+/**
+ * Valida que exista al menos un servicio registrado (dominio, además de Vine).
+ */
+export function assertServiciosRegistradosRequeridos(ids: number[] | undefined): number[] {
+  const unique = dedupeServiciosRegistradosIds(ids ?? [])
+  if (unique.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'Debe indicar al menos un servicio especializado registrado del catálogo REPSE.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIOS_REGISTRADOS_REQUERIDOS,
+      400,
+      'servicios-registrados-requeridos',
+      'Debe indicar al menos un servicio del catálogo REPSE.'
+    )
+  }
+  return unique
+}
+
+/**
+ * Resuelve servicios del catálogo REPSE validando tenant vía registro padre.
+ * Lanza 404 si algún id no existe o pertenece a otro tenant.
+ */
+export async function findRepseSpecializedServicesInTenantOrFail(
+  ids: number[]
+): Promise<RepseSpecializedService[]> {
+  const uniqueIds = assertServiciosRegistradosRequeridos(ids)
+  const allowed = await getAllowedBusinessUnitIds()
+
+  if (allowed.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'El servicio registrado no existe o no pertenece al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_NOT_FOUND,
+      404,
+      'servicio-registrado-no-encontrado',
+      'Servicio registrado no encontrado.'
+    )
+  }
+
+  const rows = await RepseSpecializedService.query()
+    .whereIn('repse_specialized_service_id', uniqueIds)
+    .whereNull('repse_specialized_service_deleted_at')
+    .whereHas('repseRegistration', (parentQuery) => {
+      parentQuery
+        .whereNull('repse_registration_deleted_at')
+        .whereIn('business_unit_id', allowed)
+    })
+
+  if (rows.length !== uniqueIds.length) {
+    throw new ContratoServicioEspecializadoError(
+      'Uno o más servicios registrados no existen o no pertenecen al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_NOT_FOUND,
+      404,
+      'servicio-registrado-no-encontrado',
+      'Servicio registrado no encontrado.'
+    )
+  }
+
+  return rows
+}
+
+export type FindEmployeeInTenantOptions = {
+  itemIndex?: number
+}
+
+/**
+ * Recupera un empleado activo cuya unidad de negocio pertenezca al tenant actual.
+ * Empleados dados de baja o inexistentes responden 404 con key empleado-no-encontrado.
+ */
+export async function findEmployeeInTenantOrFail(
+  employeeId: number,
+  options: FindEmployeeInTenantOptions = {}
+): Promise<Employee> {
+  const allowed = await getAllowedBusinessUnitIds()
+  const itemSuffix =
+    options.itemIndex !== undefined ? ` del item ${options.itemIndex}` : ''
+
+  if (allowed.length === 0) {
+    throw new AsignacionContratoEspecializadoError(
+      `No se encontró el empleado${itemSuffix} (id ${employeeId}).`,
+      ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+      404,
+      'empleado-no-encontrado',
+      `No se encontró el empleado${itemSuffix} (id ${employeeId})`
+    )
+  }
+
+  const row = await Employee.query()
+    .where('employee_id', employeeId)
+    .whereNull('employee_deleted_at')
+    .whereNull('employee_terminated_date')
+    .whereIn('business_unit_id', allowed)
+    .first()
+
+  if (!row) {
+    throw new AsignacionContratoEspecializadoError(
+      `No se encontró el empleado${itemSuffix} (id ${employeeId}).`,
+      ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+      404,
+      'empleado-no-encontrado',
+      `No se encontró el empleado${itemSuffix} (id ${employeeId})`
     )
   }
 

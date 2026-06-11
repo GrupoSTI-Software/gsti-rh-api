@@ -91,6 +91,12 @@ const EXCLUDED_RELATIVE_PATHS = new Set([
   'app/services/position_service.ts',
   'app/services/position_assessment_profile_service.ts',
   'tests/functional/assessment_template.spec.ts',
+  // Marco regulatorio NOM-035-STPS-2018 y NOM-037-STPS-2023: terminología oficial
+  // STPS obligatoria ("psicosocial", "psicológica", etc.) en seeders e i18n.
+  'database/seeders/0030_nom_035_stps_seeder.ts',
+  'database/seeders/0031_nom_037_stps_seeder.ts',
+  'resources/langs/es.json',
+  'resources/langs/en.json',
 ])
 
 const SOURCE_EXTENSIONS = new Set([

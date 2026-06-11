@@ -1,9 +1,10 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, manyToMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import RepseRegistration from '#models/repse_registration'
+import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 
 /**
  * Estados permitidos para un servicio especializado REPSE.
@@ -86,4 +87,14 @@ export default class RepseSpecializedService extends compose(BaseModel, SoftDele
     localKey: 'repseRegistrationId',
   })
   declare repseRegistration: BelongsTo<typeof RepseRegistration>
+
+  @manyToMany(() => ContratoServicioEspecializado, {
+    pivotTable: 'contrato_servicio_repse',
+    localKey: 'repseSpecializedServiceId',
+    pivotForeignKey: 'repse_specialized_service_id',
+    relatedKey: 'contratoServicioEspecializadoId',
+    pivotRelatedForeignKey: 'contrato_servicio_especializado_id',
+    pivotTimestamps: true,
+  })
+  declare contratosServiciosEspecializados: ManyToMany<typeof ContratoServicioEspecializado>
 }

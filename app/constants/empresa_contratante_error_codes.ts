@@ -12,6 +12,10 @@ export const EMPRESA_CONTRATANTE_ERROR_CODES = {
   NOT_FOUND: 'ECNT.NF.001',
   /** BusinessUnit inexistente o ajena al tenant */
   BUSINESS_UNIT_NOT_FOUND: 'ECNT.NF.BU.001',
+  /** Empresa contratante con contratos no soft-deleted asociados */
+  CONTRATOS_ACTIVOS: 'ECNT.CONFLICT.CONTRATOS.001',
+  /** Empresa contratante con sucursales ligadas como sitios de servicio */
+  SITIOS_LIGADOS: 'ECNT.CONFLICT.SITIOS.001',
   /** Sin permiso sobre el módulo */
   FORBIDDEN: 'ECNT.FORBID.001',
   /** Error no clasificado del dominio */
