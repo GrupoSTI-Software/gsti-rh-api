@@ -20,6 +20,8 @@ import EmployeeDeviceService from '#services/employee_device_service'
 import Person from '#models/person'
 import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
+import AuthTokenService from '#services/auth_token_service'
+import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 
 export default class UserController {
   /**
@@ -293,11 +295,10 @@ export default class UserController {
       }
 
       const userVerify = await User.verifyCredentials(userEmail, userPassword)
-      const token = await User.accessTokens.create(user)
+      const authTokenService = new AuthTokenService()
+      const { accessToken, refreshToken } = await authTokenService.issueTokenPair(user, origin)
 
-      await ApiToken.query().where('id', String(token.identifier)).update({ origin })
-
-      if (userVerify && token) {
+      if (userVerify) {
         const date = DateTime.local().setZone('utc').toISO()
         try {
           const rawHeaders = request.request.rawHeaders
@@ -322,7 +323,8 @@ export default class UserController {
           message: 'You have successfully logged in',
           data: {
             user: user,
-            token: token.value!.release(),
+            token: accessToken,
+            refreshToken,
           },
         }
       } else {
@@ -335,6 +337,85 @@ export default class UserController {
         }
       }
     } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/auth/refresh:
+   *   post:
+   *     tags:
+   *       - Users
+   *     summary: Renovar access token usando refresh token
+   *     description: |
+   *       Valida el refresh token opaco, rota el par completo (access + refresh)
+   *       y mantiene sesión única por origin. Responde 401 si el refresh token
+   *       es inválido, expirado o pertenece a un usuario inactivo.
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - refreshToken
+   *             properties:
+   *               refreshToken:
+   *                 type: string
+   *                 description: Refresh token opaco emitido en login o signup
+   *     responses:
+   *       '200':
+   *         description: Par de tokens renovado exitosamente
+   *       '400':
+   *         description: Refresh token no enviado
+   *       '401':
+   *         description: Refresh token inválido o expirado
+   */
+  async refresh({ request, response }: HttpContext) {
+    try {
+      const refreshTokenValue = request.input('refreshToken')
+
+      if (!refreshTokenValue || typeof refreshTokenValue !== 'string') {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El refresh token es requerido',
+          data: null,
+        }
+      }
+
+      const authTokenService = new AuthTokenService()
+      const verified = await authTokenService.verifyRefreshToken(refreshTokenValue)
+
+      if (verified.status === 'error') {
+        return respondRefreshTokenUnauthorized(response, verified.code)
+      }
+
+      const { accessToken, refreshToken } = await authTokenService.rotateTokenPair(
+        verified.user,
+        verified.origin
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Refresh',
+        message: 'Tokens renovados exitosamente',
+        data: {
+          token: accessToken,
+          refreshToken,
+        },
+      }
+    } catch (error: any) {
       response.status(500)
       return {
         type: 'error',
@@ -564,6 +645,7 @@ export default class UserController {
       const deviceOrigin = request.input('deviceOrigin')
       const origin = deviceOrigin === 'app' ? 'app' : 'web'
 
+      // Revoca access + refresh del origin: el delete no filtra por `type`.
       await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       response.status(200)
