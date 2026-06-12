@@ -414,6 +414,133 @@ components:
         errorCode: BRCH.CONFLICT.LINK.001
         data: null
 
+    BranchOfficeShiftQuotaShiftRef:
+      type: object
+      required: [shiftId, shiftName]
+      properties:
+        shiftId:
+          type: integer
+        shiftName:
+          type: string
+
+    BranchOfficeShiftQuotaItem:
+      type: object
+      required: [branchOfficeShiftQuotaId, shift, required, minimum]
+      properties:
+        branchOfficeShiftQuotaId:
+          type: integer
+        shift:
+          $ref: '#/components/schemas/BranchOfficeShiftQuotaShiftRef'
+        required:
+          type: integer
+          minimum: 1
+          description: Plantilla requerida para operación normal
+        minimum:
+          type: integer
+          minimum: 1
+          description: Mínimo crítico tolerable
+
+    BranchOfficeShiftQuotaInputItem:
+      type: object
+      required: [shiftId, required, minimum]
+      properties:
+        shiftId:
+          type: integer
+          minimum: 1
+        required:
+          type: integer
+          minimum: 1
+        minimum:
+          type: integer
+          minimum: 1
+
+    BranchOfficeShiftQuotasReplace:
+      type: object
+      properties:
+        quotas:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchOfficeShiftQuotaInputItem'
+
+    BranchOfficeShiftQuotasSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [quotas]
+          properties:
+            quotas:
+              type: array
+              items:
+                $ref: '#/components/schemas/BranchOfficeShiftQuotaItem'
+      example:
+        type: success
+        title: Branch Office Shift Quotas
+        message: Cuotas guardadas correctamente
+        data:
+          quotas:
+            - branchOfficeShiftQuotaId: 1
+              shift:
+                shiftId: 3
+                shiftName: Nocturno
+              required: 3
+              minimum: 3
+
+    ApiErrorSucursalNoEncontradaShiftQuotas:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Sucursal no encontrada
+        message: Sucursal no encontrada o no disponible para esta instancia del sistema
+        detail: Sucursal no encontrada o no disponible para esta instancia del sistema
+        key: sucursal-no-encontrada
+        errorCode: BRCH.SQ.NF.BRCH.001
+        data: null
+
+    ApiErrorTurnoNoEncontradoShiftQuotas:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Turno no encontrado
+        message: No se encontró el turno del item 1 (id 99999) para esta unidad
+        detail: No se encontró el turno del item 1 (id 99999) para esta unidad
+        key: turno-no-encontrado
+        errorCode: BRCH.SQ.NF.SHIFT.001
+        data: null
+
+    ApiErrorCuotaInvalida:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Cuota inválida
+        message: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+        detail: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+        key: cuota-invalida
+        errorCode: BRCH.SQ.VAL.QUOTA.001
+        data: null
+
+    ApiErrorShiftIdDuplicadoShiftQuotas:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Turno repetido en el lote
+        message: "shiftId repetido en los items: 1, 2"
+        detail: "Los items 1, 2 repiten el mismo shiftId"
+        errorCode: BRCH.SQ.VAL.DUP.001
+        data: null
+
     ApiErrorEmpresaConSitiosLigados:
       allOf:
         - $ref: '#/components/schemas/ApiError'
@@ -2516,3 +2643,221 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+
+  /api/branch-offices/{branchOfficeId}/shift-quotas:
+    get:
+      summary: Listar cuotas de plantilla configuradas para una sucursal
+      description: Solo sucursales dentro del scope del usuario; fuera de scope responde 404 con key sucursal-no-encontrada.
+      tags: [BranchOfficeShiftQuotas]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: branchOfficeId
+          in: path
+          required: true
+          description: Identificador numérico de la sucursal (entero positivo).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+      responses:
+        '200':
+          description: Cuotas configuradas con turno poblado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeShiftQuotasSuccess'
+              example:
+                type: success
+                title: Branch Office Shift Quotas
+                message: Cuotas obtenidas correctamente
+                data:
+                  quotas:
+                    - branchOfficeShiftQuotaId: 1
+                      shift:
+                        shiftId: 3
+                        shiftName: Nocturno
+                      required: 3
+                      minimum: 2
+        '400':
+          description: branchOfficeId no es un entero positivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: El parámetro branchOfficeId debe ser un entero positivo
+                detail: 'Valor recibido: "a". Use un número entero mayor o igual a 1.'
+                errorCode: BRCH.SQ.VAL.BRCH.001
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '404':
+          description: key sucursal-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorSucursalNoEncontradaShiftQuotas'
+              example:
+                type: error
+                title: Sucursal no encontrada
+                message: Sucursal no encontrada o no disponible para esta instancia del sistema
+                detail: Sucursal no encontrada o no disponible para esta instancia del sistema
+                key: sucursal-no-encontrada
+                errorCode: BRCH.SQ.NF.BRCH.001
+                data: null
+    put:
+      summary: Reemplazar todas las cuotas de plantilla de una sucursal
+      description: Operación replace-all transaccional. Un arreglo vacío elimina todas las cuotas del sitio.
+      tags: [BranchOfficeShiftQuotas]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: branchOfficeId
+          in: path
+          required: true
+          description: Identificador numérico de la sucursal (entero positivo).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchOfficeShiftQuotasReplace'
+            example:
+              quotas:
+                - shiftId: 3
+                  required: 3
+                  minimum: 2
+      responses:
+        '200':
+          description: Set completo guardado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeShiftQuotasSuccess'
+              example:
+                type: success
+                title: Branch Office Shift Quotas
+                message: Cuotas guardadas correctamente
+                data:
+                  quotas:
+                    - branchOfficeShiftQuotaId: 1
+                      shift:
+                        shiftId: 3
+                        shiftName: Nocturno
+                      required: 3
+                      minimum: 2
+        '400':
+          description: branchOfficeId inválido, validación VineJS o shiftId repetido en el payload
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorShiftIdDuplicadoShiftQuotas'
+              examples:
+                branchOfficeIdInvalido:
+                  summary: branchOfficeId no es entero positivo
+                  value:
+                    type: error
+                    title: Datos inválidos
+                    message: El parámetro branchOfficeId debe ser un entero positivo
+                    detail: 'Valor recibido: "a". Use un número entero mayor o igual a 1.'
+                    errorCode: BRCH.SQ.VAL.BRCH.001
+                    data: null
+                vineValidation:
+                  summary: Validación VineJS
+                  value:
+                    type: error
+                    title: Datos inválidos
+                    message: The quotas.0.required field must be at least 1
+                    errorCode: BRCH.SQ.VAL.001
+                    data: null
+                duplicateShiftId:
+                  summary: shiftId repetido
+                  value:
+                    type: error
+                    title: Turno repetido en el lote
+                    message: "shiftId repetido en los items: 1, 2"
+                    detail: "Los items 1, 2 repiten el mismo shiftId"
+                    errorCode: BRCH.SQ.VAL.DUP.001
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '404':
+          description: key sucursal-no-encontrada o turno-no-encontrado
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiErrorSucursalNoEncontradaShiftQuotas'
+                  - $ref: '#/components/schemas/ApiErrorTurnoNoEncontradoShiftQuotas'
+              examples:
+                sucursalNoEncontrada:
+                  summary: Sucursal fuera de scope
+                  value:
+                    type: error
+                    title: Sucursal no encontrada
+                    message: Sucursal no encontrada o no disponible para esta instancia del sistema
+                    detail: Sucursal no encontrada o no disponible para esta instancia del sistema
+                    key: sucursal-no-encontrada
+                    errorCode: BRCH.SQ.NF.BRCH.001
+                    data: null
+                turnoNoEncontrado:
+                  summary: Turno inexistente o de otra unidad
+                  value:
+                    type: error
+                    title: Turno no encontrado
+                    message: No se encontró el turno del item 1 (id 99999) para esta unidad
+                    detail: No se encontró el turno del item 1 (id 99999) para esta unidad
+                    key: turno-no-encontrado
+                    errorCode: BRCH.SQ.NF.SHIFT.001
+                    data: null
+        '422':
+          description: key cuota-invalida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorCuotaInvalida'
+              example:
+                type: error
+                title: Cuota inválida
+                message: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+                detail: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+                key: cuota-invalida
+                errorCode: BRCH.SQ.VAL.QUOTA.001
+                data: null
