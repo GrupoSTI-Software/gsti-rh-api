@@ -11,6 +11,8 @@ export const BRANCH_OFFICE_ERROR_CODES = {
   CFG_SYSTEM_BUSINESS: 'BRCH.CFG.001',
   /** businessUnitId no pertenece al scope de unidades de negocio del usuario */
   BU_NOT_ALLOWED: 'BRCH.BU.001',
+  /** Sucursal ya ligada a otra empresa contratante */
+  ALREADY_LINKED: 'BRCH.CONFLICT.LINK.001',
   /** Error no tipado en el controlador (revisar logs) */
   SYS_UNHANDLED: 'BRCH.SYS.001',
 } as const

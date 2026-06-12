@@ -62,13 +62,56 @@ const AuthFinder = withAuthFinder(() => hash.use('scrypt'), {
 })
 
 export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
+  /**
+   * TTL del access token en segundos (15 min para web y app).
+   */
+  static accessTokenExpiresIn(): number {
+    return 60 * 15
+  }
+
   static accessTokens = DbAccessTokensProvider.forModel(User, {
-    expiresIn: 60 * 60 * 24,
+    expiresIn: User.accessTokenExpiresIn(),
     prefix: 'oauth__sae__',
     table: 'api_tokens',
     type: 'auth_token',
     tokenSecretLength: 80,
   })
+
+  static refreshTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: 60 * 60 * 24 * 7,
+    prefix: 'refresh__sae__',
+    table: 'api_tokens',
+    type: 'refresh_token',
+    tokenSecretLength: 80,
+  })
+
+  /**
+   * TTL del magic link en segundos (15 min, un solo uso).
+   */
+  static magicLinkTokenExpiresIn(): number {
+    return 60 * 15
+  }
+
+  static magicLinkTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: User.magicLinkTokenExpiresIn(),
+    prefix: 'magic__sae__',
+    table: 'api_tokens',
+    type: 'magic_link',
+    tokenSecretLength: 80,
+  })
+
+  /**
+   * TTL del refresh token en segundos según el origin de la sesión.
+   * - app: 30 días
+   * - web: 7 días
+   */
+  static refreshTokenExpiresIn(origin: string): number {
+    if (origin === 'app') {
+      return 60 * 60 * 24 * 30
+    }
+
+    return 60 * 60 * 24 * 7
+  }
 
   @column({ isPrimary: true })
   declare userId: number

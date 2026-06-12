@@ -100,17 +100,40 @@ export interface DepartmentRow {
   statistics: AttendanceStatistics
 }
 
+/** Referencia mínima a una entidad relacionada del empleado (id + nombre). */
+export interface DepartmentRef {
+  departmentId: number
+  departmentName: string | null
+}
+
+export interface PositionRef {
+  positionId: number
+  positionName: string | null
+}
+
+export interface BusinessUnitRef {
+  businessUnitId: number
+  businessUnitName: string | null
+}
+
 export interface EmployeeInfo {
   employeeId: number
   employeeCode: string | null
+  employeePayrollCode: string | null
   employeeFirstName: string | null
   employeeLastName: string | null
   employeeSecondLastName: string | null
   employeePhoto: string | null
+  // IDs planos (compatibilidad con consumidores existentes del frontend).
   departmentId: number | null
   positionId: number | null
   businessUnitId: number
   payrollBusinessUnitId: number
+  // Objetos anidados con el nombre resuelto vía join. `null` cuando el empleado
+  // no tiene la relación asignada (department/position pueden faltar).
+  department: DepartmentRef | null
+  position: PositionRef | null
+  businessUnit: BusinessUnitRef | null
 }
 
 export interface EmployeeRow {

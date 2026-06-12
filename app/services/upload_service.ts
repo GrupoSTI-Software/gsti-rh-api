@@ -1,7 +1,10 @@
 import AWS, { S3 } from 'aws-sdk'
 import Env from '#start/env'
 import fs from 'node:fs'
+import https from 'node:https'
+import http from 'node:http'
 import { Readable } from 'node:stream'
+import logger from '@adonisjs/core/services/logger'
 
 /**
  * Resultado de obtener un objeto de S3 como stream junto con metadata útil
@@ -132,12 +135,21 @@ export default class UploadService {
    * Devuelve null cuando el objeto no existe (NoSuchKey / NotFound / 403).
    * Lanza cualquier otro error del SDK para que la capa superior lo mapee.
    */
-  async getObjectStream(key: string): Promise<S3ObjectStream | null> {
-    if (!key || !this.BUCKET_NAME) return null
+  async getObjectStream(key: string, bucket?: string): Promise<S3ObjectStream | null> {
+    const targetBucket = bucket || this.BUCKET_NAME
+
+    if (!key) {
+      logger.warn({ key }, 'getObjectStream: key vacía')
+      return null
+    }
+    if (!targetBucket) {
+      logger.warn({ key }, 'getObjectStream: bucket no resuelto (AWS_BUCKET no configurado y sin bucket explícito)')
+      return null
+    }
 
     const s3 = new AWS.S3(this.s3Config)
     const params = {
-      Bucket: this.BUCKET_NAME as string,
+      Bucket: targetBucket,
       Key: key,
     } as S3.Types.GetObjectRequest
 
@@ -160,6 +172,10 @@ export default class UploadService {
         error?.statusCode === 404 ||
         error?.statusCode === 403
       ) {
+        logger.warn(
+          { bucket: targetBucket, key, code: error?.code, statusCode: error?.statusCode },
+          'getObjectStream: objeto no encontrado o sin acceso en S3'
+        )
         return null
       }
       throw error
@@ -191,45 +207,158 @@ export default class UploadService {
     return urls
   }
 
+  /**
+   * Punto de entrada unificado para hacer stream de un archivo guardado en BD.
+   *
+   * - Path es URL pública (legacy, ACL public-read): hace HTTP GET directo a la URL.
+   *   No requiere credenciales S3; funciona aunque las claves del env no tengan acceso
+   *   al bucket donde se subió originalmente el archivo.
+   * - Path es Key directa (archivos nuevos, ACL private): usa el SDK de S3 con las
+   *   credenciales del env para obtener el stream de un objeto privado.
+   *
+   * Devuelve `null` si el archivo no existe o no es accesible.
+   */
+  async streamStoredFile(storedPath: string): Promise<S3ObjectStream | null> {
+    if (!storedPath) return null
+
+    if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) {
+      return this.streamFromPublicUrl(storedPath)
+    }
+
+    return this.getObjectStream(storedPath)
+  }
+
+  /**
+   * Hace stream de un archivo accesible públicamente via HTTP/HTTPS.
+   * Usado para expedientes legacy subidos con ACL public-read.
+   */
+  private streamFromPublicUrl(publicUrl: string): Promise<S3ObjectStream | null> {
+    return new Promise((resolve, reject) => {
+      const protocol = publicUrl.startsWith('https://') ? https : http
+
+      const req = protocol.get(publicUrl, (res) => {
+        if (res.statusCode === 404 || res.statusCode === 403) {
+          logger.warn(
+            { url: publicUrl, statusCode: res.statusCode },
+            'streamFromPublicUrl: archivo no encontrado o sin acceso'
+          )
+          res.resume()
+          resolve(null)
+          return
+        }
+
+        if (!res.statusCode || res.statusCode >= 400) {
+          logger.warn(
+            { url: publicUrl, statusCode: res.statusCode },
+            'streamFromPublicUrl: respuesta inesperada del servidor de origen'
+          )
+          res.resume()
+          resolve(null)
+          return
+        }
+
+        const contentLength = res.headers['content-length']
+          ? Number.parseInt(res.headers['content-length'], 10)
+          : undefined
+        const lastModifiedHeader = res.headers['last-modified']
+
+        resolve({
+          stream: res as unknown as Readable,
+          contentType: res.headers['content-type'] || 'application/octet-stream',
+          contentLength,
+          etag: res.headers['etag'],
+          lastModified: lastModifiedHeader ? new Date(lastModifiedHeader) : undefined,
+        })
+      })
+
+      req.on('error', (err) => {
+        logger.error({ url: publicUrl, err }, 'streamFromPublicUrl: error de red')
+        reject(err)
+      })
+    })
+  }
+
+  /**
+   * Resuelve la referencia S3 completa (bucket + key) desde cualquier forma en que
+   * se almacena un archivo en la base de datos:
+   *
+   * - URL path-style:     https://region.digitaloceanspaces.com/bucket/key
+   *                       → { bucket: "bucket", key: "key" }
+   * - URL virtual-hosted: https://bucket.region.digitaloceanspaces.com/key
+   *                       → { bucket: "bucket", key: "key" }
+   * - Con prefijo bucket: bucket/key  (coincide con BUCKET_NAME del env)
+   *                       → { bucket: BUCKET_NAME, key: "key" }
+   * - Key directa:        app/folder/file.pdf
+   *                       → { bucket: BUCKET_NAME, key: "app/folder/file.pdf" }
+   *
+   * Para URLs de DO Spaces el bucket se extrae de la propia URL, por lo que funciona
+   * correctamente aunque AWS_BUCKET en el env apunte a un bucket diferente (filas legacy).
+   *
+   * Devuelve `null` si la cadena es una URL irreconocible o si el path resultante es vacío.
+   */
+  resolveS3Ref(storedPath: string): { bucket: string; key: string } | null {
+    if (!storedPath) return null
+
+    if (storedPath.includes('digitaloceanspaces.com')) {
+      try {
+        const url = new URL(storedPath)
+        const hostLabels = url.hostname.split('.').length
+        const rawPath = url.pathname.replace(/^\//, '')
+
+        let bucket: string
+        let key: string
+
+        if (hostLabels <= 3) {
+          // path-style: region.digitaloceanspaces.com/bucket/key
+          const slash = rawPath.indexOf('/')
+          if (slash === -1) return null
+          bucket = rawPath.slice(0, slash)
+          key = decodeURIComponent(rawPath.slice(slash + 1))
+        } else {
+          // virtual-hosted: bucket.region.digitaloceanspaces.com/key
+          bucket = url.hostname.split('.')[0]
+          key = decodeURIComponent(rawPath)
+        }
+
+        if (!bucket || !key) return null
+        return { bucket, key }
+      } catch {
+        return null
+      }
+    }
+
+    // No es URL: key directa o con prefijo de bucket
+    let key = storedPath
+    if (this.BUCKET_NAME && storedPath.startsWith(this.BUCKET_NAME + '/')) {
+      key = storedPath.slice(this.BUCKET_NAME.length + 1)
+    }
+
+    return { bucket: this.BUCKET_NAME || '', key: decodeURIComponent(key) }
+  }
+
+  /**
+   * @deprecated Usar resolveS3Ref para obtener bucket + key juntos.
+   * Mantenido por compatibilidad con código existente que solo necesita la key.
+   */
+  resolveObjectKey(storedPath: string): string | null {
+    const ref = this.resolveS3Ref(storedPath)
+    return ref ? ref.key : null
+  }
+
   async deleteFile(fileUrlOrKey = '') {
     if (!fileUrlOrKey) {
       return { status: 404, data: null, message: 'file_path_not_found' }
     }
-    let objectKey = fileUrlOrKey;
 
-    // Si es una URL completa de DigitalOcean Spaces
-    if (fileUrlOrKey.includes('digitaloceanspaces.com')) {
-      try {
-        const url = new URL(fileUrlOrKey);
-        const fullPath = url.pathname;
-
-        if (fullPath.startsWith(`/${this.BUCKET_NAME}/`)) {
-          objectKey = fullPath.substring((this.BUCKET_NAME?.length || 0) + 2);
-        } else {
-          return { status: 400, data: null, message: 'invalid_url_format' }
-        }
-      } catch (error) {
-        return { status: 400, data: null, message: 'invalid_url' }
-      }
+    const ref = this.resolveS3Ref(fileUrlOrKey)
+    if (!ref) {
+      return { status: 400, data: null, message: 'invalid_url_format' }
     }
-    // Si incluye el bucket name pero no es URL completa
-    else if (fileUrlOrKey.startsWith(this.BUCKET_NAME + '/')) {
-      objectKey = fileUrlOrKey.substring((this.BUCKET_NAME?.length || 0) + 1);
-    }
-    // Si es una Key directa (ruta del archivo en S3), usarla directamente
-    // Esto permite eliminar archivos usando la Key que se guarda en la BD
-    else {
-      objectKey = fileUrlOrKey;
-    }
-
-    objectKey = decodeURIComponent(objectKey);
-
-
 
     const s3 = new AWS.S3(this.s3Config)
     const params = {
-      Bucket: this.BUCKET_NAME,
-      Key: objectKey,
+      Bucket: ref.bucket,
+      Key: ref.key,
     } as S3.Types.DeleteObjectRequest
 
     try {
@@ -241,7 +370,34 @@ export default class UploadService {
         return { status: 404, data: null, message: 'file_not_found' }
       }
       return { status: 500, data: null, message: `delete_failed: ${error.message}` }
-    } finally {
     }
+  }
+
+  /**
+   * Determina si un archivo almacenado en BD fue subido con ACL public-read.
+   *
+   * No llama a `getObjectAcl` del SDK porque DO Spaces y otros proveedores
+   * S3-compatibles no devuelven los grants de AllUsers de forma fiable.
+   *
+   * La heurística es segura: si `storedPath` es una URL pública
+   * (`http://` / `https://`) el archivo se subió con `public-read` (legacy).
+   * Si es una Key directa (sin esquema) se subió como `private`.
+   */
+  isStoredPathPublic(storedPath: string): boolean {
+    return storedPath.startsWith('http://') || storedPath.startsWith('https://')
+  }
+
+  /**
+   * Aplica la ACL indicada a un objeto existente en S3 sin re-subirlo.
+   * Lanza error si el objeto no existe o si las credenciales no tienen
+   * permiso para cambiar el ACL.
+   *
+   * @param bucket - Nombre del bucket.
+   * @param key    - Key del objeto dentro del bucket.
+   * @param acl    - Valor de ACL, p.ej. 'private' o 'public-read'.
+   */
+  async setObjectAcl(bucket: string, key: string, acl: string): Promise<void> {
+    const s3 = new AWS.S3(this.s3Config)
+    await s3.putObjectAcl({ Bucket: bucket, Key: key, ACL: acl }).promise()
   }
 }

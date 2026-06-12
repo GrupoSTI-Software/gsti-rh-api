@@ -83,6 +83,8 @@
   "repse_specialized_service_parent_not_found_message": "The REPSE registration does not exist or does not belong to the current tenant.",
   "repse_specialized_service_name_duplicate_title": "Duplicate specialized service name",
   "repse_specialized_service_name_duplicate_message": "A specialized service with that name already exists for this company.",
+  "repse_specialized_service_linked_contratos_title": "Service linked to contracts",
+  "repse_specialized_service_linked_contratos_message": "The service cannot be deleted while it is linked to active contracts.",
   "repse_specialized_service_unexpected_error_message": "An unexpected error occurred while processing the REPSE specialized service.",
   "empresas_contratantes_title": "Empresas Contratantes",
   "empresa_contratante_title": "Empresa Contratante",
@@ -107,6 +109,101 @@
   "empresa_contratante_forbidden_title": "Forbidden",
   "empresa_contratante_forbidden_message": "You do not have permission to manage contracting companies.",
   "empresa_contratante_unexpected_error_message": "An unexpected error occurred while processing the contracting company.",
+  "empresa_contratante_contratos_activos_title": "Company with active contracts",
+  "empresa_contratante_contratos_activos_message": "The contracting company cannot be deleted while it has associated contracts.",
+  "empresa_contratante_sitios_ligados_title": "Company with service sites",
+  "empresa_contratante_sitios_ligados_message": "Unlink the {count} linked branch offices before deleting the company",
+  "empresa_contratante_not_found_branch_detail": "The indicated contracting company was not found",
+  "branch_office_error_default_title": "Error",
+  "branch_office_val_input_title": "Invalid input",
+  "branch_office_not_found_title": "Branch office not found",
+  "branch_office_already_linked_title": "Branch already linked",
+  "branch_office_already_linked_message": "The branch office is already linked to another contracting company.",
+  "contratos_servicios_especializados_title": "Specialized Service Contracts",
+  "contrato_servicio_especializado_title": "Specialized Service Contract",
+  "contratos_servicios_especializados_listed_successfully": "Contracts retrieved successfully",
+  "contrato_servicio_especializado_found_successfully": "Contract found successfully",
+  "contrato_servicio_especializado_created_successfully": "Contract created successfully",
+  "contrato_servicio_especializado_updated_successfully": "Contract updated successfully",
+  "contrato_servicio_especializado_error_default_title": "Error",
+  "contrato_servicio_especializado_unauthorized_title": "Unauthorized",
+  "contrato_servicio_especializado_unauthorized_message": "User not authenticated",
+  "contrato_servicio_especializado_val_input_title": "Invalid data",
+  "contrato_servicio_especializado_val_input_message": "The submitted data is invalid.",
+  "contrato_servicio_especializado_val_fechas_title": "Invalid dates",
+  "contrato_servicio_especializado_val_fechas_message": "End date cannot be before start date.",
+  "contrato_servicio_especializado_not_found_title": "Contract not found",
+  "contrato_servicio_especializado_not_found_message": "The contract does not exist or does not belong to the current tenant.",
+  "contrato_servicio_especializado_contratante_not_found_title": "Contracting company not found",
+  "contrato_servicio_especializado_contratante_not_found_message": "The contracting company does not exist or does not belong to the current tenant.",
+  "contrato_servicio_especializado_repse_not_found_title": "REPSE registration not found",
+  "contrato_servicio_especializado_repse_not_found_message": "There is no active REPSE registration for the current tenant.",
+  "contrato_servicio_especializado_numero_duplicate_title": "Duplicate contract number",
+  "contrato_servicio_especializado_numero_duplicate_message": "A contract with that number already exists in your tenant.",
+  "contrato_servicio_especializado_servicios_registrados_requeridos_title": "Registered services required",
+  "contrato_servicio_especializado_servicios_registrados_requeridos_message": "At least one registered REPSE catalog service is required.",
+  "contrato_servicio_especializado_servicio_registrado_not_found_title": "Registered service not found",
+  "contrato_servicio_especializado_servicio_registrado_not_found_message": "One or more registered services do not exist or do not belong to the current tenant.",
+  "contrato_servicio_especializado_forbidden_title": "Forbidden",
+  "contrato_servicio_especializado_forbidden_message": "You do not have permission to manage specialized service contracts.",
+  "contrato_servicio_especializado_unexpected_error_message": "An unexpected error occurred while processing the contract.",
+  "version_contrato_especializado_title": "Contract version",
+  "version_contrato_especializado_renewed_successfully": "Contract renewed successfully",
+  "version_contrato_especializado_addendum_successfully": "Addendum registered successfully",
+  "version_contrato_especializado_list_successfully": "Historical versions retrieved successfully",
+  "version_contrato_especializado_found_successfully": "Historical version retrieved successfully",
+  "version_contrato_especializado_error_default_title": "Error",
+  "version_contrato_especializado_unauthorized_title": "Unauthorized",
+  "version_contrato_especializado_unauthorized_message": "User not authenticated",
+  "version_contrato_especializado_val_input_title": "Invalid data",
+  "version_contrato_especializado_val_input_message": "The submitted data is invalid.",
+  "version_contrato_especializado_addendum_invalid_title": "Invalid addendum",
+  "version_contrato_especializado_addendum_invalid_message": "The addendum payload is invalid. It must include at least one addendable annex field.",
+  "version_contrato_especializado_val_vigencia_title": "Inconsistent validity period",
+  "version_contrato_especializado_val_vigencia_message": "Start date must be on or before end date.",
+  "version_contrato_especializado_contrato_not_found_title": "Contract not found",
+  "version_contrato_especializado_contrato_not_found_message": "The contract does not exist or does not belong to the current tenant.",
+  "version_contrato_especializado_version_not_found_title": "Version not found",
+  "version_contrato_especializado_version_not_found_message": "The requested historical version does not exist.",
+  "version_contrato_especializado_not_renewable_title": "Contract not renewable",
+  "version_contrato_especializado_not_renewable_message": "Only contracts with effective status active or expired can be renewed.",
+  "version_contrato_especializado_not_addendable_title": "Contract not addendable",
+  "version_contrato_especializado_not_addendable_message": "Only contracts with effective status active can receive addendums.",
+  "version_contrato_especializado_snapshot_incomplete_title": "Incomplete snapshot",
+  "version_contrato_especializado_snapshot_incomplete_message": "The contract has no 15-D annex to generate history.",
+  "version_contrato_especializado_immutable_title": "Immutable version",
+  "version_contrato_especializado_immutable_message": "Historical version content cannot be modified.",
+  "version_contrato_especializado_forbidden_read_title": "Read permission denied",
+  "version_contrato_especializado_forbidden_read_message": "You do not have permission to view version history.",
+  "asignacion_contrato_especializado_title": "Contract Worker Assignments",
+  "asignacion_contrato_especializado_created_successfully": "Assignments created successfully",
+  "asignacion_contrato_especializado_listed_successfully": "Assignments retrieved successfully",
+  "asignacion_contrato_especializado_updated_successfully": "Assignment updated successfully",
+  "asignacion_contrato_especializado_error_default_title": "Error",
+  "asignacion_contrato_especializado_unauthorized_title": "Unauthorized",
+  "asignacion_contrato_especializado_unauthorized_message": "User not authenticated",
+  "asignacion_contrato_val_input_title": "Invalid data",
+  "asignacion_contrato_val_input_message": "The submitted data is invalid.",
+  "asignacion_contrato_val_employee_duplicate_title": "Duplicate employee in batch",
+  "asignacion_contrato_val_employee_duplicate_message": "The same employeeId appears in more than one item in the payload.",
+  "asignacion_contrato_val_fechas_title": "Invalid dates",
+  "asignacion_contrato_val_fechas_message": "End date cannot be before start date.",
+  "asignacion_contrato_not_found_title": "Assignment not found",
+  "asignacion_contrato_not_found_message": "The assignment does not exist or does not belong to the specified contract.",
+  "asignacion_contrato_employee_not_found_title": "Employee not found",
+  "asignacion_contrato_employee_not_found_message": "The employee does not exist, is inactive, or does not belong to the current tenant.",
+  "asignacion_contrato_contrato_no_vigente_title": "Contract not active",
+  "asignacion_contrato_contrato_no_vigente_message": "Workers can only be assigned to active contracts.",
+  "asignacion_contrato_fuera_de_vigencia_title": "Assignment outside validity period",
+  "asignacion_contrato_fuera_de_vigencia_message": "The assignment dates fall outside the contract validity period.",
+  "asignacion_contrato_duplicada_title": "Duplicate assignment",
+  "asignacion_contrato_duplicada_message": "The employee is already assigned to this contract for the specified period.",
+  "asignacion_contrato_forbidden_title": "Forbidden",
+  "asignacion_contrato_forbidden_message": "You do not have permission to manage contract assignments.",
+  "asignacion_contrato_unexpected_error_message": "An unexpected error occurred while processing the assignment.",
+  "version_contrato_especializado_forbidden_write_title": "Permission denied",
+  "version_contrato_especializado_forbidden_write_message": "You do not have permission to renew contracts or register addendums.",
+  "version_contrato_especializado_unexpected_error_message": "An unexpected error occurred while processing the contract version.",
   "address": "Address",
   "the_address": "The address",
   "address_type": "Address type",
@@ -506,6 +603,64 @@
   "employee_lactation_period_no_active_shift_title": "Employee has no active shift in the period range",
   "employee_lactation_period_no_active_shift_detail": "The employee does not have any active shift in the lactation period range. Assign a shift before regenerating the exceptions.",
   "employee_lactation_period_shift_exceptions_regenerated": "Shift exceptions regenerated successfully",
+  "employee_lactation_period_evidence": "Lactation evidence",
+  "employee_lactation_period_evidences": "Lactation evidences",
+  "employee_lactation_period_evidence_uploaded": "Evidence uploaded successfully",
+  "employee_lactation_period_evidence_deleted": "Evidence deleted successfully",
+  "employee_lactation_period_evidence_list_empty": "There are no evidences attached to this period yet",
+  "employee_lactation_period_evidence_file_required_title": "File required",
+  "employee_lactation_period_evidence_file_required_detail": "You must select a PDF file",
+  "employee_lactation_period_evidence_invalid_file_type_title": "Invalid file type",
+  "employee_lactation_period_evidence_invalid_file_type_detail": "Only PDF files are accepted",
+  "employee_lactation_period_evidence_file_too_large_title": "File too large",
+  "employee_lactation_period_evidence_file_too_large_detail": "The file exceeds the maximum size of 10 MB",
+  "employee_lactation_period_evidence_invalid_category_title": "Invalid category",
+  "employee_lactation_period_evidence_invalid_category_detail": "Category must be one of: agreement, birth_support, other",
+  "employee_lactation_period_evidence_not_found_title": "Evidence not found",
+  "employee_lactation_period_evidence_not_found_detail": "The evidence does not exist or does not belong to the indicated period",
+  "employee_lactation_period_evidence_upload_failed_title": "Failed to upload evidence",
+  "employee_lactation_period_evidence_upload_failed_detail": "It was not possible to store the file in the secure repository",
+  "employee_lactation_period_evidence_download_failed_title": "Failed to generate download link",
+  "employee_lactation_period_evidence_download_failed_detail": "It was not possible to generate the temporary URL for the file",
+  "employee_lactation_period_evidence_category_agreement": "Employer-employee agreement",
+  "employee_lactation_period_evidence_category_birth_support": "Birth support",
+  "employee_lactation_period_evidence_category_other": "Other",
+  "employee_lactation_period_type_two_rest_periods": "Two 30-minute rest periods",
+  "employee_lactation_period_type_reduced_hour": "One-hour workday reduction",
+  "employee_lactation_reduction_application_start": "At the start of the shift",
+  "employee_lactation_reduction_application_end": "At the end of the shift",
+  "employee_lactation_reduction_application_split": "Split (entry + exit)",
+  "employee_lactation_compliance_report_title": "Lactation periods compliance report",
+  "employee_lactation_compliance_report_generated_at": "Generated on",
+  "employee_lactation_compliance_report_filters": "Applied filters",
+  "employee_lactation_compliance_report_range": "Range",
+  "employee_lactation_compliance_report_status": "Status",
+  "employee_lactation_compliance_report_employee": "Employee ID",
+  "employee_lactation_compliance_report_code": "Code",
+  "employee_lactation_compliance_report_period": "Period",
+  "employee_lactation_compliance_report_duration": "Duration",
+  "employee_lactation_compliance_report_type": "Type",
+  "employee_lactation_compliance_report_modality": "Modality",
+  "employee_lactation_compliance_report_applied_days": "Days with reduction applied",
+  "employee_lactation_compliance_report_evidences": "Attached supporting evidence",
+  "employee_lactation_compliance_report_days": "days",
+  "employee_lactation_compliance_report_empty": "No periods match the selected filters.",
+  "employee_lactation_compliance_report_empty_title": "No records",
+  "employee_lactation_compliance_report_subtitle": "NOM-037-STPS-2023 / LFT article 170 compliance",
+  "employee_lactation_compliance_report_summary_table": "Periods summary",
+  "employee_lactation_compliance_report_detailed_sections": "Detailed sheet per period",
+  "employee_lactation_compliance_report_kpi_total": "Total",
+  "employee_lactation_compliance_report_table_employee": "Employee",
+  "employee_lactation_compliance_report_table_applied": "Applied",
+  "employee_lactation_compliance_report_table_evid": "Evid.",
+  "employee_lactation_compliance_report_no_lower_bound": "No lower bound",
+  "employee_lactation_compliance_report_no_upper_bound": "No upper bound",
+  "employee_lactation_compliance_report_legal_basis": "Legal basis: LFT article 170 sections II and IV; NOM-037-STPS-2023 numeral 5.2.h.",
+  "employee_lactation_compliance_report_range_invalid_title": "Invalid date range",
+  "employee_lactation_compliance_report_range_invalid_detail": "The start date is after the end date of the report.",
+  "employee_lactation_compliance_status_active": "Active",
+  "employee_lactation_compliance_status_expiring": "Expiring",
+  "employee_lactation_compliance_status_expired": "Expired",
   "auth": {
     "signup": {
       "otp": {
@@ -531,6 +686,16 @@
         "support": "If you need help during onboarding, just reply to the support team assigned to you.",
         "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
       }
+    },
+    "magic_link": {
+      "subject": "Your sign-in link for {tradeName}",
+      "preheader": "Use this link to sign in without a password. Valid for a limited time.",
+      "greeting": "Hi, {firstName}",
+      "intro": "You requested to access {tradeName} via magic link. Click the button below to sign in without a password:",
+      "cta": "Access the system",
+      "validity": "This link is valid for {minutes} minutes and can only be used once. If it expires, request a new one from the sign-in screen.",
+      "ignore_notice": "If you did not request this access, please ignore this email. Your account remains secure.",
+      "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
     }
   },
   "attendance_stats_dates_required": "startDay and endDay are required",
@@ -553,5 +718,749 @@
   "signup_password_requires_uppercase": "Password must contain at least one uppercase letter",
   "signup_password_requires_number": "Password must contain at least one number",
   "signup_password_requires_symbol": "Password must contain at least one symbol",
-  "signup_passwords_do_not_match": "Passwords do not match"
+  "signup_passwords_do_not_match": "Passwords do not match",
+  "magic_link_title": "Magic link",
+  "magic_link_request_message": "If the email is registered, you will receive a sign-in link shortly. Check your inbox.",
+  "magic_link_token_missing_title": "Validation error",
+  "magic_link_token_missing_detail": "The magic link token is required",
+  "magic_link_invalid_title": "Invalid link",
+  "magic_link_invalid_detail": "The link has expired or was already used. Request a new one from the sign-in page.",
+  "magic_link_success_message": "Signed in successfully",
+  "regulatory": {
+    "authorities": {
+      "stps": {
+        "description": "The Secretaría del Trabajo y Previsión Social (STPS) is the Mexican federal government agency responsible for promoting employment, regulating labor relations, and ensuring decent and safe working conditions for workers.",
+        "audit_description": "The STPS issues Official Mexican Standards (NOM) on occupational safety and health, conducts labor inspections, and sanctions non-compliance. Its standards are mandatory for all workplaces in Mexico."
+      },
+      "imss": {
+        "description": "The Instituto Mexicano del Seguro Social (IMSS) is Mexico's largest social security institution, responsible for providing health services, pensions, and social benefits to workers and their families.",
+        "audit_description": "The IMSS verifies compliance with employer obligations regarding worker registration, payment of employer-employee contributions, and social security benefits. Irregularities may result in tax credits, fines, and surcharges."
+      },
+      "infonavit": {
+        "description": "The Instituto del Fondo Nacional de la Vivienda para los Trabajadores (INFONAVIT) manages the workers' housing fund and provides mortgage loans to beneficiaries.",
+        "audit_description": "INFONAVIT audits the correct payment of the 5% employer housing contributions based on workers' integrated salary. Non-compliance generates tax credits and may affect workers' access to their housing rights."
+      },
+      "repse": {
+        "description": "The Registro de Prestadoras de Servicios Especializados u Obras Especializadas (REPSE) is the mandatory registry for companies that provide specialized services or execute specialized works through subcontracting.",
+        "audit_description": "The STPS, through REPSE, verifies that contractor and subcontractor companies are properly registered and that specialized service contracts comply with the subcontracting reform requirements (Decree DOF 23/04/2021)."
+      },
+      "jfca": {
+        "description": "The Junta Federal de Conciliación y Arbitraje (JFCA) is the federal labor tribunal responsible for resolving individual and collective labor disputes in federally-regulated industries.",
+        "audit_description": "The JFCA handles individual and collective labor claims, union disputes, and collective bargaining agreement registrations. Maintaining complete and updated employee records is essential for properly defending the company before this authority."
+      },
+      "sat": {
+        "description": "The Servicio de Administración Tributaria (SAT) is the decentralized agency of the Ministry of Finance responsible for collecting and auditing federal taxes in Mexico.",
+        "audit_description": "The SAT audits compliance with payroll-related tax obligations: income tax on wages, VAT on specialized services, issuance of payroll electronic invoices (CFDI), and proper deduction of labor expenses. Irregularities may result in tax credits, fines, and potential criminal penalties."
+      },
+      "inai": {
+        "description": "The Instituto Nacional de Transparencia, Acceso a la Información y Protección de Datos Personales (INAI) is the autonomous body that guarantees the right of access to public information and the protection of personal data.",
+        "audit_description": "The INAI supervises compliance with the Federal Law on Protection of Personal Data Held by Private Parties (LFPDPPP). Employers must implement a privacy notice for employees, obtain consent for processing sensitive data, and establish adequate security measures."
+      },
+      "consar": {
+        "description": "The Comisión Nacional del Sistema de Ahorro para el Retiro (CONSAR) regulates and supervises the Retirement Savings System (SAR), including the AFOREs and SIEFOREs that manage workers' retirement savings.",
+        "audit_description": "CONSAR verifies the correct payment of SAR contributions (retirement, unemployment, and old-age quotas), both employer and government contributions. Errors in salary records or in the transmission of affiliation movements may reduce workers' retirement account balances."
+      }
+    },
+    "regulations": {
+      "nom_035_stps_2018": {
+        "scope": "Applies to all workplaces in Mexico. Workplaces with up to 15 workers implement basic measures; those with 16 to 50 workers apply the policy and minimum controls; workplaces with more than 50 workers must comply with all requirements including psychosocial risk factor assessment.",
+        "audit_description": "Mandatory compliance standard establishing elements to identify, analyze, and prevent psychosocial risk factors. The STPS may impose fines of 50 to 5,000 times the UMA (approx. $5,200 to $520,000 MXN) for non-compliance with its provisions."
+      },
+      "nom_037_stps_2023": {
+        "scope": "Applies to workplaces with telework arrangements where teleworkers represent 40% or more of the workforce. Employers may opt for its application at lower percentages.",
+        "audit_description": "NOM-037-STPS-2023 establishes occupational safety and health conditions for telework. The STPS may verify compliance through inspections and impose fines of 50 to 5,000 times the UMA for each violation detected."
+      }
+    },
+    "clauses": {
+      "nom_035_stps_2018": {
+        "5": {
+          "title": "Chapter 5 — Employer Obligations",
+          "obligation": "The employer must comply with the obligations established in Chapter 5 of this Standard, relating to: establishing a psychosocial risk prevention policy; identifying, analyzing, and evaluating psychosocial risk factors and the organizational environment; adopting prevention and control measures; identifying workers subject to severe traumatic events; conducting medical examinations; disseminating information; and maintaining the corresponding records.",
+          "explanation": "The employer is the primary party responsible for ensuring a favorable organizational environment and implementing all actions required by NOM-035.",
+          "rationale": "Employer obligations are the foundation of the standard; without compliance, it is not possible to protect the mental health of workers.",
+          "audit_criteria": "Verify that the employer has a policy, assessments, action plans, and updated records in accordance with the standard."
+        },
+        "5_1": {
+          "title": "5.1 — Psychosocial Risk Prevention Policy",
+          "obligation": "Establish in writing, implement, maintain, and disseminate in the workplace a psychosocial risk prevention policy that includes: a) Prevention of psychosocial risk factors; b) Prevention of workplace violence, and c) Promotion of a favorable organizational environment.",
+          "explanation": "A policy document signed by management covering all three mandatory elements must be drafted, approved, and disseminated.",
+          "rationale": "The policy is the formal declaration of the organization's commitment to occupational mental health.",
+          "audit_criteria": "Review the policy document: existence, management signature, date, content of the three elements, and evidence of dissemination."
+        },
+        "5_1_1": {
+          "title": null,
+          "obligation": "The psychosocial risk prevention policy must include the prevention of psychosocial risk factors.",
+          "explanation": "Explicitly include in the policy the intention to identify and control psychosocial risk factors.",
+          "rationale": "Without this explicit declaration, the policy does not meet the minimum requirement of the standard.",
+          "audit_criteria": "Confirm that the policy text mentions the prevention of psychosocial risk factors."
+        },
+        "5_1_2": {
+          "title": null,
+          "obligation": "The psychosocial risk prevention policy must include the prevention of workplace violence.",
+          "explanation": "The document must commit to creating working conditions that foster well-being and mental health.",
+          "rationale": "A favorable organizational environment is the central objective of NOM-035.",
+          "audit_criteria": "Verify that the policy declares commitment to promoting a favorable organizational environment."
+        },
+        "5_1_3": {
+          "title": null,
+          "obligation": "The psychosocial risk prevention policy must include the promotion of a favorable organizational environment.",
+          "explanation": "Expressly declare the commitment to prevent, address, and sanction any act of workplace violence.",
+          "rationale": "Workplace violence is one of the most serious psychosocial risk factors and has direct legal consequences.",
+          "audit_criteria": "Confirm that the policy addresses prevention of workplace violence with defined response mechanisms."
+        },
+        "5_2": {
+          "title": "5.2 — Identification and Analysis of Psychosocial Risk Factors",
+          "obligation": "Identify and analyze psychosocial risk factors, in accordance with the provisions of sections 7.1, subsection a), and 7.2 of this Standard, for workplaces with between 16 and 50 workers.",
+          "explanation": "Apply the questionnaire or reference guide to all workers to detect conditions that generate psychosocial risk.",
+          "rationale": "Without identification, it is not possible to implement effective controls; this step is the standard's diagnostic phase.",
+          "audit_criteria": "Request the assessment instrument applied, the population of evaluated workers, the date, and the results obtained."
+        },
+        "5_2_1": {
+          "title": null,
+          "obligation": "The identification and analysis of psychosocial risk factors must cover: a) Work environment conditions; b) Workloads; c) Lack of control over work; d) Working hours and shift rotation exceeding those established in the Federal Labor Law; e) Work-family interference; f) Negative leadership and negative workplace relationships, and g) Workplace violence.",
+          "explanation": "The applied instrument must cover all psychosocial risk domains listed in NOM-035 without exception.",
+          "rationale": "Omitting any factor invalidates the assessment and leaves real risk areas for workers without coverage.",
+          "audit_criteria": "Review that the instrument and results report contain analysis of all factors listed in the standard."
+        },
+        "5_2_2": {
+          "title": null,
+          "obligation": "The results of the identification and analysis of psychosocial risk factors must be documented in a report containing: objective, activities, method used, results obtained, conclusions, recommendations and intervention actions, and the responsible person's data. Results must be available for workers to consult, and the identification and analysis must be conducted at least every two years.",
+          "explanation": "The diagnostic results must be processed to prioritize controls according to the level of risk identified.",
+          "rationale": "Analysis converts raw data into actionable information to protect workers' health.",
+          "audit_criteria": "Verify that an analysis report exists following the assessment, with risk prioritization and proposed controls."
+        },
+        "5_3": {
+          "title": "5.3 — Adoption of Prevention and Control Measures",
+          "obligation": "Identify and analyze psychosocial risk factors and evaluate the organizational environment, in accordance with sections 7.1, subsection b), 7.2, and 7.3, respectively, of this Standard, for workplaces with more than 50 workers.",
+          "explanation": "Based on the analysis, implement concrete actions to eliminate or reduce the identified risk factors.",
+          "rationale": "Control implementation is the core of the standard; diagnosis without action does not achieve the objective of protecting health.",
+          "audit_criteria": "Request the action plan with measures, responsible parties, dates, and evidence of implementation."
+        },
+        "5_3_1": {
+          "title": null,
+          "obligation": "In addition to the psychosocial risk factors in section 7.2, the evaluation of the favorable organizational environment must include: a) Workers' sense of belonging to the organization; b) Training for the adequate performance of assigned tasks; c) Precise definition of responsibilities for workers; d) Proactive participation and communication between the employer, their representatives, and workers; e) Adequate distribution of workloads with regular working hours, and f) Evaluation and recognition of performance.",
+          "explanation": "Prioritize elimination of the risk source; when not possible, reduce its intensity or duration.",
+          "rationale": "The hierarchy of controls requires acting on the source before resorting to administrative controls or PPE.",
+          "audit_criteria": "Verify that the action plan measures directly correspond to the risk factors identified in the assessment."
+        },
+        "5_3_2": {
+          "title": null,
+          "obligation": "Workplaces may use any method that includes: a) Application of questionnaires covering the factors required by sections 7.2 and/or 7.3; b) The manner in which questionnaires are to be administered; c) The way questionnaires are to be evaluated, and d) Risk levels and the way to determine them based on questionnaire results.",
+          "explanation": "In addition to eliminating risks, implement proactive actions that improve the organizational climate and worker well-being.",
+          "rationale": "The standard's approach is dual: eliminate the negative and strengthen the positive in the work environment.",
+          "audit_criteria": "Confirm that the plan includes organizational environment improvement actions, not just reactive controls."
+        },
+        "5_4": {
+          "title": "5.4 — Policy and Results Dissemination",
+          "obligation": "Adopt measures to prevent and control psychosocial risk factors, promote a favorable organizational environment, and address practices contrary to the favorable organizational environment and acts of workplace violence, based on the provisions of Chapter 8 of this Standard.",
+          "explanation": "Formally communicate the current policy and diagnostic findings to all workers.",
+          "rationale": "Informed worker participation is a requirement of the standard and a key success factor of the program.",
+          "audit_criteria": "Review dissemination records: attendance lists, communication records, or visible posting in the facility."
+        },
+        "5_4_1": {
+          "title": null,
+          "obligation": "For the prevention of psychosocial risk factors and workplace violence, and for promoting a favorable organizational environment, the workplace must: a) Establish actions for the prevention of psychosocial risk factors that promote social support, information dissemination, and training; b) Provide secure and confidential mechanisms for receiving complaints about practices contrary to the favorable organizational environment and for reporting acts of workplace violence.",
+          "explanation": "Ensure 100% of workers know the policy, using communication methods appropriate for the workplace.",
+          "rationale": "A policy that workers are unaware of does not generate the cultural change the standard pursues.",
+          "audit_criteria": "Request evidence of dissemination with dates and coverage: publications, emails, meetings, or posters."
+        },
+        "5_4_2": {
+          "title": null,
+          "obligation": "Carry out actions that promote workers' sense of belonging to the organization; training for the adequate performance of assigned tasks; precise definition of responsibilities for organization members; proactive participation and communication among members; adequate distribution of workloads with regular working hours in accordance with the Federal Labor Law; and evaluation and recognition of performance.",
+          "explanation": "Communicate the diagnostic results in an understandable manner without compromising individual confidentiality.",
+          "rationale": "Transparency builds trust and motivates active worker participation in solutions.",
+          "audit_criteria": "Verify that workers received communication about the general results of the assessment."
+        },
+        "5_5": {
+          "title": "5.5 — Promote a Favorable Organizational Environment",
+          "obligation": "Identify workers who were subjected to severe traumatic events during or as a result of work and refer them for care to the social security institution, private institution, or the workplace physician.",
+          "explanation": "Implement programs and practices that strengthen protective factors in the work environment.",
+          "rationale": "A favorable organizational environment reduces the incidence of stress, burnout, and workplace violence.",
+          "audit_criteria": "Review evidence of environment improvement actions: wellness programs, training, recognition initiatives, and climate surveys."
+        },
+        "5_6": {
+          "title": "5.6 — Support for Workers Exposed to Workplace Violence",
+          "obligation": "Conduct medical examinations and psychological evaluations of workers exposed to workplace violence and/or psychosocial risk factors, when signs or symptoms indicating a health alteration exist and the results of the identification and analysis of psychosocial risk factors suggest it, and/or when there are complaints of workplace violence through the mechanisms referred to in section 8.1, subsection b) of this Standard.",
+          "explanation": "Establish reporting channels, response protocols, and referral to health services when necessary.",
+          "rationale": "Timely support reduces health damage and the employer's legal liability.",
+          "audit_criteria": "Verify the existence of response protocols, records of cases handled, and follow-up mechanisms."
+        },
+        "5_7": {
+          "title": "5.7 — Medical Examinations",
+          "obligation": "Disseminate and provide information to workers about: a) The psychosocial risk prevention policy; b) Measures adopted to combat practices contrary to the favorable organizational environment and acts of workplace violence; c) Prevention measures and actions and, where applicable, control actions for psychosocial risk factors; d) Mechanisms for filing complaints about practices contrary to the favorable organizational environment and for reporting acts of workplace violence; e) Results of the identification and analysis of psychosocial risk factors (and organizational environment evaluation for workplaces with more than 50 workers), and f) Possible health alterations due to exposure to psychosocial risk factors.",
+          "explanation": "Conduct specific examinations at the indicated frequency to detect health damage resulting from exposure to psychosocial risks.",
+          "rationale": "Medical surveillance enables early detection of health effects and allows preventive action before they escalate.",
+          "audit_criteria": "Request records of medical examinations and psychological evaluations conducted, including dates and coverage of exposed personnel."
+        },
+        "5_8": {
+          "title": "5.8 — Records and Information Retention",
+          "obligation": "Maintain records on: a) The results of the identification and analysis of psychosocial risk factors and, additionally for workplaces with more than 50 workers, the organizational environment evaluations; b) Control measures adopted when the results of the identification and analysis of psychosocial risk factors and organizational environment evaluation indicate so, and c) The names of workers who underwent clinical examinations or evaluations and in whom exposure to psychosocial risk factors, acts of workplace violence, or severe traumatic events was confirmed.",
+          "explanation": "Maintain updated files with all documentation generated during implementation of the standard for the minimum required period.",
+          "rationale": "Records are the evidence of compliance during a STPS inspection and demonstrate the program's traceability.",
+          "audit_criteria": "Request records of assessments, action plans, medical examinations, and any documentation generated in implementing the standard."
+        },
+        "5_8_a": {
+          "title": null,
+          "obligation": "The results of the identification and analysis of psychosocial risk factors and, additionally for workplaces with more than 50 workers, the organizational environment evaluations.",
+          "explanation": "Archive the applied instruments, raw results, and analysis reports from each assessment cycle.",
+          "rationale": "4-year retention allows trend comparison between cycles and demonstrates program continuity to the authority.",
+          "audit_criteria": "Verify that identification and analysis records are available for the last 4 years of operation."
+        },
+        "5_8_b": {
+          "title": null,
+          "obligation": "Control measures adopted when the results of the identification and analysis of psychosocial risk factors and organizational environment evaluation indicate so.",
+          "explanation": "Document and archive all action plans, their progress, modifications, and results obtained.",
+          "rationale": "The history of implemented actions is evidence of continuous improvement effort and proactive compliance.",
+          "audit_criteria": "Request action plans from the last 4 years with implementation dates and follow-up evidence."
+        },
+        "5_8_c": {
+          "title": null,
+          "obligation": "The names of workers who underwent clinical examinations or evaluations and in whom exposure to psychosocial risk factors, acts of workplace violence, or severe traumatic events was confirmed.",
+          "explanation": "Maintain individual medical records and psychological evaluation results under confidential custody during the minimum required period.",
+          "rationale": "Medical records are evidence of health surveillance and compliance with the standard's obligations.",
+          "audit_criteria": "Verify that medical records and psychological evaluations from the last 4 years are available and under adequate custody."
+        },
+        "8": {
+          "title": "Chapter 8 — Conformity Assessment",
+          "obligation": "The aspects to be verified during the conformity evaluation of this Standard shall be carried out, as applicable, by means of physical verification, documentary review, records, or interviews, in accordance with Chapter 10 of this Standard. This procedure applies both to inspection visits carried out by the labor authority and to verification visits by verification units.",
+          "explanation": "Defines how the STPS and its inspectors assess whether a workplace complies with the standard's provisions.",
+          "rationale": "Conformity assessment is the enforcement mechanism that ensures the effectiveness of the standard.",
+          "audit_criteria": "Understand the verification procedure to prepare documentation and facilitate inspections."
+        },
+        "8_1": {
+          "title": "8.1 — Verification at Workplaces",
+          "obligation": "Verification of compliance with the provisions of this Standard shall be conducted in accordance with the Conformity Evaluation Procedure established in Chapter 10. The verifier shall confirm, through documentary review, records, or interviews, compliance with the employer obligations established in Chapter 5 of this Standard.",
+          "explanation": "STPS inspections will follow the defined protocol, with prior notice or unannounced depending on the law.",
+          "rationale": "Understanding the verification process allows proper preparation of the required documentary evidence.",
+          "audit_criteria": "Keep all standard documentation current, accessible, and organized to facilitate any inspection."
+        },
+        "8_1_1": {
+          "title": null,
+          "obligation": "The employer complies when presenting documentary evidence that: they establish, implement, and maintain a psychosocial risk prevention policy covering the promotion of a favorable organizational environment, prevention of psychosocial risk factors, and prevention of workplace violence; and they disseminate the psychosocial risk prevention policy in the workplace. (Note: Evidence of policy dissemination may be through flyers, bulletins, and/or posters.)",
+          "explanation": "During the inspection, the inspector will request the policy document and evaluate whether it meets the requirements of clause 5.1.",
+          "rationale": "The policy is the first element verified as it is the formal declaration of the employer's commitment.",
+          "audit_criteria": "Have the signed policy document available with date and evidence of dissemination to workers."
+        },
+        "8_1_2": {
+          "title": null,
+          "obligation": "The employer complies when presenting evidence that: they conduct identification and analysis of psychosocial risk factors covering all workers, including at minimum: work environment conditions, workloads, lack of control over work, working hours and shift rotation, work-family interference, negative leadership and workplace relationships, and workplace violence; uses a method with validated questionnaires; integrates the assessment into the safety and health diagnosis (NOM-030); has a results report available for workers to consult; and conducts the identification at least every two years.",
+          "explanation": "Applied assessment instruments, results obtained, and corresponding analysis will be requested.",
+          "rationale": "Assessment records are the central evidence of technical compliance with the standard.",
+          "audit_criteria": "Prepare a file with the assessment instrument, individual and consolidated results, and the analysis report."
+        },
+        "8_1_3": {
+          "title": null,
+          "obligation": "The employer complies when presenting evidence that, in addition to identifying and analyzing psychosocial risk factors, they evaluate the organizational environment covering: sense of belonging, training, definition of responsibilities, proactive participation and communication, adequate distribution of workloads, and evaluation and recognition of performance. The evaluation may be conducted with a representative sample per Reference Guide III.",
+          "explanation": "The action plan with adopted measures, responsible parties, dates, and implementation progress will be reviewed.",
+          "rationale": "The action plan demonstrates that assessment results were translated into concrete measures.",
+          "audit_criteria": "Have a formal action plan with dates, responsible parties, progress indicators, and implementation evidence."
+        },
+        "8_1_4": {
+          "title": null,
+          "obligation": "The employer complies when presenting evidence that: they adopt measures to prevent and control psychosocial risk factors, promote the favorable organizational environment, and address practices of workplace violence. When evaluations determine the need for control actions, these are implemented through a Program covering: the areas and workers subject to the program, the type of actions and control measures, scheduled dates, progress tracking, post-evaluation, and the responsible person.",
+          "explanation": "Medical records and psychological evaluations with their respective dates and coverage will be requested.",
+          "rationale": "Medical surveillance is evidence that the employer monitors the impact of risks on workers' health.",
+          "audit_criteria": "Have medical records and psychological evaluations from the last 4 years available, under confidential custody."
+        },
+        "8_2": {
+          "title": "8.2 — Verification Criteria for Workplaces with Up to 15 Workers",
+          "obligation": "Workplaces with up to 15 workers must comply only with the obligations of section 5.1 (psychosocial risk prevention policy), section 5.7 (disseminating information to workers about the policy and adopted measures), and section 5.8 (maintaining records of control measures adopted and workers who underwent examinations or evaluations).",
+          "explanation": "Smaller workplaces have reduced requirements: basic policy, dissemination of control measures, and minimum records.",
+          "rationale": "The standard recognizes that small workplaces have limited capacity and resources to implement complex programs.",
+          "audit_criteria": "For workplaces with up to 15 workers, verify: policy, basic control measures, and record of actions taken."
+        },
+        "8_2_1": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: the employer complies with section 5.1 when presenting documentary evidence that they establish, implement, maintain, and disseminate a psychosocial risk prevention policy containing the required elements.",
+          "explanation": "Even in the smallest workplaces, the policy is mandatory and must be documented and disseminated.",
+          "rationale": "The policy is the universal minimum requirement of the standard, regardless of workplace size.",
+          "audit_criteria": "Review the existence of the policy document and evidence that it was communicated to workers."
+        },
+        "8_2_2": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: the employer complies with section 5.7 when presenting evidence of having disseminated and provided information to workers about the psychosocial risk prevention policy and measures adopted to combat practices contrary to the favorable organizational environment and acts of workplace violence.",
+          "explanation": "Communicate to workers the actions implemented to control identified psychosocial risks.",
+          "rationale": "Worker participation in the program depends on their awareness of the measures adopted.",
+          "audit_criteria": "Request evidence of dissemination: communication records, attendance lists, or internal publications."
+        },
+        "8_2_3": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: the employer complies with section 5.8, subsection b), when presenting evidence of maintaining records of control measures adopted when the results of the identification and analysis indicate so.",
+          "explanation": "Document, even in a simple format, the actions implemented to prevent and control risks.",
+          "rationale": "Records, even basic ones, are evidence of compliance effort during an inspection.",
+          "audit_criteria": "Review that records of actions taken exist with dates and description of implemented measures."
+        },
+        "8_2_4": {
+          "title": null,
+          "obligation": "For workplaces with up to 15 workers: the employer complies with section 5.8, subsection c), when presenting evidence of maintaining records of the names of workers who underwent clinical examinations or evaluations and in whom exposure to psychosocial risk factors, acts of workplace violence, or severe traumatic events was confirmed.",
+          "explanation": "Have a basic mechanism for workers to report risk situations and receive attention.",
+          "rationale": "Timely support reduces health damage and is a basic requirement of the standard for all workplace sizes.",
+          "audit_criteria": "Verify that a reporting and support mechanism exists and that workers are aware of it."
+        },
+        "8_3": {
+          "title": "8.3 — Verification Criteria for Workplaces with 16 to 50 Workers",
+          "obligation": "Workplaces with between 16 and 50 workers must comply, in addition to the obligations applicable to workplaces with up to 15 workers, with sections 5.2, 7.1 subsection a), 7.2, 7.4, 7.5, 7.6, 7.7, 7.8, and 7.9, related to the identification and analysis of psychosocial risk factors. This provision takes effect two years after its publication in the Official Federal Gazette.",
+          "explanation": "These workplaces must comply with the policy, basic control measures, and records, without the obligation of full Reference Guide III assessment.",
+          "rationale": "Phase 1 introduces progressive requirements for mid-size workplaces, recognizing their greater operational capacity.",
+          "audit_criteria": "For workplaces with 16-50 workers, verify: policy, basic factor identification, control measures, and records of actions."
+        },
+        "8_3_1": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: the employer complies with section 5.1 when presenting documentary evidence that they establish, implement, maintain, and disseminate the psychosocial risk prevention policy with the required elements.",
+          "explanation": "The policy must be documented, approved by management, and disseminated to all workplace workers.",
+          "rationale": "The formal policy is the starting point for any psychosocial risk management program.",
+          "audit_criteria": "Request the policy document with management signature and evidence of dissemination to all workers."
+        },
+        "8_3_2": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: the employer complies with sections 5.2 and 7.1 a) when presenting evidence of conducting the identification and analysis of psychosocial risk factors using validated questionnaires covering all required factors under section 7.2, with a method that meets sections 7.4 and 7.5.",
+          "explanation": "Apply Reference Guide II or another equivalent instrument to identify risk factors in the workplace.",
+          "rationale": "Formal risk identification is the key technical requirement that distinguishes Phase 1 from the basic level.",
+          "audit_criteria": "Request the applied instrument, application date, worker coverage, and results obtained."
+        },
+        "8_3_3": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: the employer complies with section 5.4 when presenting evidence of adopting measures to prevent and control psychosocial risk factors, promoting the favorable organizational environment, and addressing workplace violence practices in accordance with Chapter 8.",
+          "explanation": "Based on identification results, implement concrete prevention and control actions.",
+          "rationale": "Control implementation closes the standard's cycle and is the indicator of effective compliance.",
+          "audit_criteria": "Review the action plan with specific measures corresponding to the identified risk factors."
+        },
+        "8_3_4": {
+          "title": null,
+          "obligation": "For workplaces with 16 to 50 workers: the employer complies with section 5.8 when presenting evidence of maintaining records of the identification and analysis results, adopted control measures, and clinically evaluated workers, per subsections a), b), and c) of that section.",
+          "explanation": "Document and archive assessment results and implemented actions during the minimum required period.",
+          "rationale": "Records are the primary evidence of compliance during a STPS inspection.",
+          "audit_criteria": "Verify the existence and completeness of records during the minimum 4-year retention period."
+        },
+        "8_4": {
+          "title": "8.4 — Verification Criteria for Workplaces with More Than 50 Workers",
+          "obligation": "Workplaces with more than 50 workers must comply with all applicable sections of the standard, including sections 5.3, 7.1 b), 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, and 7.9, related to the identification and analysis of psychosocial risk factors and the evaluation of the organizational environment. This provision takes effect two years after its publication in the Official Federal Gazette.",
+          "explanation": "These workplaces must comply with all standard requirements: policy, full assessment with Reference Guide III, action plan, control measures, follow-up, and medical examinations.",
+          "rationale": "Large workplaces have greater resource capacity and their scale amplifies the impact of psychosocial risks.",
+          "audit_criteria": "Verify full compliance: policy, Reference Guide III assessment, analysis, action plan, medical examinations, and complete records."
+        },
+        "8_4_1": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: the employer complies with sections 5.3 and 7.1 b) when presenting evidence of conducting the identification and analysis of psychosocial risk factors and the organizational environment evaluation, covering all workers or a representative sample per Reference Guide III, with a method that meets sections 7.4 and 7.5.",
+          "explanation": "The policy must be reviewed at least once a year and updated when working conditions change.",
+          "rationale": "Periodic review ensures the policy reflects the current reality of the workplace.",
+          "audit_criteria": "Request the policy revision history and evidence of dissemination of the current version."
+        },
+        "8_4_2": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: the employer complies with section 5.4 when presenting evidence of adopting measures to prevent and control psychosocial risk factors, promoting the favorable organizational environment, and addressing workplace violence practices. When evaluations determine the need for control actions, these are implemented through a Program meeting section 8.4.",
+          "explanation": "Apply the full assessment to all workers and process results using the established methodology.",
+          "rationale": "Full assessment with Guide III provides a detailed and statistically valid diagnosis.",
+          "audit_criteria": "Review that the assessment was applied to all workers, with results analyzed by area or department."
+        },
+        "8_4_3": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: the employer complies with section 5.6 when presenting evidence of conducting medical examinations and psychological evaluations of workers exposed to workplace violence and/or psychosocial risk factors, when signs or symptoms of health alterations exist or when the results of the identification and analysis indicate so.",
+          "explanation": "Implement action plan measures, monitor their impact, and document follow-up results.",
+          "rationale": "Follow-up closes the continuous improvement cycle and demonstrates that implemented measures are effective.",
+          "audit_criteria": "Request the action plan with indicators, review dates, follow-up results, and adjustments made."
+        },
+        "8_4_4": {
+          "title": null,
+          "obligation": "For workplaces with more than 50 workers: the employer complies with section 5.8 when presenting evidence of maintaining records of the identification, analysis, and organizational environment evaluation results; adopted control measures; and clinically evaluated workers, per subsections a), b), and c) of section 5.8.",
+          "explanation": "Conduct entry, periodic, and exit examinations for personnel exposed to psychosocial risk factors.",
+          "rationale": "Continuous medical surveillance is the most precise indicator of the real impact of psychosocial risks on workers' health.",
+          "audit_criteria": "Verify that examinations are conducted for all exposed personnel at the indicated frequency and that records are current."
+        },
+        "8_5": {
+          "title": "8.5 — Verification Units",
+          "obligation": "The employer shall have the option of contracting an accredited and approved verification unit, under the terms of the Federal Metrology and Standardization Law and its Regulations, to verify the degree of compliance with this Standard.",
+          "explanation": "Workplaces may hire an accredited verification unit to obtain a voluntary compliance certificate.",
+          "rationale": "Third-party accredited verification offers greater objectivity and may be useful for clients or investors requiring compliance evidence.",
+          "audit_criteria": "If a verification unit was hired, request the issued report and certificate; verify the validity of the accreditation."
+        },
+        "8_5_1": {
+          "title": null,
+          "obligation": "Verification units that evaluate conformity with this Standard must apply the compliance criteria provided in the conformity evaluation procedure, in accordance with Chapter 10 of this Standard.",
+          "explanation": "Before hiring a verification unit, confirm it is specifically accredited for NOM-035 at EMA.",
+          "rationale": "Only EMA-accredited units can issue compliance certificates with official validity.",
+          "audit_criteria": "Verify the verification unit's accreditation number in EMA's public directory."
+        },
+        "8_5_2": {
+          "title": null,
+          "obligation": "Accredited and approved verification units evaluating compliance with this Standard must issue a ruling that includes: data of the verified workplace (name, RFC, address, phone, and main activity), data of the verification unit (name, accreditation number, STPS approval number, and address), and ruling data (standard key and name, verifier's name, verification date, ruling number, validity, place and issuance date, and STPS registry number).",
+          "explanation": "Document review is the first stage of verification and determines whether the workplace meets its category's requirements.",
+          "rationale": "Systematic document review ensures no requirements are omitted in the evaluation process.",
+          "audit_criteria": "The verification unit's report must indicate which documents were reviewed and which show conformity or non-conformity."
+        },
+        "8_5_3": {
+          "title": null,
+          "obligation": "The validity of rulings issued by verification units shall be two years, provided that the conditions that served as the basis for their issuance are not modified.",
+          "explanation": "The on-site visit complements document review and allows verification of actual physical and organizational conditions.",
+          "rationale": "On-site verification detects situations that are not documented but represent real risks to workers.",
+          "audit_criteria": "The report must include on-site visit findings with description of observed conditions."
+        },
+        "8_5_4": {
+          "title": null,
+          "obligation": "Verification units evaluating conformity with this Standard must indicate in the ruling the method used for the identification and analysis of psychosocial risk factors and the organizational environment, as applicable: those proposed by Reference Guides II or III of this Standard, or methods developed by the employer that comply with sections 7.4 and 7.5 of this Standard.",
+          "explanation": "Upon completing verification, the unit issues a formal opinion indicating the workplace's degree of compliance.",
+          "rationale": "The formal opinion is the document certifying the verification result and may be presented to clients, authorities, or partners.",
+          "audit_criteria": "Request the opinion issued by the verification unit with date, scope, findings, and conformity resolution."
+        }
+      },
+      "nom_037_stps_2023": {
+        "5": {
+          "title": "Chapter 5 — Employer Obligations",
+          "obligation": "The employer must comply with the obligations established in Chapter 5 of this Official Mexican Standard to ensure safe and healthy working conditions in the Telework modality.",
+          "explanation": "The employer is the primary party responsible for ensuring that telework conditions are safe, ergonomic, and respectful of workers' rights.",
+          "rationale": "Employer obligations in telework are the foundation of NOM-037; without compliance, it is not possible to guarantee the physical and mental integrity of the teleworker.",
+          "audit_criteria": "Verify that the employer has a policy, equipment, telework agreements, records, and evidence of training in accordance with the standard."
+        },
+        "5_1": {
+          "title": "5.1 — Safety and Health Conditions at the Telework Location",
+          "obligation": "Maintain an updated list of workers in the Telework modality with at least the following information: name; gender; marital status; activities to be performed; job title and profile; percentage of time performing Telework; contact phone number; address; work locations proposed by the worker and agreed with the employer; legal name and address of the workplace; and list of computer and ergonomic equipment provided. Work locations must meet: a) Connectivity for the use and management of Information and Communication Technologies, and b) Occupational safety and health conditions, with emphasis on the good condition of electrical installations, lighting, ventilation, and ergonomic conditions.",
+          "explanation": "Before authorizing telework, the employer must confirm that the domestic or external space used by the worker meets minimum safety, lighting, ventilation, and ergonomic conditions.",
+          "rationale": "The employer retains the obligation to protect the safety and health of the worker even when the activity is performed outside the workplace.",
+          "audit_criteria": "Request the telework location verification mechanism (checklist, virtual visit, worker declaration) and records of verifications performed."
+        },
+        "5_1_I": {
+          "title": null,
+          "obligation": "Verify that the work area is illuminated, by natural or artificial light, that does not cause glare due to excessive illumination or improper placement of the light source, nor visual fatigue due to insufficient lighting. (NOM-037-STPS-2023, section 7.1, subsection b)",
+          "explanation": "The space must have sufficient light to avoid visual fatigue; this can be validated through a guided self-assessment or virtual visit.",
+          "rationale": "Inadequate lighting is one of the main causes of eye fatigue and musculoskeletal disorders in office work.",
+          "audit_criteria": "Verify that the location validation process includes lighting criteria and that records of the evaluation exist."
+        },
+        "5_1_II": {
+          "title": null,
+          "obligation": "Verify that the work area is clean and orderly, free of unnecessary materials, objects, or equipment, and has a temperature and ventilation perceived as comfortable for the type of activity performed during the working day. (NOM-037-STPS-2023, section 7.1, subsections a) and c)",
+          "explanation": "The space must allow sufficient air renewal and hygiene conditions that do not pose a health risk to the teleworker.",
+          "rationale": "Poor environmental conditions can affect the respiratory health and general well-being of the teleworker.",
+          "audit_criteria": "Confirm that the validation protocol includes ventilation and hygiene criteria for the workspace."
+        },
+        "5_1_III": {
+          "title": null,
+          "obligation": "Verify that the proposed work locations have occupational safety and health conditions, with emphasis on the good condition of electrical installations. (NOM-037-STPS-2023, section 5.1.1, subsection b)",
+          "explanation": "The electrical installations of the telework space must not pose a risk of short circuit, overload, or accidental electrical contact.",
+          "rationale": "Electrical deficiencies are a frequent cause of accidents in the home and can cause everything from burns to fires.",
+          "audit_criteria": "Include verification of electrical installations in the telework space validation protocol."
+        },
+        "5_1_IV": {
+          "title": null,
+          "obligation": "Verify that the work location provides the teleworker with an area that allows them to feel comfortable performing their activities, such that (due to furniture or prolonged sedentary positions) they avoid accumulating tension in the back, shoulders, or neck. The work location must at least have: a) A desk, table, or work surface where the worker can comfortably rest their arms; b) An ergonomic or other type of chair appropriate to the activities, and c) If applicable, ergonomic or postural accessories. (NOM-037-STPS-2023, section 7.2)",
+          "explanation": "The chair, desk, and equipment arrangement must allow a correct posture that prevents musculoskeletal disorders.",
+          "rationale": "Prolonged work in an inadequate posture is one of the main causes of occupational illness in telework.",
+          "audit_criteria": "Review that ergonomic conditions of furniture are evaluated and that records of the evaluation exist."
+        },
+        "5_1_V": {
+          "title": null,
+          "obligation": "Verify that the proposed work locations have connectivity for the use and management of Information and Communication Technologies. (NOM-037-STPS-2023, section 5.1.1, subsection a)",
+          "explanation": "Connectivity must be sufficient for the required digital work tools, without interruptions that generate additional workload.",
+          "rationale": "Poor connectivity generates stress, affects productivity, and can translate into extended working hours.",
+          "audit_criteria": "Confirm that the validation process includes connectivity criteria and that the employer supports workers in resolving connectivity issues."
+        },
+        "5_1_VI": {
+          "title": null,
+          "obligation": "Verify that the work location is clean, orderly, and free of unnecessary materials, objects, or equipment that could represent a work hazard, and preferably provides privacy to the teleworker during their working hours. (NOM-037-STPS-2023, sections 7.1, subsection a), and 7.3, subsection a)",
+          "explanation": "The space must not have obstacles, slippery surfaces, exposed cables, or other conditions that pose a risk of falling or injury.",
+          "rationale": "Accidents at the telework location are considered occupational accidents and generate employer liability.",
+          "audit_criteria": "Confirm that the validation protocol includes a visual walkthrough or general risk conditions checklist."
+        },
+        "5_2": {
+          "title": "5.2 — Work Equipment and Tools",
+          "obligation": "Provide teleworkers with the following for carrying out their activities outside the workplace: a) An ergonomic or other type of chair appropriate to the activities to be performed; b) Necessary supplies for their adequate performance, such as for sending information digitally or printing it, and c) If applicable, ergonomic or postural accessories to support computer equipment use during the working day. (NOM-037-STPS-2023, section 5.7)",
+          "explanation": "The employer is responsible for providing the necessary technological equipment (computer, phone, software) and keeping it functional.",
+          "rationale": "The teleworker must not bear the cost or responsibility for work equipment; this obligation falls on the employer.",
+          "audit_criteria": "Request the inventory of equipment assigned to teleworkers, loan agreements or custody documents, and maintenance records."
+        },
+        "5_2_I": {
+          "title": null,
+          "obligation": "Provide teleworkers with the necessary equipment for performing their activities, including an ergonomic chair, supplies for handling and sending information, and where applicable, ergonomic or postural accessories to ensure proper posture during the working day. (NOM-037-STPS-2023, section 5.7)",
+          "explanation": "Before starting telework, the employer must deliver or guarantee access to the necessary equipment, with documented custody.",
+          "rationale": "Workers cannot be held responsible for acquiring work equipment; the standard is clear that this is an employer obligation.",
+          "audit_criteria": "Review loan agreements, equipment delivery-reception records, or any document certifying the provision of equipment."
+        },
+        "5_2_II": {
+          "title": null,
+          "obligation": "Establish and document programs and the manner of providing maintenance, under safe conditions, to ICT equipment provided to teleworkers for carrying out their activities. (NOM-037-STPS-2023, section 5.8)",
+          "explanation": "The employer must ensure that equipment reaches the worker in operational condition and that a preventive and corrective maintenance process exists.",
+          "rationale": "Defective equipment generates interruptions, stress, and IT security risks that negatively impact the teleworker.",
+          "audit_criteria": "Request maintenance records for equipment assigned to teleworkers and response times for reported failures."
+        },
+        "5_2_III": {
+          "title": null,
+          "obligation": "The Telework Policy must state that the rights of teleworkers may not be inferior to those of workers performing in-person work at the workplace, in compliance with Articles 330-C, 330-D, and 330-E of the Federal Labor Law, including the proportional payment for telecommunications services and the portion of electricity corresponding to Telework. (NOM-037-STPS-2023, section 5.2, subsection f), and LFT Article 330-E)",
+          "explanation": "The employer must cover the additional internet and electricity expenses incurred by the worker due to telework, as agreed.",
+          "rationale": "Telework costs must not be transferred to the worker; the standard defines these as an employer obligation.",
+          "audit_criteria": "Verify that a documented mechanism exists for reimbursement or payment of telecommunications and energy services to the teleworker."
+        },
+        "5_2_IV": {
+          "title": null,
+          "obligation": "The updated list of teleworkers must include the list of computer and ergonomic equipment provided to the worker, and documentation resulting from compliance with this Standard must be shared with the Safety and Health Committee, including the lists proving goods and computer equipment provided. (NOM-037-STPS-2023, sections 5.1, subsection k), and 5.12, subsection d)",
+          "explanation": "Maintain an updated inventory of assets assigned in telework modality, with worker data, equipment description, and dates.",
+          "rationale": "The record enables equipment traceability, facilitates recovery at the end of the modality, and certifies compliance to the authority.",
+          "audit_criteria": "Request the record or inventory of equipment assigned to teleworkers; verify that it is up to date."
+        },
+        "5_3": {
+          "title": "5.3 — Ergonomics",
+          "obligation": "Inform teleworkers and the workplace's safety and health committee about risks related to Telework and the possible exposure of teleworkers to agents and risk factors (ergonomic and psychosocial). (NOM-037-STPS-2023, section 5.3)",
+          "explanation": "Instruct the worker on the correct configuration of their workstation, posture, and active breaks to prevent injuries.",
+          "rationale": "Poor ergonomics is the main cause of occupational diseases in office work; its prevention requires specific training.",
+          "audit_criteria": "Request the ergonomics training program or materials and records of workers who received it."
+        },
+        "5_3_I": {
+          "title": null,
+          "obligation": "Inform teleworkers about risks related to Telework and their possible exposure to ergonomic and psychosocial risk factors, in accordance with section 5.3 of this Standard.",
+          "explanation": "Deliver guides, manuals, or infographics with criteria for workstation configuration, correct posture, and warning signs of musculoskeletal disorders.",
+          "rationale": "A worker who understands ergonomic risks can take preventive measures autonomously in their workspace.",
+          "audit_criteria": "Review the informational materials delivered and the worker's receipt records."
+        },
+        "5_3_II": {
+          "title": null,
+          "obligation": "Train personnel in the recognition of ergonomic risk factors from forced postures, repetitive movements, and prolonged sitting, through the application of the Safety and Health Conditions Checklist. (NOM-037-STPS-2023, section 8.1, subsection a), item 2)",
+          "explanation": "Include in the training program criteria for monitor height, keyboard position, lumbar support, and visual distance.",
+          "rationale": "Incorrect workstation configuration is correctable with training; training is the most cost-effective preventive measure.",
+          "audit_criteria": "Request the content of the ergonomic training and the attendance records or certificates of teleworkers."
+        },
+        "5_3_III": {
+          "title": null,
+          "obligation": "Ensure that teleworkers have adequate breaks and rest periods during their working day. (NOM-037-STPS-2023, section 7.3, subsection d)",
+          "explanation": "Implement mechanisms that remind teleworkers to take brief breaks and stretches to counteract the effects of prolonged posture.",
+          "rationale": "Active breaks reduce muscle tension, improve circulation, and contribute to the general well-being of the teleworker.",
+          "audit_criteria": "Verify that a formal active breaks program exists and that teleworkers are informed of its implementation."
+        },
+        "5_4": {
+          "title": "5.4 — Training and Development",
+          "obligation": "Provide, in accordance with Chapter 8 of this Standard, training at least once a year to teleworkers on the safety and health conditions they must have and maintain at their workplace. (NOM-037-STPS-2023, section 5.9)",
+          "explanation": "Design and deliver a specific training program for telework covering technological tools, information security, ergonomics, and NOM-037 provisions.",
+          "rationale": "Adequate training is a necessary condition for telework to be safe, productive, and legally compliant.",
+          "audit_criteria": "Request the training program for teleworkers, attendance certificates, and evidence that it covers the topics required by the standard."
+        },
+        "5_4_I": {
+          "title": null,
+          "obligation": "Train teleworkers in the necessary knowledge for handling Information and Communication Technologies (ICT) for the Telework modality. (NOM-037-STPS-2023, section 8.1, subsection c)",
+          "explanation": "Instruct the worker in the correct handling of the assigned equipment, including basic IT security measures.",
+          "rationale": "Lack of knowledge in equipment use can lead to security incidents or hardware damage that affect operations.",
+          "audit_criteria": "Review equipment use training certificates for teleworkers."
+        },
+        "5_4_II": {
+          "title": null,
+          "obligation": "Train workers in recognizing psychosocial risk factors, with emphasis on those that may be present in the Telework modality, such as work-family interference, accelerated work pace, workload, communication among workers, social support, and workplace violence, among others. (NOM-037-STPS-2023, section 8.1, subsection a), item 3)",
+          "explanation": "Include in the training the ergonomic, isolation, workplace violence, and psychosocial risks associated with telework.",
+          "rationale": "A teleworker exposed to unknown risks cannot protect themselves; preventive training is the employer's obligation.",
+          "audit_criteria": "Verify that the training covers the specific risks of telework and includes the corresponding prevention measures."
+        },
+        "5_4_III": {
+          "title": null,
+          "obligation": "Train teleworkers in understanding and applying the workplace's Telework Policy, including their rights and obligations as established in NOM-037-STPS-2023 and the Federal Labor Law. (NOM-037-STPS-2023, section 8.1, subsection b)",
+          "explanation": "Communicate in an accessible manner the teleworker's rights (right to disconnect, privacy, reversibility) and their obligations.",
+          "rationale": "An informed worker can exercise their rights; an informed worker can fulfill their obligations.",
+          "audit_criteria": "Review whether informational material on teleworker rights and obligations exists and delivery records."
+        },
+        "5_4_IV": {
+          "title": null,
+          "obligation": "Provide training at least once a year, with the participation of the joint training, development, and productivity committee where applicable. The training or development process may be conducted remotely, in-person, or as a blended format, as part of the working day. (NOM-037-STPS-2023, sections 5.9 and 8.1)",
+          "explanation": "Periodically review and update training content to reflect changes in tools, processes, and applicable regulations.",
+          "rationale": "Obsolete training programs create knowledge gaps that can lead to unaddressed risks.",
+          "audit_criteria": "Verify the date of the last training program update and its correspondence with organizational changes."
+        },
+        "5_5": {
+          "title": "5.5 — Risk Factors Specific to Telework",
+          "obligation": "The Telework Policy must establish communication mechanisms with teleworkers through in-person meetings at the workplace or via ICT to prevent social isolation; indicate contact mechanisms and rules that do not interfere with the work-family relationship; and establish the agreed working schedule duration, including the right to rest breaks and disconnection. (NOM-037-STPS-2023, section 5.2, subsections b), d), and e)",
+          "explanation": "Implement mechanisms for detecting and addressing the specific risks of telework that do not exist or are different in on-site work.",
+          "rationale": "Telework introduces specific risks — isolation, hyperconnectivity, difficulty disconnecting — that require active management.",
+          "audit_criteria": "Request the telework risk analysis, control plan, and follow-up records."
+        },
+        "5_5_I": {
+          "title": null,
+          "obligation": "The Telework Policy must establish communication mechanisms with teleworkers through in-person meetings at the workplace or via ICT, with the aim of preventing their social isolation. (NOM-037-STPS-2023, section 5.2, subsection b)",
+          "explanation": "Implement communication and social contact mechanisms that prevent isolation, such as virtual meetings, exchange spaces, and periodic visits to the workplace.",
+          "rationale": "Social isolation is a psychosocial risk of telework that can lead to anxiety, depression, and reduced work engagement.",
+          "audit_criteria": "Review the mechanisms implemented to foster social integration of teleworkers."
+        },
+        "5_5_II": {
+          "title": null,
+          "obligation": "The Telework Policy must indicate contact mechanisms and rules between the workplace and teleworkers, always ensuring the right to privacy and that said mechanisms or rules do not interfere with the work-family relationship, and that they are proportionate to their objective. A gender perspective must be observed to allow work-life balance, including the possibility of flexible schedules. (NOM-037-STPS-2023, sections 5.2, subsection d), and 7.3, subsection b)",
+          "explanation": "Establish disconnection policies, clear schedules, and communication channels that respect rest and family time.",
+          "rationale": "Work-family interference is one of the most frequent risk factors in telework and affects both worker health and productivity.",
+          "audit_criteria": "Verify that a digital disconnection policy exists and mechanisms to ensure it is respected."
+        },
+        "5_5_III": {
+          "title": null,
+          "obligation": "The Telework Policy must establish the agreed working schedule duration and/or distribution of working hours, not exceeding legal and contractual maximums, including the right to rest breaks and digital disconnection at the end of the working day, during non-working hours, vacations, leaves, and licenses. Teleworkers must be guaranteed adequate breaks and rest periods. (NOM-037-STPS-2023, sections 5.2, subsection e), and 7.3, subsection d)",
+          "explanation": "Monitor the workload assigned to teleworkers and adjust it to avoid systematic overtime or work outside working hours.",
+          "rationale": "The invisibility of the teleworker can allow workload to expand beyond legal limits without timely detection.",
+          "audit_criteria": "Review workday control mechanisms for teleworkers and verify that rest times are respected."
+        },
+        "5_6": {
+          "title": "5.6 — Telework Agreement",
+          "obligation": "Establish and document the Telework implementation process for the workplace transitioning from in-person to Telework and vice versa, covering at least: a) The manner of maintaining and establishing communication between the teleworker and the workplace; b) The times, conditions, or causes when the teleworker will attend the workplace; c) The manner in which Telework performance will be supervised, and d) The manner in which ICT equipment maintenance will be provided. (NOM-037-STPS-2023, section 5.6)",
+          "explanation": "Formalize in writing the telework conditions: location, schedule, equipment, costs, right to disconnect, and reversibility.",
+          "rationale": "The agreement formalizes the conditions of telework and protects both the worker and the employer from potential disputes.",
+          "audit_criteria": "Request the signed telework agreements and verify that they contain all elements required by the standard."
+        },
+        "5_6_I": {
+          "title": null,
+          "obligation": "Establish the manner of maintaining and establishing communication between the teleworker and the workplace, as well as the times, conditions, or causes when the teleworker will attend the workplace. (NOM-037-STPS-2023, section 5.6, subsections a) and b)",
+          "explanation": "Document in the agreement the address or description of the space from which the worker will perform their functions.",
+          "rationale": "Defining the telework location is essential for the employer to be able to verify safety and health conditions.",
+          "audit_criteria": "Review that the agreement includes the authorized telework location and any procedure for location changes."
+        },
+        "5_6_II": {
+          "title": null,
+          "obligation": "Indicate the manner in which Telework performance will be supervised, within the framework of the contact mechanisms and rules established in the Telework Policy that ensure the right to privacy and do not interfere with the work-family relationship. (NOM-037-STPS-2023, sections 5.6, subsection c), and 5.2, subsection d)",
+          "explanation": "Specify in the agreement the ordinary schedule, channels and frequency of contact, and the hours when the worker will not be required to respond to communications.",
+          "rationale": "Without a clear agreement on schedules and disconnection, the teleworker is exposed to permanent availability that violates their rights.",
+          "audit_criteria": "Confirm that the agreement includes schedule, supervision mechanisms, and explicit provisions on the right to disconnect."
+        },
+        "5_6_III": {
+          "title": null,
+          "obligation": "Establish the manner in which maintenance will be provided for computer equipment or tools (including ICT) used and/or assigned for Telework, and establish mechanisms for applying, where applicable, Telework reversibility (including temporarily), in accordance with Article 330-G of the Federal Labor Law. (NOM-037-STPS-2023, sections 5.6, subsection d), and 5.2, subsection l)",
+          "explanation": "Document the process for returning to on-site work, the inventory of equipment delivered, and the cost reimbursement mechanism.",
+          "rationale": "Reversibility and the management of equipment and costs, if not agreed upon, generate conflicts at the end of the modality.",
+          "audit_criteria": "Verify that the agreement includes reversibility clauses, equipment description, and the cost compensation mechanism."
+        },
+        "5_7": {
+          "title": "5.7 — Telework Records and Control",
+          "obligation": "Have a Safety and Health Conditions Checklist for Telework, to ensure compliance with the safety and health conditions at work referred to in Chapter 7 of this Standard, and comply with the safety and hygiene measures established by the Safety and Health Committee, contained in the Safety and Health Conditions Checklist for Telework. (NOM-037-STPS-2023, section 5.4)",
+          "explanation": "Maintain a file per teleworker with the signed agreement, the result of the workplace verification, and training and equipment records.",
+          "rationale": "Records are evidence of compliance during a STPS inspection and facilitate the management and monitoring of the telework program.",
+          "audit_criteria": "Request the teleworker record and individual files; verify that they are complete and up to date."
+        },
+        "5_7_I": {
+          "title": null,
+          "obligation": "Maintain an updated list of teleworkers with at least the following information: name, gender, marital status, activities to be performed, job title and profile, percentage of Telework time, contact phone number, address, agreed work locations, legal name and address of the workplace, and list of equipment provided. (NOM-037-STPS-2023, section 5.1)",
+          "explanation": "Maintain a teleworker registry with basic information that allows identifying the universe of workers subject to the standard.",
+          "rationale": "The record is the starting point for managing any obligation under the standard; without it, it is not possible to demonstrate the scope of application.",
+          "audit_criteria": "Verify that the record exists, is up to date, and contains the minimum required data for all teleworkers."
+        },
+        "5_7_II": {
+          "title": null,
+          "obligation": "Share documentation resulting from compliance with this Standard with the Safety and Health Committee, including as applicable: the Safety and Health Conditions Checklist for Telework; validation of the checklist; photographic or video evidence of safety and health conditions at the Telework location; and lists proving goods and computer equipment provided to the teleworker. (NOM-037-STPS-2023, section 5.12)",
+          "explanation": "Archive signed agreements and evidence of each teleworker's workspace verification for the duration of the modality.",
+          "rationale": "Document retention certifies compliance before any labor authority or in the event of an occupational accident.",
+          "audit_criteria": "Request archived agreements and verifications; review that they are available and correspond to active teleworkers."
+        },
+        "5_7_III": {
+          "title": null,
+          "obligation": "Provide facilities for the Safety and Health Committee to validate the Safety and Health Conditions Checklist for Telework (including photographic or video evidence). The employer may choose to: a) Conduct a visit to the proposed work location with the worker's authorization, or b) Provide the worker with the checklist for self-application. A second version of the checklist must be applied periodically to verify continuity of conditions. (NOM-037-STPS-2023, sections 5.5 and 5.5.1)",
+          "explanation": "Document the training sessions conducted, topics covered, and workers who received them, with corresponding dates.",
+          "rationale": "Training records are evidence that the employer has fulfilled their training obligations under NOM-037.",
+          "audit_criteria": "Request attendance lists, training certificates, or any record certifying the training of teleworkers."
+        },
+        "5_8": {
+          "title": "5.8 — Telework Reversibility",
+          "obligation": "Establish mechanisms for reversibility from the Telework modality to in-person work when the teleworker informs the employer of any condition or alteration of safety and health conditions at work that justifies a return to in-person work, or because it is in their labor interests, in accordance with what has been established in writing pursuant to Article 330-G of the Federal Labor Law. (NOM-037-STPS-2023, section 5.10)",
+          "explanation": "When the worker requests a return to on-site work, the employer must facilitate the transition within the agreed timeframe.",
+          "rationale": "Reversibility is a fundamental right of the teleworker recognized in the LFT; its violation generates labor liability.",
+          "audit_criteria": "Verify that the telework agreement contemplates the reversibility process and that documented cases of return to on-site work exist when requested."
+        },
+        "5_8_I": {
+          "title": null,
+          "obligation": "Establish mechanisms to apply, where applicable, Telework reversibility (including temporarily), in accordance with Article 330-G of the Federal Labor Law and as agreed in writing. (NOM-037-STPS-2023, section 5.2, subsection l)",
+          "explanation": "The return process must be documented in the telework agreement, with reasonable timeframes and clear conditions.",
+          "rationale": "Without a formal reversibility process, the worker may face practical obstacles that limit the exercise of their right.",
+          "audit_criteria": "Review that the agreement establishes the reversibility process and timeframe, and that it has been respected in cases where requested."
+        },
+        "5_8_II": {
+          "title": null,
+          "obligation": "The Telework Policy must state that the rights of teleworkers may not be inferior to those of workers performing in-person work at the workplace. (NOM-037-STPS-2023, section 5.2, subsection f)",
+          "explanation": "The return to on-site work must not imply loss of salary, category, benefits, or acquired labor rights.",
+          "rationale": "The inviolability of rights is a labor principle protected by the LFT; any harm to the worker for reverting telework is illegal.",
+          "audit_criteria": "Verify that in reversion cases, the worker's working conditions were maintained without prejudicial modifications."
+        },
+        "5_8_III": {
+          "title": null,
+          "obligation": "Documentation resulting from compliance with this Standard, including lists proving goods and computer equipment provided to the teleworker, must be shared with the Safety and Health Committee. (NOM-037-STPS-2023, section 5.12, subsection d)",
+          "explanation": "When telework ends, formalize the return of all assigned equipment through a formal record or equivalent document.",
+          "rationale": "Documentation of the return protects the employer from equipment claims and the worker from undue liability.",
+          "audit_criteria": "Request equipment return records in cases of reversion to on-site work."
+        },
+        "5_9": {
+          "title": "5.9 — Gender Perspective and Non-Discrimination",
+          "obligation": "The Telework Policy must promote a gender perspective and allow work-life balance for teleworkers, considering the provisions of the protocol referred to in Article 132, Section XXXI of the Federal Labor Law, as well as observing a gender perspective that allows reconciling work with family and personal life, including the possibility of flexible schedules to facilitate attending to family responsibilities. (NOM-037-STPS-2023, sections 5.2, subsection g), and 7.3, subsection b)",
+          "explanation": "Telework policies and practices must be designed with a gender perspective to prevent the modality from disproportionately affecting women or reproducing caregiving roles.",
+          "rationale": "Telework can reinforce gender inequalities if not managed with an equity perspective; the standard requires active management of this risk.",
+          "audit_criteria": "Review whether the telework policy includes a gender perspective and whether the employer monitors the equitable distribution of the modality between men and women."
+        },
+        "5_9_I": {
+          "title": null,
+          "obligation": "Promote a gender perspective and allow work-life balance for teleworkers, considering the provisions of the protocol referred to in Article 132, Section XXXI of the Federal Labor Law. (NOM-037-STPS-2023, section 5.2, subsection g)",
+          "explanation": "The conditions, access criteria, training, and benefits of telework must be applied equally without gender distinction.",
+          "rationale": "A telework policy without a gender perspective can become an unintentional labor segregation mechanism.",
+          "audit_criteria": "Verify that the telework policy establishes objective and non-discriminatory criteria for access to and conditions of the modality."
+        },
+        "5_9_II": {
+          "title": null,
+          "obligation": "Observe a gender perspective that allows reconciling work with family and personal life, including the possibility of flexible schedules to facilitate attending to family responsibilities. (NOM-037-STPS-2023, section 7.3, subsection b)",
+          "explanation": "Implement mechanisms that clearly separate paid work time from household responsibilities during the workday.",
+          "rationale": "Female teleworkers frequently face double presence (work and caregiving) that the standard explicitly seeks to prevent.",
+          "audit_criteria": "Review whether concrete measures exist to prevent double presence and how their effectiveness is verified."
+        },
+        "5_9_III": {
+          "title": null,
+          "obligation": "The Telework Policy must determine the time within the working day during which, for a maximum of six months, nursing mothers in the Telework modality are entitled to feeding time for their children, being able to choose between two extraordinary rest periods of 30 minutes each per day, or reducing their working day by one hour, under the terms of Article 170 of the Federal Labor Law. (NOM-037-STPS-2023, section 5.2, subsection h)",
+          "explanation": "Female teleworkers must have the same training, promotion, and participation opportunities as their on-site colleagues.",
+          "rationale": "The invisibility of the teleworker can translate into exclusion from development opportunities; the standard requires equal access.",
+          "audit_criteria": "Verify that the distribution of promotions, training, and strategic projects is equitable between on-site and remote teleworkers."
+        },
+        "5_10": {
+          "title": "5.10 — Privacy and Data Protection",
+          "obligation": "The Telework Policy must indicate the contact mechanisms and rules between the workplace and teleworkers, always ensuring the right to privacy of teleworkers, and that said mechanisms or rules do not interfere with the work-family relationship, and that they are proportionate to their objective. (NOM-037-STPS-2023, section 5.2, subsection d)",
+          "explanation": "Implement information security policies for telework and respect the boundaries of the worker's home in supervision mechanisms.",
+          "rationale": "Telework at the worker's home creates a tension between legitimate work supervision and the right to privacy in the home.",
+          "audit_criteria": "Review information security policies for teleworkers and the supervision mechanisms implemented."
+        },
+        "5_10_I": {
+          "title": null,
+          "obligation": "The Telework Policy must guarantee the right to privacy of teleworkers, and contact mechanisms must be proportionate to their objective and must not interfere with the work-family relationship. (NOM-037-STPS-2023, section 5.2, subsection d)",
+          "explanation": "Remote work monitoring tools must be limited to verifying work performance without invading the privacy of the domestic space.",
+          "rationale": "Invasive supervision of the home violates fundamental rights of the worker and may constitute a discriminatory act.",
+          "audit_criteria": "Review the supervision tools in use and confirm they are limited to work performance without access to private environments."
+        },
+        "5_10_II": {
+          "title": null,
+          "obligation": "Teleworkers must comply with the data and information protection policies and mechanisms established by the employer in performing their activities, as well as the restrictions on their use and storage. (NOM-037-STPS-2023, section 6.6 — worker obligation)",
+          "explanation": "Establish policies for using secure networks, handling confidential information, using VPN, and password management for telework.",
+          "rationale": "Working from home or public networks exposes the company to IT security risks that must be proactively managed.",
+          "audit_criteria": "Request the information security policy for teleworkers and the technical controls implemented."
+        },
+        "5_11": {
+          "title": "5.11 — Right to Disconnect",
+          "obligation": "The Telework Policy must establish the agreed working schedule duration and/or distribution of working hours, not exceeding legal and contractual maximums, including the right to rest breaks and digital disconnection at the end of the working day, during non-working hours, vacations, leaves, and licenses. The right of teleworkers to disconnect (including digital disconnection from ICT) at the end of the working day, during agreed flexible schedule breaks, during non-working hours, vacations, leaves, and licenses must be respected. (NOM-037-STPS-2023, sections 5.2, subsection e), and 7.3, subsection e)",
+          "explanation": "Establish a digital disconnection policy that prohibits requiring the teleworker's attention outside their ordinary working hours and during their rest periods.",
+          "rationale": "The right to disconnect is a recognized labor right that protects the health and personal time of the worker.",
+          "audit_criteria": "Verify the existence of the disconnection policy and the mechanisms to ensure its effective compliance."
+        },
+        "5_12": {
+          "title": "5.12 — Emergency and Accident Response",
+          "obligation": "Share documentation resulting from compliance with this Standard with the Safety and Health Committee, including as applicable: a) The Safety and Health Conditions Checklist for Telework; b) Validation of the Safety and Health Conditions Checklist for Telework; c) Photographic or video evidence of safety and health conditions at the Telework location, and d) Lists proving goods and computer equipment provided to the teleworker under section 5.7 of this Standard. (NOM-037-STPS-2023, section 5.12)",
+          "explanation": "Define the reporting and response protocol for occupational accidents in the telework modality, including communication channels with the employer.",
+          "rationale": "Accidents occurring during the telework workday are occupational accidents; the employer has the same obligations as in on-site work.",
+          "audit_criteria": "Request the emergency and accident response protocol for teleworkers and records of reported incidents."
+        },
+        "5_13": {
+          "title": "5.13 — Health and Social Security Services",
+          "obligation": "Have response mechanisms for domestic violence cases that consider, among other things, a return to in-person work on a temporary or permanent basis. (NOM-037-STPS-2023, section 5.13)",
+          "explanation": "Teleworkers must be registered with the IMSS or the corresponding social security system under the same conditions as any other worker.",
+          "rationale": "The telework modality does not modify the worker's social security rights; any difference constitutes a discriminatory act.",
+          "audit_criteria": "Verify that teleworkers are registered with IMSS with correct salaries and have access to all legally required benefits."
+        },
+        "5_14": {
+          "title": "5.14 — Health Surveillance",
+          "obligation": "Provide the necessary support and facilities for teleworkers to participate, where applicable, in the Safety and Health Committee or in the joint training, development, and productivity committee. (NOM-037-STPS-2023, section 5.14)",
+          "explanation": "Include teleworkers in the company's medical surveillance program, with emphasis on telework-specific risks: musculoskeletal disorders, visual fatigue, and psychosocial risks.",
+          "rationale": "Health surveillance enables early detection of health effects and allows preventive action; the teleworker has the same right to this service as the on-site worker.",
+          "audit_criteria": "Request records of medical examinations conducted for teleworkers and verify that the surveillance program includes them."
+        }
+      }
+    },
+    "evidence": {
+      "nom_035_stps_2018": {
+        "5_8_a": {
+          "description": "Records of the identification and analysis of psychosocial risk factors: applied instruments, consolidated individual results, and analysis reports from each assessment cycle, retained for a minimum of 4 years."
+        },
+        "5_8_b": {
+          "description": "Records of measures adopted to prevent and control psychosocial risk factors: action plans, implementation progress, modifications made, and results obtained, retained for a minimum of 4 years."
+        },
+        "5_8_c": {
+          "description": "Records of medical examinations and psychological evaluations conducted on personnel exposed to psychosocial risk factors, retained under confidential custody for a minimum of 4 years."
+        }
+      }
+    }
+  }
 }

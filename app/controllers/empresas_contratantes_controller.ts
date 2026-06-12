@@ -1,5 +1,4 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import RoleService from '#services/role_service'
 import EmpresaContratanteService, {
   type EmpresaContratanteCreatePayload,
   type EmpresaContratanteUpdatePayload,
@@ -12,15 +11,23 @@ import {
 import { EMPRESA_CONTRATANTE_ERROR_CODES } from '../constants/empresa_contratante_error_codes.js'
 import { EmpresaContratanteError } from '../exceptions/empresa_contratante_error.js'
 import { resolveEmpresaContratanteApiError } from '../helpers/empresa_contratante_api_error.js'
+import {
+  assertComplianceRepsePermission,
+  type ComplianceRepseAction,
+} from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
 const MODULE_SLUG = 'compliance-contratantes'
+const RBAC_FORBIDDEN = {
+  errorCode: EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN,
+  i18nPrefix: 'empresa_contratante',
+}
 
 /**
  * Controlador REST del catálogo de empresas contratantes REPSE.
  *
- * Expone CRUD bajo /api/empresas-contratantes con permiso único `gestion`
- * (compliance.contratantes.gestion) y aislamiento multi-tenant por business unit.
+ * Expone CRUD bajo /api/empresas-contratantes con permisos granulares
+ * (`read`, `create`, `update`, `delete` o `gestion`) y aislamiento multi-tenant.
  */
 export default class EmpresasContratantesController {
   /**
@@ -45,15 +52,36 @@ export default class EmpresasContratantesController {
    *         name: businessUnitId
    *         schema: { type: integer }
    *     responses:
-   *       '200': { description: Listado paginado }
-   *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso gestion }
+   *       '200':
+   *         description: Listado paginado de empresas contratantes
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresasContratantesListSuccess'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso read o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '400':
+   *         description: Validación de filtros de consulta
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async index(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(listEmpresasContratantesValidator)
       const service = new EmpresaContratanteService()
@@ -93,14 +121,36 @@ export default class EmpresasContratantesController {
    *         required: true
    *         schema: { type: integer }
    *     responses:
-   *       '200': { description: Detalle encontrado }
-   *       '404': { description: key empresa-contratante-no-encontrada }
+   *       '200':
+   *         description: Detalle de empresa contratante
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresaContratanteSuccess'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso read o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key empresa-contratante-no-encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async show(ctx: HttpContext) {
     const { params, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new EmpresaContratanteService()
@@ -134,26 +184,50 @@ export default class EmpresasContratantesController {
    *       content:
    *         application/json:
    *           schema:
-   *             type: object
-   *             required: [businessUnitId, razonSocial, rfc, domicilioFiscal]
-   *             properties:
-   *               businessUnitId: { type: integer }
-   *               razonSocial: { type: string, minLength: 3, maxLength: 255 }
-   *               rfc: { type: string, minLength: 12, maxLength: 13 }
-   *               domicilioFiscal: { type: string, minLength: 10, maxLength: 500 }
-   *               representanteLegal: { type: string, nullable: true }
-   *               correo: { type: string, format: email, nullable: true }
-   *               telefono: { type: string, minLength: 10, maxLength: 20, nullable: true }
+   *             $ref: '#/components/schemas/EmpresaContratanteCreate'
    *     responses:
-   *       '201': { description: Creado }
-   *       '400': { description: key rfc-invalido }
-   *       '409': { description: key rfc-duplicado }
+   *       '201':
+   *         description: Empresa contratante creada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresaContratanteSuccess'
+   *       '400':
+   *         description: RFC inválido (key rfc-invalido) o validación VineJS
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso create o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: Empresa prestadora no encontrada en el tenant
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: RFC duplicado (key rfc-duplicado)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
 
       const body = await request.validateUsing(createEmpresaContratanteValidator)
       const payload = this.toCreatePayload(body)
@@ -189,15 +263,62 @@ export default class EmpresasContratantesController {
    *         name: id
    *         required: true
    *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               razonSocial: { type: string, minLength: 3, maxLength: 255 }
+   *               rfc: { type: string, minLength: 12, maxLength: 13 }
+   *               domicilioFiscal: { type: string, minLength: 10, maxLength: 500 }
+   *               representanteLegal: { type: string, nullable: true }
+   *               correo: { type: string, format: email, nullable: true }
+   *               telefono: { type: string, minLength: 10, maxLength: 20, nullable: true }
    *     responses:
-   *       '200': { description: Actualizado }
-   *       '409': { description: key rfc-duplicado }
+   *       '200':
+   *         description: Empresa contratante actualizada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/EmpresaContratanteSuccess'
+   *       '400':
+   *         description: Validación VineJS o businessUnitId no modificable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso update o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key empresa-contratante-no-encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: RFC duplicado (key rfc-duplicado)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async update(ctx: HttpContext) {
     const { params, request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
 
       if (request.input('businessUnitId') !== undefined) {
         throw new EmpresaContratanteError(
@@ -242,13 +363,44 @@ export default class EmpresasContratantesController {
    *         required: true
    *         schema: { type: integer }
    *     responses:
-   *       '204': { description: Eliminado lógicamente }
+   *       '204':
+   *         description: Eliminado lógicamente (sin cuerpo)
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso delete o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '404':
+   *         description: key empresa-contratante-no-encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '409':
+   *         description: Empresa con contratos asociados (key empresa-con-contratos-activos)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '422':
+   *         description: Empresa con sitios de servicio ligados (key empresa-con-sitios-ligados)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async destroy(ctx: HttpContext) {
     const { params, response } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'delete'))) return
 
       const id = this.parseResourceId(params.id)
       const service = new EmpresaContratanteService()
@@ -279,32 +431,8 @@ export default class EmpresasContratantesController {
     return true
   }
 
-  private async assertHasPermission(ctx: HttpContext) {
-    const user = ctx.auth.user!
-    await user.preload('role')
-    const roleSlug = user.role?.roleSlug
-    if (roleSlug === 'root' || roleSlug === 'super-administrador') {
-      return true
-    }
-
-    const roleService = new RoleService()
-    const allowed = await roleService.hasAccess(user.roleId, MODULE_SLUG, 'gestion')
-    if (!allowed) {
-      ctx.response.status(403).json({
-        type: 'error',
-        title: ctx.i18n.t('empresa_contratante_forbidden_title', undefined, 'Sin permiso'),
-        message: ctx.i18n.t(
-          'empresa_contratante_forbidden_message',
-          undefined,
-          'No tienes permiso para gestionar empresas contratantes.'
-        ),
-        key: 'sin-permiso',
-        errorCode: EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN,
-        data: null,
-      })
-      return false
-    }
-    return true
+  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
+    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private parseResourceId(raw: unknown) {

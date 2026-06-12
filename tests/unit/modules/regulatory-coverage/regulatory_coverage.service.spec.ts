@@ -30,6 +30,18 @@ function makeMockRepo(rows: RegulationCoverageRow[] = sampleRows): {
       calls += 1
       return rows
     },
+    async getCoverageSummary() {
+      return {
+        aggregate: {
+          evaluableClauses: 0,
+          coveragePercentage: { disponible: null, enDesarrollo: null, planeado: null },
+        },
+        regulations: [],
+      }
+    },
+    async getRegulationDetail() {
+      return null
+    },
   }
   return { repo, get calls() { return calls } }
 }
