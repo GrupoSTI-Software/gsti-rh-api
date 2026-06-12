@@ -31,28 +31,23 @@ export default class OverridesController {
    *       - bearerAuth: []
    *     tags: [WorkingTimeRuleOverrides]
    *     parameters:
-   *       - name: businessUnitId
-   *         in: query
+   *       - name: X-Business-Unit-Id
+   *         in: header
    *         required: true
+   *         description: Empresa (tenant) activa. Define la unidad de negocio del listado.
    *         schema: { type: integer }
    *     responses:
    *       200: { description: OK }
+   *       400: { description: Header X-Business-Unit-Id faltante o inválido }
    *       403: { description: Sin permiso sobre la empresa }
-   *       422: { description: Parámetros inválidos }
    */
   async index(ctx: HttpContext) {
-    const { request, response } = ctx
-    const businessUnitId = Number(request.input('businessUnitId'))
-    if (!Number.isInteger(businessUnitId) || businessUnitId <= 0) {
-      return response.status(422).json({
-        type: 'error',
-        title: 'Parámetros inválidos',
-        message: 'businessUnitId es requerido y debe ser un entero positivo.',
-        key: 'entrada-invalida',
-      })
-    }
+    const { response } = ctx
 
-    if (!this.canAccess(ctx, businessUnitId)) {
+    // La empresa proviene del header X-Business-Unit-Id, resuelto por el middleware
+    // de scope. No se acepta por query: el header es la única fuente de verdad.
+    const businessUnitId = ctx.businessUnitScope?.[0]
+    if (!businessUnitId) {
       return this.forbidden(ctx)
     }
 
@@ -74,14 +69,19 @@ export default class OverridesController {
    *     security:
    *       - bearerAuth: []
    *     tags: [WorkingTimeRuleOverrides]
+   *     parameters:
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         description: Empresa (tenant) activa. Define la unidad de negocio del override.
+   *         schema: { type: integer }
    *     requestBody:
    *       content:
    *         application/json:
    *           schema:
    *             type: object
-   *             required: [businessUnitId, effectiveYear, validFrom, maxWeeklyHours, maxWeeklyOvertimeHours, maxDailyOvertimeHours, maxOvertimeDaysPerWeek, dailyHoursDay, dailyHoursNight, dailyHoursMixed, workDaysPerRestDay, exceedsFederalAck]
+   *             required: [effectiveYear, validFrom, maxWeeklyHours, maxWeeklyOvertimeHours, maxDailyOvertimeHours, maxOvertimeDaysPerWeek, dailyHoursDay, dailyHoursNight, dailyHoursMixed, workDaysPerRestDay, exceedsFederalAck]
    *             properties:
-   *               businessUnitId: { type: integer }
    *               effectiveYear: { type: integer }
    *               validFrom: { type: string, example: "2027-01-01" }
    *               validTo: { type: string, nullable: true, example: "2027-12-31" }
@@ -115,12 +115,16 @@ export default class OverridesController {
       return this.justificationRequired(ctx)
     }
 
-    if (!this.canAccess(ctx, payload.businessUnitId)) {
+    // La empresa proviene del header X-Business-Unit-Id, resuelto por el middleware
+    // de scope. No se acepta por body: el header es la única fuente de verdad.
+    const businessUnitId = ctx.businessUnitScope?.[0]
+    if (!businessUnitId) {
       return this.forbidden(ctx)
     }
 
     const input: CreateOverrideInput = {
       ...payload,
+      businessUnitId,
       validTo: payload.validTo ?? null,
       overrideJustification: payload.overrideJustification ?? null,
     }
@@ -148,6 +152,11 @@ export default class OverridesController {
    *       - bearerAuth: []
    *     tags: [WorkingTimeRuleOverrides]
    *     parameters:
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         description: Empresa (tenant) activa. Debe coincidir con la del override.
+   *         schema: { type: integer }
    *       - name: id
    *         in: path
    *         required: true
@@ -210,6 +219,11 @@ export default class OverridesController {
    *       - bearerAuth: []
    *     tags: [WorkingTimeRuleOverrides]
    *     parameters:
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         description: Empresa (tenant) activa. Debe coincidir con la del override.
+   *         schema: { type: integer }
    *       - name: id
    *         in: path
    *         required: true

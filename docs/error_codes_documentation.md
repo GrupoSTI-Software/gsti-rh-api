@@ -414,6 +414,26 @@ Estos códigos se utilizan en el módulo de **archivador de vacaciones** (eviden
 
 ---
 
+### BRCH.CONFLICT.LINK.001 — Sucursal ya ligada a otra empresa
+
+**Cuándo ocurre:** PUT/POST intenta asignar `empresaContratanteId` a una sucursal que ya está ligada a otra empresa contratante distinta.
+
+**Respuesta API:** HTTP **409**, `errorCode: 'BRCH.CONFLICT.LINK.001'`, `key: 'sucursal-ya-ligada'`.
+
+**Acción cliente:** Desligar la sucursal (`empresaContratanteId: null`) antes de ligarla a otra empresa.
+
+---
+
+### ECNT.CONFLICT.SITIOS.001 — Empresa con sitios de servicio ligados
+
+**Cuándo ocurre:** DELETE soft de empresa contratante mientras existen sucursales activas con `empresa_contratante_id` apuntando a esa empresa.
+
+**Respuesta API:** HTTP **422**, `errorCode: 'ECNT.CONFLICT.SITIOS.001'`, `key: 'empresa-con-sitios-ligados'`, `detail` con el conteo N de sucursales.
+
+**Acción cliente:** Desligar todas las sucursales ligadas antes de eliminar la empresa.
+
+---
+
 ### BRCH.SYS.001 — Error no clasificado
 
 **Cuándo ocurre:** Excepción en el controlador que no es `E_VALIDATION_ERROR`, `E_ROW_NOT_FOUND` ni `BranchOfficeServiceError`.
@@ -492,6 +512,7 @@ Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. P
 | ECNT.VAL.RFC.001 | RFC formato o dígito verificador SAT inválido | 400 | `rfc-invalido` |
 | ECNT.CONFLICT.RFC.001 | RFC duplicado en catálogo del tenant | 409 | `rfc-duplicado` |
 | ECNT.CONFLICT.CONTRATOS.001 | Empresa con contratos no soft-deleted asociados | 409 | `empresa-con-contratos-activos` |
+| ECNT.CONFLICT.SITIOS.001 | Empresa con sucursales ligadas como sitios de servicio | 422 | `empresa-con-sitios-ligados` |
 | ECNT.NF.001 | Empresa contratante inexistente o cross-tenant | 404 | `empresa-contratante-no-encontrada` |
 | ECNT.NF.BU.001 | Business unit ajena al tenant | 404 | `empresa-no-encontrada` |
 | ECNT.FORBID.001 | Sin permiso sobre la acción solicitada | 403 | `sin-permiso` |
@@ -611,6 +632,7 @@ Módulo: `/api/repse-registrations` y `/api/repse-specialized-services`. Permiso
 | BRCH.NOT.001 | Sucursal no encontrada o fuera de SYSTEM_BUSINESS | 404 | Verificar id y alcance de instancia | BranchOfficeService.getById / update / delete |
 | BRCH.CFG.001 | SYSTEM_BUSINESS sin slugs al validar unidad | 400 | Configurar .env | BranchOfficeService.assertBusinessUnitExists |
 | BRCH.BU.001 | Unidad inexistente, inactiva o slug no en SYSTEM_BUSINESS | 400 | Usar businessUnitId permitido | BranchOfficeService.assertBusinessUnitExists |
+| BRCH.CONFLICT.LINK.001 | Sucursal ya ligada a otra empresa contratante | 409 | Desligar antes de reasignar | BranchOfficeService.resolveEmpresaContratanteLink |
 | BRCH.SYS.001 | Error no tipado en módulo sucursales | 400/404 | Revisar logs | BranchOfficesController catch fallback |
 | EC.VAL.FILE.001 | Tipo de archivo no permitido (PDF/JPG/PNG) | 415/400 | Corregir tipo | EmployeeCertificationUploadService |
 | EC.VAL.FILE.002 | Archivo supera 10 MB | 413 | Reducir tamaño | EmployeeCertificationUploadService |

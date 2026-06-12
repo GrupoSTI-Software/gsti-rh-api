@@ -2,12 +2,10 @@ import { DateTime } from 'luxon'
 import WorkingTimeRule from '#models/working_time_rule'
 import WorkingTimeRuleError from '#exceptions/working_time_rule_error'
 import { workingTimeRuleCache } from '#services/working_time_rule_cache_service'
+import { DEFAULT_COUNTRY_CODE as COUNTRY_CODE } from '#modules/working-time-rules/working_time_rule.constants'
 import OverridesRepositoryMysql from './overrides.repository.mysql.js'
 import type { OverridesRepository } from './overrides.repository.js'
 import type { CreateOverrideInput, OverrideCaps, UpdateOverrideInput } from './dto/override.dto.js'
-
-/** País de los topes federales que sirven de base para los overrides. */
-const COUNTRY_CODE = 'MX'
 
 /** Cap de sanidad absoluto (se rechaza aunque venga la bandera exceeds_federal_ack). */
 const SANITY_MAX_WEEKLY_HOURS = 60

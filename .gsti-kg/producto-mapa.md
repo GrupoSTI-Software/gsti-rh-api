@@ -1,7 +1,7 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-06-11T15:55:30+00:00"
-kg_head_sha: "c18cb5672429916c799030fb582d6931eb3f5cb5"
+kg_built_at: "2026-06-11T16:02:32+00:00"
+kg_head_sha: "780e870ec8584dbf10a52e65d0f1e6945027f5fc"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
