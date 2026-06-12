@@ -123,6 +123,7 @@ import './routes/labor_law_hours_routes.js'
 import './routes/employee_zone_routes.js'
 import '#modules/working-time-rules/overrides/overrides.routes'
 import '#modules/working-time-rules/effective/effective.routes'
+import '#modules/working-time-rules/federal/federal.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')

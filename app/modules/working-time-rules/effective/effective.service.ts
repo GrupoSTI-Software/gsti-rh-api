@@ -1,11 +1,9 @@
 import WorkingTimeRule from '#models/working_time_rule'
 import { workingTimeRuleCache } from '#services/working_time_rule_cache_service'
+import { DEFAULT_COUNTRY_CODE } from '#modules/working-time-rules/working_time_rule.constants'
 import EffectiveRepositoryMysql from './effective.repository.mysql.js'
 import type { EffectiveRepository } from './effective.repository.js'
 import type { EffectiveRuleCaps, EffectiveRuleResult } from './dto/effective.dto.js'
-
-/** País por defecto de los topes federales. */
-const DEFAULT_COUNTRY_CODE = 'MX'
 
 /**
  * Resolución de la jornada efectiva por (empresa, fecha): `getRulesForDate`.
