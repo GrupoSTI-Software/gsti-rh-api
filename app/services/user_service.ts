@@ -344,7 +344,7 @@ export default class UserService {
     return index !== -1 ? headers[index + 1] : null
   }
 
-  async sendNewPasswordEmail(url: string, newUser: User, userPassword: string) {
+  async sendNewPasswordEmail(url: string, newUser: User, userPassword?: string) {
     const hostData = this.getUrlInfo(url)
     let tradeName = 'BO'
     let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`

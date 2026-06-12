@@ -139,8 +139,8 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column()
   declare pinCode: string
 
-  @column()
-  declare userPinCodeExpiresAt: DateTime | null
+  @column.dateTime({ columnName: 'pin_code_expires_at' })
+  declare pinCodeExpiresAt: DateTime | null
 
   @column()
   declare roleId: number
