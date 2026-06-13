@@ -85,6 +85,7 @@ export class StandardResponseFormatter {
       'Employee Supply': 'employeeSupply',
       'Branches': 'branchOffices',
       'Branch': 'branchOffice',
+      'Branch Office Shift Quotas': 'quotas',
       'Employee Branch Office': 'employeeBranchOffice',
       'Employee Branch Offices': 'employeeBranchOffices',
       'Certifications': 'certifications',
