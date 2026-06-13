@@ -269,26 +269,24 @@ export default class AuthMailService {
    */
   private async resolveBranding(): Promise<AuthMailBranding> {
     const branding: AuthMailBranding = {
-      tradeName: 'BO',
-      backgroundImageLogo: env.get('BACKGROUND_IMAGE_LOGO') ?? '',
+      tradeName: 'Valanserh',
+      backgroundImageLogo: 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
       favicon: null,
     }
 
     try {
+      const isWhiteLabel = false
       const systemSettingService = new SystemSettingService()
       const active = (await systemSettingService.getActive()) as unknown as SystemSetting | null
 
-      if (!active) {
-        return branding
-      }
-      if (active.systemSettingTradeName) {
-        branding.tradeName = active.systemSettingTradeName
-      }
-      if (active.systemSettingLogo) {
-        branding.backgroundImageLogo = active.systemSettingLogo
-      }
-      if (active.systemSettingFavicon) {
-        branding.favicon = active.systemSettingFavicon
+      if (active && isWhiteLabel) {
+        if (active.systemSettingLogo) {
+          branding.backgroundImageLogo = active.systemSettingLogo
+        }
+
+        if (active.systemSettingTradeName) {
+          branding.tradeName = active.systemSettingTradeName
+        }
       }
     } catch (error) {
       logger.warn(

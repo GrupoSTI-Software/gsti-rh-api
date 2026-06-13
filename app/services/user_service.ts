@@ -346,11 +346,15 @@ export default class UserService {
 
   async sendNewPasswordEmail(url: string, newUser: User, userPassword?: string) {
     const hostData = this.getUrlInfo(url)
-    let tradeName = 'BO'
-    let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+    const isWhiteLabel = false
+    let tradeName = 'Valanserh'
+    let backgroundImageLogo =
+      'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+
     const systemSettingService = new SystemSettingService()
     const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
+
+    if (systemSettingActive && isWhiteLabel) {
       if (systemSettingActive.systemSettingLogo) {
         backgroundImageLogo = systemSettingActive.systemSettingLogo
       }

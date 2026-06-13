@@ -824,6 +824,8 @@ export default class UserController {
       user.pinCodeExpiresAt = DateTime.utc().plus({ minutes: PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES })
       await user.save()
 
+      const smtpUsername = env.get('SMTP_USERNAME')
+
       if (isApp) {
         const isWhiteLabel = false
         let tradeName = 'Valanserh'
@@ -842,7 +844,6 @@ export default class UserController {
           }
         }
 
-        const smtpUsername = env.get('SMTP_USERNAME')
         if (smtpUsername) {
           const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
           await mail.send((message) => {
