@@ -720,6 +720,19 @@
       "validity": "Este enlace es válido por {minutes} minutos y solo puede usarse una vez. Si expira, solicita uno nuevo desde la pantalla de inicio de sesión.",
       "ignore_notice": "Si no solicitaste este acceso, ignora este correo. Tu cuenta permanece segura.",
       "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+    },
+    "password_recovery": {
+      "subject": "Restablece tu contraseña en {tradeName}",
+      "preheader": "Recibimos una solicitud para restablecer tu contraseña. Usa el enlace y el código de verificación.",
+      "greeting": "Hola, {firstName}",
+      "intro": "Recibimos una solicitud para restablecer la contraseña de tu cuenta. Abre el enlace y luego ingresa el código de verificación en la página para crear una nueva contraseña.",
+      "cta": "Restablecer contraseña",
+      "cta_caption": "Te llevará a una página segura donde primero deberás validar el código.",
+      "code_label": "Código de verificación",
+      "validity": "El enlace y el código vencen en {minutes} minutos. No los compartas con nadie.",
+      "ignore_notice": "Si tú no solicitaste este cambio, ignora este correo. Tu contraseña actual sigue activa y tu cuenta protegida.",
+      "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
+      "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
     }
   },
   "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
@@ -750,6 +763,18 @@
   "magic_link_invalid_title": "Enlace no válido",
   "magic_link_invalid_detail": "El enlace expiró o ya fue utilizado. Solicita uno nuevo desde el inicio de sesión.",
   "magic_link_success_message": "Sesión iniciada exitosamente",
+  "password_recovery_title": "Recuperación de contraseña",
+  "password_recovery_request_sent": "Si el correo está registrado, recibirás un enlace y un código de verificación en breve.",
+  "password_recovery_code_missing": "El token y el código de verificación son requeridos",
+  "password_recovery_code_invalid": "El código es incorrecto, expiró o el enlace ya no es válido",
+  "password_recovery_code_success": "Código verificado correctamente",
+  "password_recovery_pin_pending": "Debes verificar el código antes de restablecer la contraseña",
+  "password_recovery_token_invalid": "El token es inválido",
+  "password_recovery_token_valid": "El token es válido",
+  "password_recovery_reset_success": "La contraseña se ha cambiado exitosamente",
+  "password_recovery_pin_invalid": "El código PIN es inválido",
+  "password_recovery_pin_expired": "El código PIN ha expirado",
+  "password_recovery_pin_success": "El código PIN es válido",
   "regulatory": {
     "authorities": {
       "stps": {
