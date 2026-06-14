@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { HasMany } from '@adonisjs/lucid/types/relations'
 import EmployeeBranchOffice from './employee_branch_office.js'
+import BranchOfficeShiftQuota from './branch_office_shift_quota.js'
 import EmpresaContratante from './empresa_contratante.js'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
@@ -120,4 +121,9 @@ export default class BranchOffice extends compose(BaseModel, SoftDeletes, withBu
     foreignKey: 'branchOfficeId',
   })
   declare employeeBranchOffices: HasMany<typeof EmployeeBranchOffice>
+
+  @hasMany(() => BranchOfficeShiftQuota, {
+    foreignKey: 'branchOfficeId',
+  })
+  declare shiftQuotas: HasMany<typeof BranchOfficeShiftQuota>
 }

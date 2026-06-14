@@ -6,6 +6,8 @@ import SystemSettingService from './system_setting_service.js'
 import SignupOtpMail from '#mails/signup_otp_mail'
 import WelcomeMail from '#mails/welcome_mail'
 import MagicLinkMail from '#mails/magic_link_mail'
+import PasswordRecoveryMail from '#mails/password_recovery_mail'
+import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
 
 /**
  * Idiomas soportados por las plantillas de correo del flujo de signup.
@@ -61,6 +63,14 @@ interface SendMagicLinkParams {
   to: string
   firstName: string
   magicLinkUrl: string
+  language: AuthMailLanguage
+}
+
+interface SendPasswordRecoveryParams {
+  to: string
+  firstName: string
+  resetUrl: string
+  pinCode: string
   language: AuthMailLanguage
 }
 
@@ -214,32 +224,69 @@ export default class AuthMailService {
   }
 
   /**
+   * Envía el correo de recuperación de contraseña para el backoffice web
+   * (enlace + código OTP). Nunca lanza ante fallos de SMTP.
+   */
+  async sendPasswordRecovery(params: SendPasswordRecoveryParams): Promise<void> {
+    const { to, firstName, resetUrl, pinCode, language } = params
+
+    try {
+      const senderEmail = this.resolveSenderEmail()
+      if (!senderEmail) {
+        logger.error(
+          { to: this.redactEmail(to) },
+          'AuthMailService.sendPasswordRecovery: SMTP_USERNAME no configurado; correo omitido.'
+        )
+        return
+      }
+
+      const branding = await this.resolveBranding()
+
+      await mail.send(
+        new PasswordRecoveryMail({
+          to,
+          from: senderEmail,
+          firstName,
+          resetUrl,
+          pinCode,
+          language,
+          branding,
+          validityMinutes: PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES,
+        })
+      )
+    } catch (error) {
+      logger.error(
+        { err: error, to: this.redactEmail(to) },
+        'AuthMailService.sendPasswordRecovery: fallo al enviar correo de recuperación.'
+      )
+    }
+  }
+
+  /**
    * Lee el `SystemSetting` activo y arma el branding con los mismos fallbacks
    * que el flujo legacy de recuperación de contraseña, manteniendo la
    * consistencia visual de todos los correos transaccionales.
    */
   private async resolveBranding(): Promise<AuthMailBranding> {
     const branding: AuthMailBranding = {
-      tradeName: 'BO',
-      backgroundImageLogo: env.get('BACKGROUND_IMAGE_LOGO') ?? '',
+      tradeName: 'Valanserh',
+      backgroundImageLogo: 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
       favicon: null,
     }
 
     try {
+      const isWhiteLabel = false
       const systemSettingService = new SystemSettingService()
       const active = (await systemSettingService.getActive()) as unknown as SystemSetting | null
 
-      if (!active) {
-        return branding
-      }
-      if (active.systemSettingTradeName) {
-        branding.tradeName = active.systemSettingTradeName
-      }
-      if (active.systemSettingLogo) {
-        branding.backgroundImageLogo = active.systemSettingLogo
-      }
-      if (active.systemSettingFavicon) {
-        branding.favicon = active.systemSettingFavicon
+      if (active && isWhiteLabel) {
+        if (active.systemSettingLogo) {
+          branding.backgroundImageLogo = active.systemSettingLogo
+        }
+
+        if (active.systemSettingTradeName) {
+          branding.tradeName = active.systemSettingTradeName
+        }
       }
     } catch (error) {
       logger.warn(
