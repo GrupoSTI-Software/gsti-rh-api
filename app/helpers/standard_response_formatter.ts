@@ -96,6 +96,8 @@ export class StandardResponseFormatter {
       'Employee Lactation Period Evidence': 'employeeLactationPeriodEvidence',
       'Employee Lactation Period Evidence Download': 'employeeLactationPeriodEvidenceDownload',
       'Employee Lactation Compliance Report': 'employeeLactationComplianceReport',
+      'Traumatic Event Reports': 'traumaticEventReports',
+      'Traumatic Event Report': 'traumaticEventReport',
       'Repse': 'repseRegistrations',
       'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
