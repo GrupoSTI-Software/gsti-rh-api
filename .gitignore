@@ -29,4 +29,4 @@ docs/swagger.json
 .claude/settings.local.json
 
 # CLAUDE
-.gsti-kg
+.gsti-kg/
