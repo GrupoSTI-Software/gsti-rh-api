@@ -1,7 +1,10 @@
 import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
 import SystemSetting from '#models/system_setting'
+import { findEmpresaContratanteInTenantOrFail } from '../../helpers/repse_tenant_scope.js'
+import { EmpresaContratanteError } from '../../exceptions/empresa_contratante_error.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
+import { buildCoverageResponse } from './attendance-stats.coverage.js'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
 import type { ShiftExceptionInterface } from '../../interfaces/shift_exception_interface.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
@@ -9,6 +12,8 @@ import type {
   AttendanceStatistics,
   AttendanceStatsFilters,
   CleanCounters,
+  CoverageFilters,
+  CoverageResponse,
   DailyStatsRow,
   DepartmentRow,
   EmployeeRow,
@@ -80,6 +85,111 @@ export default class AttendanceStatsService {
       }
     }
     return null
+  }
+
+  validateSingleDay(filters: AttendanceStatsFilters): ServiceResult<null> | null {
+    const rangeError = this.validateRange(filters)
+    if (rangeError) return rangeError
+
+    if (filters.startDay !== filters.endDay) {
+      return {
+        status: 400,
+        type: 'error',
+        title: this.t('validation_error'),
+        message: this.t('attendance_stats_coverage_single_day_required'),
+        key: 'dia-unico-requerido',
+        data: null,
+      }
+    }
+    return null
+  }
+
+  async getCoverage(
+    filters: CoverageFilters,
+    scope: ResolvedScope
+  ): Promise<ServiceResult<CoverageResponse>> {
+    if (scope.allowedBusinessUnitIds.length === 0) {
+      return this.forbidden()
+    }
+
+    const singleDayError = this.validateSingleDay(filters)
+    if (singleDayError) {
+      return {
+        status: singleDayError.status,
+        type: singleDayError.type,
+        title: singleDayError.title,
+        message: singleDayError.message,
+        key: singleDayError.key,
+        data: null,
+      }
+    }
+
+    try {
+      await findEmpresaContratanteInTenantOrFail(filters.companyId, 'empresa-contratante-no-encontrada')
+    } catch (error) {
+      if (error instanceof EmpresaContratanteError) {
+        return {
+          status: error.httpStatus,
+          type: 'error',
+          title: this.t('validation_error'),
+          message: error.message,
+          key: error.key,
+          data: null,
+        }
+      }
+      throw error
+    }
+
+    const sites = await this.repo.getSitesByCompany(
+      filters.companyId,
+      scope.allowedBusinessUnitIds,
+      filters.branchOfficeIds
+    )
+
+    const calendarFilters: AttendanceStatsFilters = {
+      startDay: filters.startDay,
+      endDay: filters.endDay,
+      departmentIds: filters.departmentIds,
+      employeeIds: filters.employeeIds,
+      businessUnitId: filters.businessUnitId,
+      payrollBusinessUnitId: filters.payrollBusinessUnitId,
+    }
+
+    const [bundles, loans] = await Promise.all([
+      this.repo.getEmployeeCalendars(calendarFilters, scope.allowedBusinessUnitIds),
+      this.repo.getActiveLoansForDay(filters.startDay, scope.allowedBusinessUnitIds),
+    ])
+
+    const companySiteIds = sites.map((s) => s.branchOfficeId)
+    const extraBranchIds = new Set<number>()
+    for (const bundle of bundles) {
+      if (bundle.employee.branchOfficeId) {
+        extraBranchIds.add(bundle.employee.branchOfficeId)
+      }
+    }
+    for (const loan of loans) {
+      extraBranchIds.add(loan.sourceBranchId)
+      extraBranchIds.add(loan.targetBranchId)
+    }
+
+    const quotaBranchIds = [...new Set([...companySiteIds, ...extraBranchIds])]
+    const quotas = await this.repo.getShiftQuotasByBranchIds(quotaBranchIds)
+
+    const data = buildCoverageResponse({
+      day: filters.startDay,
+      sites,
+      quotas,
+      loans,
+      bundles,
+    })
+
+    return {
+      status: 200,
+      type: 'success',
+      title: this.t('resources'),
+      message: this.t('resources_were_found_successfully'),
+      data,
+    }
   }
 
   async getOverview(

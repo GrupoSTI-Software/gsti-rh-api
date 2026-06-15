@@ -1,6 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
+import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
 import type { AttendanceStatsFilters, ResolvedScope } from './dto/attendance-stats.dto.js'
 
 /**
@@ -118,6 +119,86 @@ export default class AttendanceStatsController {
    */
   async byEmployee(ctx: HttpContext) {
     return this.handle(ctx, 'byEmployee')
+  }
+
+  /**
+   * @swagger
+   * /api/v1/attendance-stats/coverage:
+   *   get:
+   *     summary: Cobertura de plantilla por sitio y turno
+   *     description: |
+   *       Compara presentes contra cuota (requerida/mínimo) por sitio de servicio y turno del día.
+   *       Requiere día único (`startDay` = `endDay`) y `companyId` (empresa contratante).
+   *     security: [{ bearerAuth: [] }]
+   *     tags: [AttendanceStats]
+   *     parameters:
+   *       - { name: startDay, in: query, required: true, schema: { type: string, example: "2026-06-15" } }
+   *       - { name: endDay, in: query, required: true, schema: { type: string, example: "2026-06-15" } }
+   *       - { name: companyId, in: query, required: true, schema: { type: integer } }
+   *       - { name: branchOfficeIds, in: query, schema: { type: string, example: "5,7" } }
+   *       - { name: employeeIds, in: query, schema: { type: string } }
+   *       - { name: businessUnitId, in: query, schema: { type: integer } }
+   *     responses:
+   *       200: { description: OK }
+   *       400: { description: Validation error }
+   *       401: { description: Unauthenticated }
+   *       403: { description: Scope insuficiente }
+   *       404: { description: Empresa contratante no encontrada }
+   *       500: { description: Server error }
+   */
+  async coverage(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
+    const t = i18n.formatMessage.bind(i18n)
+
+    try {
+      const raw = {
+        startDay: request.input('startDay'),
+        endDay: request.input('endDay'),
+        companyId: this.parseId(request.input('companyId')),
+        departmentIds: this.parseIdList(request.input('departmentIds')),
+        employeeIds: this.parseIdList(request.input('employeeIds')),
+        businessUnitId: this.parseId(request.input('businessUnitId')),
+        payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
+        branchOfficeIds: this.parseIdList(
+          request.input('branchOfficeIds') ?? request.input('branchNameIds')
+        ),
+      }
+
+      let validated
+      try {
+        validated = await getAttendanceCoverageValidator.validate(raw)
+      } catch (e: unknown) {
+        const messages = (e as { messages?: unknown })?.messages
+        return response.status(400).json({
+          type: 'error',
+          title: t('validation_error'),
+          message: t('attendance_stats_invalid_input'),
+          key: 'entrada-invalida',
+          details: messages,
+        })
+      }
+
+      const filters = validated
+      const service = new AttendanceStatsService(i18n)
+      const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
+      const result = await service.getCoverage(filters, scope)
+
+      return response.status(result.status).json({
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        key: result.key,
+        data: result.data,
+      })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      return response.status(500).json({
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: message,
+      })
+    }
   }
 
   /**

@@ -1398,6 +1398,89 @@ components:
                   items:
                     $ref: '#/components/schemas/DocumentoContratoEspecializado'
 
+    AttendanceCoverageCandidate:
+      type: object
+      required: [employeeId, name, source, originLeftBelowMin]
+      properties:
+        employeeId:
+          type: integer
+        name:
+          type: string
+        source:
+          type: string
+          enum: [rest_same_site, loan_other_site]
+        originLeftBelowMin:
+          type: boolean
+        originBranchOfficeId:
+          type: integer
+          nullable: true
+
+    AttendanceCoverageShift:
+      type: object
+      required: [shiftId, label, required, min, assigned, present, missing, status, candidates]
+      properties:
+        shiftId:
+          type: integer
+        label:
+          type: string
+        required:
+          type: integer
+        min:
+          type: integer
+        assigned:
+          type: integer
+        present:
+          type: integer
+        missing:
+          type: integer
+        status:
+          type: string
+          enum: [green, amber, red, no_quota]
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageCandidate'
+
+    AttendanceCoverageSite:
+      type: object
+      required: [branchOfficeId, name, shifts]
+      properties:
+        branchOfficeId:
+          type: integer
+        name:
+          type: string
+        shifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageShift'
+
+    AttendanceCoverageData:
+      type: object
+      required: [day, sites]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Día consultado (yyyy-MM-dd, huso México).
+        sites:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageSite'
+
+    AttendanceCoverageSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AttendanceCoverageData'
+
 paths:
   /api/empresas-contratantes:
     get:
@@ -2860,4 +2943,179 @@ paths:
                 detail: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
                 key: cuota-invalida
                 errorCode: BRCH.SQ.VAL.QUOTA.001
+                data: null
+
+  /api/v1/attendance-stats/coverage:
+    get:
+      summary: Cobertura de plantilla por sitio y turno
+      description: |
+        Compara presentes contra cuota (requerida/mínimo) por sitio de servicio REPSE y turno del día.
+        Requiere un único día (`startDay` = `endDay`) y `companyId` (empresa contratante).
+        Incluye candidatos de cobertura para turnos en semáforo amarillo o rojo.
+      tags: [AttendanceStats]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: startDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-06-15"
+        - name: endDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-06-15"
+        - name: companyId
+          in: query
+          required: true
+          description: ID de empresa contratante (empresaContratanteId).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: CSV de IDs de sitios a incluir (subset de la empresa contratante).
+          schema:
+            type: string
+            example: "5,7"
+        - name: employeeIds
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "10,11"
+        - name: businessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: payrollBusinessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cobertura calculada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceCoverageSuccess'
+              example:
+                type: success
+                title: Resources
+                message: Resources were found successfully
+                data:
+                  day: "2026-06-15"
+                  sites:
+                    - branchOfficeId: 5
+                      name: Planta Monterrey
+                      shifts:
+                        - shiftId: 3
+                          label: Nocturno
+                          required: 10
+                          min: 8
+                          assigned: 9
+                          present: 7
+                          missing: 3
+                          status: red
+                          candidates:
+                            - employeeId: 42
+                              name: Juan Pérez
+                              source: rest_same_site
+                              originLeftBelowMin: false
+                              originBranchOfficeId: 5
+                            - employeeId: 88
+                              name: Ana López
+                              source: loan_other_site
+                              originLeftBelowMin: true
+                              originBranchOfficeId: 12
+        '400':
+          description: Entrada inválida, rango inválido o día único requerido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                entradaInvalida:
+                  summary: key entrada-invalida
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid request parameters
+                    key: entrada-invalida
+                    data: null
+                rangoInvalido:
+                  summary: key rango-invalido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid date range
+                    key: rango-invalido
+                    data: null
+                diaUnicoRequerido:
+                  summary: key dia-unico-requerido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Coverage requires a single day
+                    key: dia-unico-requerido
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '403':
+          description: Scope insuficiente (key scope-insuficiente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Forbidden
+                message: User has no business units assigned
+                key: scope-insuficiente
+                data: null
+        '404':
+          description: Empresa contratante no encontrada (key empresa-contratante-no-encontrada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Validation error
+                message: La empresa contratante no existe o no pertenece al tenant actual.
+                key: empresa-contratante-no-encontrada
+                data: null
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Server error
+                message: An unexpected error has occurred on the server
                 data: null

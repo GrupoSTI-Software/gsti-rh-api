@@ -735,6 +735,7 @@
   "attendance_stats_dates_required": "startDay and endDay are required",
   "attendance_stats_invalid_range": "Invalid date range: startDay must be before or equal to endDay",
   "attendance_stats_invalid_input": "Invalid request parameters",
+  "attendance_stats_coverage_single_day_required": "Coverage requires a single day: startDay must equal endDay",
   "attendance_stats_scope_required": "User has no business units assigned to query attendance statistics",
   "forbidden": "Forbidden",
   "unauthenticated": "Unauthenticated",

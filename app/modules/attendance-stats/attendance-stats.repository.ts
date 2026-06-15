@@ -1,5 +1,8 @@
 import type {
   AttendanceStatsFilters,
+  CoverageActiveLoanRow,
+  CoverageShiftQuotaRow,
+  CoverageSiteRef,
   EmployeeCalendarBundle,
 } from './dto/attendance-stats.dto.js'
 
@@ -18,4 +21,17 @@ export interface AttendanceStatsRepository {
     effectiveFilters: AttendanceStatsFilters,
     allowedBusinessUnitIds: number[]
   ): Promise<EmployeeCalendarBundle[]>
+
+  /** Sitios de servicio REPSE ligados a una empresa contratante en scope. */
+  getSitesByCompany(
+    companyId: number,
+    allowedBusinessUnitIds: number[],
+    branchOfficeIds?: number[]
+  ): Promise<CoverageSiteRef[]>
+
+  /** Cuotas bulk por sucursales (solo turnos no temporales). */
+  getShiftQuotasByBranchIds(branchOfficeIds: number[]): Promise<CoverageShiftQuotaRow[]>
+
+  /** Préstamos temporales vigentes en una fecha ISO yyyy-MM-dd. */
+  getActiveLoansForDay(day: string, allowedBusinessUnitIds: number[]): Promise<CoverageActiveLoanRow[]>
 }
