@@ -1,23 +1,23 @@
 ---
 kg_version: "1.0.0"
-kg_built_at: "2026-06-11T16:02:32+00:00"
-kg_head_sha: "780e870ec8584dbf10a52e65d0f1e6945027f5fc"
+kg_built_at: "2026-06-15T05:59:04+00:00"
+kg_head_sha: "5a79d3bafbff56775d6a29725895cde8b460bf2a"
 kg_branch: "multitenant"
 repo_key: "valanserh-api"
 stack: "adonis"
 producto: "valanserh"
 prefijo_asana: "USRH"
-default_branch: "develop"
+default_branch: "multitenant"
 counts:
-  entidades_db: 164
-  endpoints: 781
-  controllers: 151
-  services: 155
-  validators: 112
+  entidades_db: 166
+  endpoints: 786
+  controllers: 154
+  services: 158
+  validators: 114
   middlewares: 7
-  seeders: 31
-  tablas_migradas: 179
-  i18n_keys: 2393
+  seeders: 33
+  tablas_migradas: 182
+  i18n_keys: 2527
 ---
 
 # Knowledge Graph — valanserh-api
@@ -28,13 +28,13 @@ counts:
 
 - **PK pattern**: entity-prefixed (<entity>Id)
 - **Column naming**: entity-prefixed (camelCase TS / snake_case DB)
-- **Soft delete coverage**: 90% de los modelos usan SoftDeletes
+- **Soft delete coverage**: 89% de los modelos usan SoftDeletes
 - **Estructura**: plana por capa (app/controllers/, app/services/, app/models/, app/validators/, app/middleware/, app/dtos/, app/interfaces/, app/exceptions/, app/helpers/)
 - **Routes por dominio**: cada entidad tiene su start/routes/<entity>_routes.ts importado en start/routes.ts
 - **i18n del backend**: resources/langs/{es,en}.json
 - **Stack**: AdonisJS 6, Lucid ORM (MySQL), soft deletes via adonis-lucid-soft-deletes
 
-## Entidades de BD (164)
+## Entidades de BD (166)
 
 ### `AccessPoint`
 
@@ -288,6 +288,18 @@ counts:
   - `branchOfficeLocationAddress`: string | null
   - `branchOfficeIdealTemplateCount`: number | null
   - `branchOfficeMinActiveEmployeesPerShift`: number | null
+  - `empresaContratanteId`: number | null
+
+### `BranchOfficeShiftQuota`
+
+- **Archivo**: `app/models/branch_office_shift_quota.ts`
+- **PK**: `branchOfficeShiftQuotaId`
+- **Columnas**:
+  - `branchOfficeShiftQuotaId`: number (PK)
+  - `branchOfficeId`: number
+  - `shiftId`: number
+  - `branchOfficeShiftQuotaRequired`: number
+  - `branchOfficeShiftQuotaMinimum`: number
 
 ### `BusinessUnit`
 
@@ -1172,18 +1184,6 @@ counts:
   - `insuranceCoverageTypeSlug`: string
   - `insuranceCoverageTypeActive`: number
 
-### `LaborLawHour`
-
-- **Archivo**: `app/models/labor_law_hour.ts`
-- **PK**: `laborLawHoursId`
-- **Soft delete**: sí
-- **Columnas**:
-  - `laborLawHoursId`: number (PK)
-  - `laborLawHoursHoursPerWeek`: number
-  - `laborLawHoursActive`: number
-  - `laborLawHoursApplySince`: string | Date
-  - `laborLawHoursDescription`: string | null
-
 ### `MaintenanceExpense`
 
 - **Archivo**: `app/models/maintenance_expense.ts`
@@ -1971,6 +1971,32 @@ counts:
 - **Columnas**:
   - `systemSettingId`: number
 
+### `TraumaticEventReport`
+
+- **Archivo**: `app/models/traumatic_event_report.ts`
+- **PK**: `traumaticEventReportId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `traumaticEventReportId`: number (PK)
+  - `employeeId`: number
+  - `traumaticEventTypeId`: number
+  - `traumaticEventReportInvolvedPeople`: string
+  - `traumaticEventReportDescription`: string
+  - `traumaticEventReportOrigin`: TraumaticEventReportOrigin
+  - `traumaticEventReportCapturedByUserId`: number
+
+### `TraumaticEventType`
+
+- **Archivo**: `app/models/traumatic_event_type.ts`
+- **PK**: `traumaticEventTypeId`
+- **Soft delete**: sí
+- **Columnas**:
+  - `traumaticEventTypeId`: number (PK)
+  - `traumaticEventTypeName`: string
+  - `traumaticEventTypeDescription`: string
+  - `traumaticEventTypeSlug`: string
+  - `traumaticEventTypeActive`: number
+
 ### `User`
 
 - **Archivo**: `app/models/user.ts`
@@ -1983,7 +2009,6 @@ counts:
   - `userToken`: string
   - `userActive`: number
   - `pinCode`: string
-  - `userPinCodeExpiresAt`: DateTime | null
   - `roleId`: number
   - `personId`: number
   - `userEmailType`: string
@@ -2163,7 +2188,7 @@ counts:
   - `zoneAddress`: string
   - `zonePolygon`: string
 
-## Endpoints REST (781)
+## Endpoints REST (786)
 
 ### `/api/access-points` (middleware: auth)
 
@@ -2295,6 +2320,9 @@ counts:
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
+| POST | `/api/auth/magic-link/request` | `#controllers/magic_link_controller.request` | `start/routes/auth_magic_link_routes.ts` |
+| POST | `/api/auth/magic-link/verify` | `#controllers/magic_link_controller.verify` | `start/routes/auth_magic_link_routes.ts` |
+| POST | `/api/auth/recovery/code-verify` | `#controllers/user_controller.verifyRecoveryCode` | `start/routes/auth_recovery_routes.ts` |
 | POST | `/api/auth/signup/start` | `#controllers/auth_signup_controller.start` | `start/routes/auth_signup_routes.ts` |
 | POST | `/api/auth/signup/verify-otp` | `#controllers/auth_signup_controller.verifyOtp` | `start/routes/auth_signup_routes.ts` |
 | POST | `/api/auth/signup/complete` | `#controllers/auth_signup_controller.completeSignup` | `start/routes/auth_signup_routes.ts` |
@@ -2322,6 +2350,8 @@ counts:
 
 | Método | Path | Handler | Archivo |
 |---|---|---|---|
+| GET | `/api/branch-offices/:branchOfficeId/shift-quotas` | `#controllers/branch_office_shift_quotas_controller.index` | `start/routes/branch_office_shift_quota_routes.ts` |
+| PUT | `/api/branch-offices/:branchOfficeId/shift-quotas` | `#controllers/branch_office_shift_quotas_controller.replace` | `start/routes/branch_office_shift_quota_routes.ts` |
 | POST | `/api/branch-offices` | `#controllers/branch_offices_controller.store` | `start/routes/branch_offices.ts` |
 | GET | `/api/branch-offices` | `#controllers/branch_offices_controller.index` | `start/routes/branch_offices.ts` |
 | GET | `/api/branch-offices/:id` | `#controllers/branch_offices_controller.show` | `start/routes/branch_offices.ts` |
@@ -2952,17 +2982,6 @@ counts:
 |---|---|---|---|
 | GET | `/api/insurance-coverage-types` | `#controllers/insurance_coverage_type_controller.index` | `start/routes/insurance_coverage_type_routes.ts` |
 
-### `/api/labor-law-hours` (middleware: auth, auth, auth, auth, auth, auth)
-
-| Método | Path | Handler | Archivo |
-|---|---|---|---|
-| GET | `/api/labor-law-hours` | `#controllers/labor_law_hours_controller.index` | `start/routes/labor_law_hours_routes.ts` |
-| GET | `/api/labor-law-hours/active` | `#controllers/labor_law_hours_controller.getActive` | `start/routes/labor_law_hours_routes.ts` |
-| POST | `/api/labor-law-hours` | `#controllers/labor_law_hours_controller.store` | `start/routes/labor_law_hours_routes.ts` |
-| PUT | `/api/labor-law-hours/:laborLawHoursId` | `#controllers/labor_law_hours_controller.update` | `start/routes/labor_law_hours_routes.ts` |
-| DELETE | `/api/labor-law-hours/:laborLawHoursId` | `#controllers/labor_law_hours_controller.delete` | `start/routes/labor_law_hours_routes.ts` |
-| GET | `/api/labor-law-hours/:laborLawHoursId` | `#controllers/labor_law_hours_controller.show` | `start/routes/labor_law_hours_routes.ts` |
-
 ### `/api/logs` (middleware: auth)
 
 | Método | Path | Handler | Archivo |
@@ -3510,6 +3529,22 @@ counts:
 | DELETE | `/api/tolerances/:id` | `#controllers/tolerances_controller.destroy` | `start/routes/tolerance_routes.ts` |
 | GET | `/api/tolerances/:id` | `#controllers/tolerances_controller.show` | `start/routes/tolerance_routes.ts` |
 
+### `/api/traumatic-event-reports` (middleware: auth, businessScope)
+
+| Método | Path | Handler | Archivo |
+|---|---|---|---|
+| GET | `/api/traumatic-event-reports` | `#controllers/traumatic_event_report_controller.index` | `start/routes/traumatic_event_report_routes.ts` |
+| POST | `/api/traumatic-event-reports` | `#controllers/traumatic_event_report_controller.store` | `start/routes/traumatic_event_report_routes.ts` |
+| GET | `/api/traumatic-event-reports/:id` | `#controllers/traumatic_event_report_controller.show` | `start/routes/traumatic_event_report_routes.ts` |
+| PUT | `/api/traumatic-event-reports/:id` | `#controllers/traumatic_event_report_controller.update` | `start/routes/traumatic_event_report_routes.ts` |
+| DELETE | `/api/traumatic-event-reports/:id` | `#controllers/traumatic_event_report_controller.destroy` | `start/routes/traumatic_event_report_routes.ts` |
+
+### `/api/traumatic-event-types` (middleware: auth)
+
+| Método | Path | Handler | Archivo |
+|---|---|---|---|
+| GET | `/api/traumatic-event-types` | `#controllers/traumatic_event_type_controller.index` | `start/routes/traumatic_event_type_routes.ts` |
+
 ### `/api/user-fcm-tokens` (middleware: auth)
 
 | Método | Path | Handler | Archivo |
@@ -3651,7 +3686,7 @@ counts:
 | DELETE | `/api/zones/:zoneId` | `#controllers/zone_controller.delete` | `start/routes/zone_routes.ts` |
 | PUT | `/api/zones/:zoneId/thumbnail` | `#controllers/zone_controller.uploadThumbnail` | `start/routes/zone_routes.ts` |
 
-## Controllers (151)
+## Controllers (154)
 
 - `app/controllers/access_point_controller.ts`
 - `app/controllers/address_controller.ts`
@@ -3670,6 +3705,7 @@ counts:
 - `app/controllers/assists_controller.ts`
 - `app/controllers/auth_signup_controller.ts`
 - `app/controllers/bank_controller.ts`
+- `app/controllers/branch_office_shift_quotas_controller.ts`
 - `app/controllers/branch_offices_controller.ts`
 - `app/controllers/business_unit_competency_level_controller.ts`
 - `app/controllers/business_unit_controller.ts`
@@ -3738,7 +3774,7 @@ counts:
 - `app/controllers/holidays_controller.ts`
 - `app/controllers/icons_controller.ts`
 - `app/controllers/insurance_coverage_type_controller.ts`
-- `app/controllers/labor_law_hours_controller.ts`
+- `app/controllers/magic_link_controller.ts`
 - `app/controllers/maintenance_expense_category_controller.ts`
 - `app/controllers/maintenance_expense_controller.ts`
 - `app/controllers/maintenance_type_controller.ts`
@@ -3791,6 +3827,8 @@ counts:
 - `app/controllers/system_settings_employees_controller.ts`
 - `app/controllers/system_settings_notification_emails_controller.ts`
 - `app/controllers/tolerances_controller.ts`
+- `app/controllers/traumatic_event_report_controller.ts`
+- `app/controllers/traumatic_event_type_controller.ts`
 - `app/controllers/user_controller.ts`
 - `app/controllers/user_fcm_token_controller.ts`
 - `app/controllers/user_responsible_employee_controller.ts`
@@ -3805,7 +3843,7 @@ counts:
 - `app/controllers/work_disability_type_controller.ts`
 - `app/controllers/zone_controller.ts`
 
-## Services (155)
+## Services (158)
 
 - `app/services/access_point_service.ts`
 - `app/services/address_service.ts`
@@ -3825,6 +3863,7 @@ counts:
 - `app/services/auth_token_service.ts`
 - `app/services/bank_service.ts`
 - `app/services/branch_office_service.ts`
+- `app/services/branch_office_shift_quota_service.ts`
 - `app/services/business_access_scope_service.ts`
 - `app/services/business_unit_competency_level_service.ts`
 - `app/services/business_unit_service.ts`
@@ -3891,7 +3930,7 @@ counts:
 - `app/services/flight_attendant_service.ts`
 - `app/services/holiday_service.ts`
 - `app/services/insurance_coverage_type_service.ts`
-- `app/services/labor_law_hours_service.ts`
+- `app/services/magic_link_service.ts`
 - `app/services/maintenance_expense_category_service.ts`
 - `app/services/maintenance_expense_service.ts`
 - `app/services/maintenance_type_service.ts`
@@ -3946,6 +3985,8 @@ counts:
 - `app/services/system_setting_trade_name_service.ts`
 - `app/services/system_settings_employee_service.ts`
 - `app/services/tolerance_service.ts`
+- `app/services/traumatic_event_report_service.ts`
+- `app/services/traumatic_event_type_service.ts`
 - `app/services/upload_file_service.ts`
 - `app/services/upload_service.ts`
 - `app/services/user_fcm_token_service.ts`
@@ -3963,7 +4004,7 @@ counts:
 - `app/services/ws.ts`
 - `app/services/zone_service.ts`
 
-## Validators (112)
+## Validators (114)
 
 - `app/validators/access_point.ts`
 - `app/validators/address.ts`
@@ -3977,6 +4018,7 @@ counts:
 - `app/validators/assessment_template.ts`
 - `app/validators/assessment_template_dimension.ts`
 - `app/validators/branch_office.ts`
+- `app/validators/branch_office_shift_quota.ts`
 - `app/validators/business_unit_competency_level.ts`
 - `app/validators/career_path_candidate.ts`
 - `app/validators/career_path_template.ts`
@@ -4066,6 +4108,7 @@ counts:
 - `app/validators/system_setting_proceeding_file.ts`
 - `app/validators/system_setting_system_module.ts`
 - `app/validators/system_setting_trade_name.ts`
+- `app/validators/traumatic_event_report.ts`
 - `app/validators/user.ts`
 - `app/validators/user_fcm_token.ts`
 - `app/validators/user_responsible_employee.ts`
@@ -4088,7 +4131,7 @@ counts:
 - `app/middleware/detect_user_locale_middleware.ts`
 - `app/middleware/force_json_response_middleware.ts`
 
-## Seeders (31)
+## Seeders (33)
 
 - `database/seeders/0001_business_unit_seeder.ts`
 - `database/seeders/0002_bank_seeder.ts`
@@ -4121,8 +4164,10 @@ counts:
 - `database/seeders/0032_system_feature_seeder.ts`
 - `database/seeders/0033_regulation_clause_feature_baseline_seeder.ts`
 - `database/seeders/0034_working_time_overrides_module_seeder.ts`
+- `database/seeders/0035_traumatic_event_type_seeder.ts`
+- `database/seeders/0036_traumatic_event_reports_module_seeder.ts`
 
-## Tablas migradas (179)
+## Tablas migradas (182)
 
 - `access_point_employees`
 - `access_points`
@@ -4144,6 +4189,7 @@ counts:
 - `assists`
 - `attendance_fault_hr_notification_logs`
 - `banks`
+- `branch_office_shift_quotas`
 - `branch_offices`
 - `business_unit_certifications`
 - `business_unit_competency_levels`
@@ -4288,6 +4334,8 @@ counts:
 - `system_settings`
 - `system_settings_employees`
 - `tolerances`
+- `traumatic_event_reports`
+- `traumatic_event_types`
 - `user_fcm_tokens`
 - `user_responsible_employees`
 - `users`
@@ -4306,7 +4354,7 @@ counts:
 
 ## i18n keys (top-level)
 
-### Idioma `en` (1195 claves totales)
+### Idioma `en` (1262 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -4420,6 +4468,35 @@ counts:
 - `empresa_contratante_unexpected_error_message.*` (1 claves)
 - `empresa_contratante_contratos_activos_title.*` (1 claves)
 - `empresa_contratante_contratos_activos_message.*` (1 claves)
+- `empresa_contratante_sitios_ligados_title.*` (1 claves)
+- `empresa_contratante_sitios_ligados_message.*` (1 claves)
+- `empresa_contratante_not_found_branch_detail.*` (1 claves)
+- `branch_office_error_default_title.*` (1 claves)
+- `branch_office_val_input_title.*` (1 claves)
+- `branch_office_not_found_title.*` (1 claves)
+- `branch_office_already_linked_title.*` (1 claves)
+- `branch_office_already_linked_message.*` (1 claves)
+- `branch_office_shift_quota_error_default_title.*` (1 claves)
+- `branch_office_shift_quota_list_success_message.*` (1 claves)
+- `branch_office_shift_quota_replace_success_message.*` (1 claves)
+- `branch_office_shift_quota_val_input_title.*` (1 claves)
+- `branch_office_shift_quota_val_input_message.*` (1 claves)
+- `branch_office_shift_quota_invalid_branch_office_id_message.*` (1 claves)
+- `branch_office_shift_quota_invalid_branch_office_id_detail.*` (1 claves)
+- `branch_office_shift_quota_invalid_branch_office_id_title.*` (1 claves)
+- `branch_office_shift_quota_val_shift_duplicate_title.*` (1 claves)
+- `branch_office_shift_quota_val_shift_duplicate_message.*` (1 claves)
+- `branch_office_shift_quota_val_shift_duplicate_detail.*` (1 claves)
+- `branch_office_shift_quota_branch_not_found_title.*` (1 claves)
+- `branch_office_shift_quota_branch_not_found_message.*` (1 claves)
+- `branch_office_shift_quota_shift_not_found_title.*` (1 claves)
+- `branch_office_shift_quota_shift_not_found_message.*` (1 claves)
+- `branch_office_shift_quota_shift_not_found_detail.*` (1 claves)
+- `branch_office_shift_quota_invalid_title.*` (1 claves)
+- `branch_office_shift_quota_invalid_message.*` (1 claves)
+- `branch_office_shift_quota_invalid_detail.*` (1 claves)
+- `branch_office_shift_quota_unexpected_error_title.*` (1 claves)
+- `branch_office_shift_quota_unexpected_error_message.*` (1 claves)
 - `contratos_servicios_especializados_title.*` (1 claves)
 - `contrato_servicio_especializado_title.*` (1 claves)
 - `contratos_servicios_especializados_listed_successfully.*` (1 claves)
@@ -4916,7 +4993,7 @@ counts:
 - `employee_lactation_compliance_status_active.*` (1 claves)
 - `employee_lactation_compliance_status_expiring.*` (1 claves)
 - `employee_lactation_compliance_status_expired.*` (1 claves)
-- `auth.*` (19 claves)
+- `auth.*` (38 claves)
 - `attendance_stats_dates_required.*` (1 claves)
 - `attendance_stats_invalid_range.*` (1 claves)
 - `attendance_stats_invalid_input.*` (1 claves)
@@ -4938,9 +5015,28 @@ counts:
 - `signup_password_requires_number.*` (1 claves)
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
+- `magic_link_title.*` (1 claves)
+- `magic_link_request_message.*` (1 claves)
+- `magic_link_token_missing_title.*` (1 claves)
+- `magic_link_token_missing_detail.*` (1 claves)
+- `magic_link_invalid_title.*` (1 claves)
+- `magic_link_invalid_detail.*` (1 claves)
+- `magic_link_success_message.*` (1 claves)
+- `password_recovery_title.*` (1 claves)
+- `password_recovery_request_sent.*` (1 claves)
+- `password_recovery_code_missing.*` (1 claves)
+- `password_recovery_code_invalid.*` (1 claves)
+- `password_recovery_code_success.*` (1 claves)
+- `password_recovery_pin_pending.*` (1 claves)
+- `password_recovery_token_invalid.*` (1 claves)
+- `password_recovery_token_valid.*` (1 claves)
+- `password_recovery_reset_success.*` (1 claves)
+- `password_recovery_pin_invalid.*` (1 claves)
+- `password_recovery_pin_expired.*` (1 claves)
+- `password_recovery_pin_success.*` (1 claves)
 - `regulatory.*` (503 claves)
 
-### Idioma `es` (1198 claves totales)
+### Idioma `es` (1265 claves totales)
 
 - `validator.shared.messages.required.*` (1 claves)
 - `validator.shared.messages.string.*` (1 claves)
@@ -5054,6 +5150,35 @@ counts:
 - `empresa_contratante_unexpected_error_message.*` (1 claves)
 - `empresa_contratante_contratos_activos_title.*` (1 claves)
 - `empresa_contratante_contratos_activos_message.*` (1 claves)
+- `empresa_contratante_sitios_ligados_title.*` (1 claves)
+- `empresa_contratante_sitios_ligados_message.*` (1 claves)
+- `empresa_contratante_not_found_branch_detail.*` (1 claves)
+- `branch_office_error_default_title.*` (1 claves)
+- `branch_office_val_input_title.*` (1 claves)
+- `branch_office_not_found_title.*` (1 claves)
+- `branch_office_already_linked_title.*` (1 claves)
+- `branch_office_already_linked_message.*` (1 claves)
+- `branch_office_shift_quota_error_default_title.*` (1 claves)
+- `branch_office_shift_quota_list_success_message.*` (1 claves)
+- `branch_office_shift_quota_replace_success_message.*` (1 claves)
+- `branch_office_shift_quota_val_input_title.*` (1 claves)
+- `branch_office_shift_quota_val_input_message.*` (1 claves)
+- `branch_office_shift_quota_invalid_branch_office_id_message.*` (1 claves)
+- `branch_office_shift_quota_invalid_branch_office_id_detail.*` (1 claves)
+- `branch_office_shift_quota_invalid_branch_office_id_title.*` (1 claves)
+- `branch_office_shift_quota_val_shift_duplicate_title.*` (1 claves)
+- `branch_office_shift_quota_val_shift_duplicate_message.*` (1 claves)
+- `branch_office_shift_quota_val_shift_duplicate_detail.*` (1 claves)
+- `branch_office_shift_quota_branch_not_found_title.*` (1 claves)
+- `branch_office_shift_quota_branch_not_found_message.*` (1 claves)
+- `branch_office_shift_quota_shift_not_found_title.*` (1 claves)
+- `branch_office_shift_quota_shift_not_found_message.*` (1 claves)
+- `branch_office_shift_quota_shift_not_found_detail.*` (1 claves)
+- `branch_office_shift_quota_invalid_title.*` (1 claves)
+- `branch_office_shift_quota_invalid_message.*` (1 claves)
+- `branch_office_shift_quota_invalid_detail.*` (1 claves)
+- `branch_office_shift_quota_unexpected_error_title.*` (1 claves)
+- `branch_office_shift_quota_unexpected_error_message.*` (1 claves)
 - `contratos_servicios_especializados_title.*` (1 claves)
 - `contrato_servicio_especializado_title.*` (1 claves)
 - `contratos_servicios_especializados_listed_successfully.*` (1 claves)
@@ -5553,7 +5678,7 @@ counts:
 - `employee_lactation_compliance_status_active.*` (1 claves)
 - `employee_lactation_compliance_status_expiring.*` (1 claves)
 - `employee_lactation_compliance_status_expired.*` (1 claves)
-- `auth.*` (19 claves)
+- `auth.*` (38 claves)
 - `attendance_stats_dates_required.*` (1 claves)
 - `attendance_stats_invalid_range.*` (1 claves)
 - `attendance_stats_invalid_input.*` (1 claves)
@@ -5575,4 +5700,23 @@ counts:
 - `signup_password_requires_number.*` (1 claves)
 - `signup_password_requires_symbol.*` (1 claves)
 - `signup_passwords_do_not_match.*` (1 claves)
+- `magic_link_title.*` (1 claves)
+- `magic_link_request_message.*` (1 claves)
+- `magic_link_token_missing_title.*` (1 claves)
+- `magic_link_token_missing_detail.*` (1 claves)
+- `magic_link_invalid_title.*` (1 claves)
+- `magic_link_invalid_detail.*` (1 claves)
+- `magic_link_success_message.*` (1 claves)
+- `password_recovery_title.*` (1 claves)
+- `password_recovery_request_sent.*` (1 claves)
+- `password_recovery_code_missing.*` (1 claves)
+- `password_recovery_code_invalid.*` (1 claves)
+- `password_recovery_code_success.*` (1 claves)
+- `password_recovery_pin_pending.*` (1 claves)
+- `password_recovery_token_invalid.*` (1 claves)
+- `password_recovery_token_valid.*` (1 claves)
+- `password_recovery_reset_success.*` (1 claves)
+- `password_recovery_pin_invalid.*` (1 claves)
+- `password_recovery_pin_expired.*` (1 claves)
+- `password_recovery_pin_success.*` (1 claves)
 - `regulatory.*` (503 claves)
