@@ -180,6 +180,8 @@ export interface CoverageCandidate {
   originLeftBelowMin: boolean
   /** Sitio de origen del candidato (préstamo o descanso en sitio). */
   originBranchOfficeId?: number | null
+  /** Nombre del sitio de origen (evita catálogo extra en el BO). */
+  originBranchOfficeName?: string | null
 }
 
 export interface CoverageShift {

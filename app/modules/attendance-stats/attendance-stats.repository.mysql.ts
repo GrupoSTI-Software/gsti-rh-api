@@ -859,6 +859,24 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       targetBranchId: Number(r.target_branch_id),
     }))
   }
+
+  async getBranchOfficeNamesByIds(branchOfficeIds: number[]): Promise<Map<number, string>> {
+    const uniqueIds = [...new Set(branchOfficeIds.filter((id) => id > 0))]
+    if (uniqueIds.length === 0) return new Map()
+
+    const rows = await db
+      .from('branch_offices AS bo')
+      .whereIn('bo.branch_office_id', uniqueIds)
+      .whereNull('bo.branch_office_deleted_at')
+      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+
+    const names = new Map<number, string>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of rows as any[]) {
+      names.set(Number(r.branch_office_id), String(r.branch_office_name ?? ''))
+    }
+    return names
+  }
 }
 
 /**

@@ -14,8 +14,11 @@ import type {
   CleanCounters,
   CoverageFilters,
   CoverageResponse,
+  CoverageActiveLoanRow,
+  CoverageSiteRef,
   DailyStatsRow,
   DepartmentRow,
+  EmployeeCalendarBundle,
   EmployeeRow,
   InformationalCounters,
   OverviewResponse,
@@ -104,6 +107,39 @@ export default class AttendanceStatsService {
     return null
   }
 
+  /** Mapa id → nombre de sucursal para enriquecer candidatos de cobertura. */
+  private async resolveBranchOfficeNamesById(
+    sites: CoverageSiteRef[],
+    bundles: EmployeeCalendarBundle[],
+    loans: CoverageActiveLoanRow[]
+  ): Promise<Map<number, string>> {
+    const namesById = new Map<number, string>()
+    for (const site of sites) {
+      namesById.set(site.branchOfficeId, site.branchOfficeName)
+    }
+
+    const missingIds = new Set<number>()
+    for (const bundle of bundles) {
+      const branchOfficeId = bundle.employee.branchOfficeId
+      if (branchOfficeId !== null && branchOfficeId !== undefined && !namesById.has(branchOfficeId)) {
+        missingIds.add(branchOfficeId)
+      }
+    }
+    for (const loan of loans) {
+      if (!namesById.has(loan.sourceBranchId)) missingIds.add(loan.sourceBranchId)
+      if (!namesById.has(loan.targetBranchId)) missingIds.add(loan.targetBranchId)
+    }
+
+    if (missingIds.size > 0) {
+      const resolved = await this.repo.getBranchOfficeNamesByIds([...missingIds])
+      for (const [id, name] of resolved) {
+        namesById.set(id, name)
+      }
+    }
+
+    return namesById
+  }
+
   async getCoverage(
     filters: CoverageFilters,
     scope: ResolvedScope
@@ -174,6 +210,7 @@ export default class AttendanceStatsService {
 
     const quotaBranchIds = [...new Set([...companySiteIds, ...extraBranchIds])]
     const quotas = await this.repo.getShiftQuotasByBranchIds(quotaBranchIds)
+    const branchOfficeNamesById = await this.resolveBranchOfficeNamesById(sites, bundles, loans)
 
     const data = buildCoverageResponse({
       day: filters.startDay,
@@ -181,6 +218,7 @@ export default class AttendanceStatsService {
       quotas,
       loans,
       bundles,
+      branchOfficeNamesById,
     })
 
     return {

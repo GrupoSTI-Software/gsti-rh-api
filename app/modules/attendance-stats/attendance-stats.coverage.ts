@@ -74,12 +74,23 @@ function compareCandidates(a: CoverageCandidate, b: CoverageCandidate): number {
   return a.name.localeCompare(b.name, 'es')
 }
 
+function resolveOriginBranchOfficeName(
+  branchOfficeId: number | null,
+  branchOfficeNamesById: Map<number, string>
+): string | null {
+  if (branchOfficeId === null) return null
+  const name = branchOfficeNamesById.get(branchOfficeId)
+  if (name === undefined || name.trim().length === 0) return null
+  return name
+}
+
 export interface BuildCoverageInput {
   day: string
   sites: CoverageSiteRef[]
   quotas: CoverageShiftQuotaRow[]
   loans: CoverageActiveLoanRow[]
   bundles: EmployeeCalendarBundle[]
+  branchOfficeNamesById: Map<number, string>
 }
 
 type EmployeeDayContext = {
@@ -95,7 +106,7 @@ type EmployeeDayContext = {
  * Agrega métricas de cobertura y candidatos por sitio → turno para un día.
  */
 export function buildCoverageResponse(input: BuildCoverageInput): CoverageResponse {
-  const { day, sites, quotas, loans, bundles } = input
+  const { day, sites, quotas, loans, bundles, branchOfficeNamesById } = input
 
   const companySiteIds = new Set(sites.map((s) => s.branchOfficeId))
   const loansByEmployee = new Map<number, CoverageActiveLoanRow>()
@@ -198,6 +209,7 @@ export function buildCoverageResponse(input: BuildCoverageInput): CoverageRespon
                 employeeContexts,
                 presentCounts,
                 quotaByKey,
+                branchOfficeNamesById,
               })
             : []
 
@@ -230,8 +242,16 @@ function buildCandidates(params: {
   employeeContexts: EmployeeDayContext[]
   presentCounts: Map<SiteShiftKey, number>
   quotaByKey: Map<SiteShiftKey, CoverageShiftQuotaRow>
+  branchOfficeNamesById: Map<number, string>
 }): CoverageCandidate[] {
-  const { targetSiteId, targetShiftId, employeeContexts, presentCounts, quotaByKey } = params
+  const {
+    targetSiteId,
+    targetShiftId,
+    employeeContexts,
+    presentCounts,
+    quotaByKey,
+    branchOfficeNamesById,
+  } = params
 
   const candidates: CoverageCandidate[] = []
   const added = new Set<number>()
@@ -253,6 +273,10 @@ function buildCandidates(params: {
         source: 'rest_same_site',
         originLeftBelowMin: false,
         originBranchOfficeId: ctx.effectiveBranchId,
+        originBranchOfficeName: resolveOriginBranchOfficeName(
+          ctx.effectiveBranchId,
+          branchOfficeNamesById
+        ),
       })
       added.add(ctx.employee.employeeId)
       continue
@@ -279,6 +303,10 @@ function buildCandidates(params: {
         source: 'loan_other_site',
         originLeftBelowMin,
         originBranchOfficeId: ctx.effectiveBranchId,
+        originBranchOfficeName: resolveOriginBranchOfficeName(
+          ctx.effectiveBranchId,
+          branchOfficeNamesById
+        ),
       })
       added.add(ctx.employee.employeeId)
     }

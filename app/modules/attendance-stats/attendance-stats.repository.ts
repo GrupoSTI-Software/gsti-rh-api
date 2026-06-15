@@ -34,4 +34,7 @@ export interface AttendanceStatsRepository {
 
   /** Préstamos temporales vigentes en una fecha ISO yyyy-MM-dd. */
   getActiveLoansForDay(day: string, allowedBusinessUnitIds: number[]): Promise<CoverageActiveLoanRow[]>
+
+  /** Nombres de sucursales por id (lectura bulk para candidatos de cobertura). */
+  getBranchOfficeNamesByIds(branchOfficeIds: number[]): Promise<Map<number, string>>
 }

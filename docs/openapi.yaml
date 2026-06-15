@@ -1414,6 +1414,10 @@ components:
         originBranchOfficeId:
           type: integer
           nullable: true
+        originBranchOfficeName:
+          type: string
+          nullable: true
+          description: Nombre del sitio de origen (sitio efectivo del candidato).
 
     AttendanceCoverageShift:
       type: object
@@ -3030,11 +3034,13 @@ paths:
                               source: rest_same_site
                               originLeftBelowMin: false
                               originBranchOfficeId: 5
+                              originBranchOfficeName: Planta Monterrey
                             - employeeId: 88
                               name: Ana López
                               source: loan_other_site
                               originLeftBelowMin: true
                               originBranchOfficeId: 12
+                              originBranchOfficeName: CEDIS Guadalajara
         '400':
           description: Entrada inválida, rango inválido o día único requerido
           content:

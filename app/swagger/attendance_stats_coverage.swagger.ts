@@ -32,6 +32,11 @@ export {}
  *           type: integer
  *           nullable: true
  *           example: 1
+ *         originBranchOfficeName:
+ *           type: string
+ *           nullable: true
+ *           description: Nombre del sitio de origen (sitio efectivo del candidato).
+ *           example: Planta Monterrey
  *
  *     AttendanceCoverageShift:
  *       type: object
