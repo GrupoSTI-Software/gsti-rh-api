@@ -127,24 +127,75 @@ export default class AttendanceStatsController {
    *   get:
    *     summary: Cobertura de plantilla por sitio y turno
    *     description: |
-   *       Compara presentes contra cuota (requerida/mínimo) por sitio de servicio y turno del día.
-   *       Requiere día único (`startDay` = `endDay`) y `companyId` (empresa contratante).
-   *     security: [{ bearerAuth: [] }]
+   *       Compara presentes contra cuota por sitio de servicio y turno del día.
+   *       Requiere día único (startDay igual a endDay) y companyId.
+   *     security:
+   *       - bearerAuth: []
    *     tags: [AttendanceStats]
    *     parameters:
-   *       - { name: startDay, in: query, required: true, schema: { type: string, example: "2026-06-15" } }
-   *       - { name: endDay, in: query, required: true, schema: { type: string, example: "2026-06-15" } }
-   *       - { name: companyId, in: query, required: true, schema: { type: integer } }
-   *       - { name: branchOfficeIds, in: query, schema: { type: string, example: "5,7" } }
-   *       - { name: employeeIds, in: query, schema: { type: string } }
-   *       - { name: businessUnitId, in: query, schema: { type: integer } }
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         schema: { type: integer, example: 1 }
+   *       - name: startDay
+   *         in: query
+   *         required: true
+   *         schema: { type: string, format: date, example: "2026-06-14" }
+   *       - name: endDay
+   *         in: query
+   *         required: true
+   *         schema: { type: string, format: date, example: "2026-06-14" }
+   *       - name: companyId
+   *         in: query
+   *         required: true
+   *         description: ID de empresa contratante.
+   *         schema: { type: integer, minimum: 1, example: 1 }
+   *       - name: branchOfficeIds
+   *         in: query
+   *         schema: { type: string, example: "1,2" }
+   *       - name: employeeIds
+   *         in: query
+   *         schema: { type: string, example: "1,2" }
+   *       - name: businessUnitId
+   *         in: query
+   *         schema: { type: integer }
    *     responses:
-   *       200: { description: OK }
-   *       400: { description: Validation error }
-   *       401: { description: Unauthenticated }
-   *       403: { description: Scope insuficiente }
-   *       404: { description: Empresa contratante no encontrada }
-   *       500: { description: Server error }
+   *       '200':
+   *         description: Cobertura calculada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageSuccess'
+   *       '400':
+   *         description: Entrada inválida o día único requerido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '401':
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '403':
+   *         description: Scope insuficiente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '404':
+   *         description: Empresa contratante no encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '500':
+   *         description: Error interno del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
    */
   async coverage(ctx: HttpContext) {
     const { request, response, i18n, businessUnitScope } = ctx
