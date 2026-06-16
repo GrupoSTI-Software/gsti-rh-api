@@ -738,6 +738,7 @@
   "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
   "attendance_stats_invalid_range": "El rango de fechas es inválido: startDay no puede ser posterior a endDay",
   "attendance_stats_invalid_input": "Los parámetros enviados no son válidos",
+  "attendance_stats_coverage_single_day_required": "La cobertura requiere un único día: startDay debe ser igual a endDay",
   "attendance_stats_scope_required": "El usuario no tiene unidades de negocio asignadas para consultar estadísticas de asistencia",
   "forbidden": "Acceso denegado",
   "unauthenticated": "No autenticado",
