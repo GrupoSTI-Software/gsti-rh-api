@@ -851,6 +851,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
         query.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', day)
       })
       .select(
+        'eta.employee_temporary_assignment_id AS assignment_id',
         'eta.employee_id AS employee_id',
         'eta.source_branch_id AS source_branch_id',
         'eta.target_branch_id AS target_branch_id',
@@ -860,6 +861,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return rows.map((r: any) => ({
+      assignmentId: Number(r.assignment_id),
       employeeId: Number(r.employee_id),
       sourceBranchId: Number(r.source_branch_id),
       targetBranchId: Number(r.target_branch_id),
