@@ -46,6 +46,7 @@ interface ListTemporaryAssignmentPayload {
 const BLOCKING_EXCEPTION_SLUGS = ['vacation', 'incapacidad', 'permiso', 'work-disability']
 const ZONE = 'UTC-6'
 const MAX_TEMPORARY_ASSIGNMENT_DAYS = 365
+type AssignmentStatus = 'borrador' | 'vigente' | 'vencido' | 'cancelado'
 
 export default class EmployeeTemporaryAssignmentService {
   /**
@@ -645,6 +646,7 @@ export default class EmployeeTemporaryAssignmentService {
             shiftName: assignment.destinationShift.shiftName,
           }
         : null,
+      status: this.resolveAssignmentStatus(assignment),
       cancelledAt: assignment.cancelledAt ? assignment.cancelledAt.toFormat('yyyy-MM-dd') : null,
       shiftOverrideAppliesOnDate: assignment.shiftOverrideStart
         ? assignment.startDate.toFormat('yyyy-MM-dd')
@@ -658,6 +660,22 @@ export default class EmployeeTemporaryAssignmentService {
       createdAt: assignment.employeeTemporaryAssignmentCreatedAt.toISO(),
       updatedAt: assignment.employeeTemporaryAssignmentUpdatedAt.toISO(),
     }
+  }
+
+  private static resolveAssignmentStatus(
+    assignment: EmployeeTemporaryAssignment,
+    referenceDate = DateTime.now().setZone(ZONE).startOf('day')
+  ): AssignmentStatus {
+    if (assignment.cancelledAt) {
+      return 'cancelado'
+    }
+    if (referenceDate < assignment.startDate.startOf('day')) {
+      return 'borrador'
+    }
+    if (referenceDate > assignment.endDate.startOf('day')) {
+      return 'vencido'
+    }
+    return 'vigente'
   }
 
   private static getEffectiveEndDate(assignment: EmployeeTemporaryAssignment): string {

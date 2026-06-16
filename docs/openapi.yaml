@@ -1537,6 +1537,10 @@ components:
               type: integer
             shiftName:
               type: string
+        status:
+          type: string
+          enum: [borrador, vigente, vencido, cancelado]
+          description: Estado derivado del préstamo para habilitar acciones en UI.
         cancelledAt:
           type: string
           format: date

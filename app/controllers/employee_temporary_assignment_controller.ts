@@ -253,6 +253,7 @@ export default class EmployeeTemporaryAssignmentController {
                   shiftName: assignment.destinationShift.shiftName,
                 }
               : null,
+            status: 'vigente',
             cancelledAt: assignment.cancelledAt
               ? assignment.cancelledAt.toFormat('yyyy-MM-dd')
               : null,
