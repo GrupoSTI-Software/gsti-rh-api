@@ -685,6 +685,24 @@
   "employee_lactation_compliance_status_active": "Activa",
   "employee_lactation_compliance_status_expiring": "Por vencer",
   "employee_lactation_compliance_status_expired": "Vencida",
+  "employee_lactation_expiring_notification_run_success": "Verificación de avisos de vencimiento ejecutada correctamente",
+  "employee_lactation_expiring_notification_run_failed_title": "No fue posible ejecutar la verificación de avisos",
+  "employee_lactation_expiring_notification_run_failed_detail": "Ocurrió un error al procesar los avisos de vencimiento de periodos de lactancia. Reintenta o consulta los logs.",
+  "employee_lactation_expiring_notification": {
+    "subject": "[NOM-037] {tradeName} · Periodos de lactancia próximos a vencer",
+    "preheader": "Tienes {count, plural, one {# periodo} other {# periodos}} de lactancia que vencen en los próximos 30 días.",
+    "header_subtitle": "Recursos Humanos · NOM-037-STPS-2023 / LFT 170",
+    "greeting": "Hola, equipo de RH:",
+    "intro": "{tradeName} reporta {count, plural, one {un periodo} other {los siguientes periodos}} de lactancia cuyo fin cae dentro de los próximos 30 días. Coordina con la empleada la renovación documental y la continuidad de la reducción de jornada antes del vencimiento.",
+    "table_employee": "Empleada",
+    "table_end_date": "Fin del periodo",
+    "table_days_left": "Días restantes",
+    "code_label": "Código",
+    "days_left_one": "1 día",
+    "days_left_other": "{days} días",
+    "legal_note": "Fundamento legal: LFT artículo 170 fracciones II y IV; NOM-037-STPS-2023 numeral 5.2.h. Este aviso se genera automáticamente y no implica vencimiento legal: la reducción debe garantizarse al menos durante el periodo registrado.",
+    "footer": "Aviso automático del módulo de lactancia de {tradeName}. No respondas a este correo."
+  },
   "auth": {
     "signup": {
       "otp": {
