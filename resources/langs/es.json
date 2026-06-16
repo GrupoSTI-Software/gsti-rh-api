@@ -775,6 +775,18 @@
   "password_recovery_pin_invalid": "El código PIN es inválido",
   "password_recovery_pin_expired": "El código PIN ha expirado",
   "password_recovery_pin_success": "El código PIN es válido",
+  "complaint_title": "Buzón de quejas",
+  "complaint_created_success": "Tu queja fue registrada. Guarda el folio y la clave de acceso para consultar el avance.",
+  "complaint_status_success": "Estatus de la queja consultado correctamente",
+  "complaint_val_input": "Los datos de la queja no son válidos",
+  "complaint_employee_not_found": "No tienes un registro de empleado asociado para reportar una queja",
+  "complaint_status_not_found": "Folio o clave de acceso incorrectos",
+  "complaint_folio_generation_failed": "No se pudo generar el folio de la queja. Intenta de nuevo.",
+  "complaint_list_success": "Quejas obtenidas correctamente",
+  "complaint_status_updated_success": "Estatus de la queja actualizado correctamente",
+  "complaint_not_found": "La queja no existe o está fuera de tu alcance",
+  "complaint_forbidden": "No tienes permiso para esta operación sobre el buzón de quejas",
+  "complaint_unauthorized": "Usuario no autenticado",
   "regulatory": {
     "authorities": {
       "stps": {

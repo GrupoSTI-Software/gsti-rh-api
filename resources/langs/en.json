@@ -772,6 +772,18 @@
   "password_recovery_pin_invalid": "The PIN code is invalid",
   "password_recovery_pin_expired": "The PIN code has expired",
   "password_recovery_pin_success": "The PIN code is valid",
+  "complaint_title": "Complaint mailbox",
+  "complaint_created_success": "Your complaint was registered. Save the case number and access key to check its progress.",
+  "complaint_status_success": "Complaint status retrieved successfully",
+  "complaint_val_input": "The complaint data is invalid",
+  "complaint_employee_not_found": "You do not have an associated employee record to submit a complaint",
+  "complaint_status_not_found": "Incorrect case number or access key",
+  "complaint_folio_generation_failed": "Could not generate the complaint case number. Please try again.",
+  "complaint_list_success": "Complaints retrieved successfully",
+  "complaint_status_updated_success": "Complaint status updated successfully",
+  "complaint_not_found": "The complaint does not exist or is outside your scope",
+  "complaint_forbidden": "You do not have permission for this operation on the complaint mailbox",
+  "complaint_unauthorized": "User is not authenticated",
   "regulatory": {
     "authorities": {
       "stps": {
