@@ -627,6 +627,24 @@
   "employee_lactation_compliance_status_active": "Active",
   "employee_lactation_compliance_status_expiring": "Expiring",
   "employee_lactation_compliance_status_expired": "Expired",
+  "employee_lactation_expiring_notification_run_success": "Expiring-notification check executed successfully",
+  "employee_lactation_expiring_notification_run_failed_title": "Could not run expiring-notification check",
+  "employee_lactation_expiring_notification_run_failed_detail": "An error occurred while processing lactation expiring notifications. Retry or check the logs.",
+  "employee_lactation_expiring_notification": {
+    "subject": "[NOM-037] {tradeName} · Lactation periods about to expire",
+    "preheader": "You have {count, plural, one {# lactation period} other {# lactation periods}} expiring within the next 30 days.",
+    "header_subtitle": "Human Resources · NOM-037-STPS-2023 / LFT 170",
+    "greeting": "Hi HR team,",
+    "intro": "{tradeName} reports {count, plural, one {one lactation period} other {the following lactation periods}} ending within the next 30 days. Coordinate with the employee to renew supporting documentation and ensure the schedule reduction continues before the period expires.",
+    "table_employee": "Employee",
+    "table_end_date": "Period end",
+    "table_days_left": "Days left",
+    "code_label": "Code",
+    "days_left_one": "1 day",
+    "days_left_other": "{days} days",
+    "legal_note": "Legal basis: LFT article 170 sections II and IV; NOM-037-STPS-2023 numeral 5.2.h. This is an automatic reminder and does not imply legal expiration: the reduction must be granted during the entire registered period.",
+    "footer": "Automatic reminder from the lactation module of {tradeName}. Please do not reply to this email."
+  },
   "auth": {
     "signup": {
       "otp": {

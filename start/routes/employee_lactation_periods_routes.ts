@@ -22,6 +22,14 @@ router
       '/employee-lactation-periods/compliance-report/export',
       '#controllers/employee_lactation_periods_controller.complianceReportExport'
     )
+    // Disparo manual / reproceso del aviso de vencimiento. La misma
+    // consideración de orden aplica: va ANTES de `/:id` para que el
+    // segmento literal `notifications` no colisione con un identificador
+    // numérico.
+    router.post(
+      '/employee-lactation-periods/notifications/run-expiring-check',
+      '#controllers/employee_lactation_periods_controller.runExpiringCheck'
+    )
     router.put(
       '/employee-lactation-periods/:id',
       '#controllers/employee_lactation_periods_controller.update'
