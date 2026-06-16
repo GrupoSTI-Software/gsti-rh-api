@@ -1535,6 +1535,8 @@
   "employee_temporary_assignment_not_found_message": "No se encontró el préstamo temporal solicitado.",
   "employee_temporary_assignment_target_branch_invalid_title": "Sucursal destino inválida",
   "employee_temporary_assignment_target_branch_invalid_message": "La sucursal destino debe ser distinta a la sucursal habitual del empleado.",
+  "employee_temporary_assignment_cancel_active_loan_required_title": "Préstamo activo vigente",
+  "employee_temporary_assignment_cancel_active_loan_required_message": "El empleado ya tiene un préstamo activo. Para regresarlo a su sucursal habitual primero cancela el préstamo vigente.",
   "employee_temporary_assignment_target_branch_not_found_title": "Sucursal destino no encontrada",
   "employee_temporary_assignment_target_branch_not_found_message": "La sucursal destino no existe o fue eliminada.",
   "employee_temporary_assignment_source_branch_missing_title": "Sin sucursal asignada",

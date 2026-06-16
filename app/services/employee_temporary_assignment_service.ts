@@ -106,6 +106,24 @@ export default class EmployeeTemporaryAssignmentService {
     }
 
     if (sourceBranch.branchOfficeId === targetBranchId) {
+      const activeAssignmentAtStart = await this.getActiveAssignment(employeeId, start)
+      if (
+        activeAssignmentAtStart &&
+        activeAssignmentAtStart.targetBranchId !== sourceBranch.branchOfficeId
+      ) {
+        return {
+          status: 409,
+          type: 'warning',
+          title: 'Préstamo activo vigente',
+          message:
+            'El empleado ya tiene un préstamo activo. Para regresarlo a su sucursal habitual primero cancela el préstamo vigente.',
+          key: 'debe-cancelar-prestamo-activo',
+          data: {
+            activeAssignmentId: activeAssignmentAtStart.employeeTemporaryAssignmentId,
+          },
+        }
+      }
+
       return {
         status: 422,
         type: 'error',

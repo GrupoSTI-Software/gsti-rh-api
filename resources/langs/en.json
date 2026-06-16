@@ -1532,6 +1532,8 @@
   "employee_temporary_assignment_not_found_message": "The requested temporary assignment was not found.",
   "employee_temporary_assignment_target_branch_invalid_title": "Invalid destination branch",
   "employee_temporary_assignment_target_branch_invalid_message": "The destination branch must be different from the employee's regular branch.",
+  "employee_temporary_assignment_cancel_active_loan_required_title": "Active loan in progress",
+  "employee_temporary_assignment_cancel_active_loan_required_message": "The employee already has an active loan. To return them to their regular branch, first cancel the current active loan.",
   "employee_temporary_assignment_target_branch_not_found_title": "Destination branch not found",
   "employee_temporary_assignment_target_branch_not_found_message": "The destination branch does not exist or was deleted.",
   "employee_temporary_assignment_source_branch_missing_title": "No assigned branch",

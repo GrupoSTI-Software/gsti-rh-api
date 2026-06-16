@@ -92,6 +92,7 @@ export default class EmployeeTemporaryAssignmentController {
    *           Conflicto de negocio. Posibles keys:
    *           - prestamo-solapado
    *           - conflicto-vacaciones-incapacidad-permiso
+   *           - debe-cancelar-prestamo-activo
    *       '422':
    *         description: |
    *           Error de validación de negocio. Posibles keys:
@@ -598,6 +599,20 @@ export default class EmployeeTemporaryAssignmentController {
           'employee_temporary_assignment_target_branch_invalid_message',
           undefined,
           'La sucursal destino debe ser distinta a la sucursal habitual del empleado.'
+        ),
+      }
+    }
+    if (key === 'debe-cancelar-prestamo-activo') {
+      return {
+        title: i18n.t(
+          'employee_temporary_assignment_cancel_active_loan_required_title',
+          undefined,
+          'Préstamo activo vigente'
+        ),
+        message: i18n.t(
+          'employee_temporary_assignment_cancel_active_loan_required_message',
+          undefined,
+          'El empleado ya tiene un préstamo activo. Para regresarlo a su sucursal habitual primero cancela el préstamo vigente.'
         ),
       }
     }

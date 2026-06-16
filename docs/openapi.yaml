@@ -1737,7 +1737,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
         '409':
-          description: key prestamo-solapado o conflicto-vacaciones-incapacidad-permiso
+          description: key prestamo-solapado, conflicto-vacaciones-incapacidad-permiso o debe-cancelar-prestamo-activo
           content:
             application/json:
               schema:
