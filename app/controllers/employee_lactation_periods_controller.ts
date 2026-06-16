@@ -8,6 +8,7 @@ import EmployeeLactationPeriodService, {
 import EmployeeLactationComplianceReportService, {
   type ComplianceReportFilters,
 } from '#services/employee_lactation_compliance_report_service'
+import EmployeeLactationNotificationService from '#services/employee_lactation_notification_service'
 import {
   createEmployeeLactationPeriodValidator,
   employeeLactationComplianceReportValidator,
@@ -154,9 +155,7 @@ export default class EmployeeLactationPeriodsController {
       const body = await request.validateUsing(createEmployeeLactationPeriodValidator)
       const payload = this.toCreatePayload(body)
       const service = new EmployeeLactationPeriodService(ctx.i18n)
-      const created = await service.create(payload)
-      // const service = new EmployeeLactationPeriodService()
-      // const created = await service.create(payload, ctx.businessUnitScope)
+      const created = await service.create(payload, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -228,9 +227,7 @@ export default class EmployeeLactationPeriodsController {
       const payload = this.toUpdatePayload(body)
 
       const service = new EmployeeLactationPeriodService(ctx.i18n)
-      const updated = await service.update(id, payload)
-      // const service = new EmployeeLactationPeriodService()
-      // const updated = await service.update(id, payload, ctx.businessUnitScope)
+      const updated = await service.update(id, payload, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -270,9 +267,7 @@ export default class EmployeeLactationPeriodsController {
 
       const id = this.parseResourceId(params.id)
       const service = new EmployeeLactationPeriodService(ctx.i18n)
-      const deleted = await service.destroy(id)
-      // const service = new EmployeeLactationPeriodService()
-      // const deleted = await service.destroy(id, ctx.businessUnitScope)
+      const deleted = await service.destroy(id, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -340,7 +335,7 @@ export default class EmployeeLactationPeriodsController {
 
       const id = this.parseResourceId(params.id)
       const service = new EmployeeLactationPeriodService(ctx.i18n)
-      const result = await service.regenerateShiftExceptions(id)
+      const result = await service.regenerateShiftExceptions(id, ctx.businessUnitScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -516,6 +511,105 @@ export default class EmployeeLactationPeriodsController {
       return response.send(pdfBuffer)
     } catch (error) {
       return this.respondError(error, response, 400)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/notifications/run-expiring-check:
+   *   post:
+   *     summary: Ejecuta manualmente la verificación de avisos de vencimiento
+   *     description: |
+   *       Endpoint de **prueba/reproceso** que dispara la misma rutina que el
+   *       comando agendado `lactation:notify-expiring`. Detecta periodos de
+   *       lactancia ACTIVOS cuyo `end` cae dentro de los próximos 30 días y
+   *       NO tienen aviso `expiring` previo en bitácora, agrupa por empresa
+   *       y envía un único correo a los destinatarios configurados en
+   *       `system_setting_notification_emails`.
+   *
+   *       Es **idempotente**: invocarlo dos veces el mismo día NO duplica
+   *       envíos. Una empresa sin destinatarios queda registrada en
+   *       `companiesWithoutRecipients` (warning estructurado) pero NO
+   *       interrumpe el procesamiento de las demás.
+   *
+   *       Acceso: igual que el resto del módulo, se rige por el módulo
+   *       `employees`. Requiere permiso `update-information` (mismo permiso
+   *       usado para gestionar periodos de lactancia desde el perfil del
+   *       empleado). `root` siempre pasa.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       '200':
+   *         description: Verificación ejecutada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: success }
+   *                 title: { type: string }
+   *                 message: { type: string }
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     sentCount:
+   *                       type: integer
+   *                       description: Periodos para los que SÍ se registró un envío.
+   *                     skippedAlreadyNotified:
+   *                       type: integer
+   *                       description: Periodos elegibles omitidos por idempotencia.
+   *                     companiesWithoutRecipients:
+   *                       type: array
+   *                       items: { type: integer }
+   *                       description: IDs de SystemSetting con periodos por vencer pero sin destinatarios.
+   *                     companiesWithMailErrors:
+   *                       type: array
+   *                       items: { type: integer }
+   *                       description: IDs de SystemSetting donde el envío del correo falló.
+   *                     companiesNotified:
+   *                       type: integer
+   *                       description: Empresas que recibieron al menos un correo.
+   *                     candidatesScanned:
+   *                       type: integer
+   *                       description: Periodos elegibles antes del filtro de idempotencia.
+   *                     ranAt:
+   *                       type: string
+   *                       format: date-time
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   */
+  async runExpiringCheck(ctx: HttpContext) {
+    const { response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      // Se considera operación de gestión de RH; reusa el mismo permiso
+      // que para crear/editar/borrar periodos, igual que el resto del
+      // controlador (no se inventa un permiso nuevo para una pieza
+      // accesoria del flujo).
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const service = new EmployeeLactationNotificationService()
+      const result = await service.runExpiringCheck({
+        info: (m, meta) =>
+          // eslint-disable-next-line no-console
+          console.info(`[lactation:notify-expiring] ${m}`, meta ?? ''),
+        warn: (m, meta) =>
+          // eslint-disable-next-line no-console
+          console.warn(`[lactation:notify-expiring] ${m}`, meta ?? ''),
+        error: (m, meta) =>
+          // eslint-disable-next-line no-console
+          console.error(`[lactation:notify-expiring] ${m}`, meta ?? ''),
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Expiring Notifications',
+        'Verificación de avisos de vencimiento ejecutada correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
     }
   }
 
