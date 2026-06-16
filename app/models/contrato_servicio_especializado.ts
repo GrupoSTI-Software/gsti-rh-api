@@ -11,6 +11,7 @@ import Clausula15d from '#models/clausula_15d'
 import RepseSpecializedService from '#models/repse_specialized_service'
 import DocumentoContratoEspecializado from '#models/documento_contrato_especializado'
 import VersionContratoEspecializado from '#models/version_contrato_especializado'
+import AsignacionContratoEspecializado from '#models/asignacion_contrato_especializado'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate, isBusinessCalendarDateBefore } from '#utils/business_date'
 
 export type ContratoServicioEspecializadoEstatus =
@@ -125,6 +126,12 @@ export default class ContratoServicioEspecializado extends compose(BaseModel, So
     localKey: 'contratoServicioEspecializadoId',
   })
   declare versiones: HasMany<typeof VersionContratoEspecializado>
+
+  @hasMany(() => AsignacionContratoEspecializado, {
+    foreignKey: 'contratoServicioEspecializadoId',
+    localKey: 'contratoServicioEspecializadoId',
+  })
+  declare asignaciones: HasMany<typeof AsignacionContratoEspecializado>
 
   get estatusEfectivo(): ContratoServicioEspecializadoEstatus {
     return ContratoServicioEspecializado.computeEstatusEfectivo(

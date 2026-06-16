@@ -5,7 +5,10 @@ import ContratoServicioEspecializado from '#models/contrato_servicio_especializa
 import EmpresaContratante from '#models/empresa_contratante'
 import RepseRegistration from '#models/repse_registration'
 import RepseSpecializedService from '#models/repse_specialized_service'
+import Employee from '#models/employee'
 import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
+import { ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES } from '../constants/asignacion_contrato_especializado_error_codes.js'
+import { AsignacionContratoEspecializadoError } from '../exceptions/asignacion_contrato_especializado_error.js'
 import { EMPRESA_CONTRATANTE_ERROR_CODES } from '../constants/empresa_contratante_error_codes.js'
 import { REPSE_ERROR_CODES } from '../constants/repse_registration_error_codes.js'
 import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
@@ -303,4 +306,50 @@ export async function findRepseSpecializedServicesInTenantOrFail(
   }
 
   return rows
+}
+
+export type FindEmployeeInTenantOptions = {
+  itemIndex?: number
+}
+
+/**
+ * Recupera un empleado activo cuya unidad de negocio pertenezca al tenant actual.
+ * Empleados dados de baja o inexistentes responden 404 con key empleado-no-encontrado.
+ */
+export async function findEmployeeInTenantOrFail(
+  employeeId: number,
+  options: FindEmployeeInTenantOptions = {}
+): Promise<Employee> {
+  const allowed = await getAllowedBusinessUnitIds()
+  const itemSuffix =
+    options.itemIndex !== undefined ? ` del item ${options.itemIndex}` : ''
+
+  if (allowed.length === 0) {
+    throw new AsignacionContratoEspecializadoError(
+      `No se encontró el empleado${itemSuffix} (id ${employeeId}).`,
+      ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+      404,
+      'empleado-no-encontrado',
+      `No se encontró el empleado${itemSuffix} (id ${employeeId})`
+    )
+  }
+
+  const row = await Employee.query()
+    .where('employee_id', employeeId)
+    .whereNull('employee_deleted_at')
+    .whereNull('employee_terminated_date')
+    .whereIn('business_unit_id', allowed)
+    .first()
+
+  if (!row) {
+    throw new AsignacionContratoEspecializadoError(
+      `No se encontró el empleado${itemSuffix} (id ${employeeId}).`,
+      ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+      404,
+      'empleado-no-encontrado',
+      `No se encontró el empleado${itemSuffix} (id ${employeeId})`
+    )
+  }
+
+  return row
 }

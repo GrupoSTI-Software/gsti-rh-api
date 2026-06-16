@@ -4,6 +4,9 @@ import { I18n } from '@adonisjs/i18n'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
 import type {
   AttendanceStatsFilters,
+  CoverageActiveLoanRow,
+  CoverageShiftQuotaRow,
+  CoverageSiteRef,
   EmployeeCalendarBundle,
   EmployeeInfo,
 } from './dto/attendance-stats.dto.js'
@@ -121,6 +124,14 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
         join.on('p.position_id', 'e.position_id').andOnNull('p.position_deleted_at')
       })
       .leftJoin('business_units AS bu', 'bu.business_unit_id', 'e.business_unit_id')
+      .leftJoin('employee_branch_offices AS ebo', (join) => {
+        join
+          .on('ebo.employee_id', 'e.employee_id')
+          .andOnVal('ebo.employee_branch_office_active', 1)
+      })
+      .leftJoin('branch_offices AS bo', (join) => {
+        join.on('bo.branch_office_id', 'ebo.branch_office_id').andOnNull('bo.branch_office_deleted_at')
+      })
       .whereNull('e.employee_deleted_at')
       // Excluir empleados discriminados de asistencia (employee_assist_discriminator=1):
       // el sistema viejo nunca les asigna status (siempre ''), así que no deben
@@ -159,7 +170,9 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
         'p.position_name AS position_name',
         'e.business_unit_id AS business_unit_id',
         'bu.business_unit_name AS business_unit_name',
-        'e.payroll_business_unit_id AS payroll_business_unit_id'
+        'e.payroll_business_unit_id AS payroll_business_unit_id',
+        'ebo.branch_office_id AS branch_office_id',
+        'bo.branch_office_name AS branch_office_name'
       )
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('e.employee_last_name', 'asc')
@@ -172,6 +185,10 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
         r.position_id !== null && r.position_id !== undefined ? Number(r.position_id) : null
       const businessUnitId = Number(r.business_unit_id)
       const departmentName = r.department_name ?? null
+      const branchOfficeId =
+        r.branch_office_id !== null && r.branch_office_id !== undefined
+          ? Number(r.branch_office_id)
+          : null
 
       return {
         employee: {
@@ -186,6 +203,8 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
           positionId,
           businessUnitId,
           payrollBusinessUnitId: Number(r.payroll_business_unit_id),
+          branchOfficeId,
+          branchOfficeName: r.branch_office_name ?? null,
           department: departmentId !== null ? { departmentId, departmentName } : null,
           position:
             positionId !== null
@@ -755,6 +774,108 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     if (diffMinutes > toleranceDelay) return 'delay'
     if (diffMinutes > 0) return 'tolerance'
     return 'ontime'
+  }
+
+  async getSitesByCompany(
+    companyId: number,
+    allowedBusinessUnitIds: number[],
+    branchOfficeIds?: number[]
+  ): Promise<CoverageSiteRef[]> {
+    if (allowedBusinessUnitIds.length === 0) return []
+
+    const q = db
+      .from('branch_offices AS bo')
+      .whereNull('bo.branch_office_deleted_at')
+      .where('bo.empresa_contratante_id', companyId)
+      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+
+    if (branchOfficeIds && branchOfficeIds.length > 0) {
+      q.whereIn('bo.branch_office_id', branchOfficeIds)
+    }
+
+    const rows = await q
+      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+      .orderBy('bo.branch_office_name', 'asc')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return rows.map((r: any) => ({
+      branchOfficeId: Number(r.branch_office_id),
+      branchOfficeName: String(r.branch_office_name ?? ''),
+    }))
+  }
+
+  async getShiftQuotasByBranchIds(branchOfficeIds: number[]): Promise<CoverageShiftQuotaRow[]> {
+    if (branchOfficeIds.length === 0) return []
+
+    const rows = await db
+      .from('branch_office_shift_quotas AS q')
+      .innerJoin('shifts AS s', 's.shift_id', 'q.shift_id')
+      .whereIn('q.branch_office_id', branchOfficeIds)
+      .whereNull('s.shift_deleted_at')
+      .where('s.shift_temp', 0)
+      .select(
+        'q.branch_office_id AS branch_office_id',
+        'q.shift_id AS shift_id',
+        's.shift_name AS shift_name',
+        'q.branch_office_shift_quota_required AS required',
+        'q.branch_office_shift_quota_minimum AS minimum'
+      )
+      .orderBy('q.branch_office_id', 'asc')
+      .orderBy('s.shift_name', 'asc')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return rows.map((r: any) => ({
+      branchOfficeId: Number(r.branch_office_id),
+      shiftId: Number(r.shift_id),
+      shiftName: String(r.shift_name ?? ''),
+      required: Number(r.required),
+      minimum: Number(r.minimum),
+    }))
+  }
+
+  async getActiveLoansForDay(
+    day: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<CoverageActiveLoanRow[]> {
+    if (allowedBusinessUnitIds.length === 0) return []
+
+    const rows = await db
+      .from('employee_temporary_assignments AS eta')
+      .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
+      .whereNull('e.employee_deleted_at')
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
+      .where('eta.start_date', '<=', day)
+      .where('eta.end_date', '>=', day)
+      .select(
+        'eta.employee_id AS employee_id',
+        'eta.source_branch_id AS source_branch_id',
+        'eta.target_branch_id AS target_branch_id'
+      )
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return rows.map((r: any) => ({
+      employeeId: Number(r.employee_id),
+      sourceBranchId: Number(r.source_branch_id),
+      targetBranchId: Number(r.target_branch_id),
+    }))
+  }
+
+  async getBranchOfficeNamesByIds(branchOfficeIds: number[]): Promise<Map<number, string>> {
+    const uniqueIds = [...new Set(branchOfficeIds.filter((id) => id > 0))]
+    if (uniqueIds.length === 0) return new Map()
+
+    const rows = await db
+      .from('branch_offices AS bo')
+      .whereIn('bo.branch_office_id', uniqueIds)
+      .whereNull('bo.branch_office_deleted_at')
+      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+
+    const names = new Map<number, string>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of rows as any[]) {
+      names.set(Number(r.branch_office_id), String(r.branch_office_name ?? ''))
+    }
+    return names
   }
 }
 

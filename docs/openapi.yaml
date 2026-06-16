@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Valanserh API - Compliance REPSE
-  version: 1.1.0
-  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT y documentos firmados.
+  version: 1.3.0
+  description: Empresas contratantes, contratos de servicios especializados con anexo 15-D LFT, documentos firmados, asignación de trabajadores y sucursales como sitios de servicio REPSE.
 
 components:
   securitySchemes:
@@ -255,6 +255,303 @@ components:
           properties:
             empresaContratante:
               $ref: '#/components/schemas/EmpresaContratante'
+
+    EmpresaContratanteEmbed:
+      type: object
+      required: [empresaContratanteId, razonSocial]
+      properties:
+        empresaContratanteId:
+          type: integer
+        razonSocial:
+          type: string
+
+    BranchOffice:
+      type: object
+      properties:
+        branchOfficeId:
+          type: integer
+        businessUnitId:
+          type: integer
+        branchOfficeName:
+          type: string
+        branchOfficeSlug:
+          type: string
+        branchOfficeLocationAddress:
+          type: string
+          nullable: true
+        branchOfficeIdealTemplateCount:
+          type: integer
+          nullable: true
+        branchOfficeMinActiveEmployeesPerShift:
+          type: integer
+          nullable: true
+        empresaContratanteId:
+          type: integer
+          nullable: true
+        empresaContratante:
+          allOf:
+            - $ref: '#/components/schemas/EmpresaContratanteEmbed'
+          nullable: true
+        branchOfficeCreatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        branchOfficeUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        branchOfficeDeletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    BranchOfficeCreate:
+      type: object
+      required: [businessUnitId, branchOfficeName]
+      properties:
+        businessUnitId:
+          type: integer
+        branchOfficeName:
+          type: string
+          maxLength: 255
+        branchOfficeLocationAddress:
+          type: string
+          nullable: true
+        branchOfficeIdealTemplateCount:
+          type: integer
+          minimum: 0
+          nullable: true
+        branchOfficeMinActiveEmployeesPerShift:
+          type: integer
+          minimum: 0
+          nullable: true
+        empresaContratanteId:
+          type: integer
+          nullable: true
+
+    BranchOfficeUpdate:
+      type: object
+      properties:
+        businessUnitId:
+          type: integer
+        branchOfficeName:
+          type: string
+        branchOfficeLocationAddress:
+          type: string
+          nullable: true
+        branchOfficeIdealTemplateCount:
+          type: integer
+          nullable: true
+        branchOfficeMinActiveEmployeesPerShift:
+          type: integer
+          nullable: true
+        empresaContratanteId:
+          type: integer
+          nullable: true
+
+    BranchOfficeSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            branchOffice:
+              $ref: '#/components/schemas/BranchOffice'
+
+    BranchOfficesListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            branchOffices:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/BranchOffice'
+
+    ApiErrorEmpresaContratanteNoEncontrada:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Empresa contratante no encontrada
+        message: No se encontró la empresa contratante indicada
+        detail: No se encontró la empresa contratante indicada
+        key: empresa-contratante-no-encontrada
+        errorCode: ECNT.NF.001
+        data: null
+
+    ApiErrorSucursalYaLigada:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Sucursal ya ligada
+        message: La sucursal ya está ligada a otra empresa contratante.
+        detail: La sucursal ya está ligada a otra empresa contratante.
+        key: sucursal-ya-ligada
+        errorCode: BRCH.CONFLICT.LINK.001
+        data: null
+
+    BranchOfficeShiftQuotaShiftRef:
+      type: object
+      required: [shiftId, shiftName]
+      properties:
+        shiftId:
+          type: integer
+        shiftName:
+          type: string
+
+    BranchOfficeShiftQuotaItem:
+      type: object
+      required: [branchOfficeShiftQuotaId, shift, required, minimum]
+      properties:
+        branchOfficeShiftQuotaId:
+          type: integer
+        shift:
+          $ref: '#/components/schemas/BranchOfficeShiftQuotaShiftRef'
+        required:
+          type: integer
+          minimum: 1
+          description: Plantilla requerida para operación normal
+        minimum:
+          type: integer
+          minimum: 1
+          description: Mínimo crítico tolerable
+
+    BranchOfficeShiftQuotaInputItem:
+      type: object
+      required: [shiftId, required, minimum]
+      properties:
+        shiftId:
+          type: integer
+          minimum: 1
+        required:
+          type: integer
+          minimum: 1
+        minimum:
+          type: integer
+          minimum: 1
+
+    BranchOfficeShiftQuotasReplace:
+      type: object
+      properties:
+        quotas:
+          type: array
+          items:
+            $ref: '#/components/schemas/BranchOfficeShiftQuotaInputItem'
+
+    BranchOfficeShiftQuotasSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [quotas]
+          properties:
+            quotas:
+              type: array
+              items:
+                $ref: '#/components/schemas/BranchOfficeShiftQuotaItem'
+      example:
+        type: success
+        title: Branch Office Shift Quotas
+        message: Cuotas guardadas correctamente
+        data:
+          quotas:
+            - branchOfficeShiftQuotaId: 1
+              shift:
+                shiftId: 3
+                shiftName: Nocturno
+              required: 3
+              minimum: 3
+
+    ApiErrorSucursalNoEncontradaShiftQuotas:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Sucursal no encontrada
+        message: Sucursal no encontrada o no disponible para esta instancia del sistema
+        detail: Sucursal no encontrada o no disponible para esta instancia del sistema
+        key: sucursal-no-encontrada
+        errorCode: BRCH.SQ.NF.BRCH.001
+        data: null
+
+    ApiErrorTurnoNoEncontradoShiftQuotas:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Turno no encontrado
+        message: No se encontró el turno del item 1 (id 99999) para esta unidad
+        detail: No se encontró el turno del item 1 (id 99999) para esta unidad
+        key: turno-no-encontrado
+        errorCode: BRCH.SQ.NF.SHIFT.001
+        data: null
+
+    ApiErrorCuotaInvalida:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Cuota inválida
+        message: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+        detail: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+        key: cuota-invalida
+        errorCode: BRCH.SQ.VAL.QUOTA.001
+        data: null
+
+    ApiErrorShiftIdDuplicadoShiftQuotas:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Turno repetido en el lote
+        message: "shiftId repetido en los items: 1, 2"
+        detail: "Los items 1, 2 repiten el mismo shiftId"
+        errorCode: BRCH.SQ.VAL.DUP.001
+        data: null
+
+    ApiErrorEmpresaConSitiosLigados:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Empresa con sitios de servicio
+        message: Desliga las 2 sucursales ligadas antes de eliminar la empresa
+        detail: Desliga las 2 sucursales ligadas antes de eliminar la empresa
+        key: empresa-con-sitios-ligados
+        errorCode: ECNT.CONFLICT.SITIOS.001
+        data: null
 
     ContratosServiciosEspecializadosListSuccess:
       type: object
@@ -590,6 +887,184 @@ components:
         data:
           $ref: '#/components/schemas/VersionContratoEspecializado'
 
+    AsignacionContratoAdvertencia:
+      type: object
+      required: [key, detail]
+      properties:
+        key:
+          type: string
+          example: porcentaje-dedicacion-excedido
+        detail:
+          type: string
+          example: El empleado suma 120.00% de dedicación en contratos vigentes solapados
+
+    AsignacionContratoEmpleado:
+      type: object
+      required: [id, nombre, nss]
+      properties:
+        id:
+          type: integer
+        nombre:
+          type: string
+        nss:
+          type: string
+          nullable: true
+
+    AsignacionContratoEspecializadoListItem:
+      type: object
+      required:
+        - id
+        - contratoServicioEspecializadoId
+        - empleado
+        - fechaInicio
+        - fechaFin
+        - porcentajeTiempo
+      properties:
+        id:
+          type: integer
+        contratoServicioEspecializadoId:
+          type: integer
+        empleado:
+          $ref: '#/components/schemas/AsignacionContratoEmpleado'
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        porcentajeTiempo:
+          type: string
+          example: '100.00'
+
+    AsignacionContratoEspecializadoResource:
+      allOf:
+        - $ref: '#/components/schemas/AsignacionContratoEspecializadoListItem'
+        - type: object
+          required: [advertencias]
+          properties:
+            advertencias:
+              type: array
+              items:
+                $ref: '#/components/schemas/AsignacionContratoAdvertencia'
+
+    AsignacionesContratoBulkCreate:
+      type: object
+      required: [asignaciones]
+      properties:
+        asignaciones:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [employeeId, fechaInicio]
+            properties:
+              employeeId:
+                type: integer
+                minimum: 1
+              fechaInicio:
+                type: string
+                format: date
+              fechaFin:
+                type: string
+                format: date
+                nullable: true
+              porcentajeTiempo:
+                type: number
+                minimum: 0.01
+                maximum: 100
+
+    AsignacionContratoUpdate:
+      type: object
+      properties:
+        fechaInicio:
+          type: string
+          format: date
+        fechaFin:
+          type: string
+          format: date
+          nullable: true
+        porcentajeTiempo:
+          type: number
+          minimum: 0.01
+          maximum: 100
+
+    AsignacionesContratoCreateSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            asignaciones:
+              type: array
+              items:
+                $ref: '#/components/schemas/AsignacionContratoEspecializadoResource'
+      example:
+        type: success
+        title: Asignaciones de Contrato Especializado
+        message: Asignaciones creadas correctamente
+        data:
+          asignaciones:
+            - id: 1
+              contratoServicioEspecializadoId: 12
+              empleado:
+                id: 88
+                nombre: Juan Pérez García
+                nss: '12345678901'
+              fechaInicio: '2026-06-15'
+              fechaFin: null
+              porcentajeTiempo: '100.00'
+              advertencias: []
+
+    AsignacionesContratoListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            asignaciones:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AsignacionContratoEspecializadoListItem'
+
+    AsignacionContratoUpdateSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            asignacion:
+              $ref: '#/components/schemas/AsignacionContratoEspecializadoResource'
+
     EmpresaContratanteBasica:
       type: object
       properties:
@@ -923,6 +1398,93 @@ components:
                   items:
                     $ref: '#/components/schemas/DocumentoContratoEspecializado'
 
+    AttendanceCoverageCandidate:
+      type: object
+      required: [employeeId, name, source, originLeftBelowMin]
+      properties:
+        employeeId:
+          type: integer
+        name:
+          type: string
+        source:
+          type: string
+          enum: [rest_same_site, loan_other_site]
+        originLeftBelowMin:
+          type: boolean
+        originBranchOfficeId:
+          type: integer
+          nullable: true
+        originBranchOfficeName:
+          type: string
+          nullable: true
+          description: Nombre del sitio de origen (sitio efectivo del candidato).
+
+    AttendanceCoverageShift:
+      type: object
+      required: [shiftId, label, required, min, assigned, present, missing, status, candidates]
+      properties:
+        shiftId:
+          type: integer
+        label:
+          type: string
+        required:
+          type: integer
+        min:
+          type: integer
+        assigned:
+          type: integer
+        present:
+          type: integer
+        missing:
+          type: integer
+        status:
+          type: string
+          enum: [green, amber, red, no_quota]
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageCandidate'
+
+    AttendanceCoverageSite:
+      type: object
+      required: [branchOfficeId, name, shifts]
+      properties:
+        branchOfficeId:
+          type: integer
+        name:
+          type: string
+        shifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageShift'
+
+    AttendanceCoverageData:
+      type: object
+      required: [day, sites]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Día consultado (yyyy-MM-dd, huso México).
+        sites:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageSite'
+
+    AttendanceCoverageSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AttendanceCoverageData'
+
 paths:
   /api/empresas-contratantes:
     get:
@@ -1155,6 +1717,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Empresa con sitios de servicio ligados (key empresa-con-sitios-ligados)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaConSitiosLigados'
 
   /api/contratos-servicios-especializados:
     get:
@@ -1426,13 +1994,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
 
-        '404':
-          description: key contrato-no-encontrado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-
   /api/contratos-servicios-especializados/{contratoId}/renovaciones:
     post:
       summary: Renovar vigencia del contrato conservando historial
@@ -1638,6 +2199,230 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
 
+  /api/contratos-servicios-especializados/{contratoId}/asignaciones:
+    post:
+      summary: Alta en bloque de asignaciones de trabajadores
+      description: |
+        Crea 1..N asignaciones de forma atómica. Solo contratos con estatus efectivo vigente.
+        Las advertencias de porcentaje de dedicación no bloquean la operación.
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsignacionesContratoBulkCreate'
+      responses:
+        '201':
+          description: Asignaciones creadas con empleado poblado y advertencias por item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsignacionesContratoCreateSuccess'
+        '400':
+          description: Validación VineJS o employeeId repetido en el payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado o empleado-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key asignacion-duplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key contrato-no-vigente, asignacion-fuera-de-vigencia o fecha-fin-anterior-a-fecha-inicio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    get:
+      summary: Listado paginado de asignaciones del contrato
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: employeeId
+          in: query
+          schema:
+            type: integer
+        - name: vigentesEn
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+      responses:
+        '200':
+          description: Listado paginado con empleado poblado (sin advertencias; solo en POST/PATCH)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsignacionesContratoListSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key contrato-no-encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/{contratoId}/asignaciones/{id}:
+    patch:
+      summary: Actualizar fechas o porcentaje de dedicación
+      description: |
+        No exige contrato vigente; permite correcciones históricas.
+        Re-emite advertencias de porcentaje si la suma supera 100%.
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsignacionContratoUpdate'
+      responses:
+        '200':
+          description: Asignación actualizada con advertencias de porcentaje si aplica
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsignacionContratoUpdateSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso update o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Contrato o asignación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key asignacion-duplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key asignacion-fuera-de-vigencia o fecha-fin-anterior-a-fecha-inicio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    delete:
+      summary: Soft delete de asignación (solo errores de captura)
+      tags: [AsignacionesContratoEspecializado]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contratoId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Eliminado lógicamente (sin cuerpo)
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso delete o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Contrato o asignación no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
   /api/repse-specialized-services/{id}:
     delete:
       summary: Soft delete de servicio especializado del catálogo REPSE
@@ -1685,3 +2470,651 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiErrorServicioConContratosActivos'
+
+  /api/branch-offices:
+    get:
+      summary: Listar sucursales con paginación y filtros
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 1000
+        - name: businessUnitId
+          in: query
+          schema:
+            type: integer
+        - name: empresaContratanteId
+          in: query
+          description: Filtra sucursales ligadas como sitios de servicio de la empresa
+          schema:
+            type: integer
+        - name: branchOfficeName
+          in: query
+          schema:
+            type: string
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: includeDeleted
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Lista paginada de sucursales
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficesListSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key empresa-contratante-no-encontrada (filtro inválido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaContratanteNoEncontrada'
+    post:
+      summary: Crear sucursal
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchOfficeCreate'
+      responses:
+        '201':
+          description: Sucursal creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaContratanteNoEncontrada'
+        '409':
+          description: key sucursal-ya-ligada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorSucursalYaLigada'
+
+  /api/branch-offices/{id}:
+    get:
+      summary: Obtener sucursal por ID
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detalle de sucursal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    put:
+      summary: Actualizar sucursal
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchOfficeUpdate'
+      responses:
+        '200':
+          description: Sucursal actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeSuccess'
+        '400':
+          description: Validación VineJS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada o key empresa-contratante-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorEmpresaContratanteNoEncontrada'
+        '409':
+          description: key sucursal-ya-ligada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorSucursalYaLigada'
+    delete:
+      summary: Eliminar sucursal (baja lógica)
+      tags: [BranchOffices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Sucursal eliminada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    nullable: true
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/branch-offices/{branchOfficeId}/shift-quotas:
+    get:
+      summary: Listar cuotas de plantilla configuradas para una sucursal
+      description: Solo sucursales dentro del scope del usuario; fuera de scope responde 404 con key sucursal-no-encontrada.
+      tags: [BranchOfficeShiftQuotas]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: branchOfficeId
+          in: path
+          required: true
+          description: Identificador numérico de la sucursal (entero positivo).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+      responses:
+        '200':
+          description: Cuotas configuradas con turno poblado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeShiftQuotasSuccess'
+              example:
+                type: success
+                title: Branch Office Shift Quotas
+                message: Cuotas obtenidas correctamente
+                data:
+                  quotas:
+                    - branchOfficeShiftQuotaId: 1
+                      shift:
+                        shiftId: 3
+                        shiftName: Nocturno
+                      required: 3
+                      minimum: 2
+        '400':
+          description: branchOfficeId no es un entero positivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: El parámetro branchOfficeId debe ser un entero positivo
+                detail: 'Valor recibido: "a". Use un número entero mayor o igual a 1.'
+                errorCode: BRCH.SQ.VAL.BRCH.001
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '404':
+          description: key sucursal-no-encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorSucursalNoEncontradaShiftQuotas'
+              example:
+                type: error
+                title: Sucursal no encontrada
+                message: Sucursal no encontrada o no disponible para esta instancia del sistema
+                detail: Sucursal no encontrada o no disponible para esta instancia del sistema
+                key: sucursal-no-encontrada
+                errorCode: BRCH.SQ.NF.BRCH.001
+                data: null
+    put:
+      summary: Reemplazar todas las cuotas de plantilla de una sucursal
+      description: Operación replace-all transaccional. Un arreglo vacío elimina todas las cuotas del sitio.
+      tags: [BranchOfficeShiftQuotas]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: branchOfficeId
+          in: path
+          required: true
+          description: Identificador numérico de la sucursal (entero positivo).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchOfficeShiftQuotasReplace'
+            example:
+              quotas:
+                - shiftId: 3
+                  required: 3
+                  minimum: 2
+      responses:
+        '200':
+          description: Set completo guardado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BranchOfficeShiftQuotasSuccess'
+              example:
+                type: success
+                title: Branch Office Shift Quotas
+                message: Cuotas guardadas correctamente
+                data:
+                  quotas:
+                    - branchOfficeShiftQuotaId: 1
+                      shift:
+                        shiftId: 3
+                        shiftName: Nocturno
+                      required: 3
+                      minimum: 2
+        '400':
+          description: branchOfficeId inválido, validación VineJS o shiftId repetido en el payload
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiError'
+                  - $ref: '#/components/schemas/ApiErrorShiftIdDuplicadoShiftQuotas'
+              examples:
+                branchOfficeIdInvalido:
+                  summary: branchOfficeId no es entero positivo
+                  value:
+                    type: error
+                    title: Datos inválidos
+                    message: El parámetro branchOfficeId debe ser un entero positivo
+                    detail: 'Valor recibido: "a". Use un número entero mayor o igual a 1.'
+                    errorCode: BRCH.SQ.VAL.BRCH.001
+                    data: null
+                vineValidation:
+                  summary: Validación VineJS
+                  value:
+                    type: error
+                    title: Datos inválidos
+                    message: The quotas.0.required field must be at least 1
+                    errorCode: BRCH.SQ.VAL.001
+                    data: null
+                duplicateShiftId:
+                  summary: shiftId repetido
+                  value:
+                    type: error
+                    title: Turno repetido en el lote
+                    message: "shiftId repetido en los items: 1, 2"
+                    detail: "Los items 1, 2 repiten el mismo shiftId"
+                    errorCode: BRCH.SQ.VAL.DUP.001
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '404':
+          description: key sucursal-no-encontrada o turno-no-encontrado
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ApiErrorSucursalNoEncontradaShiftQuotas'
+                  - $ref: '#/components/schemas/ApiErrorTurnoNoEncontradoShiftQuotas'
+              examples:
+                sucursalNoEncontrada:
+                  summary: Sucursal fuera de scope
+                  value:
+                    type: error
+                    title: Sucursal no encontrada
+                    message: Sucursal no encontrada o no disponible para esta instancia del sistema
+                    detail: Sucursal no encontrada o no disponible para esta instancia del sistema
+                    key: sucursal-no-encontrada
+                    errorCode: BRCH.SQ.NF.BRCH.001
+                    data: null
+                turnoNoEncontrado:
+                  summary: Turno inexistente o de otra unidad
+                  value:
+                    type: error
+                    title: Turno no encontrado
+                    message: No se encontró el turno del item 1 (id 99999) para esta unidad
+                    detail: No se encontró el turno del item 1 (id 99999) para esta unidad
+                    key: turno-no-encontrado
+                    errorCode: BRCH.SQ.NF.SHIFT.001
+                    data: null
+        '422':
+          description: key cuota-invalida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorCuotaInvalida'
+              example:
+                type: error
+                title: Cuota inválida
+                message: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+                detail: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
+                key: cuota-invalida
+                errorCode: BRCH.SQ.VAL.QUOTA.001
+                data: null
+
+  /api/v1/attendance-stats/coverage:
+    get:
+      summary: Cobertura de plantilla por sitio y turno
+      description: |
+        Compara presentes contra cuota (requerida/mínimo) por sitio de servicio REPSE y turno del día.
+        Requiere un único día (`startDay` = `endDay`) y `companyId` (empresa contratante).
+        Incluye candidatos de cobertura para turnos en semáforo amarillo o rojo.
+      tags: [AttendanceStats]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: startDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-06-15"
+        - name: endDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-06-15"
+        - name: companyId
+          in: query
+          required: true
+          description: ID de empresa contratante (empresaContratanteId).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: CSV de IDs de sitios a incluir (subset de la empresa contratante).
+          schema:
+            type: string
+            example: "5,7"
+        - name: employeeIds
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "10,11"
+        - name: businessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: payrollBusinessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cobertura calculada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceCoverageSuccess'
+              example:
+                type: success
+                title: Resources
+                message: Resources were found successfully
+                data:
+                  day: "2026-06-15"
+                  sites:
+                    - branchOfficeId: 5
+                      name: Planta Monterrey
+                      shifts:
+                        - shiftId: 3
+                          label: Nocturno
+                          required: 10
+                          min: 8
+                          assigned: 9
+                          present: 7
+                          missing: 3
+                          status: red
+                          candidates:
+                            - employeeId: 42
+                              name: Juan Pérez
+                              source: rest_same_site
+                              originLeftBelowMin: false
+                              originBranchOfficeId: 5
+                              originBranchOfficeName: Planta Monterrey
+                            - employeeId: 88
+                              name: Ana López
+                              source: loan_other_site
+                              originLeftBelowMin: true
+                              originBranchOfficeId: 12
+                              originBranchOfficeName: CEDIS Guadalajara
+        '400':
+          description: Entrada inválida, rango inválido o día único requerido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                entradaInvalida:
+                  summary: key entrada-invalida
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid request parameters
+                    key: entrada-invalida
+                    data: null
+                rangoInvalido:
+                  summary: key rango-invalido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid date range
+                    key: rango-invalido
+                    data: null
+                diaUnicoRequerido:
+                  summary: key dia-unico-requerido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Coverage requires a single day
+                    key: dia-unico-requerido
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '403':
+          description: Scope insuficiente (key scope-insuficiente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Forbidden
+                message: User has no business units assigned
+                key: scope-insuficiente
+                data: null
+        '404':
+          description: Empresa contratante no encontrada (key empresa-contratante-no-encontrada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Validation error
+                message: La empresa contratante no existe o no pertenece al tenant actual.
+                key: empresa-contratante-no-encontrada
+                data: null
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Server error
+                message: An unexpected error has occurred on the server
+                data: null

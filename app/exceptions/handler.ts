@@ -1,5 +1,7 @@
 import app from '@adonisjs/core/services/app'
 import { HttpContext, ExceptionHandler } from '@adonisjs/core/http'
+import AuthTokenService from '#services/auth_token_service'
+import { respondAccessTokenUnauthorized } from '../helpers/auth_token_response.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -13,6 +15,22 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * response to the client
    */
   async handle(error: unknown, ctx: HttpContext) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'E_UNAUTHORIZED_ACCESS'
+    ) {
+      const authTokenService = new AuthTokenService()
+      const result = await authTokenService.classifyAccessToken(
+        ctx.request.header('authorization')
+      )
+
+      const code = result.status === 'error' ? result.code : 'token_invalid'
+      await respondAccessTokenUnauthorized(ctx.response, code)
+      return
+    }
+
     return super.handle(error, ctx)
   }
 

@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import BusinessUnit from '#models/business_unit'
+import BranchOffice from '#models/branch_office'
 import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 
 /**
@@ -90,6 +91,15 @@ export default class EmpresaContratante extends compose(BaseModel, SoftDeletes) 
     localKey: 'empresaContratanteId',
   })
   declare contratosServiciosEspecializados: HasMany<typeof ContratoServicioEspecializado>
+
+  @hasMany(() => BranchOffice, {
+    foreignKey: 'empresaContratanteId',
+    localKey: 'empresaContratanteId',
+    onQuery: (query) => {
+      query.whereNull('branch_office_deleted_at')
+    },
+  })
+  declare sitiosServicio: HasMany<typeof BranchOffice>
 
   /**
    * Restringe la consulta a las unidades de negocio permitidas del tenant.

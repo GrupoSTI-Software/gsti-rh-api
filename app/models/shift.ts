@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
 import EmployeeShift from './employee_shift.js'
+import BranchOfficeShiftQuota from './branch_office_shift_quota.js'
 import * as relations from '@adonisjs/lucid/types/relations'
 
 /**
@@ -160,4 +161,9 @@ export default class Shift extends BaseModel {
     foreignKey: 'shiftId',
   })
   declare employees: relations.HasMany<typeof EmployeeShift>
+
+  @hasMany(() => BranchOfficeShiftQuota, {
+    foreignKey: 'shiftId',
+  })
+  declare branchOfficeShiftQuotas: relations.HasMany<typeof BranchOfficeShiftQuota>
 }

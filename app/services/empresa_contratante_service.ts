@@ -226,6 +226,24 @@ export default class EmpresaContratanteService {
         )
       }
 
+      const linkedSites = await trx
+        .from('branch_offices')
+        .where('empresa_contratante_id', empresaContratanteId)
+        .whereNull('branch_office_deleted_at')
+        .count('* as total')
+        .forUpdate()
+
+      const linkedCount = Number(linkedSites[0]?.total ?? 0)
+      if (linkedCount > 0) {
+        throw new EmpresaContratanteError(
+          `Desliga las ${linkedCount} sucursales ligadas antes de eliminar la empresa`,
+          EMPRESA_CONTRATANTE_ERROR_CODES.SITIOS_LIGADOS,
+          422,
+          'empresa-con-sitios-ligados',
+          `Desliga las ${linkedCount} sucursales ligadas antes de eliminar la empresa`
+        )
+      }
+
       row.useTransaction(trx)
       await row.delete()
     })

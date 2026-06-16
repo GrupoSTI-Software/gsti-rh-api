@@ -389,6 +389,12 @@ export default class EmpresasContratantesController {
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '422':
+   *         description: Empresa con sitios de servicio ligados (key empresa-con-sitios-ligados)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
    */
   async destroy(ctx: HttpContext) {
     const { params, response } = ctx

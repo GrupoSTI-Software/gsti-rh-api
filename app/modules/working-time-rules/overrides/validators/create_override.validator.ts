@@ -8,11 +8,11 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
  * Solo valida tipos y formato. Las reglas de negocio (rango vs federal, cap de
  * sanidad, no-traslape) viven en el service/modelo porque requieren consultar la BD.
  * La obligatoriedad de `overrideJustification` cuando `exceedsFederalAck` es true
- * se valida en el controller.
+ * se valida en el controller. La empresa se toma del header X-Business-Unit-Id
+ * (ctx.businessUnitScope), no del body.
  */
 export const createOverrideValidator = vine.compile(
   vine.object({
-    businessUnitId: vine.number().positive(),
     effectiveYear: vine.number().min(2000).max(2100),
     validFrom: vine.string().trim().regex(DATE_REGEX),
     validTo: vine.string().trim().regex(DATE_REGEX).nullable().optional(),

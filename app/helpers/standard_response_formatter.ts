@@ -85,6 +85,7 @@ export class StandardResponseFormatter {
       'Employee Supply': 'employeeSupply',
       'Branches': 'branchOffices',
       'Branch': 'branchOffice',
+      'Branch Office Shift Quotas': 'quotas',
       'Employee Branch Office': 'employeeBranchOffice',
       'Employee Branch Offices': 'employeeBranchOffices',
       'Certifications': 'certifications',
@@ -97,6 +98,8 @@ export class StandardResponseFormatter {
       'Employee Lactation Period Evidence Download': 'employeeLactationPeriodEvidenceDownload',
       'Employee Lactation Compliance Report': 'employeeLactationComplianceReport',
       'Employee Lactation Expiring Notifications': 'employeeLactationExpiringNotifications',
+      'Traumatic Event Reports': 'traumaticEventReports',
+      'Traumatic Event Report': 'traumaticEventReport',
       'Repse': 'repseRegistrations',
       'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
@@ -107,6 +110,8 @@ export class StandardResponseFormatter {
       'Contratos de Servicios Especializados': 'contratosServiciosEspecializados',
       'Contrato de Servicios Especializados': 'contratoServicioEspecializado',
       'Documento del contrato': 'documentoContrato',
+      'Asignaciones de Contrato Especializado': 'asignaciones',
+      'Asignación de Contrato Especializado': 'asignacion',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

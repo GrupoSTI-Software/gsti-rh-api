@@ -9,7 +9,7 @@ export default class extends BaseSchema {
   protected tableName = 'regulation_clause_features'
 
   async up() {
-    this.schema.dropTable(this.tableName)
+    this.schema.dropTableIfExists(this.tableName)
 
     this.schema.createTable(this.tableName, (table) => {
       table.bigIncrements('regulation_clause_feature_id').notNullable()
@@ -29,9 +29,7 @@ export default class extends BaseSchema {
         .inTable('system_features')
         .onDelete('RESTRICT')
 
-      table
-        .enum('regulation_clause_feature_coverage', ['total', 'parcial'])
-        .nullable()
+      table.enum('regulation_clause_feature_coverage', ['total', 'parcial']).nullable()
 
       table.string('regulation_clause_feature_note_key', 150).nullable()
 

@@ -22,9 +22,10 @@ export default class EffectiveController {
    *       - bearerAuth: []
    *     tags: [WorkingTimeRuleEffective]
    *     parameters:
-   *       - name: businessUnitId
-   *         in: query
+   *       - name: X-Business-Unit-Id
+   *         in: header
    *         required: true
+   *         description: Empresa (tenant) activa. Define la unidad de negocio de la consulta.
    *         schema: { type: integer }
    *       - name: date
    *         in: query
@@ -36,7 +37,7 @@ export default class EffectiveController {
    *         schema: { type: string, example: "MX" }
    *     responses:
    *       200: { description: Jornada efectiva resuelta }
-   *       400: { description: Query inválido (businessUnitId/date) }
+   *       400: { description: Query inválido (date) o header faltante }
    *       403: { description: Sin permiso sobre la empresa }
    *       404: { description: No hay regla vigente (jornada-no-resuelta) }
    */
@@ -50,13 +51,16 @@ export default class EffectiveController {
       return this.validationError(ctx, error)
     }
 
-    if (!this.canAccess(ctx, payload.businessUnitId)) {
+    // La empresa proviene del header X-Business-Unit-Id, resuelto por el middleware
+    // de scope. No se acepta por query: el header es la única fuente de verdad.
+    const businessUnitId = ctx.businessUnitScope?.[0]
+    if (!businessUnitId) {
       return this.forbidden(ctx)
     }
 
     const service = new EffectiveService()
     const result = await service.getRulesForDate(
-      payload.businessUnitId,
+      businessUnitId,
       payload.date,
       payload.countryCode
     )
@@ -71,11 +75,6 @@ export default class EffectiveController {
       message: 'Jornada efectiva resuelta correctamente.',
       data: result,
     })
-  }
-
-  /** Verifica que la empresa objetivo esté dentro del scope del usuario (anti-IDOR). */
-  private canAccess(ctx: HttpContext, businessUnitId: number): boolean {
-    return ctx.businessUnitScope?.includes(businessUnitId) ?? false
   }
 
   private forbidden(ctx: HttpContext) {
@@ -102,7 +101,7 @@ export default class EffectiveController {
 
   private validationError(ctx: HttpContext, error: unknown) {
     const messages = (error as { messages?: unknown })?.messages
-    const detail = 'El query no es válido: revise businessUnitId y date (YYYY-MM-DD).'
+    const detail = 'El query no es válido: revise date (YYYY-MM-DD).'
     return ctx.response.status(400).json({
       type: 'error',
       title: 'Parámetros inválidos',
