@@ -1511,5 +1511,20 @@
         }
       }
     }
+  },
+  "onboarding": {
+    "step_not_found_title": "Paso no encontrado",
+    "step_not_found_detail": "El paso indicado no existe, está inactivo o no pertenece al flujo del usuario.",
+    "intent_invalid_title": "Intención de onboarding inválida",
+    "intent_invalid_detail": "La intención indicada no existe o no está activa.",
+    "step_not_skippable_title": "Paso no omitible",
+    "step_not_skippable_detail": "Este paso no puede ser omitido.",
+    "status_invalid_title": "Status inválido",
+    "status_invalid_detail": "El status indicado no es válido. Los valores permitidos son: dismissed, completed.",
+    "me_success": "Panorama del onboarding obtenido correctamente.",
+    "intent_set_success": "Intención de onboarding guardada correctamente.",
+    "step_completed_success": "Paso completado correctamente.",
+    "step_skipped_success": "Paso omitido correctamente.",
+    "status_set_success": "Status de onboarding actualizado correctamente."
   }
 }

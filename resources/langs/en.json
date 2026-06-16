@@ -1508,5 +1508,20 @@
         }
       }
     }
+  },
+  "onboarding": {
+    "step_not_found_title": "Step not found",
+    "step_not_found_detail": "The indicated step does not exist, is inactive, or does not belong to the user's flow.",
+    "intent_invalid_title": "Invalid onboarding intent",
+    "intent_invalid_detail": "The indicated intent does not exist or is inactive.",
+    "step_not_skippable_title": "Step not skippable",
+    "step_not_skippable_detail": "This step cannot be skipped.",
+    "status_invalid_title": "Invalid status",
+    "status_invalid_detail": "The indicated status is not valid. Allowed values are: dismissed, completed.",
+    "me_success": "Onboarding overview retrieved successfully.",
+    "intent_set_success": "Onboarding intent saved successfully.",
+    "step_completed_success": "Step completed successfully.",
+    "step_skipped_success": "Step skipped successfully.",
+    "status_set_success": "Onboarding status updated successfully."
   }
 }
