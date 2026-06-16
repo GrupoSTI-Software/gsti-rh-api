@@ -843,13 +843,19 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       .from('employee_temporary_assignments AS eta')
       .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
       .whereNull('e.employee_deleted_at')
+      .whereNull('eta.employee_temporary_assignment_deleted_at')
       .whereIn('e.business_unit_id', allowedBusinessUnitIds)
       .where('eta.start_date', '<=', day)
       .where('eta.end_date', '>=', day)
+      .where((query) => {
+        query.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', day)
+      })
       .select(
         'eta.employee_id AS employee_id',
         'eta.source_branch_id AS source_branch_id',
-        'eta.target_branch_id AS target_branch_id'
+        'eta.target_branch_id AS target_branch_id',
+        'eta.destination_shift_id AS destination_shift_id',
+        'eta.reason AS reason'
       )
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -857,6 +863,8 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       employeeId: Number(r.employee_id),
       sourceBranchId: Number(r.source_branch_id),
       targetBranchId: Number(r.target_branch_id),
+      destinationShiftId: r.destination_shift_id === null ? null : Number(r.destination_shift_id),
+      reason: typeof r.reason === 'string' ? r.reason : null,
     }))
   }
 

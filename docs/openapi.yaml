@@ -1485,7 +1485,471 @@ components:
         data:
           $ref: '#/components/schemas/AttendanceCoverageData'
 
+    EmployeeTemporaryAssignmentResource:
+      type: object
+      properties:
+        id:
+          type: integer
+        employeeId:
+          type: integer
+        sourceBranchId:
+          type: integer
+        targetBranchId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        effectiveEndDate:
+          type: string
+          format: date
+        days:
+          type: integer
+        reason:
+          type: string
+          nullable: true
+          enum: [cobertura]
+        destinationShiftId:
+          type: integer
+          nullable: true
+        destinationShift:
+          type: object
+          nullable: true
+          properties:
+            shiftId:
+              type: integer
+            shiftName:
+              type: string
+        cancelledAt:
+          type: string
+          format: date
+          nullable: true
+        shiftOverrideAppliesOnDate:
+          type: string
+          format: date
+          nullable: true
+        shiftOverride:
+          type: object
+          nullable: true
+          properties:
+            startTime:
+              type: string
+              example: '06:00'
+            endTime:
+              type: string
+              example: '14:00'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EmployeeTemporaryAssignmentCreate:
+      type: object
+      required: [targetBranchId, days]
+      properties:
+        targetBranchId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        destinationShiftId:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+          enum: [cobertura]
+        shiftOverride:
+          type: object
+          nullable: true
+          properties:
+            startTime:
+              type: string
+            endTime:
+              type: string
+
+    EmployeeTemporaryAssignmentUpdate:
+      type: object
+      properties:
+        startDate:
+          type: string
+          format: date
+        days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        destinationShiftId:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+          enum: [cobertura]
+
+    EmployeeTemporaryAssignmentCancel:
+      type: object
+      properties:
+        cancelDate:
+          type: string
+          format: date
+          nullable: true
+
+    EmployeeTemporaryAssignmentSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/EmployeeTemporaryAssignmentResource'
+
+    EmployeeTemporaryAssignmentActiveSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            activeAssignment:
+              allOf:
+                - $ref: '#/components/schemas/EmployeeTemporaryAssignmentResource'
+              nullable: true
+
+    EmployeeTemporaryAssignmentListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            assignments:
+              type: array
+              items:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentResource'
+
+    EmployeeTemporaryAssignmentCancelSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: integer
+            cancelledAt:
+              type: string
+              format: date
+            effectiveEndDate:
+              type: string
+              format: date
+
+    EmployeeTemporaryAssignmentDeleteSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: integer
+            deletedAt:
+              type: string
+              format: date-time
+
 paths:
+  /api/employees/{employeeId}/temporary-assignments:
+    post:
+      summary: Crear préstamo temporal para un empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTemporaryAssignmentCreate'
+      responses:
+        '201':
+          description: Préstamo creado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentSuccess'
+        '400':
+          description: key body-invalido o dias-invalidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key prestamo-solapado o conflicto-vacaciones-incapacidad-permiso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key sucursal-destino-igual-a-origen o turno-destino-no-configurado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    get:
+      summary: Listar historial de préstamos de un empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Historial del empleado (incluye cancelados, excluye eliminados)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentListSuccess'
+        '400':
+          description: key body-invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/employees/{employeeId}/temporary-assignments/active:
+    get:
+      summary: Obtener préstamo temporal activo de un empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Préstamo activo encontrado o null si no existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentActiveSuccess'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/employees/{employeeId}/temporary-assignments/{id}:
+    put:
+      summary: Editar préstamo temporal del empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTemporaryAssignmentUpdate'
+      responses:
+        '200':
+          description: Préstamo actualizado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentSuccess'
+        '400':
+          description: key body-invalido o dias-invalidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado o préstamo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key prestamo-no-editable o prestamo-solapado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key turno-destino-no-configurado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    delete:
+      summary: Eliminar lógicamente un préstamo temporal
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Préstamo eliminado lógicamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentDeleteSuccess'
+        '404':
+          description: Empleado o préstamo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/employees/{employeeId}/temporary-assignments/{id}/cancel:
+    post:
+      summary: Cancelar anticipadamente un préstamo temporal
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTemporaryAssignmentCancel'
+      responses:
+        '200':
+          description: Préstamo cancelado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentCancelSuccess'
+        '400':
+          description: key body-invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado o préstamo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key prestamo-no-editable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
   /api/empresas-contratantes:
     get:
       summary: Lista paginada de empresas contratantes

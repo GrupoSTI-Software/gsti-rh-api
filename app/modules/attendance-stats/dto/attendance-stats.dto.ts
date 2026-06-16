@@ -227,4 +227,6 @@ export interface CoverageActiveLoanRow {
   employeeId: number
   sourceBranchId: number
   targetBranchId: number
+  destinationShiftId?: number | null
+  reason?: string | null
 }
