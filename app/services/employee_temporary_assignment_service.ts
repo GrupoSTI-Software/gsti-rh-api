@@ -444,18 +444,33 @@ export default class EmployeeTemporaryAssignmentService {
         type: 'error',
         title: 'Datos inválidos',
         message: 'La fecha de cancelación no es válida. Usa el formato YYYY-MM-DD.',
-        key: 'body-invalido',
+        key: 'fecha-cancelacion-invalida',
         data: null,
       }
     }
 
-    if (cancelDate < assignment.startDate.startOf('day') || cancelDate > assignment.endDate.startOf('day')) {
+    const cancelDay = cancelDate.toISODate()
+    const startDay = assignment.startDate.toISODate()
+    const endDay = assignment.endDate.toISODate()
+
+    if (!cancelDay || !startDay || !endDay) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Datos inválidos',
+        message: 'No fue posible validar la fecha de cancelación del préstamo.',
+        key: 'fecha-cancelacion-invalida',
+        data: null,
+      }
+    }
+
+    if (cancelDay < startDay || cancelDay > endDay) {
       return {
         status: 400,
         type: 'error',
         title: 'Datos inválidos',
         message: 'La fecha de cancelación debe estar dentro de la vigencia del préstamo.',
-        key: 'body-invalido',
+        key: 'fecha-cancelacion-fuera-vigencia',
         data: null,
       }
     }
@@ -666,13 +681,21 @@ export default class EmployeeTemporaryAssignmentService {
     assignment: EmployeeTemporaryAssignment,
     referenceDate = DateTime.now().setZone(ZONE).startOf('day')
   ): AssignmentStatus {
+    const referenceDay = referenceDate.toISODate()
+    const startDay = assignment.startDate.toISODate()
+    const endDay = assignment.endDate.toISODate()
+
+    if (!referenceDay || !startDay || !endDay) {
+      return 'vigente'
+    }
+
     if (assignment.cancelledAt) {
       return 'cancelado'
     }
-    if (referenceDate < assignment.startDate.startOf('day')) {
+    if (referenceDay < startDay) {
       return 'borrador'
     }
-    if (referenceDate > assignment.endDate.startOf('day')) {
+    if (referenceDay > endDay) {
       return 'vencido'
     }
     return 'vigente'
@@ -693,12 +716,20 @@ export default class EmployeeTemporaryAssignmentService {
     assignment: EmployeeTemporaryAssignment,
     day: DateTime
   ): boolean {
-    const currentDay = day.startOf('day')
-    if (currentDay < assignment.startDate.startOf('day') || currentDay > assignment.endDate.startOf('day')) {
+    const currentDay = day.toISODate()
+    const startDay = assignment.startDate.toISODate()
+    const endDay = assignment.endDate.toISODate()
+
+    if (!currentDay || !startDay || !endDay) {
       return false
     }
 
-    if (assignment.cancelledAt && currentDay >= assignment.cancelledAt.startOf('day')) {
+    if (currentDay < startDay || currentDay > endDay) {
+      return false
+    }
+
+    const cancelledDay = assignment.cancelledAt?.toISODate()
+    if (cancelledDay && currentDay >= cancelledDay) {
       return false
     }
 
