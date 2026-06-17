@@ -52,6 +52,46 @@ export default class RepseCoverageReportController {
    *     responses:
    *       '200':
    *         description: Reporte calculado correctamente
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               title: Resources
+   *               message: Resources were found successfully
+   *               data:
+   *                 meta:
+   *                   total: 1
+   *                   perPage: 20
+   *                   currentPage: 1
+   *                   lastPage: 1
+   *                 data:
+   *                   - employeeId: 1
+   *                     employeeName: Empleado Temporal Repse
+   *                     employeeCode: TRC-E001
+   *                     diasLaborados: 5
+   *                     companies:
+   *                       - companyId: 1
+   *                         companyName: Empresa temporal REPSE Coverage
+   *                         diasBase: 0
+   *                         diasPrestados: 5
+   *                         diasServidos: 5
+   *                         porcentajeObservado: 100
+   *                         porcentajeDeclarado: 100
+   *                         diferencia: 0
+   *                     movimientos:
+   *                       - assignmentId: 1
+   *                         startDate: '2026-06-10'
+   *                         endDate: '2026-06-16'
+   *                         effectiveEndDate: '2026-06-16'
+   *                         sourceBranchId: 1
+   *                         sourceBranchName: TEMP_REPSE_COVERAGE ORIGEN
+   *                         sourceCompanyId: null
+   *                         sourceCompanyName: null
+   *                         targetBranchId: 2
+   *                         targetBranchName: TEMP_REPSE_COVERAGE DESTINO
+   *                         targetCompanyId: 1
+   *                         targetCompanyName: Empresa temporal REPSE Coverage
+   *                         reason: cobertura
    *       '401':
    *         description: No autenticado
    *       '403':
@@ -157,10 +197,8 @@ export default class RepseCoverageReportController {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Reporte REPSE')
       worksheet.columns = [
-        { header: 'ID Empleado', key: 'employeeId', width: 14 },
         { header: 'Empleado', key: 'employeeName', width: 32 },
         { header: 'Código Empleado', key: 'employeeCode', width: 18 },
-        { header: 'ID Empresa', key: 'companyId', width: 14 },
         { header: 'Empresa Contratante', key: 'companyName', width: 30 },
         { header: 'Días Laborados', key: 'diasLaborados', width: 14 },
         { header: 'Días Base', key: 'diasBase', width: 12 },

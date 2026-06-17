@@ -2161,36 +2161,118 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseCoverageReportSuccess'
+              example:
+                type: success
+                title: Recursos
+                message: Los recursos fueron encontrados correctamente
+                data:
+                  meta:
+                    total: 1
+                    perPage: 20
+                    currentPage: 1
+                    lastPage: 1
+                  data:
+                    - employeeId: 1
+                      employeeName: Empleado Temporal Repse
+                      employeeCode: TRC-E001
+                      diasLaborados: 5
+                      companies:
+                        - companyId: 1
+                          companyName: Empresa temporal REPSE Coverage
+                          diasBase: 0
+                          diasPrestados: 5
+                          diasServidos: 5
+                          porcentajeObservado: 100
+                          porcentajeDeclarado: 100
+                          diferencia: 0
+                      movimientos:
+                        - assignmentId: 1
+                          startDate: '2026-06-10'
+                          endDate: '2026-06-16'
+                          effectiveEndDate: '2026-06-16'
+                          sourceBranchId: 1
+                          sourceBranchName: Sucursal Matriz
+                          sourceCompanyId: null
+                          sourceCompanyName: null
+                          targetBranchId: 2
+                          targetBranchName: Sucursal Cliente Norte
+                          targetCompanyId: 1
+                          targetCompanyName: Empresa temporal REPSE Coverage
+                          reason: cobertura
         '400':
           description: Datos inválidos (key query-invalida)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error de validación
+                message: El campo from es obligatorio
+                key: query-invalida
+                data:
+                  errors:
+                    - message: El campo from es obligatorio
+                      rule: required
+                      field: from
         '401':
           description: No autenticado
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: No autenticado
+                message: No autenticado
+                data: null
         '403':
           description: Sin permiso read o gestion (key sin-permiso)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No cuentas con permisos para realizar esta acción.
+                key: sin-permiso
+                data: null
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              examples:
+                rangoFechasInvalido:
+                  summary: key rango-fechas-invalido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas es inválido.
+                    key: rango-fechas-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas excede el máximo permitido
+                    key: rango-maximo-excedido
+                    data:
+                      maxDays: 366
         '500':
           description: Error interno del servidor
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado en el servidor
+                data: null
 
   /api/repse/coverage-report/export:
     get:
@@ -2241,30 +2323,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error de validación
+                message: El campo from es obligatorio
+                key: query-invalida
+                data:
+                  errors:
+                    - message: El campo from es obligatorio
+                      rule: required
+                      field: from
         '401':
           description: No autenticado
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: No autenticado
+                message: No autenticado
+                data: null
         '403':
           description: Sin permiso read o gestion (key sin-permiso)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No cuentas con permisos para realizar esta acción.
+                key: sin-permiso
+                data: null
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              examples:
+                rangoFechasInvalido:
+                  summary: key rango-fechas-invalido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas es inválido.
+                    key: rango-fechas-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas excede el máximo permitido
+                    key: rango-maximo-excedido
+                    data:
+                      maxDays: 366
         '500':
           description: Error interno del servidor
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado en el servidor
+                data: null
 
   /api/empresas-contratantes:
     get:
