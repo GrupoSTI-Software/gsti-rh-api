@@ -788,6 +788,12 @@
   "complaint_not_found": "La queja no existe o está fuera de tu alcance",
   "complaint_forbidden": "No tienes permiso para esta operación sobre el buzón de quejas",
   "complaint_unauthorized": "Usuario no autenticado",
+  "complaint_attachment_created_success": "Adjunto registrado y sanitizado correctamente",
+  "complaint_attachment_list_success": "Adjuntos de la queja obtenidos correctamente",
+  "complaint_attachment_download_success": "URL de descarga generada correctamente",
+  "complaint_attachment_deleted_success": "Adjunto eliminado correctamente",
+  "complaint_attachment_invalid_file": "El archivo no cumple con el tipo o tamaño permitido",
+  "complaint_attachment_not_found": "El adjunto no existe o está fuera de tu alcance",
   "regulatory": {
     "authorities": {
       "stps": {

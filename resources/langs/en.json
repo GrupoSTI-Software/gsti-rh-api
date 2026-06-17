@@ -785,6 +785,12 @@
   "complaint_not_found": "The complaint does not exist or is outside your scope",
   "complaint_forbidden": "You do not have permission for this operation on the complaint mailbox",
   "complaint_unauthorized": "User is not authenticated",
+  "complaint_attachment_created_success": "Attachment registered and sanitized successfully",
+  "complaint_attachment_list_success": "Complaint attachments retrieved successfully",
+  "complaint_attachment_download_success": "Download URL generated successfully",
+  "complaint_attachment_deleted_success": "Attachment deleted successfully",
+  "complaint_attachment_invalid_file": "The file does not meet the allowed type or size",
+  "complaint_attachment_not_found": "The attachment does not exist or is outside your scope",
   "regulatory": {
     "authorities": {
       "stps": {

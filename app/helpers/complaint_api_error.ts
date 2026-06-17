@@ -64,6 +64,26 @@ export function resolveComplaintApiError(
       }
     } else if (error.errorCode === COMPLAINT_ERROR_CODES.FOLIO_GENERATION_FAILED) {
       message = translate(i18n, 'complaint_folio_generation_failed', error.message)
+    } else if (error.errorCode === COMPLAINT_ERROR_CODES.INVALID_FILE) {
+      message = translate(i18n, 'complaint_attachment_invalid_file', error.message)
+      return {
+        message,
+        title,
+        status: error.httpStatus,
+        errorCode: error.errorCode,
+        key: error.key ?? 'archivo-invalido',
+        detail: error.detail ?? message,
+      }
+    } else if (error.errorCode === COMPLAINT_ERROR_CODES.ATTACHMENT_NOT_FOUND) {
+      message = translate(i18n, 'complaint_attachment_not_found', error.message)
+      return {
+        message,
+        title,
+        status: error.httpStatus,
+        errorCode: error.errorCode,
+        key: error.key ?? 'adjunto-no-encontrado',
+        detail: error.detail ?? message,
+      }
     }
 
     return {
