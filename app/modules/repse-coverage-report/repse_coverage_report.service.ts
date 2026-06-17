@@ -203,7 +203,7 @@ export default class RepseCoverageReportService {
 
       accumulator.movimientos = this.buildMovements(employeeLoans, branchMetaById)
 
-      for (const [companyId, porcentajeDeclarado] of employeeDeclared) {
+      for (const [companyId] of employeeDeclared) {
         const companyAcc = accumulator.companies.get(companyId)
         if (companyAcc) continue
         const companyName = this.resolveCompanyNameFromBranches(companyId, branchMetaById)
