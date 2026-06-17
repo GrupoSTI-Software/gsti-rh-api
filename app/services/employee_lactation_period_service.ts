@@ -332,8 +332,8 @@ export default class EmployeeLactationPeriodService {
    * `lactation_period_id` mediante
    * `ShiftExceptionService.destroyForLactationPeriod(periodId, trx)`.
    */
-  async destroy(periodId: number) {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
+  async destroy(periodId: number, allowedBusinessUnitIds: number[] = []) {
+    const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
     const { deletedCount } = await db.transaction(async (trx) => {
       const result = await this.buildShiftExceptionService().destroyForLactationPeriod(
@@ -365,12 +365,15 @@ export default class EmployeeLactationPeriodService {
    * día. Si la empleada no tiene NINGÚN `EmployeeShift` activo en todo el rango
    * lanza 422 `NO_ACTIVE_SHIFT`.
    */
-  async regenerateShiftExceptions(periodId: number): Promise<{
+  async regenerateShiftExceptions(
+    periodId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<{
     lactationPeriodId: number
     regeneratedExceptionsCount: number
     omittedDaysWithoutShift: string[]
   }> {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
+    const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
     const result = await db.transaction(async (trx) => {
       return this.buildShiftExceptionService().regenerateAllForLactationPeriod(

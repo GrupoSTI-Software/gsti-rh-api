@@ -34,6 +34,13 @@ export const ELP_ERROR_CODES = {
    * porque al crear/editar se prefiere registrar warning y continuar.
    */
   NO_ACTIVE_SHIFT: 'ELP.CONFLICT.NO_SHIFT.001',
+  /**
+   * Falló el envío del correo de aviso de vencimiento para alguna empresa.
+   * El comando agendado lo trata como warning y continúa con las demás
+   * empresas (no aborta la corrida); el endpoint manual lo refleja en
+   * la respuesta para que RH pueda reintentar.
+   */
+  NOTIFICATION_MAIL_FAILED: 'ELP.SYS.NOTIF_MAIL.001',
   /** Error no clasificado del dominio */
   SYS_UNHANDLED: 'ELP.SYS.001',
 } as const

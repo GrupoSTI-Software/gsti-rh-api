@@ -2,6 +2,7 @@ import type { AssistDayInterface } from '../../interfaces/assist_day_interface.j
 import type {
   CoverageActiveLoanRow,
   CoverageCandidate,
+  CoverageLoanDecision,
   CoverageResponse,
   CoverageShift,
   CoverageShiftQuotaRow,
@@ -95,7 +96,9 @@ export interface BuildCoverageInput {
 
 type EmployeeDayContext = {
   employee: EmployeeInfo
+  homeBranchId: number | null
   effectiveBranchId: number | null
+  activeLoan: CoverageActiveLoanRow | undefined
   shiftId: number | null
   isEvaluable: boolean
   isPresent: boolean
@@ -133,15 +136,17 @@ export function buildCoverageResponse(input: BuildCoverageInput): CoverageRespon
     if (!daySlice) continue
 
     const homeBranchId = bundle.employee.branchOfficeId ?? null
-    const loan = loansByEmployee.get(bundle.employee.employeeId)
-    const effectiveBranchId = resolveEffectiveBranchId(homeBranchId, loan)
+    const activeLoan = loansByEmployee.get(bundle.employee.employeeId)
+    const effectiveBranchId = resolveEffectiveBranchId(homeBranchId, activeLoan)
     const shiftId = getDayShiftId(daySlice)
     const isEvaluable = coverageIsEvaluableDay(daySlice)
     const isPresent = coverageIsPresent(daySlice)
 
     employeeContexts.push({
       employee: bundle.employee,
+      homeBranchId,
       effectiveBranchId,
+      activeLoan,
       shiftId,
       isEvaluable,
       isPresent,
@@ -277,6 +282,12 @@ function buildCandidates(params: {
           ctx.effectiveBranchId,
           branchOfficeNamesById
         ),
+        loanDecision: resolveLoanDecision({
+          source: 'rest_same_site',
+          targetSiteId,
+          homeBranchId: ctx.homeBranchId,
+          activeLoan: ctx.activeLoan,
+        }),
       })
       added.add(ctx.employee.employeeId)
       continue
@@ -307,10 +318,49 @@ function buildCandidates(params: {
           ctx.effectiveBranchId,
           branchOfficeNamesById
         ),
+        loanDecision: resolveLoanDecision({
+          source: 'loan_other_site',
+          targetSiteId,
+          homeBranchId: ctx.homeBranchId,
+          activeLoan: ctx.activeLoan,
+        }),
       })
       added.add(ctx.employee.employeeId)
     }
   }
 
   return candidates.sort(compareCandidates)
+}
+
+function resolveLoanDecision(params: {
+  source: CoverageCandidate['source']
+  targetSiteId: number
+  homeBranchId: number | null
+  activeLoan: CoverageActiveLoanRow | undefined
+}): CoverageLoanDecision {
+  const { source, targetSiteId, homeBranchId, activeLoan } = params
+
+  if (source === 'rest_same_site') {
+    return {
+      state: 'not_applicable',
+      activeAssignmentId: null,
+    }
+  }
+
+  if (
+    activeLoan &&
+    homeBranchId !== null &&
+    targetSiteId === homeBranchId &&
+    activeLoan.targetBranchId !== homeBranchId
+  ) {
+    return {
+      state: 'must_cancel_active',
+      activeAssignmentId: activeLoan.assignmentId,
+    }
+  }
+
+  return {
+    state: 'can_create',
+    activeAssignmentId: null,
+  }
 }

@@ -173,6 +173,18 @@ export type CoverageShiftStatus = 'green' | 'amber' | 'red' | 'no_quota'
 
 export type CoverageCandidateSource = 'rest_same_site' | 'loan_other_site'
 
+export type CoverageLoanDecisionState =
+  | 'can_create'
+  | 'must_cancel_active'
+  | 'not_applicable'
+
+export interface CoverageLoanDecision {
+  /** Decisión de acción para UI del flujo de préstamo. */
+  state: CoverageLoanDecisionState
+  /** ID del préstamo activo cuando la acción requerida es cancelarlo primero. */
+  activeAssignmentId?: number | null
+}
+
 export interface CoverageCandidate {
   employeeId: number
   name: string
@@ -182,6 +194,8 @@ export interface CoverageCandidate {
   originBranchOfficeId?: number | null
   /** Nombre del sitio de origen (evita catálogo extra en el BO). */
   originBranchOfficeName?: string | null
+  /** Metadatos mínimos para decidir si se puede crear préstamo desde cobertura. */
+  loanDecision: CoverageLoanDecision
 }
 
 export interface CoverageShift {
@@ -224,7 +238,10 @@ export interface CoverageShiftQuotaRow {
 
 /** Préstamo temporal vigente en una fecha. */
 export interface CoverageActiveLoanRow {
+  assignmentId: number
   employeeId: number
   sourceBranchId: number
   targetBranchId: number
+  destinationShiftId?: number | null
+  reason?: string | null
 }

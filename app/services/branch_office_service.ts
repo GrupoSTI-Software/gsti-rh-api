@@ -7,6 +7,7 @@ import { BranchOfficeServiceError } from '../exceptions/branch_office_service_er
 import { EmpresaContratanteError } from '../exceptions/empresa_contratante_error.js'
 import { findEmpresaContratanteInTenantOrFail } from '../helpers/repse_tenant_scope.js'
 import { BranchOfficeFilterSearchInterface } from '../interfaces/branch_office_filter_search_interface.js'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 
 function toIsoDateTimeString(value: unknown): string | null {
   if (value === null || value === undefined) {
@@ -322,6 +323,12 @@ export default class BranchOfficeService {
       .where('branchOfficeId', id)
       .whereIn('businessUnitId', allowedBusinessUnitIds)
       .firstOrFail()
+
+    await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByBranch(
+      branch.branchOfficeId,
+      DateTime.now().toFormat('yyyy-MM-dd')
+    )
+
     await branch.delete()
     return branch
   }
