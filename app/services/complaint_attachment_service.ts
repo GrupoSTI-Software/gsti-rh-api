@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { cuid } from '@adonisjs/core/helpers'
 import Complaint from '#models/complaint'
 import ComplaintAttachment from '#models/complaint_attachment'
 import Employee from '#models/employee'
@@ -12,6 +11,10 @@ import {
   COMPLAINT_ATTACHMENT_S3_FOLDER,
   COMPLAINT_ATTACHMENT_SIGNED_URL_EXPIRES_SECONDS,
 } from '#constants/complaint_attachment'
+import {
+  buildComplaintAttachmentStorageFileName,
+  isComplaintAttachmentClientFileAllowed,
+} from '../helpers/complaint_attachment_file.js'
 import { ComplaintServiceError } from '#exceptions/complaint_service_error'
 import type {
   ComplaintAttachmentDownloadResult,
@@ -94,6 +97,7 @@ export default class ComplaintAttachmentService {
 
   private async uploadForComplaint(complaint: Complaint, file: any): Promise<ComplaintAttachmentRow> {
     this.assertFilePresent(file)
+    this.assertClientFileExtensionAllowed(file)
 
     if (typeof file.size === 'number' && file.size > COMPLAINT_ATTACHMENT_MAX_BYTES) {
       throw this.invalidFileError('El archivo excede el tamaño máximo permitido')
@@ -110,8 +114,8 @@ export default class ComplaintAttachmentService {
       throw this.invalidFileError('El archivo excede el tamaño máximo permitido')
     }
 
-    const displayName = this.sanitizeFileName(file.clientName ?? 'attachment')
-    const s3RelativeKey = `${COMPLAINT_ATTACHMENT_S3_FOLDER}/${complaint.businessUnitId}/${complaint.complaintId}/${cuid()}-${displayName}`
+    const storageFileName = buildComplaintAttachmentStorageFileName(sanitized.mimeType)
+    const s3RelativeKey = `${COMPLAINT_ATTACHMENT_S3_FOLDER}/${complaint.businessUnitId}/${complaint.complaintId}/${storageFileName}`
 
     const uploadService = new UploadService()
     const s3Key = await uploadService.uploadPrivateBuffer(
@@ -131,7 +135,7 @@ export default class ComplaintAttachmentService {
 
     const record = await ComplaintAttachment.create({
       complaintId: complaint.complaintId,
-      complaintAttachmentFileName: displayName,
+      complaintAttachmentFileName: storageFileName,
       complaintAttachmentFilePath: s3Key,
       complaintAttachmentMimeType: sanitized.mimeType,
       complaintAttachmentFileSize: sanitized.fileSize,
@@ -241,6 +245,14 @@ export default class ComplaintAttachmentService {
     }
   }
 
+  private assertClientFileExtensionAllowed(file: any) {
+    if (!isComplaintAttachmentClientFileAllowed(file.clientName, file.extname)) {
+      throw this.invalidFileError(
+        'La extensión del archivo no está permitida o corresponde a un tipo de código ejecutable'
+      )
+    }
+  }
+
   private invalidFileError(message: string) {
     return new ComplaintServiceError(
       message,
@@ -266,13 +278,6 @@ export default class ComplaintAttachmentService {
       404,
       'adjunto-no-encontrado'
     )
-  }
-
-  private sanitizeFileName(rawName: string): string {
-    return `${rawName}`
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/\.{2,}/g, '.')
-      .slice(0, 100)
   }
 
   private toRow(record: ComplaintAttachment): ComplaintAttachmentRow {

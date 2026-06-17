@@ -19,8 +19,9 @@ export default class ComplaintAttachmentController {
    *       Employee endpoint to attach evidence to an existing complaint identified by its
    *       public folio. The file is validated by real MIME type (not extension), sanitized
    *       to remove identifying metadata (EXIF, PDF author/producer, ID3 tags), and stored
-   *       in private tenant-scoped S3 storage. The original file with metadata is never
-   *       persisted.
+   *       in private tenant-scoped S3 storage under a random name (`{uuid}-{salt}.{ext}`).
+   *       Code/script extensions (e.g. `.js`, `.py`, `.sh`, `.sql`, `.iso`) are rejected.
+   *       The original file with metadata is never persisted.
    *     produces:
    *       - application/json
    *     parameters:
@@ -43,7 +44,7 @@ export default class ComplaintAttachmentController {
    *               file:
    *                 type: string
    *                 format: binary
-   *                 description: Image (jpeg, png, webp), PDF or audio (mpeg) up to 10 MB
+   *                 description: Image (jpeg, png, webp), PDF or audio (mpeg/mp3) up to 10 MB. Code file extensions are blocked.
    *     responses:
    *       '201':
    *         description: Resource processed successfully
