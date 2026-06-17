@@ -128,6 +128,8 @@ import './routes/employee_zone_routes.js'
 import '#modules/working-time-rules/overrides/overrides.routes'
 import '#modules/working-time-rules/effective/effective.routes'
 import '#modules/working-time-rules/federal/federal.routes'
+import '#modules/onboarding/catalog/catalog.routes'
+import '#modules/onboarding/state/state.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')
@@ -174,6 +176,7 @@ import './routes/employee_certification_expiration_routes.js'
 import './routes/competency_descriptor_routes.js'
 import './routes/competency_bracket_routes.js'
 import './routes/auth_signup_routes.js'
+import './routes/complaint_routes.js'
 
 router
   .get('/', async ({ view }) => {
