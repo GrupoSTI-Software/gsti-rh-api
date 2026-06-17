@@ -444,7 +444,7 @@ export default class EmployeeTemporaryAssignmentService {
         type: 'error',
         title: 'Datos inválidos',
         message: 'La fecha de cancelación no es válida. Usa el formato YYYY-MM-DD.',
-        key: 'body-invalido',
+        key: 'fecha-cancelacion-invalida',
         data: null,
       }
     }
@@ -455,7 +455,7 @@ export default class EmployeeTemporaryAssignmentService {
         type: 'error',
         title: 'Datos inválidos',
         message: 'La fecha de cancelación debe estar dentro de la vigencia del préstamo.',
-        key: 'body-invalido',
+        key: 'fecha-cancelacion-fuera-vigencia',
         data: null,
       }
     }

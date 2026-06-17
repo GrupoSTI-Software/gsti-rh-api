@@ -388,6 +388,42 @@ export default class EmployeeTemporaryAssignmentController {
    *     tags:
    *       - Employee Temporary Assignments
    *     summary: Cancela anticipadamente un préstamo temporal
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: false
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               cancelDate:
+   *                 type: string
+   *                 format: date
+   *                 nullable: true
+   *                 description: Fecha de cancelación en formato YYYY-MM-DD (opcional, default hoy UTC-6).
+   *     responses:
+   *       '200':
+   *         description: Préstamo cancelado correctamente
+   *       '400':
+   *         description: |
+   *           Datos inválidos. Posibles keys:
+   *           - body-invalido
+   *           - fecha-cancelacion-invalida
+   *           - fecha-cancelacion-fuera-vigencia
+   *       '404':
+   *         description: Empleado o préstamo no encontrado
+   *       '409':
+   *         description: key prestamo-no-editable
    */
   async cancel({ request, response, params, i18n }: HttpContext) {
     try {
@@ -398,7 +434,15 @@ export default class EmployeeTemporaryAssignmentController {
 
       let validatedData: { cancelDate?: string }
       try {
-        validatedData = await request.validateUsing(cancelEmployeeTemporaryAssignmentValidator)
+        const rawBody = request.body()
+        const bodyData =
+          rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody)
+            ? rawBody
+            : {}
+
+        validatedData = await request.validateUsing(cancelEmployeeTemporaryAssignmentValidator, {
+          data: bodyData,
+        })
       } catch (error: any) {
         return this.validationErrorResponse(response, i18n, error)
       }
@@ -659,6 +703,34 @@ export default class EmployeeTemporaryAssignmentController {
         ),
       }
     }
+    if (key === 'fecha-cancelacion-invalida') {
+      return {
+        title: i18n.t(
+          'employee_temporary_assignment_invalid_cancel_date_title',
+          undefined,
+          'Datos inválidos'
+        ),
+        message: i18n.t(
+          'employee_temporary_assignment_invalid_cancel_date_message',
+          undefined,
+          'La fecha de cancelación no es válida. Usa el formato YYYY-MM-DD.'
+        ),
+      }
+    }
+    if (key === 'fecha-cancelacion-fuera-vigencia') {
+      return {
+        title: i18n.t(
+          'employee_temporary_assignment_cancel_date_out_of_range_title',
+          undefined,
+          'Datos inválidos'
+        ),
+        message: i18n.t(
+          'employee_temporary_assignment_cancel_date_out_of_range_message',
+          undefined,
+          'La fecha de cancelación debe estar dentro de la vigencia del préstamo.'
+        ),
+      }
+    }
     if (key === 'body-invalido') {
       return {
         title: i18n.t(
@@ -666,11 +738,7 @@ export default class EmployeeTemporaryAssignmentController {
           undefined,
           'Datos inválidos'
         ),
-        message: i18n.t(
-          'employee_temporary_assignment_invalid_body_message',
-          undefined,
-          fallbackMessage
-        ),
+        message: fallbackMessage,
       }
     }
 

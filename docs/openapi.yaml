@@ -1798,7 +1798,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EmployeeTemporaryAssignmentListSuccess'
         '400':
-          description: key body-invalido
+          description: key body-invalido, fecha-cancelacion-invalida o fecha-cancelacion-fuera-vigencia
           content:
             application/json:
               schema:
