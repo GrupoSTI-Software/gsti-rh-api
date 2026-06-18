@@ -372,6 +372,16 @@
   "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
   "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
   "competency_descriptor": "Descriptor de competencia",
+  "nom035": {
+    "questionnaire_applicability": {
+      "index_message": "Aplicabilidad por sucursal obtenida correctamente",
+      "show_message": "Aplicabilidad de sucursal obtenida correctamente",
+      "none_note": "El centro de trabajo cuenta con {count} trabajadores activos. La NOM-035-STPS-2018 no exige la aplicación de cuestionarios para centros con 15 o menos trabajadores.",
+      "branch_not_found": "Sucursal no encontrada o no disponible para esta instancia del sistema",
+      "company_not_found": "Empresa no encontrada o no disponible para esta instancia del sistema",
+      "forbidden": "Sin permiso para consultar la aplicabilidad de cuestionarios"
+    }
+  },
   "regulatory": {
     "authorities": {
       "stps": {
