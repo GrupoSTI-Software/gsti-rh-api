@@ -79,7 +79,6 @@ export const UserFactory = factory
       userActive: 1,
       roleId: 1,
       personId: 0,
-      userBusinessAccess: null,
       userToken: '',
       userEmailType: 'institutional',
     }

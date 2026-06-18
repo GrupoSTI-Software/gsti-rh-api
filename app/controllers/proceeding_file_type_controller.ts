@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import BusinessUnit from '#models/business_unit'
 import { ProceedingFileTypeFilterSearchInterface } from '../interfaces/proceeding_file_type_filter_search_interface.js'
 import ProceedingFileTypeService from '#services/proceeding_file_type_service'
 import ProceedingFileType from '#models/proceeding_file_type'
@@ -120,7 +121,7 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -130,8 +131,12 @@ export default class ProceedingFileTypeController {
         page: page,
         limit: limit,
       } as ProceedingFileTypeFilterSearchInterface
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const proceedingFileTypeService = new ProceedingFileTypeService()
-      const proceedingFileTypes = await proceedingFileTypeService.index(filters)
+      const proceedingFileTypes = await proceedingFileTypeService.index(filters, businessSlugs)
       response.status(200)
       return {
         type: 'success',
@@ -251,7 +256,7 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async indexByArea({ request, response }: HttpContext) {
+  async indexByArea({ request, response, businessUnitScope }: HttpContext) {
     try {
       const areaToUse = request.param('areaToUse')
       if (!areaToUse) {
@@ -263,8 +268,12 @@ export default class ProceedingFileTypeController {
           data: { areaToUse },
         }
       }
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const proceedingFileTypeService = new ProceedingFileTypeService()
-      const proceedingFileTypes = await proceedingFileTypeService.indexByArea(areaToUse)
+      const proceedingFileTypes = await proceedingFileTypeService.indexByArea(areaToUse, businessSlugs)
       response.status(200)
       return {
         type: 'success',
@@ -404,12 +413,16 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope }: HttpContext) {
     try {
       const proceedingFileTypeName = request.input('proceedingFileTypeName')
       const proceedingFileTypeSlug = request.input('proceedingFileTypeSlug')
       const proceedingFileTypeAreaToUse = request.input('proceedingFileTypeAreaToUse')
       const proceedingFileTypeActive = request.input('proceedingFileTypeActive')
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const proceedingFileType = {
         proceedingFileTypeName: proceedingFileTypeName,
         proceedingFileTypeSlug: proceedingFileTypeSlug,
@@ -419,6 +432,7 @@ export default class ProceedingFileTypeController {
           (proceedingFileTypeActive === 'true' || Number.parseInt(proceedingFileTypeActive) === 1)
             ? 1
             : 0,
+        proceedingFileTypeBusinessUnits: businessSlugs.join(','),
       } as ProceedingFileType
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const data = await request.validateUsing(createProceedingFileTypeValidator)
@@ -477,7 +491,7 @@ export default class ProceedingFileTypeController {
    *                 example: "Documentos de Contratación"
    *               proceedingFileTypeBusinessUnits:
    *                 type: string
-   *                 description: Business units for the proceeding file type (automatically set from SYSTEM_BUSINESS environment variable)
+   *                 description: Business units for the proceeding file type (automatically set from the user's accessible business units)
    *                 required: false
    *                 example: "sae,sae-siler,sae-quorum"
    *               parentId:
@@ -585,7 +599,7 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async createEmployeeType({ request, response }: HttpContext) {
+  async createEmployeeType({ request, response, businessUnitScope }: HttpContext) {
     try {
       // Validar los datos de entrada
       const data = await request.validateUsing(createEmployeeProceedingFileTypeValidator)
@@ -594,6 +608,10 @@ export default class ProceedingFileTypeController {
       const isExclusive = request.input('proceedingFileTypeIsExclusive')
       const proceedingFileTypeIsExclusive = isExclusive === true || isExclusive === 'true' || isExclusive === 1 || isExclusive === '1'
 
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const result = await proceedingFileTypeService.createEmployeeType({
         proceedingFileTypeName: data.proceedingFileTypeName,
@@ -601,7 +619,7 @@ export default class ProceedingFileTypeController {
         proceedingFileTypeActive: data.proceedingFileTypeActive,
         proceedingFileTypeIsExclusive: proceedingFileTypeIsExclusive,
         employeeId: data.employeeId || request.input('employeeId'),
-      })
+      }, businessSlugs)
 
       if (result.status !== 201) {
         response.status(result.status)
@@ -655,7 +673,7 @@ export default class ProceedingFileTypeController {
    *                 description: Nombre del tipo (el slug se genera automáticamente)
    *               proceedingFileTypeBusinessUnits:
    *                 type: string
-   *                 description: Opcional; si no se envía se usan las unidades de SYSTEM_BUSINESS
+   *                 description: Opcional; se asignan automáticamente desde las unidades de negocio accesibles del usuario
    *               parentId:
    *                 type: number
    *                 description: ID del tipo padre (debe ser también system-setting)
@@ -670,15 +688,19 @@ export default class ProceedingFileTypeController {
    *       '404':
    *         description: Tipo padre no encontrado
    */
-  async createSystemSettingType({ request, response }: HttpContext) {
+  async createSystemSettingType({ request, response, businessUnitScope }: HttpContext) {
     try {
       const data = await request.validateUsing(createSystemSettingProceedingFileTypeValidator)
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const result = await proceedingFileTypeService.createSystemSettingType({
         proceedingFileTypeName: data.proceedingFileTypeName,
         parentId: data.parentId,
         proceedingFileTypeActive: data.proceedingFileTypeActive,
-      })
+      }, businessSlugs)
 
       if (result.status !== 201) {
         response.status(result.status)
@@ -836,13 +858,17 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ request, response, businessUnitScope }: HttpContext) {
     try {
       const proceedingFileTypeId = request.param('proceedingFileTypeId')
       const proceedingFileTypeName = request.input('proceedingFileTypeName')
       const proceedingFileTypeSlug = request.input('proceedingFileTypeSlug')
       const proceedingFileTypeAreaToUse = request.input('proceedingFileTypeAreaToUse')
       const proceedingFileTypeActive = request.input('proceedingFileTypeActive')
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
       const proceedingFileType = {
         proceedingFileTypeId: proceedingFileTypeId,
         proceedingFileTypeName: proceedingFileTypeName,
@@ -853,6 +879,7 @@ export default class ProceedingFileTypeController {
           (proceedingFileTypeActive === 'true' || Number.parseInt(proceedingFileTypeActive) === 1)
             ? 1
             : 0,
+        proceedingFileTypeBusinessUnits: businessSlugs.join(','),
       } as ProceedingFileType
       if (!proceedingFileTypeId) {
         response.status(400)

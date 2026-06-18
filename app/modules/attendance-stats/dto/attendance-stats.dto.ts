@@ -100,16 +100,43 @@ export interface DepartmentRow {
   statistics: AttendanceStatistics
 }
 
+/** Referencia mínima a una entidad relacionada del empleado (id + nombre). */
+export interface DepartmentRef {
+  departmentId: number
+  departmentName: string | null
+}
+
+export interface PositionRef {
+  positionId: number
+  positionName: string | null
+}
+
+export interface BusinessUnitRef {
+  businessUnitId: number
+  businessUnitName: string | null
+}
+
 export interface EmployeeInfo {
   employeeId: number
   employeeCode: string | null
+  employeePayrollCode: string | null
   employeeFirstName: string | null
   employeeLastName: string | null
   employeeSecondLastName: string | null
+  employeePhoto: string | null
+  // IDs planos (compatibilidad con consumidores existentes del frontend).
   departmentId: number | null
   positionId: number | null
   businessUnitId: number
   payrollBusinessUnitId: number
+  /** Sucursal base activa (employee_branch_offices). Aditivo; opcional para consumidores legacy. */
+  branchOfficeId?: number | null
+  branchOfficeName?: string | null
+  // Objetos anidados con el nombre resuelto vía join. `null` cuando el empleado
+  // no tiene la relación asignada (department/position pueden faltar).
+  department: DepartmentRef | null
+  position: PositionRef | null
+  businessUnit: BusinessUnitRef | null
 }
 
 export interface EmployeeRow {
@@ -135,4 +162,86 @@ export interface EmployeeCalendarBundle {
   employee: EmployeeInfo
   departmentName: string | null
   calendar: AssistDayInterface[]
+}
+
+/** Filtros del endpoint coverage (empresa contratante obligatoria). */
+export interface CoverageFilters extends AttendanceStatsFilters {
+  companyId: number
+}
+
+export type CoverageShiftStatus = 'green' | 'amber' | 'red' | 'no_quota'
+
+export type CoverageCandidateSource = 'rest_same_site' | 'loan_other_site'
+
+export type CoverageLoanDecisionState =
+  | 'can_create'
+  | 'must_cancel_active'
+  | 'not_applicable'
+
+export interface CoverageLoanDecision {
+  /** Decisión de acción para UI del flujo de préstamo. */
+  state: CoverageLoanDecisionState
+  /** ID del préstamo activo cuando la acción requerida es cancelarlo primero. */
+  activeAssignmentId?: number | null
+}
+
+export interface CoverageCandidate {
+  employeeId: number
+  name: string
+  source: CoverageCandidateSource
+  originLeftBelowMin: boolean
+  /** Sitio de origen del candidato (préstamo o descanso en sitio). */
+  originBranchOfficeId?: number | null
+  /** Nombre del sitio de origen (evita catálogo extra en el BO). */
+  originBranchOfficeName?: string | null
+  /** Metadatos mínimos para decidir si se puede crear préstamo desde cobertura. */
+  loanDecision: CoverageLoanDecision
+}
+
+export interface CoverageShift {
+  shiftId: number
+  label: string
+  required: number
+  min: number
+  assigned: number
+  present: number
+  missing: number
+  status: CoverageShiftStatus
+  candidates: CoverageCandidate[]
+}
+
+export interface CoverageSite {
+  branchOfficeId: number
+  name: string
+  shifts: CoverageShift[]
+}
+
+export interface CoverageResponse {
+  day: string
+  sites: CoverageSite[]
+}
+
+/** Sitio de servicio ligado a empresa contratante. */
+export interface CoverageSiteRef {
+  branchOfficeId: number
+  branchOfficeName: string
+}
+
+/** Cuota de turno por sucursal (lectura bulk). */
+export interface CoverageShiftQuotaRow {
+  branchOfficeId: number
+  shiftId: number
+  shiftName: string
+  required: number
+  minimum: number
+}
+
+/** Préstamo temporal vigente en una fecha. */
+export interface CoverageActiveLoanRow {
+  assignmentId: number
+  employeeId: number
+  sourceBranchId: number
+  targetBranchId: number
+  destinationShiftId?: number | null
+  reason?: string | null
 }

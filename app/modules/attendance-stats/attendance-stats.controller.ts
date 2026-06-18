@@ -1,7 +1,8 @@
 import { HttpContext } from '@adonisjs/core/http'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
-import type { AttendanceStatsFilters } from './dto/attendance-stats.dto.js'
+import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
+import type { AttendanceStatsFilters, ResolvedScope } from './dto/attendance-stats.dto.js'
 
 /**
  * Controller del módulo attendance-stats.
@@ -121,6 +122,137 @@ export default class AttendanceStatsController {
   }
 
   /**
+   * @swagger
+   * /api/v1/attendance-stats/coverage:
+   *   get:
+   *     summary: Cobertura de plantilla por sitio y turno
+   *     description: |
+   *       Compara presentes contra cuota por sitio de servicio y turno del día.
+   *       Requiere día único (startDay igual a endDay) y companyId.
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [AttendanceStats]
+   *     parameters:
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         schema: { type: integer, example: 1 }
+   *       - name: startDay
+   *         in: query
+   *         required: true
+   *         schema: { type: string, format: date, example: "2026-06-14" }
+   *       - name: endDay
+   *         in: query
+   *         required: true
+   *         schema: { type: string, format: date, example: "2026-06-14" }
+   *       - name: companyId
+   *         in: query
+   *         required: true
+   *         description: ID de empresa contratante.
+   *         schema: { type: integer, minimum: 1, example: 1 }
+   *       - name: branchOfficeIds
+   *         in: query
+   *         schema: { type: string, example: "1,2" }
+   *       - name: employeeIds
+   *         in: query
+   *         schema: { type: string, example: "1,2" }
+   *       - name: businessUnitId
+   *         in: query
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Cobertura calculada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageSuccess'
+   *       '400':
+   *         description: Entrada inválida o día único requerido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '401':
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '403':
+   *         description: Scope insuficiente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '404':
+   *         description: Empresa contratante no encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *       '500':
+   *         description: Error interno del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   */
+  async coverage(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
+    const t = i18n.formatMessage.bind(i18n)
+
+    try {
+      const raw = {
+        startDay: request.input('startDay'),
+        endDay: request.input('endDay'),
+        companyId: this.parseId(request.input('companyId')),
+        departmentIds: this.parseIdList(request.input('departmentIds')),
+        employeeIds: this.parseIdList(request.input('employeeIds')),
+        businessUnitId: this.parseId(request.input('businessUnitId')),
+        payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
+        branchOfficeIds: this.parseIdList(
+          request.input('branchOfficeIds') ?? request.input('branchNameIds')
+        ),
+      }
+
+      let validated
+      try {
+        validated = await getAttendanceCoverageValidator.validate(raw)
+      } catch (e: unknown) {
+        const messages = (e as { messages?: unknown })?.messages
+        return response.status(400).json({
+          type: 'error',
+          title: t('validation_error'),
+          message: t('attendance_stats_invalid_input'),
+          key: 'entrada-invalida',
+          details: messages,
+        })
+      }
+
+      const filters = validated
+      const service = new AttendanceStatsService(i18n)
+      const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
+      const result = await service.getCoverage(filters, scope)
+
+      return response.status(result.status).json({
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        key: result.key,
+        data: result.data,
+      })
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      return response.status(500).json({
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: message,
+      })
+    }
+  }
+
+  /**
    * Handler genérico — orquesta parseo, validación, scope y delega al service.
    * Centraliza el flujo para que los 3 endpoints comparten exactamente el
    * mismo comportamiento de errores (400 / 401 / 403 / 500).
@@ -129,20 +261,9 @@ export default class AttendanceStatsController {
     ctx: HttpContext,
     op: 'overview' | 'byDepartment' | 'byEmployee'
   ) {
-    const { request, response, auth, i18n } = ctx
+    const { request, response, i18n, businessUnitScope } = ctx
     const t = i18n.formatMessage.bind(i18n)
-
     try {
-      const user = auth.user
-      if (!user) {
-        return response.status(401).json({
-          type: 'error',
-          title: t('unauthenticated'),
-          message: t('unauthenticated'),
-          key: 'no-autenticado',
-        })
-      }
-
       const raw = {
         startDay: request.input('startDay'),
         endDay: request.input('endDay'),
@@ -183,7 +304,7 @@ export default class AttendanceStatsController {
         })
       }
 
-      const scope = await service.resolveScope(user)
+      const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
 
       let result
       if (op === 'overview') result = await service.getOverview(filters, scope)

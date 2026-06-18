@@ -44,13 +44,6 @@ import BusinessUnit from './business_unit.js'
  *          personId:
  *            type: number
  *            description: Person id
- *          userBusinessAccess:
- *            type: string
- *            deprecated: true
- *            description: |
- *              [Deprecado] CSV legado con los slugs de las unidades de negocio asignadas al usuario.
- *              La nueva fuente de verdad es la tabla pivote `business_unit_users` (relación `businessUnits`).
- *              Esta columna se conserva por compatibilidad con código heredado que aún la lee.
  *          userEmailType:
  *            type: string
  *            description: Email type
@@ -69,13 +62,56 @@ const AuthFinder = withAuthFinder(() => hash.use('scrypt'), {
 })
 
 export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
+  /**
+   * TTL del access token en segundos (15 min para web y app).
+   */
+  static accessTokenExpiresIn(): number {
+    return 60 * 15
+  }
+
   static accessTokens = DbAccessTokensProvider.forModel(User, {
-    expiresIn: 60 * 60 * 24,
+    expiresIn: User.accessTokenExpiresIn(),
     prefix: 'oauth__sae__',
     table: 'api_tokens',
     type: 'auth_token',
     tokenSecretLength: 80,
   })
+
+  static refreshTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: 60 * 60 * 24 * 7,
+    prefix: 'refresh__sae__',
+    table: 'api_tokens',
+    type: 'refresh_token',
+    tokenSecretLength: 80,
+  })
+
+  /**
+   * TTL del magic link en segundos (15 min, un solo uso).
+   */
+  static magicLinkTokenExpiresIn(): number {
+    return 60 * 15
+  }
+
+  static magicLinkTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: User.magicLinkTokenExpiresIn(),
+    prefix: 'magic__sae__',
+    table: 'api_tokens',
+    type: 'magic_link',
+    tokenSecretLength: 80,
+  })
+
+  /**
+   * TTL del refresh token en segundos según el origin de la sesión.
+   * - app: 30 días
+   * - web: 7 días
+   */
+  static refreshTokenExpiresIn(origin: string): number {
+    if (origin === 'app') {
+      return 60 * 60 * 24 * 30
+    }
+
+    return 60 * 60 * 24 * 7
+  }
 
   @column({ isPrimary: true })
   declare userId: number
@@ -103,21 +139,8 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column()
   declare pinCode: string
 
-  @column()
-  declare userPinCodeExpiresAt: DateTime | null
-
-  /**
-   * @deprecated CSV legado con los slugs de las unidades de negocio asignadas al usuario.
-   *
-   * La nueva fuente de verdad es la tabla pivote `business_unit_users`, expuesta a través
-   * de la relación `businessUnits`. Esta columna permanece nullable en la base de datos por
-   * compatibilidad con código heredado que aún la lee (~27 archivos del repositorio).
-   *
-   * Su eliminación física se programará en una historia posterior, una vez confirmado en
-   * producción que la pivote es la única fuente consultada.
-   */
-  @column()
-  declare userBusinessAccess: string | null
+  @column.dateTime({ columnName: 'pin_code_expires_at' })
+  declare pinCodeExpiresAt: DateTime | null
 
   @column()
   declare roleId: number
@@ -160,6 +183,9 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
     pivotTimestamps: {
       createdAt: 'business_unit_user_created_at',
       updatedAt: 'business_unit_user_updated_at',
+    },
+    onQuery(query) {
+      query.whereNull('business_unit_user_deleted_at')
     },
   })
   declare businessUnits: ManyToMany<typeof BusinessUnit>

@@ -38,6 +38,64 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
+        systemModuleId: 2,
+        systemModuleName: 'Departamentos',
+        systemModuleSlug: 'departments',
+        systemModuleDescription: 'departments',
+        systemModules: 1,
+        systemModulePath: '/departments',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon:
+        `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 21l18 0" />
+          <path d="M9 8l1 0" />
+          <path d="M9 12l1 0" />
+          <path d="M9 16l1 0" />
+          <path d="M14 8l1 0" />
+          <path d="M14 12l1 0" />
+          <path d="M14 16l1 0" />
+          <path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16" />
+        </svg>`,
+      },
+      {
+        systemModuleId: 3,
+        systemModuleName: 'Puestos',
+        systemModuleSlug: 'positions',
+        systemModuleDescription: 'positions',
+        systemModules: 1,
+        systemModulePath: '/positions',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon:
+        `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 7m0 2a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z" />
+          <path d="M8 7v-2a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v2" />
+          <path d="M12 12l0 .01" />
+          <path d="M3 13a20 20 0 0 0 18 0" />
+        </svg>`,
+      },
+      {
         systemModuleId: 4,
         systemModuleName: 'Periodos Vacacionales',
         systemModuleSlug: 'vacations',
@@ -692,6 +750,33 @@ export default class extends BaseSeeder {
           <path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
           <path d="M17.5 7a5.5 5.5 0 1 0 -11 0" />
           <path d="M7 11v8a3 3 0 0 0 3 3h4a3 3 0 0 0 3 -3v-8" />
+        </svg>`,
+      },
+      {
+        systemModuleId: 38,
+        systemModuleName: 'Repse',
+        systemModuleSlug: 'repse-registrations',
+        systemModuleDescription:
+          'Registro REPSE de la empresa ante la STPS (folio, fecha de registro y vencimiento)',
+        systemModules: 1,
+        systemModulePath: '/repse',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+          <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+          <path d="M9 12h6" />
+          <path d="M9 16h6" />
         </svg>`,
       },
     ]

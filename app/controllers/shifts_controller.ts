@@ -2,8 +2,8 @@ import { HttpContext } from '@adonisjs/core/http'
 import Shift from '../models/shift.js'
 import { createShiftValidator, updateShiftValidator } from '../validators/shift.js'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import ShiftService from '#services/shift_service'
+import BusinessUnit from '#models/business_unit'
 /**
  * @swagger
  * /api/shift:
@@ -78,11 +78,17 @@ import ShiftService from '#services/shift_service'
  *                   type: string
  */
 export default class ShiftController {
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope }: HttpContext) {
     try {
+      if (businessUnitScope.length === 0) {
+        return response.status(403).json({ type: 'error', title: 'Sin acceso', message: 'No tienes unidades de negocio asignadas' })
+      }
       const data = await request.validateUsing(createShiftValidator)
       const shiftService = new ShiftService()
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .select('business_unit_slug')
+      const businessSlugs = units.map((bu) => bu.businessUnitSlug)
       const shift = {
         shiftName: data.shiftName,
         shiftAlias: data.shiftAlias?.trim() || null,
@@ -91,13 +97,13 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessConf,
+        shiftBusinessUnits: businessSlugs.join(','),
         shiftTemp: data.shiftTemp,
         shiftLunchTime: data.shiftLunchTime,
         shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
         shiftColor: data.shiftColor,
       } as Shift
-      const verifyInfo = await shiftService.verifyInfo(shift)
+      const verifyInfo = await shiftService.verifyInfo(shift, undefined, businessSlugs)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
@@ -170,20 +176,26 @@ export default class ShiftController {
  *                   shiftRestDays:
  *                     type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, businessUnitScope }: HttpContext) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
       const { shiftDayStart, shiftName, shiftActiveHours, page = 1, limit = 10 } = request.qs()
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .select('business_unit_slug')
+      const businessSlugs = units.map((bu) => bu.businessUnitSlug)
 
       const shiftQuery = Shift.query()
         .whereNull('shiftDeletedAt')
         .where('shift_temp', 0)
         .andWhere((query) => {
+          if (businessSlugs.length === 0) {
+            query.whereRaw('1 = 0')
+            return
+          }
           query.whereNotNull('shift_business_units')
           query.andWhere((subQuery) => {
-            businessList.forEach((business) => {
-              subQuery.orWhereRaw('FIND_IN_SET(?, shift_business_units)', [business.trim()])
+            businessSlugs.forEach((slug) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, shift_business_units)', [slug.trim()])
             })
           })
         })
@@ -384,8 +396,11 @@ export default class ShiftController {
    *                 message:
    *                   type: string
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, businessUnitScope }: HttpContext) {
     try {
+      if (businessUnitScope.length === 0) {
+        return response.status(403).json({ type: 'error', title: 'Sin acceso', message: 'No tienes unidades de negocio asignadas' })
+      }
       const shift = await Shift.query()
         .where('shiftId', params.id)
         .whereNull('shiftDeletedAt')
@@ -401,7 +416,10 @@ export default class ShiftController {
       }
 
       const data = await request.validateUsing(updateShiftValidator)
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .select('business_unit_slug')
+      const businessSlugs = units.map((bu) => bu.businessUnitSlug)
       const shiftService = new ShiftService()
       const shiftColorInput = request.input('shiftColor')
       const updateShift = {
@@ -413,7 +431,7 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessConf,
+        shiftBusinessUnits: businessSlugs.join(','),
         shiftTemp: data.shiftTemp,
         shiftLunchTime: data.shiftLunchTime,
         shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
@@ -421,10 +439,10 @@ export default class ShiftController {
           ? data.shiftColor
           : shift.shiftColor,
       } as Shift
-
       const verifyInfo = await shiftService.verifyInfo(
         updateShift,
-        Number.parseInt(params.id)
+        Number.parseInt(params.id),
+        businessSlugs
       )
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
@@ -440,6 +458,7 @@ export default class ShiftController {
         ...data,
         shiftAlias: data.shiftAlias?.trim() || null,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
+        shiftBusinessUnits: businessSlugs.join(','),
       }
       if (shiftColorInput !== undefined && shiftColorInput !== null) {
         mergeData.shiftColor = data.shiftColor

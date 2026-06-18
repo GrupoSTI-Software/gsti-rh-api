@@ -4,6 +4,9 @@ import { I18n } from '@adonisjs/i18n'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
 import type {
   AttendanceStatsFilters,
+  CoverageActiveLoanRow,
+  CoverageShiftQuotaRow,
+  CoverageSiteRef,
   EmployeeCalendarBundle,
   EmployeeInfo,
 } from './dto/attendance-stats.dto.js'
@@ -115,6 +118,20 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const q = db
       .from('employees AS e')
       .leftJoin('departments AS d', 'd.department_id', 'e.department_id')
+      // Posición: se descarta el join si la posición está soft-deleted (el nombre
+      // queda NULL en lugar de exponer una posición eliminada).
+      .leftJoin('positions AS p', (join) => {
+        join.on('p.position_id', 'e.position_id').andOnNull('p.position_deleted_at')
+      })
+      .leftJoin('business_units AS bu', 'bu.business_unit_id', 'e.business_unit_id')
+      .leftJoin('employee_branch_offices AS ebo', (join) => {
+        join
+          .on('ebo.employee_id', 'e.employee_id')
+          .andOnVal('ebo.employee_branch_office_active', 1)
+      })
+      .leftJoin('branch_offices AS bo', (join) => {
+        join.on('bo.branch_office_id', 'ebo.branch_office_id').andOnNull('bo.branch_office_deleted_at')
+      })
       .whereNull('e.employee_deleted_at')
       // Excluir empleados discriminados de asistencia (employee_assist_discriminator=1):
       // el sistema viejo nunca les asigna status (siempre ''), así que no deben
@@ -142,33 +159,62 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       .select(
         'e.employee_id AS employee_id',
         'e.employee_code AS employee_code',
+        'e.employee_payroll_code AS employee_payroll_code',
         'e.employee_first_name AS employee_first_name',
         'e.employee_last_name AS employee_last_name',
         'e.employee_second_last_name AS employee_second_last_name',
+        'e.employee_photo AS employee_photo',
         'e.department_id AS department_id',
         'd.department_name AS department_name',
         'e.position_id AS position_id',
+        'p.position_name AS position_name',
         'e.business_unit_id AS business_unit_id',
-        'e.payroll_business_unit_id AS payroll_business_unit_id'
+        'bu.business_unit_name AS business_unit_name',
+        'e.payroll_business_unit_id AS payroll_business_unit_id',
+        'ebo.branch_office_id AS branch_office_id',
+        'bo.branch_office_name AS branch_office_name'
       )
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('e.employee_last_name', 'asc')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      employee: {
-        employeeId: Number(r.employee_id),
-        employeeCode: r.employee_code ?? null,
-        employeeFirstName: r.employee_first_name ?? null,
-        employeeLastName: r.employee_last_name ?? null,
-        employeeSecondLastName: r.employee_second_last_name ?? null,
-        departmentId: r.department_id !== null && r.department_id !== undefined ? Number(r.department_id) : null,
-        positionId: r.position_id !== null && r.position_id !== undefined ? Number(r.position_id) : null,
-        businessUnitId: Number(r.business_unit_id),
-        payrollBusinessUnitId: Number(r.payroll_business_unit_id),
-      },
-      departmentName: r.department_name ?? null,
-    }))
+    return rows.map((r: any) => {
+      const departmentId =
+        r.department_id !== null && r.department_id !== undefined ? Number(r.department_id) : null
+      const positionId =
+        r.position_id !== null && r.position_id !== undefined ? Number(r.position_id) : null
+      const businessUnitId = Number(r.business_unit_id)
+      const departmentName = r.department_name ?? null
+      const branchOfficeId =
+        r.branch_office_id !== null && r.branch_office_id !== undefined
+          ? Number(r.branch_office_id)
+          : null
+
+      return {
+        employee: {
+          employeeId: Number(r.employee_id),
+          employeeCode: r.employee_code ?? null,
+          employeePayrollCode: r.employee_payroll_code ?? null,
+          employeeFirstName: r.employee_first_name ?? null,
+          employeeLastName: r.employee_last_name ?? null,
+          employeeSecondLastName: r.employee_second_last_name ?? null,
+          employeePhoto: r.employee_photo ?? null,
+          departmentId,
+          positionId,
+          businessUnitId,
+          payrollBusinessUnitId: Number(r.payroll_business_unit_id),
+          branchOfficeId,
+          branchOfficeName: r.branch_office_name ?? null,
+          department: departmentId !== null ? { departmentId, departmentName } : null,
+          position:
+            positionId !== null
+              ? { positionId, positionName: r.position_name ?? null }
+              : null,
+          businessUnit: { businessUnitId, businessUnitName: r.business_unit_name ?? null },
+        },
+        departmentName,
+      }
+    })
   }
 
   /**
@@ -728,6 +774,118 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     if (diffMinutes > toleranceDelay) return 'delay'
     if (diffMinutes > 0) return 'tolerance'
     return 'ontime'
+  }
+
+  async getSitesByCompany(
+    companyId: number,
+    allowedBusinessUnitIds: number[],
+    branchOfficeIds?: number[]
+  ): Promise<CoverageSiteRef[]> {
+    if (allowedBusinessUnitIds.length === 0) return []
+
+    const q = db
+      .from('branch_offices AS bo')
+      .whereNull('bo.branch_office_deleted_at')
+      .where('bo.empresa_contratante_id', companyId)
+      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+
+    if (branchOfficeIds && branchOfficeIds.length > 0) {
+      q.whereIn('bo.branch_office_id', branchOfficeIds)
+    }
+
+    const rows = await q
+      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+      .orderBy('bo.branch_office_name', 'asc')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return rows.map((r: any) => ({
+      branchOfficeId: Number(r.branch_office_id),
+      branchOfficeName: String(r.branch_office_name ?? ''),
+    }))
+  }
+
+  async getShiftQuotasByBranchIds(branchOfficeIds: number[]): Promise<CoverageShiftQuotaRow[]> {
+    if (branchOfficeIds.length === 0) return []
+
+    const rows = await db
+      .from('branch_office_shift_quotas AS q')
+      .innerJoin('shifts AS s', 's.shift_id', 'q.shift_id')
+      .whereIn('q.branch_office_id', branchOfficeIds)
+      .whereNull('s.shift_deleted_at')
+      .where('s.shift_temp', 0)
+      .select(
+        'q.branch_office_id AS branch_office_id',
+        'q.shift_id AS shift_id',
+        's.shift_name AS shift_name',
+        'q.branch_office_shift_quota_required AS required',
+        'q.branch_office_shift_quota_minimum AS minimum'
+      )
+      .orderBy('q.branch_office_id', 'asc')
+      .orderBy('s.shift_name', 'asc')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return rows.map((r: any) => ({
+      branchOfficeId: Number(r.branch_office_id),
+      shiftId: Number(r.shift_id),
+      shiftName: String(r.shift_name ?? ''),
+      required: Number(r.required),
+      minimum: Number(r.minimum),
+    }))
+  }
+
+  async getActiveLoansForDay(
+    day: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<CoverageActiveLoanRow[]> {
+    if (allowedBusinessUnitIds.length === 0) return []
+
+    const rows = await db
+      .from('employee_temporary_assignments AS eta')
+      .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
+      .whereNull('e.employee_deleted_at')
+      .whereNull('eta.employee_temporary_assignment_deleted_at')
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
+      .where('eta.start_date', '<=', day)
+      .where('eta.end_date', '>=', day)
+      .where((query) => {
+        query.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', day)
+      })
+      .select(
+        'eta.employee_temporary_assignment_id AS assignment_id',
+        'eta.employee_id AS employee_id',
+        'eta.source_branch_id AS source_branch_id',
+        'eta.target_branch_id AS target_branch_id',
+        'eta.destination_shift_id AS destination_shift_id',
+        'eta.reason AS reason'
+      )
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return rows.map((r: any) => ({
+      assignmentId: Number(r.assignment_id),
+      employeeId: Number(r.employee_id),
+      sourceBranchId: Number(r.source_branch_id),
+      targetBranchId: Number(r.target_branch_id),
+      destinationShiftId: r.destination_shift_id === null ? null : Number(r.destination_shift_id),
+      reason: typeof r.reason === 'string' ? r.reason : null,
+    }))
+  }
+
+  async getBranchOfficeNamesByIds(branchOfficeIds: number[]): Promise<Map<number, string>> {
+    const uniqueIds = [...new Set(branchOfficeIds.filter((id) => id > 0))]
+    if (uniqueIds.length === 0) return new Map()
+
+    const rows = await db
+      .from('branch_offices AS bo')
+      .whereIn('bo.branch_office_id', uniqueIds)
+      .whereNull('bo.branch_office_deleted_at')
+      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+
+    const names = new Map<number, string>()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of rows as any[]) {
+      names.set(Number(r.branch_office_id), String(r.branch_office_name ?? ''))
+    }
+    return names
   }
 }
 

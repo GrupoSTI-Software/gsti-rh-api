@@ -3,7 +3,8 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
-import RegulationClause from './regulation_clause.js'
+import RegulationClause from '#models/regulation_clause'
+import SystemFeature from '#models/system_feature'
 
 /**
  * @swagger
@@ -12,9 +13,11 @@ import RegulationClause from './regulation_clause.js'
  *     RegulationClauseFeature:
  *       type: object
  *       description: >
- *         Relación entre un numeral regulatorio y una feature del producto Valanserh.
- *         Permite trazar qué funcionalidades cubren cada obligación normativa
- *         y en qué estado de desarrollo se encuentran.
+ *         Vínculo entre un numeral regulatorio y una funcionalidad del producto (system_feature).
+ *         Permite derivar automáticamente la cobertura normativa de cada numeral sin
+ *         mantenimiento manual de porcentajes. El campo coverage indica si la funcionalidad
+ *         cubre el numeral de forma total o parcial; note_key apunta a un texto i18n
+ *         opcional con aclaraciones sobre la cobertura.
  *       properties:
  *         regulationClauseFeatureId:
  *           type: integer
@@ -22,24 +25,18 @@ import RegulationClause from './regulation_clause.js'
  *         regulationClauseId:
  *           type: integer
  *           description: FK hacia el numeral regulatorio cubierto
- *         regulationClauseFeatureSlug:
+ *         systemFeatureId:
+ *           type: integer
+ *           description: FK hacia la funcionalidad del producto que da cobertura
+ *         regulationClauseFeatureCoverage:
  *           type: string
- *           description: Identificador textual de la feature (p. ej. "encuesta-factores-riesgo")
- *         regulationClauseFeatureModule:
- *           type: string
- *           description: Módulo del producto al que pertenece la feature (p. ej. "nom035")
- *         regulationClauseFeatureStatus:
- *           type: string
- *           enum: [planeado, en_desarrollo, disponible, no_aplica]
- *           description: Estado de disponibilidad de la feature en el producto
- *         regulationClauseFeatureNotes:
+ *           enum: [total, parcial]
+ *           nullable: true
+ *           description: Grado de cobertura que la funcionalidad otorga al numeral
+ *         regulationClauseFeatureNoteKey:
  *           type: string
  *           nullable: true
- *           description: Notas adicionales sobre la cobertura o limitaciones
- *         regulationClauseFeatureAvailableSince:
- *           type: string
- *           nullable: true
- *           description: Versión del producto desde la que está disponible (p. ej. "2.4.0")
+ *           description: Clave i18n para notas aclaratorias sobre la cobertura (máx 150 chars)
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -83,6 +80,26 @@ export default class RegulationClauseFeature extends compose(BaseModel, SoftDele
   @column()
   declare regulationClauseFeatureAvailableSince: string | null
 
+  /** FK hacia la funcionalidad del producto que otorga cobertura al numeral. */
+  @column()
+  declare systemFeatureId: number
+
+  /**
+   * Grado de cobertura que la funcionalidad otorga al numeral.
+   * - total: la funcionalidad cubre íntegramente la obligación del numeral.
+   * - parcial: la funcionalidad cubre solo parte de la obligación.
+   * - null: aún no evaluado o no aplica una distinción de grado.
+   */
+  @column()
+  declare regulationClauseFeatureCoverage: 'total' | 'parcial' | null
+
+  /**
+   * Clave i18n para notas aclaratorias sobre la cobertura o sus limitaciones.
+   * Apunta a resources/lang/{es,en}.json. Máximo 150 caracteres.
+   */
+  @column()
+  declare regulationClauseFeatureNoteKey: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -92,9 +109,15 @@ export default class RegulationClauseFeature extends compose(BaseModel, SoftDele
   @column.dateTime()
   declare deletedAt: DateTime | null
 
-  /** Numeral regulatorio al que pertenece esta cobertura de feature. */
+  /** Numeral regulatorio al que pertenece este vínculo de cobertura. */
   @belongsTo(() => RegulationClause, {
     foreignKey: 'regulationClauseId',
   })
   declare regulationClause: BelongsTo<typeof RegulationClause>
+
+  /** Funcionalidad del producto que otorga cobertura a este numeral. */
+  @belongsTo(() => SystemFeature, {
+    foreignKey: 'systemFeatureId',
+  })
+  declare systemFeature: BelongsTo<typeof SystemFeature>
 }

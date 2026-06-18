@@ -485,6 +485,12 @@ export default class extends BaseSeeder {
         systemModuleId: 7
       },
       {
+        systemPermissionId: 169,
+        systemPermissionName: 'Shift coverage',
+        systemPermissionSlug: 'shift-coverage',
+        systemModuleId: 7
+      },
+      {
         systemPermissionId: 127,
         systemPermissionName: 'Acceder',
         systemPermissionSlug: 'read',
@@ -657,7 +663,37 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Eliminar',
         systemPermissionSlug: 'delete',
         systemModuleId: 37
-      }
+      },
+      {
+        systemPermissionId: 156,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 157,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 158,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 159,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 166,
+        systemPermissionName: 'Gestionar',
+        systemPermissionSlug: 'gestion',
+        systemModuleId: 38
+      },
     ]
 
     for (const systemPermission of systemPermissions) {

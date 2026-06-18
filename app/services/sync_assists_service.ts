@@ -32,6 +32,7 @@ import BusinessUnit from '#models/business_unit'
 import DepartmentService from './department_service.js'
 import { I18n } from '@adonisjs/i18n'
 import EmployeeService from './employee_service.js'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 
 /**
  * Servicio para la sincronización y procesamiento de asistencias de empleados.
@@ -1060,6 +1061,27 @@ export default class SyncAssistsService {
       employee
     )
 
+    /**
+     * Préstamos temporales que intersectan el periodo del calendario (mismas fechas que `date` / `date-end`).
+     * El BO usa `targetBranchId` día a día: si `startDate <= día <= endDate`, la sucursal efectiva es destino;
+     * si no hay préstamo en el arreglo, se usa la sucursal habitual del empleado (sin regresión).
+     */
+    let temporaryAssignments: Awaited<
+      ReturnType<typeof EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod>
+    > = []
+    if (bodyParams.employeeID && bodyParams.date && bodyParams.dateEnd) {
+      const periodStart = DateTime.fromISO(bodyParams.date, { zone: 'UTC-6' })
+        .startOf('day')
+        .toFormat('yyyy-MM-dd')
+      const periodEnd = DateTime.fromISO(bodyParams.dateEnd, { zone: 'UTC-6' })
+        .startOf('day')
+        .toFormat('yyyy-MM-dd')
+      temporaryAssignments = await EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod(
+        bodyParams.employeeID,
+        periodStart,
+        periodEnd
+      )
+    }
 
     return {
       status: 200,
@@ -1068,6 +1090,7 @@ export default class SyncAssistsService {
       message: this.t('resources_were_found_successfully'),
       data: {
         employeeCalendar,
+        temporaryAssignments,
       },
     }
   }
@@ -2735,13 +2758,12 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  async syncronizeAssistAllEmployeesCalendar(dateStart: string, dateEnd: string) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
+  async syncronizeAssistAllEmployeesCalendar(dateStart: string, dateEnd: string, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
     const departmentService = new DepartmentService(this.i18n as I18n)
     const employeeService = new EmployeeService(this.i18n as I18n)
@@ -2768,7 +2790,8 @@ export default class SyncAssistsService {
             onlyPayroll: false,
             userResponsibleId: 0,
           },
-          [departmentId]
+          [departmentId],
+          allowedBusinessUnitIds
         )
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {

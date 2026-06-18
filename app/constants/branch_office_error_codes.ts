@@ -5,12 +5,14 @@
 export const BRANCH_OFFICE_ERROR_CODES = {
   /** Parámetros de query o body inválidos (Vine) */
   VAL_INPUT: 'BRCH.VAL.001',
-  /** Sucursal inexistente, eliminada o fuera del alcance SYSTEM_BUSINESS */
+  /** Sucursal inexistente, eliminada o fuera del scope del usuario autenticado */
   NOT_FOUND: 'BRCH.NOT.001',
-  /** SYSTEM_BUSINESS vacío o sin slugs válidos al crear/editar unidad */
+  /** El usuario no tiene unidades de negocio accesibles en su scope */
   CFG_SYSTEM_BUSINESS: 'BRCH.CFG.001',
-  /** businessUnitId no existe, inactiva o su slug no está en SYSTEM_BUSINESS */
+  /** businessUnitId no pertenece al scope de unidades de negocio del usuario */
   BU_NOT_ALLOWED: 'BRCH.BU.001',
+  /** Sucursal ya ligada a otra empresa contratante */
+  ALREADY_LINKED: 'BRCH.CONFLICT.LINK.001',
   /** Error no tipado en el controlador (revisar logs) */
   SYS_UNHANDLED: 'BRCH.SYS.001',
 } as const
