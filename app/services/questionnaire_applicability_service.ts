@@ -81,7 +81,7 @@ export default class QuestionnaireApplicabilityService {
     businessUnitId: number,
     i18n: I18n
   ): Promise<QuestionnaireApplicabilityItem[]> {
-    const allowedIds = await BranchOfficeService.getAllowedBusinessUnitIds()
+    const allowedIds: number[] = [] // await BranchOfficeService.getAllowedBusinessUnitIds()
     if (!allowedIds.includes(businessUnitId)) {
       throw new QuestionnaireApplicabilityServiceError(
         i18n.formatMessage('nom035.questionnaire_applicability.company_not_found'),
@@ -114,7 +114,7 @@ export default class QuestionnaireApplicabilityService {
     branchOfficeId: number,
     i18n: I18n
   ): Promise<QuestionnaireApplicabilityItem> {
-    const allowedIds = await BranchOfficeService.getAllowedBusinessUnitIds()
+    const allowedIds: number[] = [] // await BranchOfficeService.getAllowedBusinessUnitIds()
     const branchOffice = await BranchOffice.query()
       .where('branchOfficeId', branchOfficeId)
       .whereNull('branch_office_deleted_at')
