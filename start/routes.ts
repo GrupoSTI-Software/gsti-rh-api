@@ -130,6 +130,7 @@ import '#modules/working-time-rules/effective/effective.routes'
 import '#modules/working-time-rules/federal/federal.routes'
 import '#modules/onboarding/catalog/catalog.routes'
 import '#modules/onboarding/state/state.routes'
+import '#modules/consent/acceptance/acceptance.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')

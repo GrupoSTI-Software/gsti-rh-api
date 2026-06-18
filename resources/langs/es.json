@@ -1526,5 +1526,15 @@
     "step_completed_success": "Paso completado correctamente.",
     "step_skipped_success": "Paso omitido correctamente.",
     "status_set_success": "Status de onboarding actualizado correctamente."
+  },
+  "consent": {
+    "errors": {
+      "version-de-consentimiento-invalida": {
+        "title": "Versión de consentimiento inválida",
+        "detail": "La versión enviada no coincide con la versión vigente de los documentos legales."
+      }
+    },
+    "status_success": "Estado de consentimiento obtenido correctamente.",
+    "record_success": "Consentimiento registrado correctamente."
   }
 }

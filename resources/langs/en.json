@@ -1523,5 +1523,15 @@
     "step_completed_success": "Step completed successfully.",
     "step_skipped_success": "Step skipped successfully.",
     "status_set_success": "Onboarding status updated successfully."
+  },
+  "consent": {
+    "errors": {
+      "version-de-consentimiento-invalida": {
+        "title": "Invalid consent version",
+        "detail": "The version sent does not match the current version of the legal documents."
+      }
+    },
+    "status_success": "Consent status retrieved successfully.",
+    "record_success": "Consent recorded successfully."
   }
 }
