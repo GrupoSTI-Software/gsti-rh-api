@@ -5,7 +5,11 @@
     "outDir": "./build",
     "baseUrl": "./",
     "paths": {
-      "#constants/*": ["./app/constants/*"]
+      "#models/*": ["./app/models/*"],
+      "#constants/*": ["./app/constants/*"],
+      "#utils/*": ["./app/utils/*"],
+      "#mixins/*": ["./app/mixins/*"],
+      "#modules/*": ["./app/modules/*"]
     }
   }
 }

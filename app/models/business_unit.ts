@@ -1,7 +1,10 @@
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, column, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import type { HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
+import User from './user.js'
+import RepseRegistration from './repse_registration.js'
 
 /**
  * @swagger
@@ -57,4 +60,29 @@ export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
 
   @column.dateTime({ columnName: 'business_unit_deleted_at' })
   declare deletedAt: DateTime | null
+
+  /**
+   * Usuarios con acceso a esta unidad de negocio (relación inversa de User.businessUnits).
+   */
+  @manyToMany(() => User, {
+    pivotTable: 'business_unit_users',
+    localKey: 'businessUnitId',
+    pivotForeignKey: 'business_unit_id',
+    relatedKey: 'userId',
+    pivotRelatedForeignKey: 'user_id',
+    pivotTimestamps: {
+      createdAt: 'business_unit_user_created_at',
+      updatedAt: 'business_unit_user_updated_at',
+    },
+  })
+  declare users: ManyToMany<typeof User>
+
+  /**
+   * Repse asociado a la empresa (catálogo del módulo Repse).
+   */
+  @hasMany(() => RepseRegistration, {
+    foreignKey: 'businessUnitId',
+    localKey: 'businessUnitId',
+  })
+  declare repseRegistrations: HasMany<typeof RepseRegistration>
 }

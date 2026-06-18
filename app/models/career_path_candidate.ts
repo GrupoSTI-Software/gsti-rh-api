@@ -1,11 +1,14 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Position from './position.js'
 import BusinessUnit from './business_unit.js'
 import CareerPathOverrideReason from './career_path_override_reason.js'
+import User from './user.js'
+import CareerPathCandidateStatusHistory from './career_path_candidate_status_history.js'
+import Employee from './employee.js'
 /**
  * @swagger
  * components:
@@ -136,8 +139,8 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
   @column()
   declare reviewedBy: number | null
 
-  @column.dateTime()
-  declare careerPathCandidateReviewedAt: DateTime
+  @column()
+  declare careerPathCandidateReviewedAt: DateTime | null | string
 
   @column()
   declare careerPathCandidateRejectionReason: string
@@ -176,4 +179,36 @@ export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes)
     foreignKey: 'careerPathOverrideReasonId',
   })
   declare careerPathOverrideReason: BelongsTo<typeof CareerPathOverrideReason>
+
+  @belongsTo(() => User, {
+    foreignKey: 'proposedBy',
+    onQuery: (query) => {
+      query.preload('person')
+    },
+  })
+  declare proposedByUser: BelongsTo<typeof User>
+
+  @belongsTo(() => User, {
+    foreignKey: 'reviewedBy',
+  })
+  declare reviewedByUser: BelongsTo<typeof User>
+
+  @belongsTo(() => Employee, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.preload('person')
+      query.preload('position')
+    },
+  })
+  declare employee: BelongsTo<typeof Employee>
+
+  @hasMany(() => CareerPathCandidateStatusHistory, {
+    foreignKey: 'careerPathCandidateId',
+    onQuery: (query) => {
+      query.preload('changedByUser', (q) => {
+        q.preload('person')
+      })
+    },
+  })
+  declare careerPathCandidateStatusHistories: HasMany<typeof CareerPathCandidateStatusHistory>
 }

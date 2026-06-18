@@ -11,7 +11,6 @@ import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeService from './employee_service.js'
 import { DepartmentShiftEmployeeWarningInterface } from '../interfaces/department_shift_employee_warning_interface.js'
 import EmployeeShift from '#models/employee_shift'
-import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import Employee from '#models/employee'
@@ -23,6 +22,9 @@ import type {
   HasManyQueryBuilderContract,
   RelationQueryBuilderContract,
 } from '@adonisjs/lucid/types/relations'
+import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
+import { applyDepartmentNameOrAliasesSearch } from '#utils/org_alias_search_sql'
+import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
 
 export default class DepartmentService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -33,26 +35,19 @@ export default class DepartmentService {
     this.i18n = i18n
   }
 
-  async index(departmentsList: Array<number>, filters?: DepartmentIndexFilterInterface) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async index(departmentsList: Array<number>, filters?: DepartmentIndexFilterInterface, allowedBusinessUnitIds: number[] = []) {
+    if (allowedBusinessUnitIds.length === 0) return []
     const departments = await Department.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereIn('departmentId', departmentsList)
       .where('departmentId', '<>', 999)
       .if(filters?.departmentName, (query) => {
-        query.whereILike('departmentName', `%${filters?.departmentName}%`)
+        applyDepartmentNameOrAliasesSearch(query, filters?.departmentName)
       })
+      // `only-parents=true` limita a departamentos raíz; sin el flag se devuelven
+      // todos (raíces incluidas) para poder elegirlos como padre en los selectores.
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
-      })
-      .if(!filters?.onlyParents, (query) => {
-        query.whereNotNull('parentDepartmentId')
       })
       .orderBy('departmentName', 'asc')
 
@@ -61,22 +56,16 @@ export default class DepartmentService {
 
   async getOnlyWithEmployees(
     departmentsList: Array<number>,
-    filters?: DepartmentIndexFilterInterface
+    filters?: DepartmentIndexFilterInterface,
+    allowedBusinessUnitIds: number[] = []
   ) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+    if (allowedBusinessUnitIds.length === 0) return []
     const departments = await Department.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereIn('departmentId', departmentsList)
       .where('departmentId', '<>', 999)
       .if(filters?.departmentName, (query) => {
-        query.whereILike('departmentName', `%${filters?.departmentName}%`)
+        applyDepartmentNameOrAliasesSearch(query, filters?.departmentName)
       })
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
@@ -90,23 +79,15 @@ export default class DepartmentService {
     return departments
   }
 
-  async buildOrganization(/* departmentList: number[] */) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async buildOrganization(businessUnitId: number) {
 
     const departmentsQuery = Department.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .where('businessUnitId', businessUnitId)
       .where('departmentId', '<>', 999)
       .whereNull('parentDepartmentId')
       .orderBy('departmentName', 'asc')
     this.preloadDepartmentHierarchy(departmentsQuery)
     const departments = await departmentsQuery
-
     // const departments = await Department.query()
     //   .whereIn('businessUnitId', businessUnitsList)
     //   .whereIn('departmentId', departmentList)
@@ -178,13 +159,6 @@ export default class DepartmentService {
   }
 
   async create(department: Department) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
-
     const newDepartment = new Department()
     newDepartment.departmentCode = department.departmentCode
     newDepartment.departmentName = department.departmentName
@@ -193,7 +167,15 @@ export default class DepartmentService {
     newDepartment.departmentActive = department.departmentActive
     newDepartment.parentDepartmentId = department.parentDepartmentId
     newDepartment.companyId = department.companyId
-    newDepartment.businessUnitId = businessUnits?.businessUnitId || 0
+    newDepartment.businessUnitId = department.businessUnitId
+
+    const prepared = prepareAliasesForPersistence(department.aliases ?? null)
+    newDepartment.aliases = prepared.display
+    await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+      businessUnitId: newDepartment.businessUnitId,
+      normalizedTokens: prepared.normalizedTokens,
+    })
+
     await newDepartment.save()
     return newDepartment
   }
@@ -206,6 +188,17 @@ export default class DepartmentService {
     currentDepartment.departmentActive = department.departmentActive
     currentDepartment.parentDepartmentId = department.parentDepartmentId
     currentDepartment.companyId = department.companyId
+
+    if (department.aliases !== undefined) {
+      const prepared = prepareAliasesForPersistence(department.aliases ?? null)
+      await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+        businessUnitId: currentDepartment.businessUnitId,
+        normalizedTokens: prepared.normalizedTokens,
+        excludeDepartmentId: currentDepartment.departmentId,
+      })
+      currentDepartment.aliases = prepared.display
+    }
+
     await currentDepartment.save()
     return currentDepartment
   }
@@ -261,6 +254,11 @@ export default class DepartmentService {
       this.preloadDepartmentHierarchy(childQuery)
     })
     query.preload('departmentPositions', (departmentPositionQuery) => {
+      departmentPositionQuery
+        .whereNull('department_position_deleted_at')
+        .whereHas('position', (pq) => {
+          pq.whereNull('position_deleted_at').whereNull('parent_position_id')
+        })
       departmentPositionQuery.preload('position', (positionQuery) => {
         this.preloadPositionHierarchy(positionQuery)
       })
@@ -278,6 +276,7 @@ export default class DepartmentService {
       employeeQuery.preload('person')
     })
     query.preload('positions', (childPositionQuery) => {
+      childPositionQuery.whereNull('position_deleted_at').orderBy('positionName', 'asc')
       this.preloadPositionHierarchy(childPositionQuery)
     })
   }
@@ -475,19 +474,12 @@ export default class DepartmentService {
     }
   }
 
-  async getPositions(departmentId: number, userResponsibleId?: number | null) {
+  async getPositions(departmentId: number, userResponsibleId?: number | null, allowedBusinessUnitIds: number[] = []) {
     const positionList: number[] = []
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       if (userResponsibleId &&
         typeof userResponsibleId && userResponsibleId > 0) {
           const employees = await Employee.query()
-          .whereIn('businessUnitId', businessUnitsList)
+          .if(allowedBusinessUnitIds.length > 0, (q) => q.whereIn('businessUnitId', allowedBusinessUnitIds))
           .if(userResponsibleId &&
             typeof userResponsibleId && userResponsibleId > 0,
             (query) => {
@@ -532,8 +524,10 @@ export default class DepartmentService {
    */
   async findDepartmentByName(departmentName: string): Promise<Department | null> {
     return await Department.query()
-      .where('department_name', 'like', `%${departmentName}%`)
       .whereNull('department_deleted_at')
+      .where((sub) => {
+        applyDepartmentNameOrAliasesSearch(sub, departmentName)
+      })
       .first()
   }
 
@@ -687,16 +681,15 @@ export default class DepartmentService {
    * 
    * @returns Objeto con el resultado de la operación y los departamentos creados
    */
-  async createDepartmentDemo() {
+  async createDepartmentDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
+      const query = BusinessUnit.query().where('business_unit_active', 1)
+      if (allowedBusinessUnitIds.length > 0) {
+        query.whereIn('business_unit_id', allowedBusinessUnitIds)
+      }
+      const firstBusinessUnit = await query.first()
 
-      const businessUnitId = businessUnits?.businessUnitId || 0
+      const businessUnitId = firstBusinessUnit?.businessUnitId || 0
       const createdDepartments: { [key: string]: Department } = {}
 
       // Array de departamentos a crear (ordenados para que los padres se creen antes que los hijos)

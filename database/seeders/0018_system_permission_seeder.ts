@@ -485,6 +485,12 @@ export default class extends BaseSeeder {
         systemModuleId: 7
       },
       {
+        systemPermissionId: 169,
+        systemPermissionName: 'Shift coverage',
+        systemPermissionSlug: 'shift-coverage',
+        systemModuleId: 7
+      },
+      {
         systemPermissionId: 127,
         systemPermissionName: 'Acceder',
         systemPermissionSlug: 'read',
@@ -609,7 +615,85 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Delete',
         systemPermissionSlug: 'delete',
         systemModuleId: 35
-      }
+      },
+      {
+        systemPermissionId: 148,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 36
+      },
+      {
+        systemPermissionId: 149,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 36
+      },
+      {
+        systemPermissionId: 150,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 36
+      },
+      {
+        systemPermissionId: 151,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 36
+      },
+      {
+        systemPermissionId: 152,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 153,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 154,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 155,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 37
+      },
+      {
+        systemPermissionId: 156,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 157,
+        systemPermissionName: 'Crear',
+        systemPermissionSlug: 'create',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 158,
+        systemPermissionName: 'Editar',
+        systemPermissionSlug: 'update',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 159,
+        systemPermissionName: 'Eliminar',
+        systemPermissionSlug: 'delete',
+        systemModuleId: 38
+      },
+      {
+        systemPermissionId: 166,
+        systemPermissionName: 'Gestionar',
+        systemPermissionSlug: 'gestion',
+        systemModuleId: 38
+      },
     ]
 
     for (const systemPermission of systemPermissions) {

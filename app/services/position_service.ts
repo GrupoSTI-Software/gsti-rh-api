@@ -6,7 +6,6 @@ import EmployeeContract from '#models/employee_contract'
 import EmployeeShift from '#models/employee_shift'
 import Position from '#models/position'
 import Shift from '#models/shift'
-import env from '#start/env'
 import { I18n } from '@adonisjs/i18n'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
 import { PositionShiftEmployeeWarningInterface } from '../interfaces/position_shift_employee_warning_interface.js'
@@ -20,6 +19,9 @@ import SystemSetting from '#models/system_setting'
 import axios from 'axios'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
+import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
+import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
 
 export default class PositionService {
 
@@ -61,12 +63,6 @@ export default class PositionService {
   }
 
   async create(position: Position) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnit = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
 
     const newPosition = new Position()
     newPosition.positionCode = position.positionCode
@@ -81,12 +77,19 @@ export default class PositionService {
     newPosition.positionIsDefault = position.positionIsDefault
     newPosition.positionActive = position.positionActive
     newPosition.parentPositionId = position.parentPositionId
-    newPosition.businessUnitId = businessUnit?.businessUnitId || 0
+    newPosition.businessUnitId = position.businessUnitId
     newPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
     newPosition.positionMinStaff = position.positionMinStaff ?? null
     newPosition.positionIdealStaff = position.positionIdealStaff ?? null
     newPosition.positionMaxStaff = position.positionMaxStaff ?? null
     newPosition.positionMinActiveStaffPerShift = position.positionMinActiveStaffPerShift ?? null
+
+    const prepared = prepareAliasesForPersistence(position.aliases ?? null)
+    newPosition.aliases = prepared.display
+    await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+      businessUnitId: newPosition.businessUnitId,
+      normalizedTokens: prepared.normalizedTokens,
+    })
 
     await newPosition.save()
     await newPosition.load('parentPosition')
@@ -122,6 +125,17 @@ export default class PositionService {
     if (position.positionMinActiveStaffPerShift !== undefined) {
       currentPosition.positionMinActiveStaffPerShift = position.positionMinActiveStaffPerShift
     }
+
+    if (position.aliases !== undefined) {
+      const prepared = prepareAliasesForPersistence(position.aliases ?? null)
+      await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
+        businessUnitId: currentPosition.businessUnitId,
+        normalizedTokens: prepared.normalizedTokens,
+        excludePositionId: currentPosition.positionId,
+      })
+      currentPosition.aliases = prepared.display
+    }
+
     await currentPosition.save()
     await currentPosition.load('parentPosition')
     await currentPosition.load('subPositions')
@@ -209,17 +223,11 @@ export default class PositionService {
     }
   }
 
-  async show(positionId: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async show(positionId: number, allowedBusinessUnitIds: number[] = []) {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('parentPosition')
@@ -229,8 +237,12 @@ export default class PositionService {
     return position ? position : null
   }
 
-  async get() {
-    const positions = await Position.query().whereNull('position_deleted_at')
+  async get(search?: string | null) {
+    const positionsQuery = Position.query().whereNull('position_deleted_at')
+    if (search?.trim()) {
+      applyPositionNameOrAliasesSearch(positionsQuery, search)
+    }
+    const positions = await positionsQuery
     return positions
   }
 
@@ -369,13 +381,13 @@ export default class PositionService {
 
   /**
    * Elimina todos los puestos existentes y sus relaciones en otras tablas
-   * 
+   *
    * Esta función:
    * 1. Elimina todas las relaciones en department_position
    * 2. Establece position_id en null para todos los empleados
    * 3. Establece position_id en null para todos los contratos de empleados
    * 4. Elimina todos los puestos (incluyendo relaciones padre-hijo)
-   * 
+   *
    * @returns Objeto con el resultado de la operación
    */
   async deleteAllPositions() {
@@ -413,7 +425,7 @@ export default class PositionService {
       // 3. Eliminar todos los contratos de empleados
       await EmployeeContract.query()
         .delete()
-      
+
       // 4. Primero, eliminar todos los puestos que tengan padre
       await Position.query()
         .whereNotNull('parent_position_id')
@@ -450,15 +462,17 @@ export default class PositionService {
     }
   }
 
-   /**
-   * Busca una posición por su nombre
-   * @param positionName - Nombre de la posición a buscar
-   * @returns Posición encontrada o null
-   */
-   async findPositionByName(positionName: string): Promise<Position | null> {
+  /**
+  * Busca una posición por su nombre
+  * @param positionName - Nombre de la posición a buscar
+  * @returns Posición encontrada o null
+  */
+  async findPositionByName(positionName: string): Promise<Position | null> {
     const position = await Position.query()
-      .where('position_alias', positionName)
       .whereNull('position_deleted_at')
+      .where((sub) => {
+        applyPositionNameOrAliasesSearch(sub, positionName)
+      })
       .first()
     return position || null
   }
@@ -518,7 +532,7 @@ export default class PositionService {
 
   /**
    * Crea las posiciones demo relacionadas a los departamentos según el organigrama organizacional
-   * 
+   *
    * Estructura de posiciones por departamento:
    * - Dirección General: Director general, Asistente de dirección
    * - Administración: Gerente administrativo
@@ -532,19 +546,15 @@ export default class PositionService {
    * - Producción: Supervisor de producción, Operador de producción
    * - Marketing: Supervisor de marketing, Content Manager, Especialista en Relaciones Públicas
    * - Investigación de Mercados: Analista de mercado
-   * 
+   *
    * @returns Objeto con el resultado de la operación y las posiciones creadas
    */
-  async createPositionDemo() {
+  async createPositionDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
-
-      const businessUnitId = businessUnits?.businessUnitId || 0
+      const query = BusinessUnit.query().where('business_unit_active', 1)
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+      const firstActiveUnit = await query.first()
+      const businessUnitId = firstActiveUnit?.businessUnitId || 0
       const createdPositions: { [key: string]: Position } = {}
       const createdRelations: Array<{ department: string; position: string }> = []
 
@@ -565,7 +575,7 @@ export default class PositionService {
         'Investigación de Mercados',
       ]
       const departmentService = new DepartmentService(this.i18n)
-      for await(const deptName of departmentNames) {
+      for await (const deptName of departmentNames) {
         departmentsMap[deptName] = await departmentService.findDepartmentByName(deptName)
       }
 
@@ -605,7 +615,7 @@ export default class PositionService {
           departmentName: 'Administración',
           positionId: undefined,
         },
-        {   
+        {
           key: 'Gerente de recursos humanos',
           code: 'POS-GRH-001',
           name: '(P101) Gerente de recursos humanos',
@@ -835,7 +845,7 @@ export default class PositionService {
           createdRelations.push({ department: 'Sin departamento', position: posData.name })
         }
       }
-      
+
 
       // Preparar resumen
       const summary = Object.keys(createdPositions).map((key) => ({
@@ -870,23 +880,46 @@ export default class PositionService {
   }
 
 
-  async getPdf(positionId: number): Promise<Buffer | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+  /**
+   * Genera un documento PDF con la descripción y perfil completo de un puesto.
+   *
+   * Construye un PDF en formato carta (Letter) con encabezado corporativo,
+   * objetivo general, KPIs, perfil del puesto, perfil de evaluación
+   * (psicométrico), competencias funcionales/técnicas, equipo asignado y
+   * cuadro de firmas (Elaboró/Validó). El método utiliza `pdfkit` y aplica un
+   * parser HTML interno para soportar texto enriquecido proveniente del editor
+   * Quill (negritas, cursivas, subrayado, listas ordenadas y no ordenadas con
+   * indentación `ql-indent-N`).
+   *
+   * Reglas y consideraciones:
+   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
+   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - Solo se consideran puestos no eliminados (`position_deleted_at` nulo) y
+   *   sus relaciones activas (funciones específicas, KPIs, competencias y
+   *   perfiles de evaluación).
+   * - Si existe un logo configurado en `SystemSetting.systemSettingLogo`, se
+   *   descarga vía HTTP (timeout 8s); si la descarga falla, el documento se
+   *   genera sin logo (no es un error fatal).
+   * - El renderizado de secciones usa `ensureSpace()` para forzar saltos de
+   *   página cuando no cabe el bloque siguiente y `drawPageHeader()` se
+   *   registra en el evento `pageAdded` para reimprimir el encabezado.
+   * - Los perfiles de evaluación se agrupan por nombre de prueba y se
+   *   renderizan en grupos de hasta 3 columnas lado a lado.
+   *
+   * @param positionId Identificador único del puesto.
+   * @returns Promesa con el `Buffer` del PDF generado, o `null` si el puesto
+   *          no existe o no pertenece a una unidad de negocio permitida.
+   */
+  async getPdf(positionId: number, allowedBusinessUnitIds: number[] = []): Promise<Buffer | null> {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('specificFunctions', (q) => q.whereNull('position_specific_function_deleted_at'))
       .preload('kpis', (q) => q.whereNull('position_kpi_deleted_at'))
-      .preload('competencies', (q) => {
-        q.whereNull('position_competency_deleted_at').preload('weight')
-      })
+      .preload('positionBusinessUnitCompetencyLevels')
       .preload('assessmentProfiles', (q) => {
         q.preload('assessmentTemplateDimension', (dq) => {
           dq.preload('assessmentTemplate')
@@ -1004,9 +1037,9 @@ export default class PositionService {
           } else {
             switch (tl) {
               case 'b': case 'strong': bold = !close; break
-              case 'i': case 'em':    italic = !close; break
-              case 'u': case 'a':     underline = !close; break
-              case 'br':              flush(); break
+              case 'i': case 'em': italic = !close; break
+              case 'u': case 'a': underline = !close; break
+              case 'br': flush(); break
               case 'p': case 'div':
               case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
                 if (close) {
@@ -1078,9 +1111,9 @@ export default class PositionService {
             const isLast = si === block.spans.length - 1
             const font =
               span.bold && span.italic ? 'BoldItalic'
-              : span.bold ? 'Bold'
-              : span.italic ? 'Italic'
-              : 'Regular'
+                : span.bold ? 'Bold'
+                  : span.italic ? 'Italic'
+                    : 'Regular'
             const opts: PDFKit.Mixins.TextOptions = {
               width: iw,
               continued: !isLast,
@@ -1345,7 +1378,6 @@ export default class PositionService {
 
       doc.y = perfilY + perfilRowH
 
-      // ── PERFIL PSICOMÉTRICO ───────────────────────────────────────────────
       drawSectionHeader(t('profile_position.assessment_profile'))
 
       const profiles = position.assessmentProfiles ?? []
@@ -1365,10 +1397,12 @@ export default class PositionService {
             ?? 'Sin prueba'
           const dimensionLabel = (dimension as any)?.assessmentTemplateDimensionName ?? ''
           if (!testsMap.has(templateName)) testsMap.set(templateName, [])
+          // Para dimensiones `categorical_amb` (sin rango numérico) se asigna 0/0 al
+          // reporte numérico actual; el `expectedValue` no se renderiza en este PDF.
           testsMap.get(templateName)!.push({
             label: dimensionLabel,
-            min: profile.positionAssessmentProfileMinimumValue,
-            max: profile.positionAssessmentProfileMaximumValue,
+            min: profile.positionAssessmentProfileMinimumValue ?? 0,
+            max: profile.positionAssessmentProfileMaximumValue ?? 0,
           })
         }
 
@@ -1436,15 +1470,14 @@ export default class PositionService {
       }
 
       // ── Competencias ──────────────────────────────────────────────────────
-      if (position.competencies?.length) {
+      if (position.positionBusinessUnitCompetencyLevels?.length) {
         ensureSpace(90)
         drawSectionHeader(t('profile_position.competencies'))
-
-        const functionalCompetencies = position.competencies.filter(
-          (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
+        const transversalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+          (c) => c.competency?.competencyType === 'transversal'
         )
-        const technicalCompetencies = position.competencies.filter(
-          (c) => c.positionCompetencyType === 'technical'
+        const technicalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+          (c) => c.competency?.competencyType === 'technical'
         )
 
         const halfW = pageW / 2
@@ -1460,14 +1493,14 @@ export default class PositionService {
           .text(t('profile_position.technical'), 40 + halfW, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.y = competencySubHeaderY + 14
 
-        const numRows = Math.max(Math.ceil(functionalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
+        const numRows = Math.max(Math.ceil(transversalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
 
         for (let r = 0; r < numRows; r++) {
           const items = [
-            functionalCompetencies[r * 2]?.positionCompetencyName,
-            functionalCompetencies[r * 2 + 1]?.positionCompetencyName,
-            technicalCompetencies[r * 2]?.positionCompetencyName,
-            technicalCompetencies[r * 2 + 1]?.positionCompetencyName,
+            transversalCompetencies[r * 2]?.competency?.competencyName,
+            transversalCompetencies[r * 2 + 1]?.competency?.competencyName,
+            technicalCompetencies[r * 2]?.competency?.competencyName,
+            technicalCompetencies[r * 2 + 1]?.competency?.competencyName,
           ]
 
           const rowH = Math.max(
@@ -1580,24 +1613,46 @@ export default class PositionService {
     })
   }
 
-  async getExcel(positionId: number): Promise<Buffer | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+  /**
+   * Genera un libro Excel (XLSX) con la descripción y perfil completo de un puesto.
+   *
+   * Crea un workbook de `exceljs` con una sola hoja en orientación vertical
+   * carta. El layout utiliza 12 columnas (A-L) para mantener proporciones
+   * equivalentes a la versión PDF, con celdas combinadas (`mergeCells`) para
+   * armar el encabezado corporativo, los bloques de metadatos
+   * (Fecha de Emisión / Revisión / Dirección / Área-Cuenta), nombre del puesto,
+   * objetivo general, KPIs, perfil del puesto, perfiles de evaluación
+   * (psicométricos), competencias, equipo asignado y firmas.
+   *
+   * Reglas y consideraciones:
+   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
+   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - Solo se consideran puestos no eliminados y relaciones activas
+   *   (funciones específicas, KPIs, competencias y perfiles de evaluación).
+   * - Si existe logo en `SystemSetting`, se descarga (timeout 8s) y se inserta
+   *   como imagen anclada a las celdas A:B (filas 1-4). Detecta la extensión
+   *   automáticamente (png, jpeg o gif) por la URL.
+   * - El texto enriquecido HTML del objetivo general se convierte a `richText`
+   *   mediante `htmlToRichText`, soportando negritas, cursivas, subrayado,
+   *   listas ordenadas/desordenadas con indentación `ql-indent-N`.
+   * - Los perfiles de evaluación se agrupan por nombre de prueba y se
+   *   distribuyen en tercios A:D, E:H e I:L (hasta 3 pruebas por fila).
+   * - Las columnas 13 y 14 se ocultan al final para limpiar el área visible.
+   *
+   * @param positionId Identificador único del puesto.
+   * @returns Promesa con el `Buffer` del archivo XLSX generado, o `null` si el
+   *          puesto no existe o no pertenece a una unidad de negocio permitida.
+   */
+  async getExcel(positionId: number, allowedBusinessUnitIds: number[] = []): Promise<Buffer | null> {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('specificFunctions', (query) => query.whereNull('position_specific_function_deleted_at'))
       .preload('kpis', (query) => query.whereNull('position_kpi_deleted_at'))
-      .preload('competencies', (query) => {
-        query.whereNull('position_competency_deleted_at').preload('weight')
-      })
+      .preload('positionBusinessUnitCompetencyLevels')
       .preload('assessmentProfiles', (query) => {
         query.preload('assessmentTemplateDimension', (subQuery) => {
           subQuery.preload('assessmentTemplate')
@@ -1941,9 +1996,9 @@ export default class PositionService {
     sheet.mergeCells(`D${profileLabelsRow.number}:F${profileLabelsRow.number}`)
     sheet.mergeCells(`G${profileLabelsRow.number}:I${profileLabelsRow.number}`)
     sheet.mergeCells(`J${profileLabelsRow.number}:${LAST}${profileLabelsRow.number}`)
-    ;(['A', 'D', 'G', 'J'] as const).forEach((col) => {
-      styleCell(profileLabelsRow.getCell(col), { bold: true, size: 8 })
-    })
+      ; (['A', 'D', 'G', 'J'] as const).forEach((col) => {
+        styleCell(profileLabelsRow.getCell(col), { bold: true, size: 8 })
+      })
     profileLabelsRow.height = 16
 
     const profileValuesRow = sheet.addRow(['', '', '', '', '', '', '', '', '', '', '', ''])
@@ -1951,12 +2006,11 @@ export default class PositionService {
     sheet.mergeCells(`D${profileValuesRow.number}:F${profileValuesRow.number}`)
     sheet.mergeCells(`G${profileValuesRow.number}:I${profileValuesRow.number}`)
     sheet.mergeCells(`J${profileValuesRow.number}:${LAST}${profileValuesRow.number}`)
-    ;(['A', 'D', 'G', 'J'] as const).forEach((col) => {
-      styleCell(profileValuesRow.getCell(col), { size: 8, align: 'center' })
-    })
+      ; (['A', 'D', 'G', 'J'] as const).forEach((col) => {
+        styleCell(profileValuesRow.getCell(col), { size: 8, align: 'center' })
+      })
     profileValuesRow.height = 20
 
-    // ── Perfil psicométrico (hasta 3 tests lado a lado: A:D, E:H, I:L) ───────
     addSectionHeader(t('profile_position.assessment_profile'))
 
     const profiles = position.assessmentProfiles ?? []
@@ -1972,19 +2026,21 @@ export default class PositionService {
           'Sin prueba'
         const dimensionLabel = (dimension as any)?.assessmentTemplateDimensionName ?? ''
         if (!testsMap.has(templateName)) testsMap.set(templateName, [])
+        // Para dimensiones `categorical_amb` (sin rango numérico) se asigna 0/0 al
+        // reporte XLSX actual; el `expectedValue` no se renderiza en este reporte.
         testsMap.get(templateName)!.push({
           label: dimensionLabel,
-          min: profile.positionAssessmentProfileMinimumValue,
-          max: profile.positionAssessmentProfileMaximumValue,
+          min: profile.positionAssessmentProfileMinimumValue ?? 0,
+          max: profile.positionAssessmentProfileMaximumValue ?? 0,
         })
       }
 
       // Columnas de inicio de cada tercio (máximo 3 tests side by side)
       const tercioStart = ['A', 'E', 'I'] as const
-      const tercioEnd   = ['D', 'H', LAST] as const
-      const tercioMin   = ['C', 'G', 'K'] as const
-      const tercioMax   = ['D', 'H', LAST] as const
-      const tercioDim   = ['A', 'E', 'I'] as const
+      const tercioEnd = ['D', 'H', LAST] as const
+      const tercioMin = ['C', 'G', 'K'] as const
+      const tercioMax = ['D', 'H', LAST] as const
+      const tercioDim = ['A', 'E', 'I'] as const
       const tercioDimEnd = ['B', 'F', 'J'] as const
 
       const testEntries = Array.from(testsMap.entries())
@@ -2049,14 +2105,16 @@ export default class PositionService {
       }
     }
 
-    // ── Competencias (A:F funcionales, G:L técnicas) ─────────────────────────
-    if (position.competencies?.length) {
+    // ── Competencias (A:F transversales, G:L técnicas) ───────────────────────
+    if (position.positionBusinessUnitCompetencyLevels?.length) {
       addSectionHeader(t('profile_position.competencies'))
 
-      const functionalCompetencies = position.competencies.filter(
-        (c) => c.positionCompetencyType === 'functional' || c.positionCompetencyType === 'value'
+      const transversalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+        (c) => c.competency?.competencyType === 'transversal'
       )
-      const technicalCompetencies = position.competencies.filter((c) => c.positionCompetencyType === 'technical')
+      const technicalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+        (c) => c.competency?.competencyType === 'technical'
+      )
 
       const competencyHeaderRow = sheet.addRow([t('profile_position.functional'), '', '', '', '', '', t('profile_position.technical')])
       sheet.mergeCells(`A${competencyHeaderRow.number}:F${competencyHeaderRow.number}`)
@@ -2065,10 +2123,10 @@ export default class PositionService {
       styleCell(competencyHeaderRow.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
       competencyHeaderRow.height = 18
 
-      const numRows = Math.max(functionalCompetencies.length, technicalCompetencies.length, 1)
+      const numRows = Math.max(transversalCompetencies.length, technicalCompetencies.length, 1)
       for (let r = 0; r < numRows; r++) {
-        const fName = functionalCompetencies[r]?.positionCompetencyName ?? ''
-        const tName = technicalCompetencies[r]?.positionCompetencyName ?? ''
+        const fName = transversalCompetencies[r]?.competency?.competencyName ?? ''
+        const tName = technicalCompetencies[r]?.competency?.competencyName ?? ''
         const compRow = sheet.addRow([fName, '', '', '', '', '', tName])
         sheet.mergeCells(`A${compRow.number}:F${compRow.number}`)
         sheet.mergeCells(`G${compRow.number}:${LAST}${compRow.number}`)

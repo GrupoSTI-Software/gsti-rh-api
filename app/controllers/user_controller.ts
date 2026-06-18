@@ -19,6 +19,16 @@ import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
 import Person from '#models/person'
 import Employee from '#models/employee'
+import BusinessUnit from '#models/business_unit'
+import AuthTokenService from '#services/auth_token_service'
+import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_service'
+import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
+import i18nManager from '@adonisjs/i18n/services/main'
+import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
+
+function generateRecoveryPin(): string {
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
 
 export default class UserController {
   /**
@@ -30,6 +40,11 @@ export default class UserController {
    *     tags:
    *       - Users
    *     summary: login
+   *     description: |
+   *       Autentica al usuario validando email, contraseña, `user_active = 1` y `user_deleted_at IS NULL`.
+   *       Desde la introducción de la tabla pivote `business_unit_users`, este endpoint ya no realiza
+   *       intersección estática de unidades de negocio: el alcance multi-tenant se evalúa en cada operación
+   *       posterior a través de las unidades de negocio asociadas al usuario (scope dinámico).
    *     produces:
    *       - application/json
    *     requestBody:
@@ -165,7 +180,17 @@ export default class UserController {
       const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
-      const user = await User.query().where('user_email', userEmail).where('user_active', 1).first()
+      const user = await User.query()
+        .where('user_email', userEmail)
+        .where('user_active', 1)
+        .preload('person', (personQuery) =>
+          personQuery.preload('employee', (employeeQuery) =>
+            employeeQuery.preload('position', (positionQuery) =>
+              positionQuery.whereNull('position_deleted_at')
+            )
+          )
+        )
+        .first()
 
       if (!user) {
         response.status(404)
@@ -173,7 +198,7 @@ export default class UserController {
           type: 'warning',
           title: 'Login',
           message: 'Incorrect email or password',
-          data: { user: {} }
+          data: { user: {} },
         }
       }
 
@@ -191,7 +216,7 @@ export default class UserController {
             type: 'warning',
             title: 'Login',
             message: 'Employee not found',
-            data: { user: {} }
+            data: { user: {} },
           }
         }
 
@@ -206,24 +231,26 @@ export default class UserController {
             type: 'warning',
             title: 'Login',
             message: 'This device is already associated with another employee.',
-            data: { user: {} }
+            data: { user: {} },
           }
         }
 
-        if (employeeDevice && employeeDevice.employeeDeviceActive !== 1 && employeeDevice.employeeId === currentEmployee.employeeId) {
+        if (
+          employeeDevice &&
+          employeeDevice.employeeDeviceActive !== 1 &&
+          employeeDevice.employeeId === currentEmployee.employeeId
+        ) {
           response.status(400)
           return {
             type: 'warning',
             title: 'Login',
             message: 'This device is not active.',
-            data: { user: {} }
+            data: { user: {} },
           }
         }
 
         // Crear o verificar dispositivo si no existe
         if (!employeeDevice) {
-
-
           // const employeeDeviceActive = await EmployeeDevice.query()
           //   .where('employee_id', currentEmployee.employeeId)
           //   .where('employeeDeviceActive', 1)
@@ -246,7 +273,7 @@ export default class UserController {
             employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
             employeeDeviceType: request.input('deviceType') || 'Unknown',
             employeeDeviceOs: request.input('deviceOs') || 'Unknown',
-            employeeId: currentEmployee.employeeId
+            employeeId: currentEmployee.employeeId,
           } as EmployeeDevice
 
           const employeeDeviceService = new EmployeeDeviceService(i18n)
@@ -258,19 +285,15 @@ export default class UserController {
               type: verifyInfo.type,
               title: verifyInfo.title,
               message: verifyInfo.message,
-              data: { user: {} }
+              data: { user: {} },
             }
           }
 
           await employeeDeviceService.create(deviceData)
         }
-       }
+      }
 
-
-      await ApiToken.query()
-        .where('tokenable_id', user.userId)
-        .where('origin', origin)
-        .delete()
+      await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       if (Ws.io) {
         try {
@@ -279,37 +302,10 @@ export default class UserController {
       }
 
       const userVerify = await User.verifyCredentials(userEmail, userPassword)
-      const token = await User.accessTokens.create(user)
+      const authTokenService = new AuthTokenService()
+      const { accessToken, refreshToken } = await authTokenService.issueTokenPair(user, origin)
 
-      await ApiToken.query()
-        .where('id', String(token.identifier))
-        .update({ origin })
-
-      if (userVerify && token && user.userBusinessAccess) {
-        const userBusinessAccessArray = user.userBusinessAccess.split(',')
-        const systemBussines = env.get('SYSTEM_BUSINESS')
-        const systemBussinesArray = systemBussines?.toString().split(',')
-        if (!systemBussinesArray) {
-          response.status(404)
-          return {
-            type: 'warning',
-            title: 'Login',
-            message: 'Incorrect email or password',
-            data: { user: {} },
-          }
-        }
-        const systemBussinesMatches = systemBussinesArray.filter((value) =>
-          userBusinessAccessArray.includes(value)
-        )
-        if (systemBussinesMatches.length === 0) {
-          response.status(404)
-          return {
-            type: 'warning',
-            title: 'Login',
-            message: 'Incorrect email or password',
-            data: { user: {} },
-          }
-        }
+      if (userVerify) {
         const date = DateTime.local().setZone('utc').toISO()
         try {
           const rawHeaders = request.request.rawHeaders
@@ -334,7 +330,8 @@ export default class UserController {
           message: 'You have successfully logged in',
           data: {
             user: user,
-            token: token.value!.release(),
+            token: accessToken,
+            refreshToken,
           },
         }
       } else {
@@ -347,6 +344,85 @@ export default class UserController {
         }
       }
     } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/auth/refresh:
+   *   post:
+   *     tags:
+   *       - Users
+   *     summary: Renovar access token usando refresh token
+   *     description: |
+   *       Valida el refresh token opaco, rota el par completo (access + refresh)
+   *       y mantiene sesión única por origin. Responde 401 si el refresh token
+   *       es inválido, expirado o pertenece a un usuario inactivo.
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - refreshToken
+   *             properties:
+   *               refreshToken:
+   *                 type: string
+   *                 description: Refresh token opaco emitido en login o signup
+   *     responses:
+   *       '200':
+   *         description: Par de tokens renovado exitosamente
+   *       '400':
+   *         description: Refresh token no enviado
+   *       '401':
+   *         description: Refresh token inválido o expirado
+   */
+  async refresh({ request, response }: HttpContext) {
+    try {
+      const refreshTokenValue = request.input('refreshToken')
+
+      if (!refreshTokenValue || typeof refreshTokenValue !== 'string') {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El refresh token es requerido',
+          data: null,
+        }
+      }
+
+      const authTokenService = new AuthTokenService()
+      const verified = await authTokenService.verifyRefreshToken(refreshTokenValue)
+
+      if (verified.status === 'error') {
+        return respondRefreshTokenUnauthorized(response, verified.code)
+      }
+
+      const { accessToken, refreshToken } = await authTokenService.rotateTokenPair(
+        verified.user,
+        verified.origin
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Refresh',
+        message: 'Tokens renovados exitosamente',
+        data: {
+          token: accessToken,
+          refreshToken,
+        },
+      }
+    } catch (error: any) {
       response.status(500)
       return {
         type: 'error',
@@ -456,7 +532,11 @@ export default class UserController {
     const user = await User.query()
       .where('user_id', userData.userId)
       .preload('person', (query) => {
-        query.preload('employee')
+        query.preload('employee', (employeeQuery) =>
+          employeeQuery.preload('position', (positionQuery) =>
+            positionQuery.whereNull('position_deleted_at')
+          )
+        )
       })
       .preload('role')
       .first()
@@ -572,10 +652,8 @@ export default class UserController {
       const deviceOrigin = request.input('deviceOrigin')
       const origin = deviceOrigin === 'app' ? 'app' : 'web'
 
-      await ApiToken.query()
-        .where('tokenable_id', user.userId)
-        .where('origin', origin)
-        .delete()
+      // Revoca access + refresh del origin: el delete no filtra por `type`.
+      await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       response.status(200)
       return {
@@ -703,77 +781,112 @@ export default class UserController {
    *                       type: string
    */
   async recoveryPassword({ request, response }: HttpContext) {
+    const languageInput = request.input('language', 'es')
+    const language: AuthMailLanguage = languageInput === 'en' ? 'en' : 'es'
+    const i18n = i18nManager.locale(language)
+
     try {
-      const url = request.header('origin')
-      const isApp = request.all().isApp
-      if (url) {
-        const hostData = this.getUrlInfo(url)
-        const user = await User.query()
-          .where('user_email', request.all().userEmail)
-          .whereNull('user_deleted_at')
-          .preload('person')
-          .first()
-        const encrypted = uuid()
-        if (!user) {
-          response.status(404)
-          return {
-            type: 'warning',
-            title: 'Password recovery',
-            message: 'Email not found',
-            data: {},
-          }
-        }
-        user.userToken = encrypted
-        if (isApp) {
-          const pinCode = Math.floor(100000 + Math.random() * 900000)
-          user.pinCode = pinCode.toString()
-        }
-        user.save()
-        let tradeName = 'BO'
-        let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-        const systemSettingService = new SystemSettingService()
-        const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-        if (systemSettingActive) {
-          if ( systemSettingActive.systemSettingLogo) {
-            backgroundImageLogo = systemSettingActive.systemSettingLogo
-          }
-          if ( systemSettingActive.systemSettingTradeName) {
-            tradeName = systemSettingActive.systemSettingTradeName
-          }
-        }
-        const emailData = {
-          user,
-          token: user.userToken,
-          host_data: hostData,
-          backgroundImageLogo,
-          isApp,
-          pinCode: user.pinCode,
-        }
-        const userEmail = env.get('SMTP_USERNAME')
-        if (userEmail) {
-          await mail.send((message) => {
-            message
-              .to(request.all().userEmail)
-              .from(userEmail, tradeName)
-              .subject('Recover password')
-              .htmlView('emails/request_password', emailData)
-          })
-        }
+      const userEmail = request.input('userEmail')
+
+      if (!userEmail || typeof userEmail !== 'string' || !userEmail.includes('@')) {
         response.status(200)
         return {
           type: 'success',
-          title: 'Password recovery',
-          message: 'A link has been sent to your email successfully',
-          data: { user: user },
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_request_sent'),
+          data: null,
         }
       }
-    } catch (error) {
-      response.status(500)
+
+      const isApp = !!request.all().isApp
+      const url = request.header('origin')
+      const hostData = this.getUrlInfo(url ?? 'no_url_host_data_provided')
+
+      const user = await User.query()
+        .where('user_email', userEmail.trim().toLowerCase())
+        .whereNull('user_deleted_at')
+        .preload('person')
+        .first()
+
+      if (!user) {
+        response.status(200)
+        return {
+          type: 'success',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_request_sent'),
+          data: null,
+        }
+      }
+
+      const pinCode = generateRecoveryPin()
+      user.userToken = uuid()
+      user.pinCode = pinCode
+      user.pinCodeExpiresAt = DateTime.utc().plus({ minutes: PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES })
+      await user.save()
+
+      const smtpUsername = env.get('SMTP_USERNAME')
+
+      if (isApp) {
+        const isWhiteLabel = false
+        let tradeName = 'Valanserh'
+        let backgroundImageLogo =
+          'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+
+        const systemSettingService = new SystemSettingService()
+        const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+
+        if (systemSettingActive && isWhiteLabel) {
+          if (systemSettingActive.systemSettingLogo) {
+            backgroundImageLogo = systemSettingActive.systemSettingLogo
+          }
+          if (systemSettingActive.systemSettingTradeName) {
+            tradeName = systemSettingActive.systemSettingTradeName
+          }
+        }
+
+        if (smtpUsername) {
+          const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
+          await mail.send((message) => {
+            message
+              .to(user.userEmail)
+              .from(smtpUsername, tradeName)
+              .subject(emailSubject)
+              .htmlView('emails/request_password', {
+                user,
+                token: user.userToken,
+                host_data: hostData,
+                backgroundImageLogo,
+                isApp: true,
+                pinCode: user.pinCode,
+              })
+          })
+        }
+      } else {
+        const resetUrl = `${hostData.host_uri.replace(/\/$/, '')}/new-password/${user.userToken}`
+        const authMailService = new AuthMailService()
+        await authMailService.sendPasswordRecovery({
+          to: user.userEmail,
+          firstName: user.person?.personFirstname || user.userEmail,
+          resetUrl,
+          pinCode,
+          language,
+        })
+      }
+
+      response.status(200)
       return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        type: 'success',
+        title: i18n.formatMessage('password_recovery_title'),
+        message: i18n.formatMessage('password_recovery_request_sent'),
+        data: null,
+      }
+    } catch {
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('password_recovery_title'),
+        message: i18n.formatMessage('password_recovery_request_sent'),
+        data: null,
       }
     }
   }
@@ -876,7 +989,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async verifyRequestRecovery({ params, response }: HttpContext) {
+  async verifyRequestRecovery({ params, response, i18n }: HttpContext) {
     try {
       const user = await User.query()
         .where('user_token', params.token)
@@ -886,24 +999,24 @@ export default class UserController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'Token verification',
-          message: 'Invalid token',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_token_invalid'),
           data: {},
         }
       }
       response.status(200)
       return {
         type: 'success',
-        title: 'Token verification',
-        message: 'The token is valid',
+        title: i18n.formatMessage('password_recovery_title'),
+        message: i18n.formatMessage('password_recovery_token_valid'),
         data: { user: user },
       }
-    } catch (error) {
+    } catch (error: any) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -1027,11 +1140,23 @@ export default class UserController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'Password change with token',
-          message: 'Invalid token',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_token_invalid'),
           data: {},
         }
       }
+
+      if (user.pinCode && user.pinCode.trim() !== '') {
+        response.status(401)
+        return {
+          type: 'warning',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_pin_pending'),
+          key: 'AUTH.RECOVERY.PIN_PENDING',
+          data: null,
+        }
+      }
+
       let userPassword = request.input('userPassword')
       const passwordArray = Array.isArray(userPassword)
       userPassword = passwordArray
@@ -1040,26 +1165,29 @@ export default class UserController {
       user.userPassword = userPassword
       user.userToken = ''
       user.pinCode = ''
+      user.pinCodeExpiresAt = null
       user.save()
+
       const url = request.header('origin')
+
       if (url) {
         const userService = new UserService(i18n)
-        userService.sendNewPasswordEmail(url, user, userPassword)
+        userService.sendNewPasswordEmail(url, user)
       }
 
       response.status(200)
       return {
         type: 'success',
-        title: 'Password change with token',
-        message: 'The password has been changed successfully',
+        title: i18n.formatMessage('password_recovery_title'),
+        message: i18n.formatMessage('password_recovery_reset_success'),
         data: { user: user },
       }
-    } catch (error) {
+    } catch (error: any) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -1087,11 +1215,16 @@ export default class UserController {
    *         description: Role id
    *         schema:
    *           type: integer
+   *       - name: businessUnitId
+   *         in: query
+   *         required: true
+   *         description: Business unit id
+   *         schema:
+   *           type: integer
    *       - name: page
    *         in: query
    *         required: true
-   *         description: The page number for pagination
-   *         default: 1
+   *         description: The page number
    *         schema:
    *           type: integer
    *       - name: limit
@@ -1182,20 +1315,22 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const roleId = request.input('roleId')
+      const businessUnitId = request.input('businessUnitId')
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
       const filters = {
         search: search,
         roleId: roleId,
+        businessUnitId: businessUnitId,
         page: page,
         limit: limit,
       } as UserFilterSearchInterface
       const userService = new UserService(i18n)
-      const users = await userService.index(filters)
+      const users = await userService.index(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -1344,7 +1479,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const userEmail = request.input('userEmail')
       let userPassword = request.input('userPassword')
@@ -1355,16 +1490,23 @@ export default class UserController {
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
-      const systemBussines = env.get('SYSTEM_BUSINESS')
       const userEmailType = request.input('userEmailType')
+
+      const businessUnits = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+        .select('business_unit_id')
+      
+      const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
+
       const user = {
         userEmail: userEmail,
         userPassword: userPassword,
         userActive: userActive,
         roleId: roleId,
         personId: personId,
-        userBusinessAccess: systemBussines,
-        userEmailType: userEmailType
+        userEmailType: userEmailType,
       } as User
       const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
@@ -1378,7 +1520,7 @@ export default class UserController {
           data: { ...data },
         }
       }
-      const newUser = await userService.create(user)
+      const newUser = await userService.create(user, businessUnitIds)
       if (newUser) {
         if (newUser.userEmailType === 'personal') {
           const person = await Person.query()
@@ -2137,7 +2279,6 @@ export default class UserController {
     }
   }
 
-
   /**
    * @swagger
    * /api/users/{userId}/employees-assigned/{employeeId}:
@@ -2259,7 +2400,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async getEmployeesAssigned({ auth, request, response, i18n }: HttpContext) {
+  async getEmployeesAssigned({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -2305,7 +2446,7 @@ export default class UserController {
         employeeId: employeeId,
         userResponsibleId: userResponsibleId,
       } as EmployeeAssignedFilterSearchInterface
-      const employeesAssigned = await userService.getEmployeesAssigned(filters)
+      const employeesAssigned = await userService.getEmployeesAssigned(filters, businessUnitScope)
 
       response.status(200)
       return {
@@ -2326,6 +2467,102 @@ export default class UserController {
   }
 
   /**
+   * @swagger
+   * /api/auth/recovery/code-verify:
+   *   post:
+   *     tags:
+   *       - Users
+   *     summary: Verify recovery code OTP (web)
+   *     description: |
+   *       Validate token stage-1 + 6 digit code (scoped by user_token).
+   *       In success clean the pin, rotate user_token and return the token stage-2.
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - token
+   *               - pinCode
+   *             properties:
+   *               token:
+   *                 type: string
+   *               pinCode:
+   *                 type: string
+   *     responses:
+   *       '200':
+   *         description: Code verified; token rotated
+   *       '400':
+   *         description: Missing parameters
+   *       '401':
+   *         description: Invalid or expired code or token
+   */
+  async verifyRecoveryCode({ request, response, i18n }: HttpContext) {
+    try {
+      const token = request.input('token')
+      const pinCode = request.input('pinCode')
+
+      if (
+        !token ||
+        typeof token !== 'string' ||
+        !pinCode ||
+        typeof pinCode !== 'string' ||
+        pinCode.trim().length !== 6
+      ) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_code_missing'),
+          key: 'AUTH.RECOVERY.CODE_MISSING',
+          data: null,
+        }
+      }
+
+      const user = await User.query()
+        .where('user_token', token)
+        .where('pin_code', pinCode.trim())
+        .whereNull('user_deleted_at')
+        .first()
+
+      const isExpired =
+        !user?.pinCodeExpiresAt || user.pinCodeExpiresAt < DateTime.utc()
+
+      if (!user || isExpired) {
+        response.status(401)
+        return {
+          type: 'warning',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_code_invalid'),
+          key: 'AUTH.RECOVERY.CODE_INVALID',
+          data: null,
+        }
+      }
+
+      const rotatedToken = uuid()
+      user.userToken = rotatedToken
+      user.pinCode = ''
+      user.pinCodeExpiresAt = null
+      await user.save()
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('password_recovery_title'),
+        message: i18n.formatMessage('password_recovery_code_success'),
+        data: { token: rotatedToken },
+      }
+    } catch (error: any) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+ /**
    * @swagger
    * /api/auth/request/code-verify/{pinCode}:
    *   post:
@@ -2423,7 +2660,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async verifyRequestPinCode({ params, response }: HttpContext) {
+  async verifyRequestPinCode({ params, response, i18n }: HttpContext) {
     try {
       const user = await User.query()
         .where('pin_code', params.pinCode)
@@ -2433,26 +2670,38 @@ export default class UserController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'Pin code verification',
-          message: 'Invalid pin code',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_pin_invalid'),
           data: {},
         }
       }
+
+      if (!user.pinCodeExpiresAt || user.pinCodeExpiresAt < DateTime.utc()) {
+        response.status(401)
+        return {
+          type: 'warning',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_pin_expired'),
+          data: {},
+        }
+      }
+
       user.pinCode = ''
+      user.pinCodeExpiresAt = null
       await user.save()
       response.status(200)
       return {
         type: 'success',
-        title: 'Pin code verification',
-        message: 'The pin code is valid',
+        title: i18n.formatMessage('password_recovery_title'),
+        message: i18n.formatMessage('password_recovery_pin_success'),
         data: { user: user, token: user.userToken },
       }
-    } catch (error) {
+    } catch (error: any) {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

@@ -10,9 +10,11 @@
     "dev": "node ace serve --hmr",
     "test": "node ace test",
     "lint": "eslint .",
+    "lint:terminology": "node scripts/lint-terminology.mjs",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "patch-package"
   },
   "imports": {
     "#controllers/*": "./app/controllers/*.js",
@@ -32,7 +34,10 @@
     "#start/*": "./start/*.js",
     "#tests/*": "./tests/*.js",
     "#config/*": "./config/*.js",
-    "#constants/*": "./app/constants/*.js"
+    "#constants/*": "./app/constants/*.js",
+    "#utils/*": "./app/utils/*.js",
+    "#mixins/*": "./app/mixins/*.js",
+    "#modules/*": "./app/modules/*.js"
   },
   "devDependencies": {
     "@adonisjs/assembler": "^7.5.2",
@@ -51,6 +56,7 @@
     "eslint": "^8.57.0",
     "hot-hook": "^0.2.5",
     "lint-staged": "^15.2.5",
+    "patch-package": "^8.0.1",
     "pino-pretty": "^11.0.0",
     "prettier": "^3.2.5",
     "ts-node": "^10.9.2",
@@ -62,6 +68,7 @@
     "@adonisjs/cors": "^2.2.1",
     "@adonisjs/drive": "^2.3.0",
     "@adonisjs/i18n": "^2.2.2",
+    "@adonisjs/limiter": "^2.4.0",
     "@adonisjs/lucid": "^20.6.0",
     "@adonisjs/mail": "^9.2.1",
     "@adonisjs/session": "^7.4.0",
@@ -81,12 +88,15 @@
     "edge.js": "^6.0.2",
     "exceljs": "^4.4.0",
     "face-api.js": "^0.22.2",
+    "file-type": "^16.5.4",
     "firebase-admin": "^13.6.0",
     "husky": "^9.0.11",
     "luxon": "^3.6.1",
     "moment": "^2.30.1",
     "mongoose": "^8.8.0",
     "mysql2": "^3.9.7",
+    "node-id3": "^0.2.9",
+    "pdf-lib": "^1.17.1",
     "pdfkit": "^0.18.0",
     "phc-argon2": "^1.1.4",
     "phc-bcrypt": "^1.0.8",
@@ -137,7 +147,24 @@
           "avoidEscape": true
         }
       ]
-    }
+    },
+    "overrides": [
+      {
+        "files": [
+          "app/modules/attendance-stats/**/*.ts"
+        ],
+        "rules": {
+          "unicorn/filename-case": [
+            "error",
+            {
+              "cases": {
+                "kebabCase": true
+              }
+            }
+          ]
+        }
+      }
+    ]
   },
   "eslintIgnore": [
     "build"

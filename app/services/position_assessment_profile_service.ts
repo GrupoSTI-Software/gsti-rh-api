@@ -1,8 +1,33 @@
 import PositionAssessmentProfile from '#models/position_assessment_profile'
 import { PositionAssessmentProfileFilterSearchInterface } from '../interfaces/position_assessment_profile_filter_search_interface.js'
 
+/**
+ * Servicio que administra los perfiles de evaluación asociados a los puestos
+ * (`PositionAssessmentProfile`). Cada perfil define los rangos `mínimo` y
+ * `máximo` aceptables para una dimensión específica de una plantilla de
+ * evaluación, lo que permite calcular automáticamente el estado de los
+ * resultados de evaluaciones psicométricas aplicadas a empleados que ocupan
+ * dicho puesto.
+ *
+ * Toda eliminación se realiza mediante soft delete (`deleted_at`).
+ */
 export default class PositionAssessmentProfileService {
 
+  /**
+   * Devuelve un listado paginado de perfiles de evaluación de puestos
+   * aplicando filtros opcionales:
+   * - `positionId`: filtra por puesto exacto.
+   * - `assessmentTemplateDimensionId`: filtra por dimensión exacta.
+   * - `assessmentTemplateId`: filtra a través de la relación
+   *   `assessmentTemplateDimension` (perfiles de cualquier dimensión que
+   *   pertenezca a esa plantilla).
+   *
+   * Precarga las relaciones `assessmentTemplateDimension` y `position`,
+   * ordenando por fecha de creación descendente.
+   *
+   * @param filters Filtros de búsqueda y paginación.
+   * @returns Resultado paginado de Lucid con los perfiles encontrados.
+   */
   async index(filters: PositionAssessmentProfileFilterSearchInterface) {
     const items = await PositionAssessmentProfile.query()
       .whereNull('position_assessment_profile_deleted_at')
@@ -25,35 +50,70 @@ export default class PositionAssessmentProfileService {
     return items
   }
 
+  /**
+   * Crea un nuevo perfil de evaluación de puesto. Solo copia los campos
+   * relevantes del DTO recibido (positionId, assessmentTemplateDimensionId,
+   * mínimo y máximo) para evitar inyección de columnas no permitidas.
+   *
+   * @param profile DTO con los datos a persistir.
+   * @returns El perfil recién creado.
+   */
   async create(profile: PositionAssessmentProfile) {
     const newProfile = new PositionAssessmentProfile()
     newProfile.positionId = profile.positionId
     newProfile.assessmentTemplateDimensionId = profile.assessmentTemplateDimensionId
     newProfile.positionAssessmentProfileMinimumValue =
-      profile.positionAssessmentProfileMinimumValue
+      profile.positionAssessmentProfileMinimumValue ?? null
     newProfile.positionAssessmentProfileMaximumValue =
-      profile.positionAssessmentProfileMaximumValue
+      profile.positionAssessmentProfileMaximumValue ?? null
+    newProfile.positionAssessmentProfileExpectedValue =
+      profile.positionAssessmentProfileExpectedValue ?? null
     await newProfile.save()
     return newProfile
   }
 
+  /**
+   * Actualiza los campos editables de un perfil existente: rango numérico
+   * (`min`/`max` para tipos `numeric`/`percent`) o `expectedValue` (para
+   * tipo `categorical_amb`). El puesto y la dimensión asociados son
+   * inmutables a través de este método.
+   *
+   * @param currentProfile Instancia actual del perfil.
+   * @param profile DTO con los nuevos valores.
+   * @returns El perfil actualizado.
+   */
   async update(
     currentProfile: PositionAssessmentProfile,
     profile: PositionAssessmentProfile
   ) {
     currentProfile.positionAssessmentProfileMinimumValue =
-      profile.positionAssessmentProfileMinimumValue
+      profile.positionAssessmentProfileMinimumValue ?? null
     currentProfile.positionAssessmentProfileMaximumValue =
-      profile.positionAssessmentProfileMaximumValue
+      profile.positionAssessmentProfileMaximumValue ?? null
+    currentProfile.positionAssessmentProfileExpectedValue =
+      profile.positionAssessmentProfileExpectedValue ?? null
     await currentProfile.save()
     return currentProfile
   }
 
+  /**
+   * Realiza un soft delete sobre el perfil de evaluación.
+   *
+   * @param currentProfile Instancia a eliminar lógicamente.
+   * @returns La misma instancia ya marcada como eliminada.
+   */
   async delete(currentProfile: PositionAssessmentProfile) {
     await currentProfile.delete()
     return currentProfile
   }
 
+  /**
+   * Obtiene un perfil por su identificador con `assessmentTemplateDimension`
+   * y `position` precargadas.
+   *
+   * @param positionAssessmentProfileId Identificador del perfil.
+   * @returns El perfil encontrado o `null` si no existe / fue eliminado.
+   */
   async show(positionAssessmentProfileId: number) {
     const profile = await PositionAssessmentProfile.query()
       .whereNull('position_assessment_profile_deleted_at')
@@ -64,6 +124,13 @@ export default class PositionAssessmentProfileService {
     return profile ?? null
   }
 
+  /**
+   * Devuelve todos los perfiles activos de un puesto, ordenados por fecha de
+   * creación ascendente, precargando la dimensión asociada.
+   *
+   * @param positionId Identificador del puesto.
+   * @returns Lista de perfiles del puesto (puede ser vacía).
+   */
   async getByPositionId(positionId: number) {
     return await PositionAssessmentProfile.query()
       .whereNull('position_assessment_profile_deleted_at')

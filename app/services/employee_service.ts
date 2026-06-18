@@ -42,6 +42,7 @@ import EmployeeZone from '#models/employee_zone'
 import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
+import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import EmployeeAddress from '#models/employee_address'
 import EmployeeSpouse from '#models/employee_spouse'
@@ -67,6 +68,7 @@ import ReservationLeg from '#models/reservation_leg'
 import Ws from '#services/ws'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -296,15 +298,8 @@ export default class EmployeeService {
     return currentEmployee
   }
 
-  async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
     const normalizeTime = (time?: string | null): string | null => {
       if (!time) {
         return null
@@ -321,14 +316,13 @@ export default class EmployeeService {
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
 
+    
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
         query.whereIn('payrollBusinessUnitId', businessUnitsList)
       })
-      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
-        query.where('businessUnitId', filters.businessUnitId!)
-      })
+      .where('businessUnitId', filters.businessUnitId!)
       .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
         query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
       })
@@ -472,7 +466,6 @@ export default class EmployeeService {
         query.orderBy('employee_id')
       })
       .paginate(filters.page, filters.limit)
-
     if (this.isGetMailsEnabled(filters)) {
       for (const employee of employees.all()) {
         employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
@@ -577,7 +570,14 @@ export default class EmployeeService {
 
 
 
-  async update(currentEmployee: Employee, employee: Employee) {
+  async update(
+    currentEmployee: Employee,
+    employee: Employee,
+    options?: { changedBy?: number; salaryChangeReason?: string | null }
+  ) {
+    const salarioAnterior = currentEmployee.dailySalary
+    const salarioNuevo = employee.dailySalary || 0
+
     currentEmployee.employeeFirstName = employee.employeeFirstName
     currentEmployee.employeeLastName = employee.employeeLastName
     currentEmployee.employeeSecondLastName = employee.employeeSecondLastName
@@ -597,7 +597,7 @@ export default class EmployeeService {
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
     currentEmployee.businessUnitId = employee.businessUnitId
-    currentEmployee.dailySalary = employee.dailySalary || 0
+    currentEmployee.dailySalary = salarioNuevo
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
     currentEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
     currentEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
@@ -607,6 +607,17 @@ export default class EmployeeService {
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
     await currentEmployee.save()
+
+    if (Number(salarioAnterior) !== Number(salarioNuevo) && options?.changedBy) {
+      const historialService = new EmployeeSalaryHistoryService()
+      await historialService.registrarCambio({
+        employeeId: currentEmployee.employeeId,
+        salaryDaily: salarioNuevo,
+        changedBy: options.changedBy,
+        reason: options.salaryChangeReason ?? null,
+      })
+    }
+
     await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
@@ -726,6 +737,20 @@ export default class EmployeeService {
       currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
       currentEmployee.employeeTerminationType = baja.employeeTerminationType
     }
+    const parsedTerminationDate = baja
+      ? DateTime.fromISO(String(baja.employeeTerminatedDate)).isValid
+        ? DateTime.fromISO(String(baja.employeeTerminatedDate))
+        : DateTime.fromSQL(String(baja.employeeTerminatedDate))
+      : DateTime.now()
+    const terminationDate = (parsedTerminationDate.isValid ? parsedTerminationDate : DateTime.now()).toFormat(
+      'yyyy-MM-dd'
+    )
+
+    await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
+      currentEmployee.employeeId,
+      terminationDate
+    )
+
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
@@ -1792,15 +1817,10 @@ export default class EmployeeService {
   }
 
 
-  async getBirthday(filters: EmployeeFilterSearchInterface) {
+  async getBirthday(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1859,18 +1879,13 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAnniversary(filters: EmployeeFilterSearchInterface) {
+  async getAnniversary(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const year = filters.year
     if (!year) {
       return []
     }
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1930,7 +1945,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getVacations(filters: EmployeeFilterSearchInterface) {
+  async getVacations(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
     .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -1940,12 +1955,7 @@ export default class EmployeeService {
     }
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -2011,7 +2021,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>) {
+  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
     .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -2024,12 +2034,7 @@ export default class EmployeeService {
     if (!dateStart || !dateEnd) {
       return []
     }
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -2095,13 +2100,8 @@ export default class EmployeeService {
     return employees
   }
 
-  async getUserResponsible(employeeId: number, userId: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async getUserResponsible(employeeId: number, userId: number, allowedBusinessUnitIds: number[]) {
+    const businessUnitsList = allowedBusinessUnitIds
 
     const userResponsibleEmployees = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
@@ -2208,13 +2208,13 @@ export default class EmployeeService {
     }
   }
 
-  async getEmployeesToSyncFromBiometrics() {
+  async getEmployeesToSyncFromBiometrics(allowedBusinessUnitIds: number[] = []) {
 
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
+    const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
 
@@ -2513,7 +2513,7 @@ export default class EmployeeService {
   /**
    * Import employees from Excel file
    */
-  async importFromExcel(file: any) {
+  async importFromExcel(file: any, allowedBusinessUnitIds: number[] = []) {
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -2536,13 +2536,12 @@ export default class EmployeeService {
         .whereNull('position_deleted_at')
         .select('positionId', 'positionName')
 
-      const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
       const businessUnitsQuery = BusinessUnit.query()
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
-      if (systemBusinessSlugs.length > 0) {
-        businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+      if (allowedBusinessUnitIds.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
       }
       const businessUnits = await businessUnitsQuery
 
@@ -4459,6 +4458,7 @@ export default class EmployeeService {
     /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
     orderBy?: string
     orderDirection?: string
+    allowedBusinessUnitIds?: number[]
   }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
@@ -4468,14 +4468,13 @@ export default class EmployeeService {
     const logoUrl = await this.getLogo()
     await this.addImageLogo(workbook, worksheet, logoUrl)
 
-    const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
     const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
       .select('businessUnitId', 'businessUnitName')
-    if (systemBusinessSlugs.length > 0) {
-      businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+    if (options?.allowedBusinessUnitIds && options.allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', options.allowedBusinessUnitIds)
     }
     const businessUnits = await businessUnitsQuery
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
@@ -4845,7 +4844,8 @@ async generateShiftAssignmentTemplate(
   isReport?: boolean,
   businessUnitId?: number,
   payrollBusinessUnitId?: number,
-  branchNameIds?: number[]
+  branchNameIds?: number[],
+  allowedBusinessUnitIds: number[] = []
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4881,9 +4881,11 @@ async generateShiftAssignmentTemplate(
   // OBTENER DÍAS FESTIVOS DE LA BASE DE DATOS
   const holidayDates = new Set<string>()
   try {
-    // Obtener unidades de negocio activas
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+    // Obtener slugs de las unidades permitidas para la query FIND_IN_SET
+    const allowedUnits = allowedBusinessUnitIds.length > 0
+      ? await BusinessUnit.query().where('business_unit_active', 1).whereIn('business_unit_id', allowedBusinessUnitIds).select('business_unit_slug')
+      : await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+    const businessList = allowedUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
     // Consultar todos los días festivos que coincidan con las unidades de negocio
     // No filtramos por fecha aquí porque necesitamos procesar festivos recurrentes
@@ -4963,17 +4965,10 @@ async generateShiftAssignmentTemplate(
     console.warn('Error obteniendo días festivos de la base de datos:', error)
   }
 
-  // Obtener unidades de negocio del ENV
-  const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-  const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-  const businessUnits = await BusinessUnit.query()
-    .where('business_unit_active', 1)
-    .whereIn('business_unit_slug', businessList)
-
-  const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  const businessUnitsList = allowedBusinessUnitIds
 
   // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
-  // si no, se restringe a las unidades de negocio del ENV
+  // si no, se restringe al scope del usuario
   let employeesQuery = Employee.query().whereNull('deletedAt')
 
   if (businessUnitId !== undefined) {
@@ -6159,7 +6154,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     employeeIds?: number[],
     businessUnitId?: number,
     payrollBusinessUnitId?: number,
-    branchNameIds?: number[]
+    branchNameIds?: number[],
+    allowedBusinessUnitIds: number[] = []
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
@@ -6194,19 +6190,21 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
     const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
 
-    // Obtener unidades de negocio del ENV
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
 
     // Obtener empleados activos agrupados por departamento (misma lógica que index / plantilla de turnos)
     let employeesQuery = Employee.query()
       .whereNull('deletedAt')
       .whereIn('businessUnitId', businessUnitsList)
+      .where('employee_type_of_contract', 'Internal')
+      // .where('employeeAssistDiscriminator', 0)
+      .whereHas('position', (query) => {
+        query.whereNull('position_deleted_at')
+        query.where('position_active', 1)
+      })
+      .whereHas('department', (query) => {
+        query.whereNull('department_deleted_at')
+      })
       .preload('position', (query) => {
         query.whereNull('position_deleted_at')
         query.where('position_active', 1)
@@ -6214,6 +6212,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       .preload('department', (query) => {
         query.whereNull('department_deleted_at')
       })
+      .preload('businessUnit')
+      .preload('payrollBusinessUnit')
 
     if (businessUnitId !== undefined && businessUnitId > 0 && !Number.isNaN(businessUnitId)) {
       employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
@@ -6246,7 +6246,6 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       .orderBy('departmentId')
       .orderBy('employeeFirstName')
       .orderBy('employeeLastName')
-
     // Agrupar empleados por departamento
     const employeesByDepartment = new Map<number, Employee[]>()
     employees.forEach((employee) => {
@@ -6528,13 +6527,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     worksheet.getRow(1).height = 60
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
-    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
+    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 5 + dates.length)}2`)
     titleRow.getCell(1).value = 'Reporte de Asistencia'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
     titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' }
 
     // Primera fila de encabezados (fechas)
-    const headerRow1 = ['Departamento', 'Puesto', 'Número de Nómina', 'Nombre del Empleado']
+    const headerRow1 = ['Unidad de negocio de trabajo', 'Unidad de nómina', 'Departamento', 'Puesto', 'Número de Nómina', 'Nombre del Empleado']
     dates.forEach((date) => {
       const dateStr = date.toFormat('dd/MM/yyyy')
       headerRow1.push(dateStr)
@@ -6543,7 +6542,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     row1.height = 30
 
     // Segunda fila de encabezados (días de la semana)
-    const headerRow2 = ['', '', '', '']
+    const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
       const dayName = date.toFormat('cccc', { locale: 'es' })
       headerRow2.push(dayName)
@@ -6576,8 +6575,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
     // Aplicar formato a la segunda fila de encabezados (misma alineación)
     row2.eachCell((cell, colNum) => {
-      const headerAlign = colNum === 1 || colNum === 2 || colNum === 4 ? 'left' : 'center'
-      if (colNum > 4) {
+      const headerAlign = colNum <= 6 ? 'left' : 'center'
+      if (colNum > 6) {
         cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
         cell.fill = {
           type: 'pattern',
@@ -6605,13 +6604,15 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // ==============================
     //     ANCHO DE COLUMNAS
     // ==============================
-    worksheet.getColumn(1).width = 25 // Departamento
-    worksheet.getColumn(2).width = 30 // Puesto
-    worksheet.getColumn(3).width = 20 // Número de Nómina
-    worksheet.getColumn(4).width = 35 // Nombre del Empleado
+    worksheet.getColumn(1).width = 20 // UN Trabajo
+    worksheet.getColumn(2).width = 20 // UN Nómina
+    worksheet.getColumn(3).width = 25 // Departamento
+    worksheet.getColumn(4).width = 30 // Puesto
+    worksheet.getColumn(5).width = 20 // Número de Nómina
+    worksheet.getColumn(6).width = 35 // Nombre del Empleado
 
     // Aplicar ancho mayor a columnas de fechas para que quepa mejor el contenido (hora + turno)
-    for (let col = 5; col <= 4 + dates.length; col++) {
+    for (let col = 7; col <= 6 + dates.length; col++) {
       worksheet.getColumn(col).width = 28
     }
 
@@ -6628,31 +6629,60 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
       // Iterar por empleados del departamento
       for (const employee of deptEmployees) {
+        // Obtener calendario del empleado
+        const employeeCalendar = employeeCalendarsMap.get(employee.employeeId) || []
+        const calendarByDay = new Map<string, AssistDayInterface>()
+        employeeCalendar.forEach((day) => {
+          calendarByDay.set(day.day, day)
+        })
+
+        // Filtrar solo empleados con días evaluables (totalAvailable > 0)
+        const isEvaluableDay = (assistDate: AssistDayInterface) =>
+          !assistDate.assist.isFutureDay &&
+          !assistDate.assist.isRestDay &&
+          !assistDate.assist.isVacationDate &&
+          !assistDate.assist.isHoliday &&
+          !assistDate.assist.isWorkDisabilityDate &&
+          !assistDate.assist.hasExceptions
+
+        const evaluableDays = employeeCalendar.filter(isEvaluableDay)
+        const assists = evaluableDays.filter((d) => d.assist.checkInStatus === 'ontime').length
+        const tolerances = evaluableDays.filter((d) => d.assist.checkInStatus === 'tolerance').length
+        const delays = evaluableDays.filter((d) => d.assist.checkInStatus === 'delay').length
+        const faults = evaluableDays.filter((d) => d.assist.checkInStatus === 'fault').length
+        const totalAvailable = assists + tolerances + delays + faults
+
+        if (totalAvailable === 0) continue
+
         worksheet.getRow(currentRow).height = 45
 
         const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
         const positionName = employee.position?.positionName || 'Sin posición'
         const departmentName = department?.departmentName || 'Sin departamento'
         const payrollCode = employee.employeePayrollCode || 'Sin código'
+        const payrollBuName = employee.payrollBusinessUnit?.businessUnitName || 'Sin UN'
+        const workBuName = employee.businessUnit?.businessUnitName || 'Sin UN'
 
-        // Departamento - Columna A
-        worksheet.getCell(currentRow, 1).value = departmentName
-        worksheet.getCell(currentRow, 1).protection = { locked: true }
+        // UN Trabajo - Columna A
+        worksheet.getCell(currentRow, 1).value = workBuName
 
-        // Puesto - Columna B
-        worksheet.getCell(currentRow, 2).value = positionName
-        worksheet.getCell(currentRow, 2).protection = { locked: true }
+        // UN Nómina - Columna B
+        worksheet.getCell(currentRow, 2).value = payrollBuName
 
-        // Número de Nómina - Columna C
-        worksheet.getCell(currentRow, 3).value = payrollCode
-        worksheet.getCell(currentRow, 3).protection = { locked: true }
+        // Departamento - Columna C
+        worksheet.getCell(currentRow, 3).value = departmentName
 
-        // Nombre del Empleado - Columna D
-        worksheet.getCell(currentRow, 4).value = fullName
-        worksheet.getCell(currentRow, 4).protection = { locked: true }
+        // Puesto - Columna D
+        worksheet.getCell(currentRow, 4).value = positionName
 
-        // Aplicar formato a las primeras 4 columnas: fondo gris claro (info empleado), alineación, borde
-        for (let col = 1; col <= 4; col++) {
+        // Número de Nómina - Columna E
+        worksheet.getCell(currentRow, 5).value = payrollCode
+
+        // Nombre del Empleado - Columna F
+        worksheet.getCell(currentRow, 6).value = fullName
+
+        // Aplicar formato a las primeras 6 columnas: fondo gris claro (info empleado), alineación, borde
+        for (let col = 1; col <= 6; col++) {
           const infoCell = worksheet.getCell(currentRow, col)
           infoCell.fill = {
             type: 'pattern',
@@ -6661,7 +6691,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           }
           infoCell.alignment = {
             vertical: 'middle',
-            horizontal: col === 3 ? 'center' : 'left',
+            horizontal: col === 5 ? 'center' : 'left',
             wrapText: true
           }
           infoCell.border = {
@@ -6672,18 +6702,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           }
         }
 
-        // Obtener calendario del empleado
-        const employeeCalendar = employeeCalendarsMap.get(employee.employeeId) || []
-        const calendarByDay = new Map<string, AssistDayInterface>()
-        employeeCalendar.forEach((day) => {
-          calendarByDay.set(day.day, day)
-        })
-
-        const isDiscriminated = !!(employee.employeeAssistDiscriminator && employee.employeeAssistDiscriminator !== 0)
-
-        // Columnas de fechas (desde columna E)
+        // Columnas de fechas (desde columna G)
         dates.forEach((date, dateIndex) => {
-          const colNumber = 5 + dateIndex
+          const colNumber = 7 + dateIndex
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
@@ -6703,10 +6724,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             cellText = getDayCellText(dayData, employee)
             cellColor = 'FFFFFFFF' // Blanco por defecto
 
-            // Celdas de turnos: especiales/discriminado/sin datos en blanco; días con turno: gama de colores
-            if (isDiscriminated) {
-              cellColor = 'FFFFFFFF'
-            } else if (dayData && dayData.assist) {
+            // Celdas de turnos: días con turno: gama de colores
+            if (dayData && dayData.assist) {
               const assist = dayData.assist
 
               // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
@@ -6766,7 +6785,6 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             bottom: { style: 'thin', color: { argb: 'FF000000' } },
             right: { style: 'thin', color: { argb: 'FF000000' } }
           }
-          cell.protection = { locked: true }
         })
 
         currentRow++
@@ -6774,28 +6792,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     }
 
     // ==============================
-    //     PROTEGER HOJA
-    // ==============================
-    await worksheet.protect('', {
-      selectLockedCells: true,
-      selectUnlockedCells: false,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-      pivotTables: false
-    })
-
-    // ==============================
     //     CONGELAR ENCABEZADOS
     // ==============================
     worksheet.views = [
-      { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
+      { state: 'frozen', ySplit: 4, xSplit: 6, topLeftCell: 'G5', activeCell: 'G5' }
     ]
 
     // ==============================
@@ -7169,14 +7169,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    *
    * @returns Objeto con el resultado de la operación y los empleados creados
    */
-  async createEmployeeDemo() {
+  async createEmployeeDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
+      const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+      if (allowedBusinessUnitIds.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+      }
+      const businessUnits = await businessUnitsQuery.first()
 
       const businessUnitId = businessUnits?.businessUnitId || 0
 
@@ -7609,5 +7608,169 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       message: 'La deducción de vacaciones fue eliminada correctamente',
       data: { vacationDeductionId },
     }
+  }
+
+  async indexToAssigned(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
+
+    const normalizeTime = (time?: string | null): string | null => {
+      if (!time) {
+        return null
+      }
+      const trimmed = time.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length === 5 ? `${trimmed}:00` : trimmed
+    }
+
+    const shiftStartTimeInit = normalizeTime(filters.shiftStartTimeInit ?? null)
+    const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
+    const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
+    const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
+    
+    const employees = await Employee.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.onlyPayroll, (query) => {
+        query.whereIn('payrollBusinessUnitId', businessUnitsList)
+      })
+      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
+      })
+      .if(filters.search, (query) => {
+        query.where((subQuery) => {
+          subQuery
+            .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereHas('person', (personQuery) => {
+              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+            })
+        })
+      })
+      .if(filters.employeeWorkSchedule, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereRaw('UPPER(employee_work_schedule) LIKE ?', [
+            `%${filters.employeeWorkSchedule.toUpperCase()}%`,
+          ])
+        })
+      })
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
+      })
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
+      })
+      .if(shiftStartTimeInit || shiftStartTimeEnd || shiftEndTimeStart || shiftEndTimeEnd, (query) => {
+        query.whereHas('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          if (filters.exceptionDate) {
+            employeeShiftQuery.whereRaw('DATE(employe_shifts_apply_since) <= ?', [filters.exceptionDate])
+          }
+          employeeShiftQuery.whereHas('shift', (shiftQuery) => {
+            // Filtro por rango de hora de entrada
+            if (shiftStartTimeInit && shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+                .whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            } else if (shiftStartTimeInit) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+            } else if (shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            }
+
+            // Filtro por rango de hora de salida
+            if (shiftEndTimeStart && shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            } else if (shiftEndTimeStart) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+            } else if (shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            }
+          })
+        })
+      })
+      .if(filters.ignoreDiscriminated === 1, (query) => {
+        query.where('employeeAssistDiscriminator', 0)
+      })
+      .if(filters.ignoreExternal === 1, (query) => {
+        query.where('employee_type_of_contract', 'Internal')
+      })
+      .if(
+        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        (query) => {
+          query.whereNotNull('employee_deleted_at')
+          query.withTrashed()
+        }
+      )
+      .if(filters.employeeTypeId, (query) => {
+        query.where('employee_type_id', filters.employeeTypeId ? filters.employeeTypeId : 0)
+      })
+      .if(
+        !filters.userResponsibleId,
+        (query) => {
+          query.whereIn('departmentId', departmentsList)
+        }
+      )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
+      .preload('department')
+      .preload('position')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
+      .if(filters.orderBy === 'number', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
+      })
+      .if(filters.orderBy === 'name', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`)
+      })
+      .if(!filters.orderBy, (query) => {
+        query.orderBy('employee_id')
+      })
+      .paginate(filters.page, filters.limit)
+
+    if (this.isGetMailsEnabled(filters)) {
+      for (const employee of employees.all()) {
+        employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
+      }
+    }
+
+    return employees
   }
 }

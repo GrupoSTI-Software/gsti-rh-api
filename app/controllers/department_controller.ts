@@ -7,15 +7,22 @@ import BiometricDepartmentInterface from '../interfaces/biometric_department_int
 import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
 import DepartmentPositionService from '#services/department_position_service'
-import { createDepartmentValidator, updateDepartmentValidator } from '#validators/department'
+import {
+  createDepartmentValidator,
+  moveDepartmentValidator,
+  updateDepartmentValidator,
+} from '#validators/department'
+import OrgChartMoveService from '#services/org_chart_move_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
-import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
 import UserService from '#services/user_service'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import db from '@adonisjs/lucid/services/db'
 import RoleDepartment from '#models/role_department'
 import Role from '#models/role'
+import OrgAliasAppError from '#exceptions/org_alias_app_error'
+import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
+import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
 
 export default class DepartmentController {
   /**
@@ -453,19 +460,19 @@ export default class DepartmentController {
    *                       type: string
    */
 
-  async getPositions({ auth, request, response, i18n }: HttpContext) {
+  async getPositions({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (user.role.roleSlug !== 'root') {
+        userResponsibleId = user.userId
       }
       const departmentId = request.param('departmentId')
+      const positionSearch =
+        request.input('q') ?? request.input('search') ?? request.input('positionName')
+
       if (!departmentId) {
         response.status(400)
         return {
@@ -475,23 +482,22 @@ export default class DepartmentController {
           data: {},
         }
       }
-
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const businessUnitsList = businessUnitScope
 
       // Si el departmentId es 9999, retornar todas las posiciones
       if (Number.parseInt(departmentId) === 9999) {
         const allPositions = await DepartmentPosition.query()
           .whereHas('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .preload('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .orderBy('position_id')
 
@@ -511,9 +517,15 @@ export default class DepartmentController {
         .where('department_id', departmentId)
           .whereHas('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .preload('position', (queryPosition) => {
             queryPosition.whereIn('businessUnitId', businessUnitsList)
+            if (positionSearch?.trim()) {
+              applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+            }
           })
           .orderBy('position_id')
 
@@ -584,9 +596,15 @@ export default class DepartmentController {
         })
         .whereHas('position', (queryPosition) => {
           queryPosition.whereIn('businessUnitId', businessUnitsList)
+          if (positionSearch?.trim()) {
+            applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+          }
         })
         .preload('position', (queryPosition) => {
           queryPosition.whereIn('businessUnitId', businessUnitsList)
+          if (positionSearch?.trim()) {
+            applyPositionNameOrAliasesSearch(queryPosition, positionSearch)
+          }
         })
         .orderBy('position_id')
 
@@ -721,7 +739,7 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getRotationIndex({ request, response, i18n }: HttpContext) {
+  async getRotationIndex({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -736,17 +754,9 @@ export default class DepartmentController {
         }
       }
 
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
       const department = await Department.query()
         .where('department_id', departmentId)
-        .whereIn('businessUnitId', businessUnitsList)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!department) {
@@ -940,30 +950,24 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getAll({ auth, request, response, i18n }: HttpContext) {
+  async getAll({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (user.role.roleSlug !== 'root') {
+        userResponsibleId = user.userId
       }
       const userService = new UserService(i18n)
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
 
-      let departmentsList = [] as Array<number>
+      const departmentsList = await userService.getRoleDepartments(user.userId)
 
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
-
+      const allowedBusinessUnitIds = businessUnitScope
       const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
-      const departments = await new DepartmentService(i18n).index(departmentsList, filters)
+      const departments = await new DepartmentService(i18n).index(departmentsList, filters, allowedBusinessUnitIds)
 
       response.status(200)
       return {
@@ -994,6 +998,17 @@ export default class DepartmentController {
    *     tags:
    *       - Departments
    *     summary: get all departments with family structure (childrens and parents and position levels)
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business Unit id
+   *                 required: false
+   *                 default: ''
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -1060,11 +1075,11 @@ export default class DepartmentController {
    *                   type: string
    *                   description: Response message
    */
-  async getOrganization({ auth, response, i18n }: HttpContext) {
+  async getOrganization({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
-
+      const businessUnitId = request.input('businessUnitId')
       // const user = auth.user
       // const userService = new UserService()
       // let departmentsList = [] as Array<number>
@@ -1072,8 +1087,7 @@ export default class DepartmentController {
       // if (user) {
       //   departmentsList = await userService.getRoleDepartments(user.userId)
       // }
-
-      const departments = await new DepartmentService(i18n).buildOrganization(/* departmentsList */)
+      const departments = await new DepartmentService(i18n).buildOrganization(businessUnitId)
 
       response.status(200)
 
@@ -1143,7 +1157,7 @@ export default class DepartmentController {
    *                 description: Department parent id
    *                 required: false
    *                 default: ''
-   *               business_unit_id:
+   *               businessUnitId:
    *                 type: number
    *                 description: Business to assign
    *                 required: false
@@ -1232,8 +1246,10 @@ export default class DepartmentController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
+      const businessUnitId = request.input('businessUnitId')
       const departmentName = request.input('departmentName')
       const departmentAlias = request.input('departmentAlias')
+      const aliasesInput = request.input('aliases')
       const departmentIsDefault = request.input('departmentIsDefault')
       const departmentActive = request.input('departmentActive')
       const parentDepartmentId = request.input('parentDepartmentId')
@@ -1244,9 +1260,14 @@ export default class DepartmentController {
         departmentCode: departmentCode,
         departmentName: departmentName,
         departmentAlias: departmentAlias || '',
+        aliases:
+          aliasesInput === null || aliasesInput === undefined || aliasesInput === ''
+            ? null
+            : String(aliasesInput),
         departmentIsDefault: departmentIsDefault || 0,
         departmentActive: departmentActive || 1,
         parentDepartmentId: parentDepartmentId,
+        businessUnitId: businessUnitId,
       } as Department
 
       const departmentService = new DepartmentService(i18n)
@@ -1298,6 +1319,16 @@ export default class DepartmentController {
         }
       }
     } catch (error) {
+      if (error instanceof OrgAliasAppError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: error.title,
+          message: error.detail,
+          detail: error.detail,
+          data: { key: error.key },
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1361,9 +1392,14 @@ export default class DepartmentController {
    *                 default: false
    *               parentDepartmentId:
    *                 type: number
-   *                 description: Department parent id
+   *                 nullable: true
+   *                 description: Departamento padre (ID). También puede enviarse `parent_id`.
    *                 required: false
-   *                 default: ''
+   *               parent_id:
+   *                 type: number
+   *                 nullable: true
+   *                 description: Equivalente opcional snake_case de `parentDepartmentId` para mover el nodo padre en el organigrama.
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -1404,7 +1440,8 @@ export default class DepartmentController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           Parámetros inválidos o jerarquía inválida; `data.key` puede ser `jerarquia-ciclo` si el padre propuesto genera ciclo.
    *         content:
    *           application/json:
    *             schema:
@@ -1419,9 +1456,30 @@ export default class DepartmentController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 detail:
+   *                   type: string
+   *                   description: Detalle localizado
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '422':
+   *         description: >-
+   *           Reglas de organigrama no satisfechas; `data.key` puede ser `padre-inactivo`, `padre-no-encontrado`, `alcance-organizacional`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 data:
+   *                   type: object
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1454,17 +1512,8 @@ export default class DepartmentController {
       const departmentAlias = request.input('departmentAlias')
       const departmentIsDefault = request.input('departmentIsDefault')
       const departmentActive = request.input('departmentActive')
-      const parentDepartmentId = request.input('parentDepartmentId')
 
-      const department = {
-        departmentId: departmentId,
-        departmentCode: departmentCode,
-        departmentName: departmentName,
-        departmentAlias: departmentAlias,
-        departmentIsDefault: departmentIsDefault,
-        departmentActive: departmentActive,
-        parentDepartmentId: parentDepartmentId,
-      } as Department
+      const body = request.all() as Record<string, unknown>
 
       if (!departmentId) {
         response.status(400)
@@ -1472,7 +1521,7 @@ export default class DepartmentController {
           type: 'warning',
           title: t('resource'),
           message: t('resource_id_was_not_found'),
-          data: { ...department },
+          data: { departmentId },
         }
       }
 
@@ -1488,8 +1537,31 @@ export default class DepartmentController {
           type: 'warning',
           title: t('entity_was_not_found', { entity }),
           message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { ...department },
+          data: { departmentId },
         }
+      }
+
+      const hasDeptParentPayload =
+        Object.prototype.hasOwnProperty.call(body, 'parentDepartmentId') ||
+        Object.prototype.hasOwnProperty.call(body, 'parent_id')
+
+      const parentDepartmentIdMerged = hasDeptParentPayload
+        ? resolveDepartmentParentFromBody(body)
+        : currentDepartment.parentDepartmentId
+
+      const department = {
+        departmentId: departmentId,
+        departmentCode: departmentCode,
+        departmentName: departmentName,
+        departmentAlias: departmentAlias,
+        departmentIsDefault: departmentIsDefault,
+        departmentActive: departmentActive,
+        parentDepartmentId: parentDepartmentIdMerged,
+      } as Department
+
+      if (Object.prototype.hasOwnProperty.call(body, 'aliases')) {
+        const a = body.aliases
+        department.aliases = a === null || a === '' ? null : String(a)
       }
 
       const departmentService = new DepartmentService(i18n)
@@ -1504,6 +1576,41 @@ export default class DepartmentController {
           message: exist.message,
           data: { ...data },
         }
+      }
+
+      const normalizeDepartmentParentInput = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') {
+          return null
+        }
+        const n = Number(v)
+        if (Number.isNaN(n) || n < 1) {
+          return null
+        }
+        return n
+      }
+
+      const nextParentDeptId = normalizeDepartmentParentInput(department.parentDepartmentId)
+      const currentParentDeptId = normalizeDepartmentParentInput(currentDepartment.parentDepartmentId)
+
+      if (nextParentDeptId !== null && nextParentDeptId !== currentParentDeptId) {
+        const orgChartMoveService = new OrgChartMoveService(i18n)
+        const relocateResult = await orgChartMoveService.relocateDepartment(
+          Number(departmentId),
+          nextParentDeptId
+        )
+        if (!relocateResult.ok) {
+          const p = relocateResult.payload
+          response.status(p.status)
+          return {
+            type: 'warning',
+            title: p.title,
+            message: p.message,
+            ...(p.detail !== undefined ? { detail: p.detail } : {}),
+            data: { ...data, ...(p.key !== undefined ? { key: p.key } : {}) },
+          }
+        }
+
+        await currentDepartment.refresh()
       }
 
       const verifyInfo = await departmentService.verifyInfo(department)
@@ -1530,6 +1637,16 @@ export default class DepartmentController {
         }
       }
     } catch (error) {
+      if (error instanceof OrgAliasAppError) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: error.title,
+          message: error.detail,
+          detail: error.detail,
+          data: { key: error.key },
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1538,6 +1655,78 @@ export default class DepartmentController {
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: messageError,
+      }
+    }
+  }
+
+  async move({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const departmentIdRaw = request.param('departmentId')
+      const departmentId =
+        typeof departmentIdRaw === 'string' ? Number.parseInt(departmentIdRaw, 10) : departmentIdRaw
+
+      const moveService = new OrgChartMoveService(i18n)
+
+      const user = auth.user!
+
+      const canMove = await moveService.assertCanUpdateOrganizationChart(user.roleId)
+      if (!canMove) {
+        response.status(403)
+        return {
+          status: 403,
+          message: t('org_chart_move_forbidden'),
+        }
+      }
+
+      if (
+        departmentId === null ||
+        departmentId === undefined ||
+        Number.isNaN(Number(departmentId)) ||
+        Number(departmentId) < 1
+      ) {
+        response.status(400)
+        return {
+          status: 400,
+          message: t('resource_id_was_not_found'),
+        }
+      }
+
+      const { parentDepartmentId } = await request.validateUsing(moveDepartmentValidator)
+
+      const result = await moveService.relocateDepartment(Number(departmentId), parentDepartmentId)
+
+      if (!result.ok) {
+        const payload = result.payload
+        response.status(payload.status)
+        return {
+          status: payload.status,
+          title: payload.title,
+          message: payload.message,
+          ...(payload.detail !== undefined ? { detail: payload.detail } : {}),
+          data: { ...(payload.key !== undefined ? { key: payload.key } : {}) },
+        }
+      }
+
+      response.status(200)
+      return { data: { department: result.department } }
+    } catch (error) {
+      const err = error as { code?: string; messages?: Array<{ message: string }>; message?: string }
+      if (err.code === 'E_VALIDATION_ERROR') {
+        const msg = err.messages?.[0]?.message ?? t('validation_error')
+        response.status(422)
+        return {
+          status: 422,
+          message: msg,
+          detail: msg,
+        }
+      }
+
+      response.status(500)
+      return {
+        status: 500,
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        ...(err.message ? { detail: err.message } : {}),
       }
     }
   }
@@ -2144,32 +2333,27 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getOnlyWithEmployees({ auth, request, response, i18n }: HttpContext) {
+  async getOnlyWithEmployees({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (user.role.roleSlug !== 'root') {
+        userResponsibleId = user.userId
       }
       const userService = new UserService(i18n)
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
 
-      let departmentsList = [] as Array<number>
+      const departmentsList = await userService.getRoleDepartments(user.userId)
 
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
-
+      const allowedBusinessUnitIds = businessUnitScope
       const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
       const departments = await new DepartmentService(i18n).getOnlyWithEmployees(
         departmentsList,
-        filters
+        filters,
+        allowedBusinessUnitIds
       )
 
       response.status(200)

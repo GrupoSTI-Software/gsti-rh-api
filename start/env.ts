@@ -17,6 +17,8 @@ export default await Env.create(new URL('../', import.meta.url), {
   APP_KEY: Env.schema.string(),
   HOST: Env.schema.string({ format: 'host' }),
   LOG_LEVEL: Env.schema.string(),
+  /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
+  APP_BUSINESS_TIMEZONE: Env.schema.string.optional(),
 
   /*
   |----------------------------------------------------------
@@ -46,6 +48,13 @@ export default await Env.create(new URL('../', import.meta.url), {
   SMTP_PORT: Env.schema.string.optional(),
   SMTP_USERNAME: Env.schema.string.optional(),
   SMTP_PASSWORD: Env.schema.string.optional(),
+  /**
+   * URL pública del backoffice consumida por los correos del flujo de signup
+   * self-service (ej. botón "Ir al sistema" del correo de bienvenida). Se deja
+   * opcional para no romper instalaciones legacy que no lo declaren; el servicio
+   * de correo aplica un fallback razonable cuando no está definida.
+   */
+  BACKOFFICE_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization 
@@ -72,4 +81,16 @@ export default await Env.create(new URL('../', import.meta.url), {
   */
   BASIC_AUTH_USER: Env.schema.string.optional(),
   BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables para el modo demo y hardening del endpoint demo
+  |----------------------------------------------------------
+  */
+  APP_MODE: Env.schema.enum.optional(['demo', 'production', 'development'] as const),
+  DEMO_PASSWORD_HASH: Env.schema.string.optional(),
+  /** Hash PHC en Base64 (recomendado: evita que caracteres `$` en .env corrompan el valor). */
+  DEMO_PASSWORD_HASH_B64: Env.schema.string.optional(),
+  DEMO_ALLOWED_HOSTNAME: Env.schema.string.optional(),
+  DEMO_ALLOWED_DB_PATTERN: Env.schema.string.optional(),
+  DEMO_AUDIT_EMAIL: Env.schema.string.optional(),
 })

@@ -5,7 +5,85 @@ import {
   updateEmployeeAssessmentValidator,
 } from '#validators/employee_assessment'
 import Employee from '#models/employee'
+import AssessmentTemplateDimension from '#models/assessment_template_dimension'
+import { checkEmployeeAssessmentValueCoherence } from '#services/assessment_data_type_coherence'
 import { DateTime } from 'luxon'
+
+/**
+ * Resultado de la validación de coherencia para los `results` de una
+ * evaluación de empleado. Si alguna dimensión no es coherente con su
+ * `dataType`, devuelve la dimensión y la razón del verificador.
+ */
+type ResultsCoherence =
+  | { ok: true }
+  | { ok: false; assessmentTemplateDimensionId: number; reason: string }
+
+/**
+ * Verifica todos los `results` recibidos contra el `dataType` de cada
+ * dimensión perteneciente a la plantilla indicada (CAP-02-08-02).
+ *
+ * - Cada `result` debe referenciar una dimensión activa de la plantilla.
+ * - El valor capturado debe ser coherente con `dataType`:
+ *   parseable como número (`numeric`/`percent`) o uno de high/medium/low
+ *   (`categorical_amb`).
+ *
+ * El primer error encontrado corta la verificación.
+ */
+async function validateResultsAgainstDataTypes(
+  assessmentTemplateId: number,
+  results:
+    | { assessmentTemplateDimensionId: number; employeeAssessmentResultValue?: string | null }[]
+    | undefined
+): Promise<ResultsCoherence> {
+  if (!results || results.length === 0) return { ok: true }
+
+  const dimensionIds = results.map((r) => r.assessmentTemplateDimensionId)
+  const dimensions = await AssessmentTemplateDimension.query()
+    .whereNull('assessment_template_dimension_deleted_at')
+    .where('assessment_template_id', assessmentTemplateId)
+    .whereIn('assessment_template_dimension_id', dimensionIds)
+
+  const byId = new Map<number, AssessmentTemplateDimension>(
+    dimensions.map((d) => [d.assessmentTemplateDimensionId, d])
+  )
+
+  for (const result of results) {
+    const dimension = byId.get(result.assessmentTemplateDimensionId)
+    if (!dimension) {
+      return {
+        ok: false,
+        assessmentTemplateDimensionId: result.assessmentTemplateDimensionId,
+        reason: 'dimension-not-found',
+      }
+    }
+    const coherence = checkEmployeeAssessmentValueCoherence(
+      dimension.assessmentTemplateDimensionDataType,
+      result.employeeAssessmentResultValue ?? null
+    )
+    if (!coherence.ok) {
+      return {
+        ok: false,
+        assessmentTemplateDimensionId: result.assessmentTemplateDimensionId,
+        reason: coherence.reason!,
+      }
+    }
+  }
+  return { ok: true }
+}
+
+function buildIncoherentValueResponse(
+  t: (key: string, args?: Record<string, unknown>) => string,
+  assessmentTemplateDimensionId: number,
+  reason: string
+) {
+  return {
+    type: 'error',
+    title: t('employee_assessment'),
+    detail: t(`employee_assessment_result_coherence_${reason.replaceAll('-', '_')}`),
+    key: 'valor-no-coherente-con-tipo',
+    data: { assessmentTemplateDimensionId },
+  }
+}
 
 export default class EmployeeAssessmentController {
   /**
@@ -135,9 +213,15 @@ export default class EmployeeAssessmentController {
    *                       type: number
    *                     employeeAssessmentResultValue:
    *                       type: string
+   *                       description: |
+   *                         Valor capturado. Debe ser coherente con el `dataType` de la dimensión:
+   *                         - `numeric` / `percent`: cadena parseable como número (percent en [0,100]).
+   *                         - `categorical_amb`: uno de `high`, `medium`, `low`.
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: Valor incoherente con el dataType (key 'valor-no-coherente-con-tipo')
    *       default:
    *         description: Unexpected error
    */
@@ -187,6 +271,19 @@ export default class EmployeeAssessmentController {
           message: t('employee_assessment_already_exists_for_date'),
           data: {},
         }
+      }
+
+      const valueCoherence = await validateResultsAgainstDataTypes(
+        payload.assessmentTemplateId,
+        payload.results
+      )
+      if (!valueCoherence.ok) {
+        response.status(422)
+        return buildIncoherentValueResponse(
+          t,
+          valueCoherence.assessmentTemplateDimensionId,
+          valueCoherence.reason
+        )
       }
 
       const positionId = employee.positionId ?? 0
@@ -254,9 +351,12 @@ export default class EmployeeAssessmentController {
    *                       type: number
    *                     employeeAssessmentResultValue:
    *                       type: string
+   *                       description: Valor coherente con el dataType de la dimensión.
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: Valor incoherente con el dataType (key 'valor-no-coherente-con-tipo')
    *       default:
    *         description: Unexpected error
    */
@@ -329,6 +429,19 @@ export default class EmployeeAssessmentController {
         .first()
 
       const positionId = employee?.positionId ?? 0
+
+      const valueCoherence = await validateResultsAgainstDataTypes(
+        currentAssessment.assessmentTemplateId,
+        payload.results
+      )
+      if (!valueCoherence.ok) {
+        response.status(422)
+        return buildIncoherentValueResponse(
+          t,
+          valueCoherence.assessmentTemplateDimensionId,
+          valueCoherence.reason
+        )
+      }
 
       const updatedAssessment = await service.update(
         currentAssessment,

@@ -40,6 +40,7 @@ import ToleranceService from './tolerance_service.js'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -2148,7 +2149,7 @@ export default class AssistsService {
     return index !== -1 ? headers[index + 1] : null
   }
 
-  async getFormatPayRoll(date: string) {
+  async getFormatPayRoll(date: string, allowedBusinessUnitIds: number[] = []) {
     try {
       const monthPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('LL'))
       const yearPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('yyyy'))
@@ -2166,12 +2167,7 @@ export default class AssistsService {
       const year = dateNew.getFullYear()
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Inc SA2 p01')
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const businessUnitsList = allowedBusinessUnitIds
       worksheet.columns = [
         { key: 'inc' },
         { key: 'sa2' },
@@ -3076,7 +3072,7 @@ export default class AssistsService {
     return date.toISOString().split('T')[0]
   }
 
-  async getExcelPermissionsByDates(filters: PermissionsDatesExcelFilterInterface, departmentsList: Array<number>) {
+  async getExcelPermissionsByDates(filters: PermissionsDatesExcelFilterInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
     try {
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
@@ -3098,7 +3094,8 @@ export default class AssistsService {
           businessUnitId: filters.businessUnitId,
           payrollBusinessUnitId: filters.payrollBusinessUnitId,
         },
-        departmentsList
+        departmentsList,
+        allowedBusinessUnitIds
       )
 
       // Crear workbook
@@ -3116,7 +3113,7 @@ export default class AssistsService {
 
       // Configurar título
       worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:H1')
+      worksheet.mergeCells('A1:J1')
       const titleRow = worksheet.addRow(['Reporte de Permisos por Fechas'])
       let color = '244062'
       let fgColor = 'FFFFFFF'
@@ -3129,7 +3126,7 @@ export default class AssistsService {
       titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:I2')
+      worksheet.mergeCells('A2:K2')
 
       // Período
       color = '366092'
@@ -3142,10 +3139,12 @@ export default class AssistsService {
       }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
-      worksheet.mergeCells('A3:I3')
+      worksheet.mergeCells('A3:K3')
 
       // Headers
       const headerRow = worksheet.addRow([
+        'Unidad de negocio de trabajo',
+        'Unidad de nómina',
         'ID Empleado',
         'Empleado',
         'Departamento',
@@ -3194,6 +3193,8 @@ export default class AssistsService {
             employeeQuery.preload('person')
             employeeQuery.preload('department')
             employeeQuery.preload('position')
+            employeeQuery.preload('businessUnit')
+            employeeQuery.preload('payrollBusinessUnit')
           })
           .orderBy('shift_exceptions_date', 'asc')
 
@@ -3215,6 +3216,8 @@ export default class AssistsService {
             employeeQuery.preload('person')
             employeeQuery.preload('department')
             employeeQuery.preload('position')
+            employeeQuery.preload('businessUnit')
+            employeeQuery.preload('payrollBusinessUnit')
           })
 
         // Agregar excepciones de turno al reporte
@@ -3227,8 +3230,12 @@ export default class AssistsService {
           const description = exception.shiftExceptionsDescription || ''
           const checkInTime = exception.shiftExceptionCheckInTime || ''
           const checkOutTime = exception.shiftExceptionCheckOutTime || ''
+          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
+          const workBuName = exception.employee.businessUnit?.businessUnitName || 'N/A'
 
           worksheet.addRow([
+            workBuName,
+            payrollBuName,
             employee.employeePayrollCode,
             employeeName,
             departmentName,
@@ -3247,6 +3254,8 @@ export default class AssistsService {
             const employeeName = `${disability.employee.person.personFirstname} ${disability.employee.person.personLastname}`
             const departmentName = disability.employee.department?.departmentName || 'N/A'
             const positionName = disability.employee.position?.positionName || 'N/A'
+            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
+            const workBuName = disability.employee.businessUnit?.businessUnitName || 'N/A'
 
             // Generar fechas para cada día del período de incapacidad
             const periodStart = DateTime.fromJSDate(new Date(period.workDisabilityPeriodStartDate))
@@ -3264,6 +3273,8 @@ export default class AssistsService {
               const description = `Período: ${periodStart.toFormat('yyyy-MM-dd')} a ${periodEnd.toFormat('yyyy-MM-dd')}`
 
               worksheet.addRow([
+                workBuName,
+                payrollBuName,
                 employee.employeePayrollCode,
                 employeeName,
                 departmentName,
@@ -3283,6 +3294,8 @@ export default class AssistsService {
 
       // Ajustar ancho de columnas
       worksheet.columns = [
+        { width: 35 }, // UN Trabajo
+        { width: 25 }, // UN Nómina
         { width: 25 }, // ID de Empleado
         { width: 25 }, // Empleado
         { width: 20 }, // Departamento
@@ -3398,9 +3411,8 @@ export default class AssistsService {
           data: null,
         }
       }
-      // Obtener unidades de negocio activas
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+      const activeUnits = await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+      const businessList = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
       const holidays = await Holiday.query()
         .whereNull('holiday_deleted_at')
@@ -3913,15 +3925,9 @@ export default class AssistsService {
         backgroundImageLogo,
         message: newMessage,
       }
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(user)
       const departments = await Department.query()
-        .whereIn('businessUnitId', businessUnitsList)
+        .whereIn('businessUnitId', allowedIds)
         .whereRaw('UPPER(department_name) LIKE ?', ['%CAPITAL HUMANO%'])
         .orderBy('department_name', 'asc')
 

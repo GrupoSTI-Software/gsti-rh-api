@@ -1,0 +1,93 @@
+import type { ComplaintCategory, ComplaintStatus } from '../constants/complaint.js'
+import type { ComplaintAttachmentRow } from './complaint_attachment_interface.js'
+
+export interface CreateComplaintInput {
+  category: ComplaintCategory
+  description: string
+}
+
+export interface ComplaintCreateResult {
+  folio: string
+  passphrase: string
+  status: ComplaintStatus
+  category: ComplaintCategory
+  createdAt: string
+}
+
+export interface ComplaintStatusResult {
+  folio: string
+  status: ComplaintStatus
+  category: ComplaintCategory
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConsultComplaintStatusInput {
+  folio: string
+  passphrase: string
+}
+
+/** Fila del tablero admin: sin identidad del denunciante. */
+export interface ComplaintBoardListItem {
+  complaintId: number
+  folio: string
+  category: ComplaintCategory
+  status: ComplaintStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ComplaintAdminResult {
+  complaintId: number
+  folio: string
+  category: ComplaintCategory
+  description: string
+  status: ComplaintStatus
+  businessUnitId: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ComplaintListFilters {
+  page?: number
+  limit?: number
+  status?: ComplaintStatus
+  category?: ComplaintCategory
+}
+
+export interface ComplaintListResult {
+  meta: Record<string, unknown>
+  data: ComplaintBoardListItem[]
+}
+
+export interface ComplaintStatusHistoryRow {
+  complaintStatusHistoryId: number
+  fromStatus: ComplaintStatus | null
+  toStatus: ComplaintStatus
+  note: string
+  actorUserId: number
+  actorDisplayName: string | null
+  createdAt: string
+}
+
+export interface ComplaintDetailResult {
+  complaintId: number
+  folio: string
+  category: ComplaintCategory
+  description: string
+  status: ComplaintStatus
+  createdAt: string
+  updatedAt: string
+  history: ComplaintStatusHistoryRow[]
+  attachments: ComplaintAttachmentRow[]
+}
+
+export interface PatchComplaintStatusInput {
+  toStatus: ComplaintStatus
+  note: string
+}
+
+/** @deprecated Usar PatchComplaintStatusInput */
+export interface UpdateComplaintStatusInput {
+  status: ComplaintStatus
+}

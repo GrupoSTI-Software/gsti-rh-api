@@ -21,4 +21,5 @@ router
     router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
   })
   .use(middleware.auth())
+  .use(middleware.businessScope())
   .prefix('/api/v1/assists')

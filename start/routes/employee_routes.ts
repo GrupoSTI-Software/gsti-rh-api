@@ -19,6 +19,7 @@ router
     router.get('/termination-catalog', '#controllers/employee_controller.getTerminationCatalog')
     router.get('/without-user', '#controllers/employee_controller.indexWithOutUser')
     router.get('/', '#controllers/employee_controller.index')
+    router.get('/to-assigned', '#controllers/employee_controller.indexToAssigned')
     router.post('/', '#controllers/employee_controller.store')
     router.put('/:employeeId', '#controllers/employee_controller.update')
     router.delete('/:employeeId', '#controllers/employee_controller.delete')
@@ -44,10 +45,27 @@ router
       '#controllers/employee_temporary_assignment_controller.store'
     )
     router.get(
+      '/:employeeId/temporary-assignments',
+      '#controllers/employee_temporary_assignment_controller.index'
+    )
+    router.put(
+      '/:employeeId/temporary-assignments/:id',
+      '#controllers/employee_temporary_assignment_controller.update'
+    )
+    router.post(
+      '/:employeeId/temporary-assignments/:id/cancel',
+      '#controllers/employee_temporary_assignment_controller.cancel'
+    )
+    router.delete(
+      '/:employeeId/temporary-assignments/:id',
+      '#controllers/employee_temporary_assignment_controller.destroy'
+    )
+    router.get(
       '/:employeeId/temporary-assignments/active',
       '#controllers/employee_temporary_assignment_controller.showActive'
     )
 
+    router.get('/:employeeId/salary-history', '#controllers/employee_controller.salaryHistory')
     router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
     router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
     router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')
@@ -92,6 +110,7 @@ router
   })
   .prefix('/api/employees')
   .use(middleware.auth())
+  .use(middleware.businessScope())
 
 // Ruta pública para servir imágenes de forma segura (sin autenticación)
 router.get('/api/proxy-image', '#controllers/employee_controller.proxyImage')

@@ -5,6 +5,7 @@ import Department from './department.js'
 import Position from './position.js'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import Person from './person.js'
 import ShiftException from './shift_exception.js'
 import BusinessUnit from './business_unit.js'
@@ -20,6 +21,9 @@ import EmployeeBonus from './employee_bonus.js'
 import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
 import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
+import AsignacionContratoEspecializado from './asignacion_contrato_especializado.js'
+import EmployeeSalaryHistory from './employee_salary_history.js'
+import EmployeeCertification from './employee_certification.js'
 
 /**
  * @swagger
@@ -123,7 +127,7 @@ import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
  *            type: string
  *
  */
-export default class Employee extends compose(BaseModel, SoftDeletes) {
+export default class Employee extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeId: number
 
@@ -258,6 +262,11 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
 
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'payrollBusinessUnitId',
+  })
+  declare payrollBusinessUnit: BelongsTo<typeof BusinessUnit>
+
   @belongsTo(() => EmployeeType, {
     foreignKey: 'employeeTypeId',
   })
@@ -387,4 +396,29 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare temporaryAssignments: HasMany<typeof EmployeeTemporaryAssignment>
+
+  @hasMany(() => AsignacionContratoEspecializado, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('asignacion_contrato_especializado_deleted_at')
+    },
+  })
+  declare asignacionesContratoEspecializado: HasMany<typeof AsignacionContratoEspecializado>
+
+  /** Histórico de salarios diarios del empleado */
+  @hasMany(() => EmployeeSalaryHistory, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_salary_history_deleted_at').orderBy('valid_from', 'desc')
+    },
+  })
+  declare salaryHistory: HasMany<typeof EmployeeSalaryHistory>
+
+  @hasMany(() => EmployeeCertification, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_certification_deleted_at')
+    },
+  })
+  declare certifications: HasMany<typeof EmployeeCertification>
 }

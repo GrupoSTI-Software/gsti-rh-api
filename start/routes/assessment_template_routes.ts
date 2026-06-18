@@ -7,6 +7,14 @@ router
     router.post('/', '#controllers/assessment_template_controller.store')
     router.get('/:assessmentTemplateId', '#controllers/assessment_template_controller.show')
     router.put('/:assessmentTemplateId', '#controllers/assessment_template_controller.update')
+    router.patch(
+      '/:assessmentTemplateId/status',
+      '#controllers/assessment_template_controller.toggleStatus'
+    )
+    router.patch(
+      '/:assessmentTemplateId/dimensions/reorder',
+      '#controllers/assessment_template_controller.reorderDimensions'
+    )
     router.delete('/:assessmentTemplateId', '#controllers/assessment_template_controller.delete')
   })
   .prefix('/api/assessment-templates')

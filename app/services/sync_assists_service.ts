@@ -1167,7 +1167,15 @@ export default class SyncAssistsService {
    * )
    * ```
    */
-  private async getEmployeeCalendar(
+  /**
+   * Variante pública para callers que pre-cargaron shiftChanges/exceptions en bulk
+   * (ej. attendance-stats module que itera muchos empleados con datos compartidos).
+   *
+   * Si `preloadedShiftChangesMap` y `preloadedExceptionsMap` se pasan, se usan
+   * directamente y se evitan las dos `employee.load(...)` internas. Esto reduce
+   * 2 queries por empleado, crítico para flujos bulk con cientos de empleados.
+   */
+  async getEmployeeCalendar(
     dateStart: Date | DateTime,
     dateEnd: Date | DateTime,
     employeeAssist: AssistDayInterface[],
@@ -1175,7 +1183,11 @@ export default class SyncAssistsService {
     employeeID: number | undefined,
     TOLERANCE_DELAY_MINUTES: number,
     TOLERANCE_FAULT_MINUTES: number,
-    employee: Employee | null
+    employee: Employee | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    preloadedShiftChangesMap?: Map<string, any[]>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    preloadedExceptionsMap?: Map<string, any[]>
   ) {
     if (employee) {
       await employee.load('person')
@@ -1187,11 +1199,14 @@ export default class SyncAssistsService {
     const assistList = employeeAssist
     const dailyAssistList: AssistDayInterface[] = []
 
-    // OPTIMIZACIÓN: Precargar todas las relaciones del empleado para el rango completo
-    const shiftChangesMap = new Map<string, any[]>()
-    const exceptionsMap = new Map<string, any[]>()
+    // OPTIMIZACIÓN: Si el caller pasó maps pre-loaded (caso bulk), úsalos; sino,
+    // hacer el load per-empleado como antes (compatibilidad con index()).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const shiftChangesMap: Map<string, any[]> = preloadedShiftChangesMap ?? new Map()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exceptionsMap: Map<string, any[]> = preloadedExceptionsMap ?? new Map()
 
-    if (employee && employeeID) {
+    if (!preloadedShiftChangesMap && employee && employeeID) {
       // Cargar todos los shift changes del rango de una sola vez
       await employee.load('shiftChanges', (query) => {
         query.where('employeeShiftChangeDateFrom', '>=', `${dateTimeStart.toFormat('yyyy-LL-dd')} 00:00:00`)
@@ -1206,7 +1221,9 @@ export default class SyncAssistsService {
         }
         shiftChangesMap.get(changeDate)!.push(shiftChange)
       })
+    }
 
+    if (!preloadedExceptionsMap && employee && employeeID) {
       // Cargar todas las excepciones del rango de una sola vez
       await employee.load('shift_exceptions', (query) => {
         query.where('shiftExceptionsDate', '>=', `${dateTimeStart.toFormat('yyyy-LL-dd')} 00:00:00`)
@@ -2528,6 +2545,13 @@ export default class SyncAssistsService {
   }
 
   private checkDSTSummerTime (date: Date): boolean {
+    // México dejó de aplicar horario de verano en la mayor parte del territorio.
+    // Mantener el ajuste +1h en fixedCSTSummerTime para 2023+ corregía como si
+    // aún hubiera DST y desplazaba entradas/salidas válidas (mayo–octubre vs febrero).
+    if (date.getFullYear() >= 2023) {
+      return false
+    }
+
     const year = date.getFullYear()
     const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
 
@@ -2734,13 +2758,12 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  async syncronizeAssistAllEmployeesCalendar(dateStart: string, dateEnd: string) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
+  async syncronizeAssistAllEmployeesCalendar(dateStart: string, dateEnd: string, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
     const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
     const departmentService = new DepartmentService(this.i18n as I18n)
     const employeeService = new EmployeeService(this.i18n as I18n)
@@ -2767,7 +2790,8 @@ export default class SyncAssistsService {
             onlyPayroll: false,
             userResponsibleId: 0,
           },
-          [departmentId]
+          [departmentId],
+          allowedBusinessUnitIds
         )
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {

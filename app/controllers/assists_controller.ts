@@ -1191,7 +1191,7 @@ export default class AssistsController {
    *                     error:
    *                       type: string
    */
-  async getFormatPayRoll({ request, response, i18n }: HttpContext) {
+  async getFormatPayRoll({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const date = request.input('date')
@@ -1218,7 +1218,7 @@ export default class AssistsController {
         }
       }
 
-      const buffer = await assistService.getFormatPayRoll(date)
+      const buffer = await assistService.getFormatPayRoll(date, businessUnitScope)
       if (buffer.status === 201) {
         response.header('Content-Type', 'text/csv')
         response.header('Content-Disposition', 'attachment; filename="file.csv"')
@@ -1657,7 +1657,7 @@ export default class AssistsController {
    *                   type: string
    *                   example: An unexpected error has occurred on the server
    */
-  async getExcelPermissionsByDates({ auth, request, response, i18n}: HttpContext) {
+  async getExcelPermissionsByDates({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -1700,7 +1700,7 @@ export default class AssistsController {
       } as PermissionsDatesExcelFilterInterface
 
       const assistService = new AssistsService(i18n)
-      const result = await assistService.getExcelPermissionsByDates(filters, departmentsList)
+      const result = await assistService.getExcelPermissionsByDates(filters, departmentsList, businessUnitScope)
 
       if (result.buffer) {
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

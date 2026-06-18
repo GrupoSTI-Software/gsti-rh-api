@@ -4,7 +4,47 @@ import AssessmentTemplate from '#models/assessment_template'
 import PositionAssessmentProfile from '#models/position_assessment_profile'
 import { EmployeeAssessmentFilterSearchInterface } from '../interfaces/employee_assessment_filter_search_interface.js'
 
+/**
+ * Servicio que encapsula la lógica de negocio asociada a las evaluaciones de
+ * empleados (`EmployeeAssessment`) y sus resultados por dimensión
+ * (`EmployeeAssessmentResult`). Incluye:
+ *
+ * - Listado paginado con filtros y carga de relaciones (`assessmentTemplate`,
+ *   `dimensions`, `results`).
+ * - Creación y actualización con cálculo automático del estado de cada
+ *   resultado y del estado general de la evaluación según el perfil
+ *   configurado en el puesto (`PositionAssessmentProfile`).
+ * - Eliminación lógica (soft delete) en cascada de la evaluación y sus
+ *   resultados activos.
+ * - Utilidades para detectar duplicados (mismo empleado + plantilla + fecha)
+ *   y para obtener las plantillas distintas asignadas a un puesto a través
+ *   del JOIN `position_assessment_profiles → assessment_template_dimensions`.
+ *
+ * Estados calculados en `employeeAssessmentStatus`:
+ * - `pending`: faltan resultados con valor o no hay perfiles configurados.
+ * - `approved`: todos los resultados están dentro o por arriba del rango
+ *   esperado del perfil (no hay `insufficient`).
+ * - `failed`: al menos un resultado está por debajo del mínimo del perfil.
+ *
+ * Estados calculados en `employeeAssessmentResultStatus`:
+ * - `null`: el valor está vacío o no es numérico, o no hay perfil configurado.
+ * - `insufficient`: valor numérico menor al mínimo del perfil.
+ * - `approved`: valor numérico dentro del rango [mínimo, máximo].
+ * - `excellent`: valor numérico mayor al máximo del perfil.
+ */
 export default class EmployeeAssessmentService {
+  /**
+   * Devuelve un listado paginado de evaluaciones de empleados aplicando
+   * filtros opcionales sobre el empleado, plantilla y estado.
+   *
+   * Carga las relaciones `assessmentTemplate` (con sus dimensiones activas) y
+   * `results` (con su dimensión asociada), y ordena los resultados por fecha
+   * de evaluación descendente.
+   *
+   * @param filters Filtros de búsqueda y paginación (employeeId,
+   *                assessmentTemplateId, status, page, limit).
+   * @returns Resultado paginado de Lucid con las evaluaciones encontradas.
+   */
   async index(filters: EmployeeAssessmentFilterSearchInterface) {
     const items = await EmployeeAssessment.query()
       .whereNull('employee_assessment_deleted_at')
@@ -33,6 +73,14 @@ export default class EmployeeAssessmentService {
     return items
   }
 
+  /**
+   * Obtiene todas las evaluaciones activas de un empleado, ordenadas por
+   * fecha descendente, precargando la plantilla con sus dimensiones y los
+   * resultados con su dimensión asociada.
+   *
+   * @param employeeId Identificador del empleado.
+   * @returns Lista de evaluaciones del empleado (puede ser vacía).
+   */
   async getByEmployee(employeeId: number) {
     const items = await EmployeeAssessment.query()
       .whereNull('employee_assessment_deleted_at')
@@ -54,7 +102,12 @@ export default class EmployeeAssessmentService {
 
   /**
    * Obtiene las plantillas de evaluación distintas asignadas a un puesto a través
-   * del JOIN: position_assessment_profiles → assessment_template_dimensions → assessment_templates
+   * del JOIN: position_assessment_profiles → assessment_template_dimensions → assessment_templates.
+   *
+   * CAP-02-08-04 — Sólo devuelve plantillas con `is_active = true`. Las
+   * plantillas inactivas no deben ofrecerse al asignar nuevas evaluaciones
+   * a empleados; el histórico ya creado permanece intacto (consultado vía
+   * `getByEmployee`).
    */
   async getTemplatesByPosition(positionId: number) {
     const profiles = await PositionAssessmentProfile.query()
@@ -75,6 +128,7 @@ export default class EmployeeAssessmentService {
 
     const templates = await AssessmentTemplate.query()
       .whereNull('assessment_template_deleted_at')
+      .where('assessment_template_is_active', true)
       .whereIn('assessment_template_id', Array.from(templateIdSet))
       .preload('dimensions', (dimQuery) => {
         dimQuery.whereNull('assessment_template_dimension_deleted_at')
@@ -84,6 +138,26 @@ export default class EmployeeAssessmentService {
     return templates
   }
 
+  /**
+   * Crea una nueva evaluación de empleado (`EmployeeAssessment`) y, si se
+   * envían `results`, también persiste cada resultado con el estado calculado
+   * a partir del perfil del puesto (`PositionAssessmentProfile`).
+   *
+   * Pasos:
+   * 1. Carga los perfiles del puesto para la plantilla indicada.
+   * 2. Crea la evaluación con estado inicial `pending`.
+   * 3. Persiste cada resultado con su `employeeAssessmentResultStatus`
+   *    calculado por `calculateDimensionStatus`.
+   * 4. Recalcula el estado general (`employeeAssessmentStatus`) de la
+   *    evaluación y la guarda nuevamente.
+   *
+   * @param data Datos básicos de la evaluación (employeeId,
+   *             assessmentTemplateId, employeeAssessmentDate).
+   * @param positionId Identificador del puesto del empleado, requerido para
+   *                   buscar el perfil de evaluación y calcular el estado.
+   * @param results Lista opcional de resultados por dimensión.
+   * @returns La evaluación recién creada con sus relaciones precargadas.
+   */
   async create(
     data: {
       employeeId: number
@@ -133,6 +207,21 @@ export default class EmployeeAssessmentService {
     return this.show(newAssessment.employeeAssessmentId)
   }
 
+  /**
+   * Actualiza una evaluación existente:
+   * - Si se envía nueva fecha, la asigna.
+   * - Para cada elemento de `results`: si ya existe un resultado activo para
+   *   esa dimensión, lo actualiza; en caso contrario lo crea, recalculando el
+   *   estado de cada resultado contra el perfil del puesto.
+   * - Recalcula el estado general de la evaluación al final.
+   *
+   * @param currentAssessment Instancia ya cargada de la evaluación a actualizar.
+   * @param data Datos a actualizar (por ahora sólo `employeeAssessmentDate`).
+   * @param positionId Identificador del puesto, necesario para recalcular
+   *                   estados contra el perfil de evaluación.
+   * @param results Lista opcional de resultados a sincronizar (crear/actualizar).
+   * @returns La evaluación actualizada con sus relaciones precargadas.
+   */
   async update(
     currentAssessment: EmployeeAssessment,
     data: {
@@ -195,6 +284,13 @@ export default class EmployeeAssessmentService {
     return this.show(currentAssessment.employeeAssessmentId)
   }
 
+  /**
+   * Realiza un soft delete sobre la evaluación y todos sus resultados activos
+   * (`employee_assessment_result_deleted_at` se establece al timestamp actual).
+   *
+   * @param currentAssessment Instancia de la evaluación a eliminar lógicamente.
+   * @returns La misma instancia recibida (ya marcada como eliminada).
+   */
   async delete(currentAssessment: EmployeeAssessment) {
     const results = await EmployeeAssessmentResult.query()
       .where('employee_assessment_id', currentAssessment.employeeAssessmentId)
@@ -208,6 +304,14 @@ export default class EmployeeAssessmentService {
     return currentAssessment
   }
 
+  /**
+   * Obtiene una evaluación por su identificador, con todas sus relaciones
+   * precargadas (plantilla con dimensiones, resultados con su dimensión y
+   * empleado).
+   *
+   * @param assessmentId Identificador de la evaluación.
+   * @returns La evaluación encontrada o `null` si no existe / fue eliminada.
+   */
   async show(assessmentId: number) {
     const assessment = await EmployeeAssessment.query()
       .whereNull('employee_assessment_deleted_at')
@@ -268,7 +372,16 @@ export default class EmployeeAssessmentService {
   }
 
   /**
-   * Calcula el estado de un resultado individual comparando el valor contra los rangos del perfil.
+   * Calcula el estado de un resultado individual comparando el valor contra
+   * el perfil del puesto, **respetando el `dataType` de la dimensión**:
+   *
+   *  - `numeric` / `percent`: comparación numérica contra el rango [min, max]
+   *    del perfil → 'insufficient' | 'approved' | 'excellent'.
+   *  - `categorical_amb`: comparación exacta contra `expectedValue` del perfil
+   *    → 'approved' si coincide, 'insufficient' si difiere.
+   *
+   * Devuelve `null` cuando el valor está vacío, no es válido para el tipo o
+   * no existe perfil configurado para la dimensión.
    */
   private calculateDimensionStatus(
     value: string | null,
@@ -277,13 +390,29 @@ export default class EmployeeAssessmentService {
   ): string | null {
     if (!value || value.trim() === '') return null
 
-    const numericValue = Number.parseFloat(value)
-    if (Number.isNaN(numericValue)) return null
-
     const profile = positionProfiles.find(
       (p) => p.assessmentTemplateDimensionId === dimensionId
     )
     if (!profile) return null
+
+    const dataType =
+      profile.assessmentTemplateDimension?.assessmentTemplateDimensionDataType ?? 'numeric'
+
+    if (dataType === 'categorical_amb') {
+      const expected = profile.positionAssessmentProfileExpectedValue
+      if (!expected) return null
+      return value.trim() === expected ? 'approved' : 'insufficient'
+    }
+
+    const numericValue = Number.parseFloat(value)
+    if (!Number.isFinite(numericValue)) return null
+
+    if (
+      profile.positionAssessmentProfileMinimumValue === null ||
+      profile.positionAssessmentProfileMaximumValue === null
+    ) {
+      return null
+    }
 
     const minVal = Number(profile.positionAssessmentProfileMinimumValue)
     const maxVal = Number(profile.positionAssessmentProfileMaximumValue)

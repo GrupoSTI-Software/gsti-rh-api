@@ -8,6 +8,7 @@ export default class AssessmentTemplateDimensionService {
       'assessment_template_id',
       'assessment_template_dimension_name',
       'assessment_template_dimension_acronym',
+      'assessment_template_dimension_data_type',
       'assessment_template_dimension_created_at',
     ]
     const items = await AssessmentTemplateDimension.query()
@@ -30,6 +31,10 @@ export default class AssessmentTemplateDimensionService {
     newDimension.assessmentTemplateId = dimension.assessmentTemplateId
     newDimension.assessmentTemplateDimensionName = dimension.assessmentTemplateDimensionName
     newDimension.assessmentTemplateDimensionAcronym = dimension.assessmentTemplateDimensionAcronym
+    if (dimension.assessmentTemplateDimensionDataType) {
+      newDimension.assessmentTemplateDimensionDataType =
+        dimension.assessmentTemplateDimensionDataType
+    }
     await newDimension.save()
     return newDimension
   }
@@ -41,6 +46,10 @@ export default class AssessmentTemplateDimensionService {
     currentDimension.assessmentTemplateDimensionName = dimension.assessmentTemplateDimensionName
     currentDimension.assessmentTemplateDimensionAcronym =
       dimension.assessmentTemplateDimensionAcronym
+    if (dimension.assessmentTemplateDimensionDataType) {
+      currentDimension.assessmentTemplateDimensionDataType =
+        dimension.assessmentTemplateDimensionDataType
+    }
     await currentDimension.save()
     return currentDimension
   }

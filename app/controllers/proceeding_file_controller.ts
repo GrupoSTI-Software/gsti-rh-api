@@ -272,7 +272,7 @@ export async function processProceedingFileMultipartStore(
     }
   }
   try {
-    const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName)
+    const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName, 'private')
     proceedingFile.proceedingFilePath = fileUrl
     if (!proceedingFile.proceedingFileName) {
       proceedingFile.proceedingFileName = fileName
@@ -792,7 +792,7 @@ export default class ProceedingFileController {
         }
         const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName)
+        const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName, 'private')
         if (currentProceedingFile.proceedingFilePath) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentProceedingFile.proceedingFilePath)

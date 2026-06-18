@@ -53,6 +53,8 @@ interface CreateRangeInput {
   minSalaryDaily: number
   maxSalaryDaily: number
   validFrom: DateTime
+  /** Zona IANA (p. ej. desde cabecera `X-User-Timezone`) para “hoy” y comparación de `validFrom`. */
+  timeZone: string
   reason?: string
   createdBy: number
 }
@@ -64,6 +66,20 @@ interface ListRangesFilter {
 }
 
 export default class PositionSalaryRangeService {
+  /** Inicio del “hoy” civil en la zona IANA indicada. */
+  private todayCalendarInZone(zone: string): DateTime {
+    return DateTime.now().setZone(zone).startOf('day')
+  }
+
+  /**
+   * `validFrom` del API suele venir de `YYYY-MM-DD` → `Date` en medianoche UTC.
+   * Se interpreta como día calendario (UTC) y se ancla al inicio de ese día en `zone`.
+   */
+  private salaryValidFromCalendarDay(dt: DateTime, zone: string): DateTime {
+    const u = dt.toUTC()
+    return DateTime.fromObject({ year: u.year, month: u.month, day: u.day }, { zone }).startOf('day')
+  }
+
   async verifyReferences(businessUnitId: number, positionId: number): Promise<ServiceError | null> {
     const businessUnit = await BusinessUnit.query()
       .where('business_unit_id', businessUnitId)
@@ -128,12 +144,23 @@ export default class PositionSalaryRangeService {
       }
     }
 
+    const today = this.todayCalendarInZone(input.timeZone)
+    const validFromDay = this.salaryValidFromCalendarDay(input.validFrom, input.timeZone)
+    if (validFromDay < today) {
+      return {
+        status: 422,
+        key: 'valid-from-past',
+        title: 'Fecha no permitida',
+        message: 'No se permiten rangos con fecha de vigencia anterior al día actual en la zona horaria indicada',
+      }
+    }
+
     const range = new PositionSalaryRange()
     range.businessUnitId = input.businessUnitId
     range.positionId = input.positionId
     range.minSalaryDaily = input.minSalaryDaily
     range.maxSalaryDaily = input.maxSalaryDaily
-    range.validFrom = input.validFrom
+    range.validFrom = validFromDay
     range.validTo = null
     range.createdBy = input.createdBy
 
@@ -234,7 +261,14 @@ export default class PositionSalaryRangeService {
 
   async updateVersion(
     positionSalaryRangeId: number,
-    input: { minSalaryDaily: number; maxSalaryDaily: number; validFrom?: DateTime; reason?: string; actorId: number }
+    input: {
+      minSalaryDaily: number
+      maxSalaryDaily: number
+      validFrom?: DateTime
+      timeZone: string
+      reason?: string
+      actorId: number
+    }
   ): Promise<ServiceError | UpdateVersionSuccess> {
     if (input.minSalaryDaily > input.maxSalaryDaily) {
       return {
@@ -245,15 +279,17 @@ export default class PositionSalaryRangeService {
       }
     }
 
-    const today = DateTime.now().startOf('day')
-    const validFrom = input.validFrom ?? today
+    const today = this.todayCalendarInZone(input.timeZone)
+    const validFrom = input.validFrom
+      ? this.salaryValidFromCalendarDay(input.validFrom, input.timeZone)
+      : today
 
     if (validFrom < today) {
       return {
         status: 422,
-        key: 'valid-from-pasado',
+        key: 'valid-from-past',
         title: 'Fecha no permitida',
-        message: 'No se permiten cambios con fecha de vigencia anterior a hoy',
+        message: 'No se permiten cambios con fecha de vigencia anterior al día actual en la zona horaria indicada',
       }
     }
 

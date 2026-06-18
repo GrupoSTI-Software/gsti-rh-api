@@ -21,7 +21,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#000000"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -35,6 +35,64 @@ export default class extends BaseSeeder {
           <path d="M17.27 20l-1.3 .75" />
           <path d="M15.97 17.25l1.3 .75" />
           <path d="M20.733 20l1.3 .75" />
+        </svg>`,
+      },
+      {
+        systemModuleId: 2,
+        systemModuleName: 'Departamentos',
+        systemModuleSlug: 'departments',
+        systemModuleDescription: 'departments',
+        systemModules: 1,
+        systemModulePath: '/departments',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon:
+        `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 21l18 0" />
+          <path d="M9 8l1 0" />
+          <path d="M9 12l1 0" />
+          <path d="M9 16l1 0" />
+          <path d="M14 8l1 0" />
+          <path d="M14 12l1 0" />
+          <path d="M14 16l1 0" />
+          <path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16" />
+        </svg>`,
+      },
+      {
+        systemModuleId: 3,
+        systemModuleName: 'Puestos',
+        systemModuleSlug: 'positions',
+        systemModuleDescription: 'positions',
+        systemModules: 1,
+        systemModulePath: '/positions',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon:
+        `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 7m0 2a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z" />
+          <path d="M8 7v-2a2 2 0 0 1 2 -2h4a2 2 0 0 1 2 2v2" />
+          <path d="M12 12l0 .01" />
+          <path d="M3 13a20 20 0 0 0 18 0" />
         </svg>`,
       },
       {
@@ -53,7 +111,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -82,7 +140,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -109,7 +167,7 @@ export default class extends BaseSeeder {
           height="128"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#000000"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -136,7 +194,7 @@ export default class extends BaseSeeder {
           height="128"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -163,7 +221,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -189,7 +247,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -219,7 +277,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -246,7 +304,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -278,7 +336,7 @@ export default class extends BaseSeeder {
             height="128"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#000000"
+            stroke="currentColor"
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -304,7 +362,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -333,7 +391,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -362,7 +420,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -390,7 +448,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -416,7 +474,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -445,7 +503,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -474,7 +532,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -502,7 +560,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -530,7 +588,7 @@ export default class extends BaseSeeder {
           height="128"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -555,7 +613,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -582,7 +640,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -609,7 +667,7 @@ export default class extends BaseSeeder {
           height="48"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#88a4bf"
+          stroke="currentColor"
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -642,8 +700,86 @@ export default class extends BaseSeeder {
           <path d="M.5 0a.5.5 0 0 1 .5.5v15a.5.5 0 0 1-1 0V.5A.5.5 0 0 1 .5 0M2 1.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-4a.5.5 0 0 1-.5-.5zm2 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5zm2 4a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-6a.5.5 0 0 1-.5-.5zm2 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5z"/>
         </svg>`,
       },
+      {
+        systemModuleId: 36,
+        systemModuleName: 'Catálogo de certificaciones',
+        systemModuleSlug: 'certifications',
+        systemModuleDescription: 'Certificaciones reconocidas por la empresa y alcance por unidad de negocio',
+        systemModules: 1,
+        systemModulePath: '/certifications',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 3v4a1 1 0 0 0 1 1h4" />
+          <path d="M18 21h-11a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z" />
+          <path d="M9 17h7" />
+          <path d="M9 13h7" />
+        </svg>`,
+      },
+      {
+        systemModuleId: 37,
+        systemModuleName: 'Periodos de lactancia',
+        systemModuleSlug: 'employee-lactation-periods',
+        systemModuleDescription:
+          'Registro de periodos de lactancia (NOM-037-STPS-2023 / LFT artículo 170)',
+        systemModules: 1,
+        systemModulePath: '/employee-lactation-periods',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+          <path d="M17.5 7a5.5 5.5 0 1 0 -11 0" />
+          <path d="M7 11v8a3 3 0 0 0 3 3h4a3 3 0 0 0 3 -3v-8" />
+        </svg>`,
+      },
+      {
+        systemModuleId: 38,
+        systemModuleName: 'Repse',
+        systemModuleSlug: 'repse-registrations',
+        systemModuleDescription:
+          'Registro REPSE de la empresa ante la STPS (folio, fecha de registro y vencimiento)',
+        systemModules: 1,
+        systemModulePath: '/repse',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#88a4bf"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
+          <path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z" />
+          <path d="M9 12h6" />
+          <path d="M9 16h6" />
+        </svg>`,
+      },
     ]
-
     for (const systemModule of systemModules) {
       const { systemModuleId, ...systemModuleData } = systemModule
       // updateOrCreate: actualiza el módulo si ya existe, lo crea si no existe
