@@ -44,11 +44,10 @@ export default class DepartmentService {
       .if(filters?.departmentName, (query) => {
         applyDepartmentNameOrAliasesSearch(query, filters?.departmentName)
       })
+      // `only-parents=true` limita a departamentos raíz; sin el flag se devuelven
+      // todos (raíces incluidas) para poder elegirlos como padre en los selectores.
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
-      })
-      .if(!filters?.onlyParents, (query) => {
-        query.whereNotNull('parentDepartmentId')
       })
       .orderBy('departmentName', 'asc')
 
