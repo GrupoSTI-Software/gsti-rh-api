@@ -48,6 +48,13 @@ export default await Env.create(new URL('../', import.meta.url), {
   SMTP_PORT: Env.schema.string.optional(),
   SMTP_USERNAME: Env.schema.string.optional(),
   SMTP_PASSWORD: Env.schema.string.optional(),
+  /**
+   * URL pública del backoffice consumida por los correos del flujo de signup
+   * self-service (ej. botón "Ir al sistema" del correo de bienvenida). Se deja
+   * opcional para no romper instalaciones legacy que no lo declaren; el servicio
+   * de correo aplica un fallback razonable cuando no está definida.
+   */
+  BACKOFFICE_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization 

@@ -1,6 +1,5 @@
 /* eslint-disable no-console -- trazas temporales modo demo */
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
@@ -48,7 +47,12 @@ import {
 import { DepartmentFactory, DEMO_DEPARTMENTS } from '../factories/department_factory.js'
 import { PositionFactory, DEMO_POSITIONS } from '../factories/position_factory.js'
 import { ShiftFactory, DEMO_SHIFTS, DEMO_DEFAULT_SHIFT_NAME } from '../factories/shift_factory.js'
-import { UserFactory, DEMO_ROOT_USERS, DEMO_DEFAULT_PASSWORD, DEMO_ROLE_RULES } from '../factories/user_factory.js'
+import {
+  UserFactory,
+  DEMO_ROOT_USERS,
+  DEMO_DEFAULT_PASSWORD,
+  DEMO_ROLE_RULES,
+} from '../factories/user_factory.js'
 import { AddressFactory } from '../factories/address_factory.js'
 import { EmployeeAddressFactory } from '../factories/employee_address_factory.js'
 import { EmployeeEmergencyContactFactory } from '../factories/employee_emergency_contact_factory.js'
@@ -73,9 +77,9 @@ async function demoDbCounts(tag: string, label: string): Promise<void> {
     }
   }
   const employees = await q('employees')
-  const people    = await q('people')
-  const users     = await q('users')
-  const assists   = await q('assists')
+  const people = await q('people')
+  const users = await q('users')
+  const assists = await q('assists')
   console.log(tag, `snapshot: ${label}`, { employees, people, users, assists })
 }
 
@@ -84,12 +88,12 @@ async function demoDbCounts(tag: string, label: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface DemoFactoryResult {
-  departments:     { created: number; total: number }
-  positions:       { created: number; total: number }
-  shifts:          { created: number; total: number }
-  employees:       { created: number; total: number }
-  users:           { created: number; total: number }
-  employeeExtras:  {
+  departments: { created: number; total: number }
+  positions: { created: number; total: number }
+  shifts: { created: number; total: number }
+  employees: { created: number; total: number }
+  users: { created: number; total: number }
+  employeeExtras: {
     addresses: number
     emergencyContacts: number
     records: number
@@ -99,7 +103,7 @@ export interface DemoFactoryResult {
     vacationArchives: number
     exceptionRequests: number
   }
-  assists:         { employees: number; pairs: number }
+  assists: { employees: number; pairs: number }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,14 +117,12 @@ export interface DemoFactoryResult {
 const DEMO_ASSIST_HISTORY_MONTHS = 6
 
 async function resolveToleranceMinutes(type: 'delay' | 'fault'): Promise<number> {
-  const systemSetting = await SystemSetting.query()
-    .where('system_setting_active', 1)
-    .first()
+  const systemSetting = await SystemSetting.query().where('system_setting_active', 1).first()
 
   if (!systemSetting) return 10
 
   const name = type === 'delay' ? 'Delay' : 'TardinessTolerance'
-  const row  = await Tolerance.query()
+  const row = await Tolerance.query()
     .where('system_setting_id', systemSetting.systemSettingId)
     .where('tolerance_name', name)
     .whereNull('tolerance_deleted_at')
@@ -140,9 +142,10 @@ const SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START = '2024-01-01'
 function demoEmployeShiftsApplySince(employee: Employee): string {
   const raw = employee.employeeHireDate
   if (!raw) return SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START
-  const hireStr = raw instanceof DateTime
-    ? raw.toFormat('yyyy-MM-dd')
-    : DateTime.fromJSDate(raw as unknown as Date).toFormat('yyyy-MM-dd')
+  const hireStr =
+    raw instanceof DateTime
+      ? raw.toFormat('yyyy-MM-dd')
+      : DateTime.fromJSDate(raw as unknown as Date).toFormat('yyyy-MM-dd')
   return hireStr >= SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START
     ? hireStr
     : SYNC_ASSIST_EMPLOYEE_SHIFT_DATE_START
@@ -197,11 +200,11 @@ export default class DemoFactoryService {
     await demoDbCounts(tag, 'al inicio (antes de contexto)')
 
     const result: DemoFactoryResult = {
-      departments:    { created: 0, total: 0 },
-      positions:      { created: 0, total: 0 },
-      shifts:         { created: 0, total: 0 },
-      employees:      { created: 0, total: 0 },
-      users:          { created: 0, total: 0 },
+      departments: { created: 0, total: 0 },
+      positions: { created: 0, total: 0 },
+      shifts: { created: 0, total: 0 },
+      employees: { created: 0, total: 0 },
+      users: { created: 0, total: 0 },
       employeeExtras: {
         addresses: 0,
         emergencyContacts: 0,
@@ -215,23 +218,24 @@ export default class DemoFactoryService {
       assists: { employees: 0, pairs: 0 },
     }
 
-    // 0. Contexto base
-    const businessConf   = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList   = businessConf.split(',').map((u: string) => u.trim()).filter(Boolean)
-    const systemBusiness = businessConf
-
-    console.log(tag, 'contexto SYSTEM_BUSINESS', { businessConf, businessList })
-
-    const businessUnit = await BusinessUnit.query()
+    // 0. Contexto base — se usan todas las BUs activas de la BD (sin depender de SYSTEM_BUSINESS)
+    const activeBusinessUnitsCtx = await BusinessUnit.query()
       .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
+      .whereNull('business_unit_deleted_at')
+      .orderBy('business_unit_id', 'asc')
+
+    const businessList = activeBusinessUnitsCtx.map((bu) => bu.businessUnitSlug)
+    const systemBusiness = businessList.join(',')
+
+    console.log(tag, 'contexto de BUs activas', { businessList })
+
+    const businessUnit = activeBusinessUnitsCtx[0] ?? null
     const businessUnitId = businessUnit?.businessUnitId ?? 0
 
     console.log(tag, 'BusinessUnit resuelto', {
-      found:       !!businessUnit,
+      found: !!businessUnit,
       businessUnitId,
-      slug:        businessUnit?.businessUnitSlug,
+      slug: businessUnit?.businessUnitSlug,
     })
 
     const employeeType = await EmployeeType.query()
@@ -263,15 +267,13 @@ export default class DemoFactoryService {
 
     // 1–7
     console.log(tag, 'iniciando seedOrganizationAndPeople()')
-    await this.seedOrganizationAndPeople(
-      businessUnitId, employeeTypeId, systemBusiness, result
-    )
+    await this.seedOrganizationAndPeople(businessUnitId, employeeTypeId, systemBusiness, result)
     console.log(tag, 'seedOrganizationAndPeople() terminó', {
       departments: result.departments,
-      positions:   result.positions,
-      shifts:      result.shifts,
-      employees:   result.employees,
-      users:       result.users,
+      positions: result.positions,
+      shifts: result.shifts,
+      employees: result.employees,
+      users: result.users,
     })
 
     await demoDbCounts(tag, 'después de seedOrganizationAndPeople()')
@@ -314,10 +316,10 @@ export default class DemoFactoryService {
 
         if (!dept) {
           dept = await DepartmentFactory.merge({
-            departmentId:       deptData.departmentId,
-            departmentCode:     deptData.code,
-            departmentName:     deptData.name,
-            departmentAlias:    deptData.alias,
+            departmentId: deptData.departmentId,
+            departmentCode: deptData.code,
+            departmentName: deptData.name,
+            departmentAlias: deptData.alias,
             businessUnitId,
             parentDepartmentId: null,
           }).create()
@@ -340,9 +342,9 @@ export default class DemoFactoryService {
           : null
 
         dept = await DepartmentFactory.merge({
-          departmentCode:     deptData.code,
-          departmentName:     deptData.name,
-          departmentAlias:    deptData.alias,
+          departmentCode: deptData.code,
+          departmentName: deptData.name,
+          departmentAlias: deptData.alias,
           businessUnitId,
           parentDepartmentId: parentId,
         }).create()
@@ -365,10 +367,10 @@ export default class DemoFactoryService {
 
         if (!pos) {
           pos = await PositionFactory.merge({
-            positionId:       posData.positionId,
-            positionCode:     posData.code,
-            positionName:     posData.name,
-            positionAlias:    posData.alias,
+            positionId: posData.positionId,
+            positionCode: posData.code,
+            positionName: posData.name,
+            positionAlias: posData.alias,
             businessUnitId,
             parentPositionId: null,
           }).create()
@@ -386,7 +388,7 @@ export default class DemoFactoryService {
 
         if (!existsRel) {
           const dp = new DepartmentPosition()
-          dp.positionId   = pos.positionId
+          dp.positionId = pos.positionId
           dp.departmentId = 999
           dp.departmentPositionLastSynchronizationAt = new Date()
           await dp.save()
@@ -405,9 +407,9 @@ export default class DemoFactoryService {
           : null
 
         pos = await PositionFactory.merge({
-          positionCode:     posData.code,
-          positionName:     posData.name,
-          positionAlias:    posData.alias,
+          positionCode: posData.code,
+          positionName: posData.name,
+          positionAlias: posData.alias,
           businessUnitId,
           parentPositionId: parentId,
         }).create()
@@ -427,7 +429,7 @@ export default class DemoFactoryService {
 
         if (!existsRel) {
           const dp = new DepartmentPosition()
-          dp.positionId   = pos.positionId
+          dp.positionId = pos.positionId
           dp.departmentId = dept.departmentId
           dp.departmentPositionLastSynchronizationAt = new Date()
           await dp.save()
@@ -446,16 +448,16 @@ export default class DemoFactoryService {
 
       if (!shift) {
         shift = await ShiftFactory.merge({
-          shiftName:             shiftData.shiftName,
-          shiftTimeStart:        shiftData.shiftTimeStart,
-          shiftActiveHours:      shiftData.shiftActiveHours,
-          shiftRestDays:         shiftData.shiftRestDays,
+          shiftName: shiftData.shiftName,
+          shiftTimeStart: shiftData.shiftTimeStart,
+          shiftActiveHours: shiftData.shiftActiveHours,
+          shiftRestDays: shiftData.shiftRestDays,
           shiftAccumulatedFault: shiftData.shiftAccumulatedFault,
-          shiftCalculateFlag:    shiftData.shiftCalculateFlag,
-          shiftDayStart:         shiftData.shiftDayStart,
-          shiftTemp:             shiftData.shiftTemp,
-          shiftColor:            shiftData.shiftColor,
-          shiftBusinessUnits:    systemBusiness,
+          shiftCalculateFlag: shiftData.shiftCalculateFlag,
+          shiftDayStart: shiftData.shiftDayStart,
+          shiftTemp: shiftData.shiftTemp,
+          shiftColor: shiftData.shiftColor,
+          shiftBusinessUnits: systemBusiness,
         }).create()
         result.shifts.created++
       }
@@ -505,7 +507,9 @@ export default class DemoFactoryService {
       const personData = await PersonFactory.create()
 
       const existingEmp = await Employee.query()
-        .whereHas('person', (pq) => { pq.where('person_email', personData.personEmail) })
+        .whereHas('person', (pq) => {
+          pq.where('person_email', personData.personEmail)
+        })
         .whereNull('employee_deleted_at')
         .first()
 
@@ -518,19 +522,19 @@ export default class DemoFactoryService {
       const code = String(codeCounter).padStart(4, '0')
 
       const employee = await EmployeeFactory.merge({
-        employeeCode:          code,
-        employeeFirstName:     personData.personFirstname,
-        employeeLastName:      personData.personLastname,
+        employeeCode: code,
+        employeeFirstName: personData.personFirstname,
+        employeeLastName: personData.personLastname,
         employeeSecondLastName: personData.personSecondLastname ?? '.',
-        employeePayrollNum:    code,
-        employeePayrollCode:   code,
-        personId:              personData.personId,
-        positionId:            assignment.positionId,
-        departmentId:          assignment.departmentId,
+        employeePayrollNum: code,
+        employeePayrollCode: code,
+        personId: personData.personId,
+        positionId: assignment.positionId,
+        departmentId: assignment.departmentId,
         businessUnitId,
         payrollBusinessUnitId: businessUnitId,
         employeeTypeId,
-        dailySalary:           1000,
+        dailySalary: 1000,
       }).create()
 
       createdEmployees.push(employee)
@@ -550,8 +554,8 @@ export default class DemoFactoryService {
 
         if (!existsShift) {
           const empShift = new EmployeeShift()
-          empShift.employeeId              = employee.employeeId
-          empShift.shiftId                 = shiftForDemo.shiftId
+          empShift.employeeId = employee.employeeId
+          empShift.shiftId = shiftForDemo.shiftId
           empShift.employeShiftsApplySince = demoEmployeShiftsApplySince(employee)
           await empShift.save()
         }
@@ -559,11 +563,23 @@ export default class DemoFactoryService {
     }
 
     // --- 6a. Usuarios para empleados demo -----------------------------------
-    const directorPos  = positionsMap[DEMO_ROLE_RULES.directorPositionAlias] ?? null
-    const hrDept       = departmentsMap[DEMO_ROLE_RULES.hrDepartmentAlias]   ?? null
-    const roleDirector = await Role.query().where('role_slug', DEMO_ROLE_RULES.roles.director).first()
-    const roleHr       = await Role.query().where('role_slug', DEMO_ROLE_RULES.roles.hr).first()
-    const roleEmployee = await Role.query().where('role_slug', DEMO_ROLE_RULES.roles.employee).first()
+    const directorPos = positionsMap[DEMO_ROLE_RULES.directorPositionAlias] ?? null
+    const hrDept = departmentsMap[DEMO_ROLE_RULES.hrDepartmentAlias] ?? null
+    const roleDirector = await Role.query()
+      .where('role_slug', DEMO_ROLE_RULES.roles.director)
+      .first()
+    const roleHr = await Role.query().where('role_slug', DEMO_ROLE_RULES.roles.hr).first()
+    const roleEmployee = await Role.query()
+      .where('role_slug', DEMO_ROLE_RULES.roles.employee)
+      .first()
+
+    // Pre-cargar IDs de unidades de negocio activas para asociar a cada usuario
+    // demo vía la pivote `business_unit_users` (nueva fuente de verdad multi-tenant).
+    const activeBusinessUnits = await BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereNull('business_unit_deleted_at')
+      .select('business_unit_id')
+    const activeBusinessUnitIds = activeBusinessUnits.map((unit) => unit.businessUnitId)
 
     for (const employee of createdEmployees) {
       const emp = await Employee.query()
@@ -587,12 +603,15 @@ export default class DemoFactoryService {
         roleId = roleHr?.roleId ?? roleId
       }
 
-      await UserFactory.merge({
-        userEmail:          emp.person.personEmail,
+      const demoUser = await UserFactory.merge({
+        userEmail: emp.person.personEmail,
         roleId,
-        personId:           emp.person.personId,
-        userBusinessAccess: systemBusiness,
+        personId: emp.person.personId,
       }).create()
+
+      if (activeBusinessUnitIds.length > 0) {
+        await demoUser.related('businessUnits').attach(activeBusinessUnitIds)
+      }
 
       result.users.created++
     }
@@ -608,30 +627,33 @@ export default class DemoFactoryService {
       if (existingUser) continue
 
       const rootPerson = new Person()
-      rootPerson.personFirstname           = rootData.firstname
-      rootPerson.personLastname            = rootData.lastname
-      rootPerson.personSecondLastname      = 'gsti'
-      rootPerson.personGender              = ''
-      rootPerson.personBirthday            = null
-      rootPerson.personPhone               = ''
-      rootPerson.personEmail               = rootData.email
-      rootPerson.personPhoneSecondary      = ''
-      rootPerson.personCurp                = ''
-      rootPerson.personRfc                 = ''
-      rootPerson.personImssNss             = ''
-      rootPerson.personMaritalStatus       = ''
+      rootPerson.personFirstname = rootData.firstname
+      rootPerson.personLastname = rootData.lastname
+      rootPerson.personSecondLastname = 'gsti'
+      rootPerson.personGender = ''
+      rootPerson.personBirthday = null
+      rootPerson.personPhone = ''
+      rootPerson.personEmail = rootData.email
+      rootPerson.personPhoneSecondary = ''
+      rootPerson.personCurp = ''
+      rootPerson.personRfc = ''
+      rootPerson.personImssNss = ''
+      rootPerson.personMaritalStatus = ''
       rootPerson.personPlaceOfBirthCountry = ''
-      rootPerson.personPlaceOfBirthState   = ''
-      rootPerson.personPlaceOfBirthCity    = ''
+      rootPerson.personPlaceOfBirthState = ''
+      rootPerson.personPlaceOfBirthCity = ''
       await rootPerson.save()
 
-      await UserFactory.merge({
-        userEmail:          rootData.email,
-        userPassword:       DEMO_DEFAULT_PASSWORD,
-        roleId:             rootRole?.roleId ?? 1,
-        personId:           rootPerson.personId,
-        userBusinessAccess: systemBusiness,
+      const rootDemoUser = await UserFactory.merge({
+        userEmail: rootData.email,
+        userPassword: DEMO_DEFAULT_PASSWORD,
+        roleId: rootRole?.roleId ?? 1,
+        personId: rootPerson.personId,
       }).create()
+
+      if (activeBusinessUnitIds.length > 0) {
+        await rootDemoUser.related('businessUnits').attach(activeBusinessUnitIds)
+      }
 
       result.users.created++
 
@@ -639,28 +661,28 @@ export default class DemoFactoryService {
         shiftForDemo ??
         (await Shift.query().whereNull('shift_deleted_at').orderBy('shift_id', 'asc').first())
       if (fallbackShift) {
-        const prefix      = `DEMO-ROOT-${Date.now()}-${index + 1}`
-        const empCode     = `ROOT-${prefix}`
+        const prefix = `DEMO-ROOT-${Date.now()}-${index + 1}`
+        const empCode = `ROOT-${prefix}`
 
         const rootEmployee = await EmployeeFactory.merge({
-          employeeCode:          empCode,
-          employeeFirstName:     rootData.firstname,
-          employeeLastName:      rootData.lastname,
-          employeeSecondLastName:'gsti',
-          employeePayrollNum:    empCode,
-          employeePayrollCode:   empCode,
-          personId:              rootPerson.personId,
-          positionId:            999,
-          departmentId:          999,
+          employeeCode: empCode,
+          employeeFirstName: rootData.firstname,
+          employeeLastName: rootData.lastname,
+          employeeSecondLastName: 'gsti',
+          employeePayrollNum: empCode,
+          employeePayrollCode: empCode,
+          personId: rootPerson.personId,
+          positionId: 999,
+          departmentId: 999,
           businessUnitId,
           payrollBusinessUnitId: businessUnitId,
           employeeTypeId,
-          dailySalary:           0,
+          dailySalary: 0,
         }).create()
 
         const rootEmpShift = new EmployeeShift()
-        rootEmpShift.employeeId              = rootEmployee.employeeId
-        rootEmpShift.shiftId                 = fallbackShift.shiftId
+        rootEmpShift.employeeId = rootEmployee.employeeId
+        rootEmpShift.shiftId = fallbackShift.shiftId
         rootEmpShift.employeShiftsApplySince = demoEmployeShiftsApplySince(rootEmployee)
         await rootEmpShift.save()
       }
@@ -697,11 +719,11 @@ export default class DemoFactoryService {
     if (!demoBranch) {
       demoBranch = await BranchOfficeFactory.merge({
         businessUnitId,
-        branchOfficeName:                  'Sede central DEMO',
-        branchOfficeSlug:                  DEMO_BRANCH_OFFICE_SLUG,
-        branchOfficeIdealTemplateCount:    20,
+        branchOfficeName: 'Sede central DEMO',
+        branchOfficeSlug: DEMO_BRANCH_OFFICE_SLUG,
+        branchOfficeIdealTemplateCount: 20,
         branchOfficeMinActiveEmployeesPerShift: 2,
-        branchOfficeLocationAddress:       null,
+        branchOfficeLocationAddress: null,
       }).create()
     }
 
@@ -711,7 +733,8 @@ export default class DemoFactoryService {
     const vacationExceptionDateStr = sundayRef.toFormat('yyyy-MM-dd')
 
     let permitDay = DateTime.now().minus({ weeks: 1 })
-    while (permitDay.weekday === 6 || permitDay.weekday === 7) permitDay = permitDay.minus({ days: 1 })
+    while (permitDay.weekday === 6 || permitDay.weekday === 7)
+      permitDay = permitDay.minus({ days: 1 })
     const permitDateStr = permitDay.toFormat('yyyy-MM-dd')
 
     let idx = 0
@@ -725,10 +748,12 @@ export default class DemoFactoryService {
           .whereNull('employee_address_deleted_at')
           .first()
         if (!hasEa) {
-          const address = await AddressFactory.merge({ addressTypeId: addressType.addressTypeId }).create()
+          const address = await AddressFactory.merge({
+            addressTypeId: addressType.addressTypeId,
+          }).create()
           await EmployeeAddressFactory.merge({
             employeeId: employee.employeeId,
-            addressId:  address.addressId,
+            addressId: address.addressId,
           }).create()
           result.employeeExtras.addresses++
         }
@@ -753,7 +778,7 @@ export default class DemoFactoryService {
           .first()
         if (!hasEr) {
           await EmployeeRecordFactory.merge({
-            employeeId:              employee.employeeId,
+            employeeId: employee.employeeId,
             employeeRecordPropertyId: recordProperty.employeeRecordPropertyId,
           }).create()
           result.employeeExtras.records++
@@ -767,7 +792,7 @@ export default class DemoFactoryService {
         .first()
       if (!hasBo) {
         await EmployeeBranchOfficeFactory.merge({
-          employeeId:    employee.employeeId,
+          employeeId: employee.employeeId,
           branchOfficeId: demoBranch.branchOfficeId,
         }).create()
         result.employeeExtras.branchOfficeAssignments++
@@ -782,11 +807,11 @@ export default class DemoFactoryService {
           .first()
         if (!hasVac) {
           await ShiftExceptionFactory.merge({
-            employeeId:              employee.employeeId,
-            exceptionTypeId:         exceptionTypeVacation.exceptionTypeId,
-            shiftExceptionsDate:     vacationExceptionDateStr,
+            employeeId: employee.employeeId,
+            exceptionTypeId: exceptionTypeVacation.exceptionTypeId,
+            shiftExceptionsDate: vacationExceptionDateStr,
             shiftExceptionsDescription: 'Vacaciones demo (día inhábil / histórico)',
-            vacationSettingId:       vacationSettingFirst.vacationSettingId,
+            vacationSettingId: vacationSettingFirst.vacationSettingId,
           }).create()
           result.employeeExtras.vacations++
         }
@@ -801,12 +826,12 @@ export default class DemoFactoryService {
           .first()
         if (!hasPerm) {
           await ShiftExceptionFactory.merge({
-            employeeId:              employee.employeeId,
-            exceptionTypeId:         exceptionTypeHours.exceptionTypeId,
-            shiftExceptionsDate:     permitDateStr,
+            employeeId: employee.employeeId,
+            exceptionTypeId: exceptionTypeHours.exceptionTypeId,
+            shiftExceptionsDate: permitDateStr,
             shiftExceptionsDescription: 'Permiso por horas (demo)',
             shiftExceptionTimeByTime: 2,
-            vacationSettingId:       null,
+            vacationSettingId: null,
           }).create()
           result.employeeExtras.permits++
         }
@@ -821,7 +846,7 @@ export default class DemoFactoryService {
           .first()
         if (!hasArch) {
           const archive = await EmployeeVacationArchiveFactory.merge({
-            employeeId:        employee.employeeId,
+            employeeId: employee.employeeId,
             vacationSettingId: vacationSettingFirst.vacationSettingId,
           }).create()
 
@@ -853,10 +878,10 @@ export default class DemoFactoryService {
             .first()
           if (!hasReq) {
             await ExceptionRequestFactory.merge({
-              employeeId:                  employee.employeeId,
-              exceptionTypeId:             exceptionTypeVacation.exceptionTypeId,
-              userId:                      demoUser.userId,
-              requestedDate:               permitDateStr,
+              employeeId: employee.employeeId,
+              exceptionTypeId: exceptionTypeVacation.exceptionTypeId,
+              userId: demoUser.userId,
+              requestedDate: permitDateStr,
               exceptionRequestDescription: 'Solicitud demo (aceptada)',
             }).create()
             result.employeeExtras.exceptionRequests++
@@ -866,36 +891,32 @@ export default class DemoFactoryService {
     }
 
     console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'fin', {
-      departments:     result.departments,
-      positions:       result.positions,
-      shifts:          result.shifts,
-      employees:       result.employees,
-      users:           result.users,
-      employeeExtras:  result.employeeExtras,
+      departments: result.departments,
+      positions: result.positions,
+      shifts: result.shifts,
+      employees: result.employees,
+      users: result.users,
+      employeeExtras: result.employeeExtras,
     })
-
   }
 
   // -------------------------------------------------------------------------
   // Paso 8: asistencias
   // -------------------------------------------------------------------------
 
-  private async seedAssists(
-    businessList: string[],
-    result: DemoFactoryResult
-  ): Promise<void> {
+  private async seedAssists(businessList: string[], result: DemoFactoryResult): Promise<void> {
     const t0 = `[DEMO-SEED-ASSISTS ${new Date().toISOString()}]`
     console.log(t0, 'inicio seedAssists', { businessList })
     const delayToleranceMinutes = await resolveToleranceMinutes('delay')
     const faultToleranceMinutes = await resolveToleranceMinutes('fault')
 
-    const assistWindowEnd   = demoAssistNow().endOf('day')
+    const assistWindowEnd = demoAssistNow().endOf('day')
     const assistWindowStart = demoAssistNow()
       .startOf('day')
       .minus({ months: DEMO_ASSIST_HISTORY_MONTHS })
 
     const holidayRangeStart = assistWindowStart.toFormat('yyyy-MM-dd')
-    const holidayRangeEnd   = demoAssistNow().toFormat('yyyy-MM-dd')
+    const holidayRangeEnd = demoAssistNow().toFormat('yyyy-MM-dd')
 
     const holidaysQuery = Holiday.query()
       .whereNull('holiday_deleted_at')
@@ -922,8 +943,8 @@ export default class DemoFactoryService {
 
     console.log(t0, 'ventana demo asistencias', {
       zonaCalendario: DEMO_ASSIST_CALENDAR_ZONE,
-      hoyNegocio:     demoAssistNow().toFormat('yyyy-MM-dd'),
-      monthsRolling:  DEMO_ASSIST_HISTORY_MONTHS,
+      hoyNegocio: demoAssistNow().toFormat('yyyy-MM-dd'),
+      monthsRolling: DEMO_ASSIST_HISTORY_MONTHS,
       assistWindowStart: assistWindowStart.toFormat('yyyy-MM-dd'),
       assistWindowEnd: assistWindowEnd.toFormat('yyyy-MM-dd'),
       holidayRangeStart,
@@ -954,14 +975,16 @@ export default class DemoFactoryService {
       }
 
       if (!shiftModel) {
-        console.log(t0, 'empleado sin turno, omitiendo asistencias', { employeeId: employee.employeeId })
+        console.log(t0, 'empleado sin turno, omitiendo asistencias', {
+          employeeId: employee.employeeId,
+        })
         continue
       }
 
-      const shiftTimeStart   = shiftModel.shiftTimeStart
+      const shiftTimeStart = shiftModel.shiftTimeStart
       const shiftActiveHours = shiftModel.shiftActiveHours
-      const restRaw          = shiftModel.shiftRestDays ?? ''
-      const restDays         = restRaw
+      const restRaw = shiftModel.shiftRestDays ?? ''
+      const restDays = restRaw
         .split(',')
         .map((s) => Number(String(s).trim()))
         .filter((n) => Number.isFinite(n))
@@ -981,7 +1004,7 @@ export default class DemoFactoryService {
         restDays,
         holidayDates,
         DEMO_ASSIST_HISTORY_MONTHS,
-        'rollingFromToday',
+        'rollingFromToday'
       )
       const { onTimeDays, toleranceDays, delayDays, faultDays } = distributeWorkDays(workDays)
 
@@ -999,24 +1022,24 @@ export default class DemoFactoryService {
         if (!punchIn) return
 
         await AssistFactory.merge({
-          assistEmpId:           employee.employeeId,
-          assistEmpCode:         String(employee.employeeCode),
-          assistPunchTime:       punchIn,
-          assistPunchTimeUtc:    punchIn,
+          assistEmpId: employee.employeeId,
+          assistEmpCode: String(employee.employeeCode),
+          assistPunchTime: punchIn,
+          assistPunchTimeUtc: punchIn,
           assistPunchTimeOrigin: punchIn,
-          assistUploadTime:      punchIn,
-          assistSyncId:          0,
+          assistUploadTime: punchIn,
+          assistSyncId: 0,
         }).create()
 
         const punchOut = punchIn.plus({ hours: shiftActiveHours })
         await AssistFactory.merge({
-          assistEmpId:           employee.employeeId,
-          assistEmpCode:         String(employee.employeeCode),
-          assistPunchTime:       punchOut,
-          assistPunchTimeUtc:    punchOut,
+          assistEmpId: employee.employeeId,
+          assistEmpCode: String(employee.employeeCode),
+          assistPunchTime: punchOut,
+          assistPunchTimeUtc: punchOut,
           assistPunchTimeOrigin: punchOut,
-          assistUploadTime:      punchOut,
-          assistSyncId:          0,
+          assistUploadTime: punchOut,
+          assistSyncId: 0,
         }).create()
 
         pairsThisEmployee++

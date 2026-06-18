@@ -1,0 +1,395 @@
+import type { HttpContext } from '@adonisjs/core/http'
+import RoleService from '#services/role_service'
+import TraumaticEventReportService from '#services/traumatic_event_report_service'
+import {
+  traumaticEventReportListValidator,
+  createTraumaticEventReportValidator,
+  updateTraumaticEventReportValidator,
+} from '#validators/traumatic_event_report'
+import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
+import { resolveTraumaticEventReportApiError } from '../helpers/traumatic_event_report_api_error.js'
+import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+
+const MODULE_SLUG = 'traumatic-event-reports'
+
+export default class TraumaticEventReportController {
+  // ---------------------------------------------------------------------------
+  // GET /api/traumatic-event-reports
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports:
+   *   get:
+   *     summary: Lista paginada de reportes de evento traumático
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         required: true
+   *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: limit
+   *         required: true
+   *         schema: { type: integer, minimum: 1, maximum: 500 }
+   *       - in: query
+   *         name: search
+   *         required: false
+   *         schema: { type: string }
+   *       - in: query
+   *         name: employeeId
+   *         required: false
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: traumaticEventTypeId
+   *         required: false
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: dateFrom
+   *         required: false
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: dateTo
+   *         required: false
+   *         schema: { type: string, format: date }
+   *     responses:
+   *       '200': { description: Listado paginado de reportes ordenado por occurred_at DESC }
+   *       '400': { description: Validación inválida }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso read en el módulo }
+   */
+  async index(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const filters = await request.validateUsing(traumaticEventReportListValidator)
+      const service = new TraumaticEventReportService()
+      const bundle = await service.listPaginated(
+        {
+          page: filters.page,
+          limit: filters.limit,
+          search: filters.search,
+          employeeId: filters.employeeId,
+          traumaticEventTypeId: filters.traumaticEventTypeId,
+          dateFrom: filters.dateFrom,
+          dateTo: filters.dateTo,
+        },
+        ctx.businessUnitScope
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        bundle,
+        'Traumatic Event Reports',
+        'Reportes de evento traumático obtenidos correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/traumatic-event-reports
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports:
+   *   post:
+   *     summary: Registrar reporte de evento traumático (NOM-035 §6.5)
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - traumaticEventReportEmployeeId
+   *               - traumaticEventTypeId
+   *               - traumaticEventReportOccurredAt
+   *               - traumaticEventReportInvolvedPeople
+   *               - traumaticEventReportDescription
+   *             properties:
+   *               traumaticEventReportEmployeeId: { type: integer }
+   *               traumaticEventTypeId: { type: integer }
+   *               traumaticEventReportOccurredAt:
+   *                 type: string
+   *                 format: date
+   *                 description: Fecha de ocurrencia (no puede ser futura).
+   *               traumaticEventReportInvolvedPeople:
+   *                 type: string
+   *                 description: Personas involucradas en el evento.
+   *               traumaticEventReportDescription:
+   *                 type: string
+   *                 description: Descripción del evento.
+   *     responses:
+   *       '201': { description: Reporte creado con elaboratedAt, origin=rh y capturedByUserId asignados }
+   *       '400':
+   *         description: |
+   *           Validación inválida. Posibles `key`:
+   *           - `fecha-ocurrencia-futura` (fecha futura)
+   *           - `tipo-evento-invalido` (tipo inexistente o inactivo)
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso create en el módulo }
+   *       '404': { description: Empleado fuera del scope del usuario }
+   */
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
+
+      const body = await request.validateUsing(createTraumaticEventReportValidator)
+      const service = new TraumaticEventReportService()
+      const created = await service.create(
+        {
+          traumaticEventReportEmployeeId: body.traumaticEventReportEmployeeId,
+          traumaticEventTypeId: body.traumaticEventTypeId,
+          traumaticEventReportOccurredAt: body.traumaticEventReportOccurredAt,
+          traumaticEventReportInvolvedPeople: body.traumaticEventReportInvolvedPeople,
+          traumaticEventReportDescription: body.traumaticEventReportDescription,
+          capturedByUserId: ctx.auth.user!.userId,
+        },
+        ctx.businessUnitScope
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        created,
+        'Traumatic Event Report',
+        'Reporte de evento traumático creado correctamente',
+        201
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // GET /api/traumatic-event-reports/:id
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports/{id}:
+   *   get:
+   *     summary: Obtener un reporte de evento traumático por ID
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200': { description: Reporte con empleado y tipo embebidos }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso read en el módulo }
+   *       '404': { description: Reporte inexistente o fuera del scope }
+   */
+  async show(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const id = this.parseId(params.id)
+      const service = new TraumaticEventReportService()
+      const report = await service.findById(id, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        report,
+        'Traumatic Event Report',
+        'Reporte de evento traumático encontrado correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PUT /api/traumatic-event-reports/:id
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports/{id}:
+   *   put:
+   *     summary: Actualizar reporte de evento traumático
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               traumaticEventReportEmployeeId: { type: integer }
+   *               traumaticEventTypeId: { type: integer }
+   *               traumaticEventReportOccurredAt:
+   *                 type: string
+   *                 format: date
+   *               traumaticEventReportInvolvedPeople: { type: string }
+   *               traumaticEventReportDescription: { type: string }
+   *     responses:
+   *       '200': { description: Reporte actualizado }
+   *       '400': { description: Validación inválida }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso update en el módulo }
+   *       '404': { description: Reporte inexistente o fuera del scope }
+   */
+  async update(ctx: HttpContext) {
+    const { request, params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseId(params.id)
+      const body = await request.validateUsing(updateTraumaticEventReportValidator)
+      const service = new TraumaticEventReportService()
+      const updated = await service.update(
+        id,
+        {
+          traumaticEventReportEmployeeId: body.traumaticEventReportEmployeeId,
+          traumaticEventTypeId: body.traumaticEventTypeId,
+          traumaticEventReportOccurredAt: body.traumaticEventReportOccurredAt,
+          traumaticEventReportInvolvedPeople: body.traumaticEventReportInvolvedPeople,
+          traumaticEventReportDescription: body.traumaticEventReportDescription,
+        },
+        ctx.businessUnitScope
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        updated,
+        'Traumatic Event Report',
+        'Reporte de evento traumático actualizado correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // DELETE /api/traumatic-event-reports/:id
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports/{id}:
+   *   delete:
+   *     summary: Eliminar reporte de evento traumático (soft delete)
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200': { description: Reporte eliminado (soft delete) }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso delete en el módulo }
+   *       '404': { description: Reporte inexistente o fuera del scope }
+   */
+  async destroy(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'delete'))) return
+
+      const id = this.parseId(params.id)
+      const service = new TraumaticEventReportService()
+      const deleted = await service.destroy(id, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        deleted,
+        'Traumatic Event Report',
+        'Reporte de evento traumático eliminado correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  private async assertAuthenticated(ctx: HttpContext) {
+    await ctx.auth.check()
+    if (!ctx.auth.user) {
+      ctx.response.status(401).json({
+        type: 'error',
+        title: 'No autorizado',
+        detail: 'Usuario no autenticado.',
+        key: 'unauthorized',
+        errorCode: ETR_ERROR_CODES.FORBIDDEN,
+        data: null,
+      })
+      return false
+    }
+    return true
+  }
+
+  private async assertHasPermission(
+    ctx: HttpContext,
+    action: 'read' | 'create' | 'update' | 'delete'
+  ) {
+    const user = ctx.auth.user!
+    await user.preload('role')
+    const isRoot = user.role?.roleSlug === 'root'
+    if (isRoot) return true
+
+    const roleService = new RoleService()
+    const allowed = await roleService.hasAccess(user.roleId, MODULE_SLUG, action)
+    if (!allowed) {
+      ctx.response.status(403).json({
+        type: 'error',
+        title: 'Sin permiso',
+        detail: 'No tienes permiso para esta operación sobre reportes de evento traumático.',
+        key: 'sin-permiso',
+        errorCode: ETR_ERROR_CODES.FORBIDDEN,
+        data: null,
+      })
+      return false
+    }
+    return true
+  }
+
+  private parseId(raw: unknown): number {
+    const id = Number(raw)
+    if (!Number.isFinite(id) || id <= 0) {
+      throw new Error('El identificador del reporte es inválido.')
+    }
+    return id
+  }
+
+  private respondError(
+    error: unknown,
+    response: HttpContext['response'],
+    fallbackStatus: number
+  ) {
+    const resolved = resolveTraumaticEventReportApiError(error, fallbackStatus)
+    return response.status(resolved.status).json({
+      type: 'error',
+      title: 'Error',
+      detail: resolved.message,
+      key: resolved.key,
+      errorCode: resolved.errorCode,
+      data: null,
+    })
+  }
+}

@@ -1,6 +1,19 @@
 import User from '#models/user'
 import vine from '@vinejs/vine'
 
+/**
+ *
+ *
+ * Se acepta como `any` opcional porque la API admite dos formatos:
+ * - Formato nuevo: arreglo de IDs numéricos.
+ * - Formato legado: CSV de slugs (deprecado).
+ *
+ * VineJS 2.x no permite encadenar `.optional()` sobre `vine.union(...)`, por lo que
+ * la discriminación de forma y la resolución contra `business_units` se delegan al
+ * helper `parseBusinessUnitAccessInput` + `resolveBusinessUnitIds` invocado desde el
+ * controlador. Esto preserva el contrato dual sin sacrificar tipado.
+ */
+
 export const createUserValidator = vine.compile(
   vine.object({
     userEmail: vine

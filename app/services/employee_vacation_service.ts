@@ -4,7 +4,6 @@ import Employee from '#models/employee'
 import { EmployeeVacationExcelFilterInterface } from '../interfaces/employee_vacation_excel_filter_interface.js'
 import EmployeeService from './employee_service.js'
 import { EmployeeVacationExcelRowInterface } from '../interfaces/employee_vacation_excel_row_interface.js'
-import Env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import { EmployeeVacationUsedDaysExcelRowInterface } from '../interfaces/employee_vacation_used_days_excel_row_interface.js'
 import ShiftException from '#models/shift_exception'
@@ -31,12 +30,6 @@ export default class EmployeeVacationService {
   }
   async getExcelAll(filters: EmployeeVacationExcelFilterInterface) {
     try {
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const employees = await Employee.query()
         .if(filters.search, (query) => {
           query.where((subQuery) => {
@@ -75,7 +68,7 @@ export default class EmployeeVacationService {
             query.withTrashed()
           }
         )
-        .whereIn('business_unit_id', businessUnitsList)
+        .where('business_unit_id', filters.businessUnitId)
         .if(filters.userResponsibleId &&
           typeof filters.userResponsibleId && filters.userResponsibleId > 0,
           (query) => {
@@ -307,12 +300,6 @@ export default class EmployeeVacationService {
 
   async getVacationUsedExcel(filters: EmployeeVacationExcelFilterInterface) {
     try {
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const employees = await Employee.query()
         .if(filters.search, (query) => {
           query.where((subQuery) => {
@@ -351,7 +338,7 @@ export default class EmployeeVacationService {
             query.withTrashed()
           }
         )
-        .whereIn('business_unit_id', businessUnitsList)
+        .where('business_unit_id', filters.businessUnitId)
         .if(filters.userResponsibleId &&
           typeof filters.userResponsibleId && filters.userResponsibleId > 0,
           (query) => {
@@ -596,12 +583,6 @@ export default class EmployeeVacationService {
 
   async getVacationsSummaryExcel(filters: EmployeeVacationExcelFilterInterface) {
     try {
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       const employees = await Employee.query()
         .if(filters.search, (query) => {
           query.where((subQuery) => {
@@ -640,7 +621,7 @@ export default class EmployeeVacationService {
             query.withTrashed()
           }
         )
-        .whereIn('business_unit_id', businessUnitsList)
+        .where('business_unit_id', filters.businessUnitId)
         .if(filters.userResponsibleId &&
           typeof filters.userResponsibleId && filters.userResponsibleId > 0,
           (query) => {
@@ -981,7 +962,8 @@ export default class EmployeeVacationService {
    *  - Las celdas bloqueadas (sin días disponibles) aparecen en gris con candado
    */
   async generateVacationImportTemplate(
-    filters: EmployeeVacationExcelFilterInterface
+    filters: EmployeeVacationExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
   ): Promise<{ status: number; buffer?: Buffer; type?: string; title?: string; message?: string; error?: string }> {
     try {
       // ── Obtener color corporativo y logo (igual que generateShiftAssignmentTemplate) ──
@@ -1008,12 +990,7 @@ export default class EmployeeVacationService {
       const headerTextColor = luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
 
       // ── Obtener empleados según filtros ──
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',').map((s: string) => s.trim()).filter(Boolean)
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitIds = businessUnits.map((b) => b.businessUnitId)
+      const businessUnitIds = allowedBusinessUnitIds
 
       const employees = await Employee.query()
         .whereNull('employee_deleted_at')

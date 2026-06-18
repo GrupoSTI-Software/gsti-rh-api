@@ -1,41 +1,25 @@
 import SystemSetting from '#models/system_setting'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
 import SystemSettingSystemModule from '#models/system_setting_system_module'
-import env from '#start/env'
+import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
 
 export default class SystemSettingService {
-  async index(/* filters: SystemSettingFilterSearchInterface */) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    let systemSettingsList: SystemSetting[] = []
-
-    const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at')
-    .preload('systemSettingPayrollConfigs')
-
-    systemSettings.forEach((sistemSetting) => {
-      const units = sistemSetting.systemSettingBusinessUnits
-        ? sistemSetting.systemSettingBusinessUnits.split(',')
-        : []
-      const systemBussinesMatches = businessList.filter((value) => units.includes(value))
-      const matches = systemBussinesMatches.length
-
-      if (matches > 0) {
-        systemSettingsList.push(sistemSetting)
-      }
-    })
-
-    // const systemSettingsList = await SystemSetting.query()
-    //   .whereNull('system_setting_deleted_at')
-    //   // .if(filters.search, (query) => {
-    //   //   query.where((subQuery) => {
-    //   //     subQuery.whereRaw('UPPER(system_setting_trade_name) LIKE ?', [
-    //   //       `%${filters.search.toUpperCase()}%`,
-    //   //     ])
-    //   //   })
-    //   // })
-    //   .orderBy('system_setting_id')
-    //   .paginate(1, 999)
+  async index(allowedBusinessUnitSlugs: string[] = []) {
+    const systemSettingsList = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .preload('systemSettingPayrollConfigs')
+      .andWhere((query) => {
+        if (allowedBusinessUnitSlugs.length === 0) {
+          query.whereRaw('1 = 0')
+          return
+        }
+        query.andWhere((subQuery) => {
+          allowedBusinessUnitSlugs.forEach((business) => {
+            subQuery.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
+          })
+        })
+      })
 
     return { data: systemSettingsList }
   }
@@ -76,6 +60,7 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     currentSystemSetting.systemSettingMonthlyConversionFactor =
       systemSetting.systemSettingMonthlyConversionFactor ?? currentSystemSetting.systemSettingMonthlyConversionFactor
+    currentSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
     await currentSystemSetting.save()
     return currentSystemSetting
   }
@@ -95,26 +80,29 @@ export default class SystemSettingService {
     return systemSetting ? systemSetting : null
   }
 
-  async getActive() {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    let sistemSettingActive = null as SystemSetting | null
+  async getActive(allowedBusinessUnitSlugs: string[] = []) {
+    let slugs = allowedBusinessUnitSlugs
+    if (slugs.length === 0) {
+      const allBus = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+      slugs = allBus.map((bu) => bu.businessUnitSlug)
+    }
 
-    const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at').preload('systemSettingTolerances')
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+      .preload('systemSettingTolerances')
+      .andWhere((query) => {
+        query.andWhere((subQuery) => {
+          slugs.forEach((business) => {
+            subQuery.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
+          })
+        })
+      })
+      .first()
 
-    systemSettings.forEach((sistemSetting) => {
-      const units = sistemSetting.systemSettingBusinessUnits
-        ? sistemSetting.systemSettingBusinessUnits.split(',')
-        : []
-      const systemBussinesMatches = businessList.filter((value) => units.includes(value))
-      const matches = systemBussinesMatches.length
-
-      if (matches > 0 && sistemSetting.systemSettingActive === 1) {
-        sistemSettingActive = sistemSetting
-      }
-    })
-
-    return sistemSettingActive
+    return systemSetting ?? null
   }
 
   async getPayrollConfig(systemSettingId: number) {
@@ -159,16 +147,18 @@ export default class SystemSettingService {
     }
   }
 
-  async verifyActiveStore(systemSetting: SystemSetting) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
+  async verifyActiveStore(systemSetting: SystemSetting, allowedBusinessUnitSlugs: string[] = []) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     if (systemSetting.systemSettingActive) {
       const activeItem = await SystemSetting.query()
         .where('system_setting_active', 1)
         .whereNull('system_setting_deleted_at')
         .andWhere((query) => {
-          businessList.forEach((business) => {
+          if (allowedBusinessUnitSlugs.length === 0) {
+            query.whereRaw('1 = 0')
+            return
+          }
+          allowedBusinessUnitSlugs.forEach((business) => {
             query.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
           })
         })
@@ -192,9 +182,7 @@ export default class SystemSettingService {
     }
   }
 
-  async verifyActiveUpdate(systemSetting: SystemSetting, currentSystemSetting: SystemSetting) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
+  async verifyActiveUpdate(systemSetting: SystemSetting, currentSystemSetting: SystemSetting, allowedBusinessUnitSlugs: string[] = []) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     if (systemSetting.systemSettingId > 0) {
       if (systemSetting.systemSettingActive && !currentSystemSetting.systemSettingActive) {
@@ -202,7 +190,11 @@ export default class SystemSettingService {
           .where('system_setting_active', 1)
           .whereNull('system_setting_deleted_at')
           .andWhere((query) => {
-            businessList.forEach((business) => {
+            if (allowedBusinessUnitSlugs.length === 0) {
+              query.whereRaw('1 = 0')
+              return
+            }
+            allowedBusinessUnitSlugs.forEach((business) => {
               query.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
             })
           })

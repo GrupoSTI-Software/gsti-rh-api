@@ -11,6 +11,10 @@ router
       '/:assessmentTemplateId/status',
       '#controllers/assessment_template_controller.toggleStatus'
     )
+    router.patch(
+      '/:assessmentTemplateId/dimensions/reorder',
+      '#controllers/assessment_template_controller.reorderDimensions'
+    )
     router.delete('/:assessmentTemplateId', '#controllers/assessment_template_controller.delete')
   })
   .prefix('/api/assessment-templates')
