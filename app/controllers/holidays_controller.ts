@@ -3,7 +3,7 @@ import HolidayService from '#services/holiday_service'
 import Holiday from '../models/holiday.js'
 import { createOrUpdateHolidayValidator } from '../validators/holiday.js'
 import { HttpContext } from '@adonisjs/core/http'
-import env from '../../start/env.js'
+import BusinessUnit from '#models/business_unit'
 
 /**
  * @swagger
@@ -87,7 +87,7 @@ export default class HolidayController {
    *       500:
    *         description: Server error
    */
-  async index({ response, request, i18n }: HttpContext) {
+  async index({ response, request, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -95,7 +95,12 @@ export default class HolidayController {
       const firstDate = request.input('firstDate')
       const lastDate = request.input('lastDate')
 
-      const service = await new HolidayService(i18n).index(firstDate, lastDate, search, page, limit)
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+
+      const service = await new HolidayService(i18n).index(firstDate, lastDate, search, page, limit, businessSlugs)
 
       return response.status(service.status).json(service)
     } catch (error) {
@@ -143,9 +148,7 @@ export default class HolidayController {
    *       400:
    *         description: Validation error
    */
-  async store({ request, response, i18n }: HttpContext) {
-    // try {
-
+  async store({ request, response, i18n, businessUnitScope }: HttpContext) {
     let holiday = null as any
     const holidayName = request.input('holidayName')
     let holidayDate = request.input('holidayDate')
@@ -154,7 +157,11 @@ export default class HolidayController {
     const icon = await Icon.findOrFail(holidayIconId)
     const holidayIcon = icon.iconSvg
     const holidayFrequency = request.input('holidayFrequency')
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+    const buUnitsStore = businessUnitScope.length > 0
+      ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+      : []
+    const businessSlugsStore = buUnitsStore.map((bu) => bu.businessUnitSlug)
+    const businessConf = businessSlugsStore.join(',')
     const data = await request.validateUsing(createOrUpdateHolidayValidator)
     const holidayIsOfficialRestDay =
       data.holidayIsOfficialRestDay !== undefined
@@ -193,7 +200,7 @@ export default class HolidayController {
     if (newHolidayDate <= todayAtMidnight) {
       const holidayService = new HolidayService(i18n)
       const date = typeof newHolidayDate === 'string' ? new Date(newHolidayDate) : newHolidayDate
-      await holidayService.updateAssistCalendar(date)
+      await holidayService.updateAssistCalendar(date, businessUnitScope)
     }
 
     return response.status(201).json({
@@ -310,7 +317,7 @@ export default class HolidayController {
    *       400:
    *         description: Validation error
    */
-  async update({ params, request, response, i18n }: HttpContext) {
+  async update({ params, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       let holidayDate = request.input('holidayDate')
       holidayDate = (holidayDate.split('T')[0] + ' 00:000:00').replace('"', '')
@@ -340,7 +347,7 @@ export default class HolidayController {
       if (newHolidayDate <= todayAtMidnight) {
         const holidayService = new HolidayService(i18n)
         const date = typeof newHolidayDate === 'string' ? new Date(newHolidayDate) : newHolidayDate
-        await holidayService.updateAssistCalendar(date)
+        await holidayService.updateAssistCalendar(date, businessUnitScope)
       }
 
       const newHolidayDatePast = new Date(holidayDatePast)
@@ -348,7 +355,7 @@ export default class HolidayController {
       if (newHolidayDate.toISOString() !== datePast.toISOString()) {
         if (datePast <= todayAtMidnight) {
           const holidayService = new HolidayService(i18n)
-          await holidayService.updateAssistCalendar(datePast)
+          await holidayService.updateAssistCalendar(datePast, businessUnitScope)
         }
       }
       return response.status(200).json({
@@ -403,7 +410,7 @@ export default class HolidayController {
    *       404:
    *         description: Resource not found
    */
-  async destroy({ params, response, i18n }: HttpContext) {
+  async destroy({ params, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const holiday = await Holiday.findOrFail(params.id)
       await holiday.delete()
@@ -417,7 +424,7 @@ export default class HolidayController {
 
       if (date <= todayAtMidnight) {
         const holidayService = new HolidayService(i18n)
-        await holidayService.updateAssistCalendar(date)
+        await holidayService.updateAssistCalendar(date, businessUnitScope)
       }
 
       return response.status(200).json({

@@ -201,6 +201,11 @@ export default class PositionController {
    *           schema:
    *             type: object
    *             properties:
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business Unit id
+   *                 required: false
+   *                 default: ''
    *               positionCode:
    *                 type: string
    *                 description: Position code
@@ -370,6 +375,7 @@ export default class PositionController {
    */
   async store({ request, response, i18n }: HttpContext) {
     try {
+      const businessUnitId = request.input('businessUnitId')
       const positionCode = request.input('positionCode')
       const positionName = request.input('positionName')
       const positionAlias = request.input('positionAlias')
@@ -390,6 +396,7 @@ export default class PositionController {
       const aliasesInput = request.input('aliases')
 
       const position = {
+        businessUnitId: businessUnitId,
         positionCode: positionCode,
         positionName: positionName,
         positionAlias: positionAlias,
@@ -1288,7 +1295,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1302,7 +1309,7 @@ export default class PositionController {
       }
 
       const positionService = new PositionService(i18n)
-      const showPosition = await positionService.show(positionId)
+      const showPosition = await positionService.show(positionId, businessUnitScope)
 
       if (!showPosition) {
         response.status(404)
@@ -1728,7 +1735,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async getPdf({ request, response, i18n }: HttpContext) {
+  async getPdf({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1742,7 +1749,7 @@ export default class PositionController {
       }
 
       const positionService = new PositionService(i18n)
-      const pdfBuffer = await positionService.getPdf(positionId)
+      const pdfBuffer = await positionService.getPdf(positionId, businessUnitScope)
 
       if (!pdfBuffer) {
         response.status(404)
@@ -1869,7 +1876,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async getExcel({ request, response, i18n }: HttpContext) {
+  async getExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1883,7 +1890,7 @@ export default class PositionController {
       }
 
       const positionService = new PositionService(i18n)
-      const excelBuffer = await positionService.getExcel(positionId)
+      const excelBuffer = await positionService.getExcel(positionId, businessUnitScope)
 
       if (!excelBuffer) {
         response.status(404)
