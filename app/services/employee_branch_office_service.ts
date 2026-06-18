@@ -4,7 +4,6 @@ import { DateTime } from 'luxon'
 import Employee from '#models/employee'
 import EmployeeBranchOffice from '#models/employee_branch_office'
 import BranchOffice from '#models/branch_office'
-import BranchOfficeService from '#services/branch_office_service'
 
 export default class EmployeeBranchOfficeService {
   /**
@@ -27,7 +26,7 @@ export default class EmployeeBranchOfficeService {
    * Asigna sucursal: desactiva la vigente, crea registro nuevo.
    * Si ya está asignado a la misma sucursal, no crea duplicado.
    */
-  static async assign(employeeId: number, branchOfficeId: number) {
+  static async assign(employeeId: number, branchOfficeId: number, businessUnitScope: number[]) {
     const employee = await Employee.query().where('employeeId', employeeId).firstOrFail()
 
     const branch = await BranchOffice.query()
@@ -38,7 +37,7 @@ export default class EmployeeBranchOfficeService {
       throw new Error('Sucursal no encontrada')
     }
 
-    const allowedIds = await BranchOfficeService.getAllowedBusinessUnitIds()
+    const allowedIds = businessUnitScope
     if (allowedIds.length === 0 || !allowedIds.includes(branch.businessUnitId)) {
       throw new Error('Sucursal no disponible para esta instancia del sistema')
     }

@@ -68,6 +68,7 @@ import ReservationLeg from '#models/reservation_leg'
 import Ws from '#services/ws'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -297,15 +298,8 @@ export default class EmployeeService {
     return currentEmployee
   }
 
-  async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
     const normalizeTime = (time?: string | null): string | null => {
       if (!time) {
         return null
@@ -322,14 +316,13 @@ export default class EmployeeService {
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
 
+    
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
         query.whereIn('payrollBusinessUnitId', businessUnitsList)
       })
-      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
-        query.where('businessUnitId', filters.businessUnitId!)
-      })
+      .where('businessUnitId', filters.businessUnitId!)
       .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
         query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
       })
@@ -473,7 +466,6 @@ export default class EmployeeService {
         query.orderBy('employee_id')
       })
       .paginate(filters.page, filters.limit)
-
     if (this.isGetMailsEnabled(filters)) {
       for (const employee of employees.all()) {
         employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
@@ -745,6 +737,20 @@ export default class EmployeeService {
       currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
       currentEmployee.employeeTerminationType = baja.employeeTerminationType
     }
+    const parsedTerminationDate = baja
+      ? DateTime.fromISO(String(baja.employeeTerminatedDate)).isValid
+        ? DateTime.fromISO(String(baja.employeeTerminatedDate))
+        : DateTime.fromSQL(String(baja.employeeTerminatedDate))
+      : DateTime.now()
+    const terminationDate = (parsedTerminationDate.isValid ? parsedTerminationDate : DateTime.now()).toFormat(
+      'yyyy-MM-dd'
+    )
+
+    await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
+      currentEmployee.employeeId,
+      terminationDate
+    )
+
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
@@ -1811,15 +1817,10 @@ export default class EmployeeService {
   }
 
 
-  async getBirthday(filters: EmployeeFilterSearchInterface) {
+  async getBirthday(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1878,18 +1879,13 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAnniversary(filters: EmployeeFilterSearchInterface) {
+  async getAnniversary(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const year = filters.year
     if (!year) {
       return []
     }
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1949,7 +1945,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getVacations(filters: EmployeeFilterSearchInterface) {
+  async getVacations(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
     .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -1959,12 +1955,7 @@ export default class EmployeeService {
     }
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -2030,7 +2021,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>) {
+  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
     .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -2043,12 +2034,7 @@ export default class EmployeeService {
     if (!dateStart || !dateEnd) {
       return []
     }
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -2114,13 +2100,8 @@ export default class EmployeeService {
     return employees
   }
 
-  async getUserResponsible(employeeId: number, userId: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async getUserResponsible(employeeId: number, userId: number, allowedBusinessUnitIds: number[]) {
+    const businessUnitsList = allowedBusinessUnitIds
 
     const userResponsibleEmployees = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
@@ -2227,13 +2208,13 @@ export default class EmployeeService {
     }
   }
 
-  async getEmployeesToSyncFromBiometrics() {
+  async getEmployeesToSyncFromBiometrics(allowedBusinessUnitIds: number[] = []) {
 
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
+    const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
 
@@ -2532,7 +2513,7 @@ export default class EmployeeService {
   /**
    * Import employees from Excel file
    */
-  async importFromExcel(file: any) {
+  async importFromExcel(file: any, allowedBusinessUnitIds: number[] = []) {
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -2555,13 +2536,12 @@ export default class EmployeeService {
         .whereNull('position_deleted_at')
         .select('positionId', 'positionName')
 
-      const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
       const businessUnitsQuery = BusinessUnit.query()
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
-      if (systemBusinessSlugs.length > 0) {
-        businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+      if (allowedBusinessUnitIds.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
       }
       const businessUnits = await businessUnitsQuery
 
@@ -4478,6 +4458,7 @@ export default class EmployeeService {
     /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
     orderBy?: string
     orderDirection?: string
+    allowedBusinessUnitIds?: number[]
   }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
@@ -4487,14 +4468,13 @@ export default class EmployeeService {
     const logoUrl = await this.getLogo()
     await this.addImageLogo(workbook, worksheet, logoUrl)
 
-    const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
     const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
       .select('businessUnitId', 'businessUnitName')
-    if (systemBusinessSlugs.length > 0) {
-      businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+    if (options?.allowedBusinessUnitIds && options.allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', options.allowedBusinessUnitIds)
     }
     const businessUnits = await businessUnitsQuery
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
@@ -4864,7 +4844,8 @@ async generateShiftAssignmentTemplate(
   isReport?: boolean,
   businessUnitId?: number,
   payrollBusinessUnitId?: number,
-  branchNameIds?: number[]
+  branchNameIds?: number[],
+  allowedBusinessUnitIds: number[] = []
 ): Promise<Buffer> {
 
   const workbook = new ExcelJS.Workbook()
@@ -4900,9 +4881,11 @@ async generateShiftAssignmentTemplate(
   // OBTENER DÍAS FESTIVOS DE LA BASE DE DATOS
   const holidayDates = new Set<string>()
   try {
-    // Obtener unidades de negocio activas
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+    // Obtener slugs de las unidades permitidas para la query FIND_IN_SET
+    const allowedUnits = allowedBusinessUnitIds.length > 0
+      ? await BusinessUnit.query().where('business_unit_active', 1).whereIn('business_unit_id', allowedBusinessUnitIds).select('business_unit_slug')
+      : await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+    const businessList = allowedUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
     // Consultar todos los días festivos que coincidan con las unidades de negocio
     // No filtramos por fecha aquí porque necesitamos procesar festivos recurrentes
@@ -4982,17 +4965,10 @@ async generateShiftAssignmentTemplate(
     console.warn('Error obteniendo días festivos de la base de datos:', error)
   }
 
-  // Obtener unidades de negocio del ENV
-  const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-  const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-  const businessUnits = await BusinessUnit.query()
-    .where('business_unit_active', 1)
-    .whereIn('business_unit_slug', businessList)
-
-  const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  const businessUnitsList = allowedBusinessUnitIds
 
   // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
-  // si no, se restringe a las unidades de negocio del ENV
+  // si no, se restringe al scope del usuario
   let employeesQuery = Employee.query().whereNull('deletedAt')
 
   if (businessUnitId !== undefined) {
@@ -6178,7 +6154,8 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     employeeIds?: number[],
     businessUnitId?: number,
     payrollBusinessUnitId?: number,
-    branchNameIds?: number[]
+    branchNameIds?: number[],
+    allowedBusinessUnitIds: number[] = []
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
@@ -6213,14 +6190,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
     const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
 
-    // Obtener unidades de negocio del ENV
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
 
     // Obtener empleados activos agrupados por departamento (misma lógica que index / plantilla de turnos)
     let employeesQuery = Employee.query()
@@ -7199,14 +7169,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    *
    * @returns Objeto con el resultado de la operación y los empleados creados
    */
-  async createEmployeeDemo() {
+  async createEmployeeDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
+      const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+      if (allowedBusinessUnitIds.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+      }
+      const businessUnits = await businessUnitsQuery.first()
 
       const businessUnitId = businessUnits?.businessUnitId || 0
 
@@ -7639,5 +7608,169 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       message: 'La deducción de vacaciones fue eliminada correctamente',
       data: { vacationDeductionId },
     }
+  }
+
+  async indexToAssigned(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
+
+    const normalizeTime = (time?: string | null): string | null => {
+      if (!time) {
+        return null
+      }
+      const trimmed = time.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length === 5 ? `${trimmed}:00` : trimmed
+    }
+
+    const shiftStartTimeInit = normalizeTime(filters.shiftStartTimeInit ?? null)
+    const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
+    const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
+    const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
+    
+    const employees = await Employee.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.onlyPayroll, (query) => {
+        query.whereIn('payrollBusinessUnitId', businessUnitsList)
+      })
+      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
+      })
+      .if(filters.search, (query) => {
+        query.where((subQuery) => {
+          subQuery
+            .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
+            .orWhereHas('person', (personQuery) => {
+              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
+                `%${filters.search.toUpperCase()}%`,
+              ])
+            })
+        })
+      })
+      .if(filters.employeeWorkSchedule, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereRaw('UPPER(employee_work_schedule) LIKE ?', [
+            `%${filters.employeeWorkSchedule.toUpperCase()}%`,
+          ])
+        })
+      })
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
+      })
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
+      })
+      .if(shiftStartTimeInit || shiftStartTimeEnd || shiftEndTimeStart || shiftEndTimeEnd, (query) => {
+        query.whereHas('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          if (filters.exceptionDate) {
+            employeeShiftQuery.whereRaw('DATE(employe_shifts_apply_since) <= ?', [filters.exceptionDate])
+          }
+          employeeShiftQuery.whereHas('shift', (shiftQuery) => {
+            // Filtro por rango de hora de entrada
+            if (shiftStartTimeInit && shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+                .whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            } else if (shiftStartTimeInit) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+            } else if (shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            }
+
+            // Filtro por rango de hora de salida
+            if (shiftEndTimeStart && shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            } else if (shiftEndTimeStart) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+            } else if (shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            }
+          })
+        })
+      })
+      .if(filters.ignoreDiscriminated === 1, (query) => {
+        query.where('employeeAssistDiscriminator', 0)
+      })
+      .if(filters.ignoreExternal === 1, (query) => {
+        query.where('employee_type_of_contract', 'Internal')
+      })
+      .if(
+        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        (query) => {
+          query.whereNotNull('employee_deleted_at')
+          query.withTrashed()
+        }
+      )
+      .if(filters.employeeTypeId, (query) => {
+        query.where('employee_type_id', filters.employeeTypeId ? filters.employeeTypeId : 0)
+      })
+      .if(
+        !filters.userResponsibleId,
+        (query) => {
+          query.whereIn('departmentId', departmentsList)
+        }
+      )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
+      .preload('department')
+      .preload('position')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
+      .if(filters.orderBy === 'number', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
+      })
+      .if(filters.orderBy === 'name', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`)
+      })
+      .if(!filters.orderBy, (query) => {
+        query.orderBy('employee_id')
+      })
+      .paginate(filters.page, filters.limit)
+
+    if (this.isGetMailsEnabled(filters)) {
+      for (const employee of employees.all()) {
+        employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
+      }
+    }
+
+    return employees
   }
 }

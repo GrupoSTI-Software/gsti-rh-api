@@ -2,17 +2,16 @@
   Correo de bienvenida tras completar el wizard de signup self-service.
 
   Convenciones de diseño:
-  - Estilos 100% inline: sin bloque <style>. Cumple el DoD y maximiza
-    compatibilidad con Gmail, Outlook, Apple Mail.
-  - Layout en tablas para soportar Outlook 2007-2019.
-  - Responsive sin @media: width="100%" + max-width 600px hace que el
-    contenedor escale entre 320 y 600px sin scroll horizontal.
-  - Botón CTA con min-height 48px (tappable mobile) y bulletproof button
-    pattern (table + bgcolor + padding + border-radius) para Outlook.
-  - El cuerpo NO incluye credenciales ni token de sesión: solo nombre, empresa
-    creada y un enlace al backoffice (criterio de seguridad del ticket).
+  - Estilos 100% inline: sin bloque <style>. Maximiza compatibilidad con Gmail,
+    Outlook y Apple Mail (clientes que recortan o ignoran <style>).
+  - Layout basado en tablas: requisito para Outlook 2007-2019.
+  - Responsive sin @media: ancho máximo 560px combinado con width="100%".
+  - Áreas tappables nunca por debajo de 44px de alto.
+  - El cuerpo NO incluye credenciales ni token de sesión: solo nombre del
+    usuario, email de acceso, empresa creada y CTA al backoffice (criterio de
+    seguridad del ticket).
 --}}<!DOCTYPE html>
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -21,99 +20,203 @@
   <meta name="supported-color-schemes" content="light dark" />
   <title>{{ subject }}</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f5f5fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #303e67;">
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f6b95;">
   <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
     {{ preheader }}
   </div>
 
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f5f5fa;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
     <tr>
-      <td align="center" style="padding: 24px 12px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 600px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);">
+      <td align="center" style="padding: 32px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 560px;">
+          {{-- Acento superior --}}
           <tr>
-            <td align="center" style="padding: 32px 24px 24px 24px;">
-              @if (backgroundImageLogo)
-                <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" width="160" style="width: 100%; max-width: 160px; height: auto; display: block; border: 0;" />
-              @else
-                <p style="margin: 0; font-size: 18px; font-weight: 700; color: #1f2937;">{{ tradeName }}</p>
-              @end
-            </td>
+            <td style="background-color: #3d5dc0; height: 4px; line-height: 4px; font-size: 0; border-top-left-radius: 12px; border-top-right-radius: 12px;">&nbsp;</td>
           </tr>
 
+          {{-- Tarjeta principal --}}
           <tr>
-            <td style="padding: 0 24px 16px 24px;">
-              <h1 style="margin: 0; font-size: 22px; line-height: 1.3; color: #1f2937; font-weight: 700;">
-                {{ greeting }}
-              </h1>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 0 24px 24px 24px;">
-              <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #475569;">
-                {{ intro }}
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <td align="center" style="padding: 8px 24px 32px 24px;">
-              {{--
-                Botón "bulletproof":
-                - Tabla anidada + bgcolor en el <td>: garantiza el fill en Outlook
-                  2007-2019 (que ignora background-color en <a>).
-                - border-radius en <td> y <a>: Apple/Gmail lo redondean; Outlook lo
-                  ignora y muestra esquinas rectas, degrada limpio.
-                - box-shadow + text-shadow: efecto de profundidad en clientes
-                  modernos; ignorados sin romper layout en Outlook.
-                - border sólido del mismo color: asegura un contorno definido en
-                  clientes que descartan el bgcolor del <td>.
-              --}}
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <td style="background-color: #ffffff; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                {{-- Logotipo (alineado a la izquierda, como en el mock) --}}
                 <tr>
-                  <td align="center" bgcolor="#2563eb" style="border-radius: 10px; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35), 0 1px 2px rgba(15, 23, 42, 0.08); mso-padding-alt: 0;">
-                    <a href="{{ backofficeUrl }}" target="_blank" style="display: inline-block; min-width: 200px; padding: 16px 40px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; line-height: 20px; font-weight: 600; letter-spacing: 0.3px; color: #ffffff; text-decoration: none; text-align: center; text-shadow: 0 1px 1px rgba(15, 23, 42, 0.18); border-radius: 10px; border: 1px solid #1d4fd8; background-color: #2563eb; -webkit-text-size-adjust: none; mso-hide: none;">
-                      {{ cta }}
-                    </a>
+                  <td style="padding: 32px 32px 8px 32px;">
+                    @if (backgroundImageLogo)
+                      <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" width="140" style="width: auto; height: 45px; display: block; border: 0;" />
+                    @else
+                      <p style="margin: 0; font-size: 18px; font-weight: 700; color: #1f6b95;">{{ tradeName }}</p>
+                    @end
                   </td>
                 </tr>
-              </table>
-            </td>
-          </tr>
 
-          <tr>
-            <td style="padding: 0 24px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top: 1px solid #e2e8f0;">
+                {{-- Encabezado --}}
                 <tr>
-                  <td style="padding-top: 20px;">
-                    <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #1f2937;">
+                  <td style="padding: 16px 32px 12px 32px;">
+                    <h1 style="margin: 0; font-size: 20px; line-height: 1.2; color: #1f6b95; font-weight: 800; letter-spacing: -0.5px; margin-top: 20px;">
+                      {{ greeting }}
+                    </h1>
+                  </td>
+                </tr>
+
+                {{-- Intro --}}
+                <tr>
+                  <td style="padding: 0 32px 24px 32px;">
+                    <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #475569;">
+                      {{ intro }}
+                    </p>
+                  </td>
+                </tr>
+
+                {{-- Botón principal --}}
+                <tr>
+                  <td style="padding: 0 32px 28px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td align="center" style="background-color: #3d5dc0; border-radius: 10px;">
+                          <a href="{{ backofficeUrl }}" target="_blank" style="display: inline-block; padding: 16px 28px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; line-height: 1;">
+                            {{ cta }}
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                {{-- Bloque de acceso y empresa --}}
+                <tr>
+                  <td style="padding: 0 32px 28px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa; border-radius: 12px;">
+                      <tr>
+                        <td style="padding: 20px 24px 4px 24px;">
+                          <p style="margin: 0 0 6px 0; font-size: 11px; line-height: 1.2; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">
+                            Acceso con
+                          </p>
+                          <p style="margin: 0; font-size: 15px; line-height: 1.4; color: #1f6b95; font-weight: 700; word-break: break-all;">
+                            {{ email }}
+                          </p>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 24px 0 24px;">
+                          <div style="border-top: 1px solid #e2e8f0; line-height: 1px; font-size: 0;">&nbsp;</div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 16px 24px 20px 24px;">
+                          <p style="margin: 0 0 6px 0; font-size: 11px; line-height: 1.2; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">
+                            Empresa
+                          </p>
+                          <p style="margin: 0; font-size: 15px; line-height: 1.4; color: #1f6b95; font-weight: 700;">
+                            {{ businessUnitName }}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                {{-- Primeros pasos --}}
+                <tr>
+                  <td style="padding: 0 32px 8px 32px;">
+                    <p style="margin: 0 0 16px 0; font-size: 11px; line-height: 1.2; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">
                       {{ tipsTitle }}
                     </p>
-                    <p style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.55; color: #475569;">
-                      • {{ tipOne }}
-                    </p>
-                    <p style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.55; color: #475569;">
-                      • {{ tipTwo }}
-                    </p>
-                    <p style="margin: 0; font-size: 14px; line-height: 1.55; color: #475569;">
-                      • {{ tipThree }}
-                    </p>
+                  </td>
+                </tr>
+
+                {{-- Paso 1 --}}
+                <tr>
+                  <td style="padding: 0 32px 12px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" width="36" style="width: 36px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td align="center" valign="middle" width="28" height="28" style="width: 28px; height: 28px; background-color: #eef2ff; border-radius: 8px; font-size: 13px; font-weight: 700; color: #3d5dc0; line-height: 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                                1
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="middle" style="padding-left: 12px;">
+                          <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #1f6b95;">
+                            {{ tipOne }}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                {{-- Paso 2 --}}
+                <tr>
+                  <td style="padding: 0 32px 12px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" width="36" style="width: 36px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td align="center" valign="middle" width="28" height="28" style="width: 28px; height: 28px; background-color: #eef2ff; border-radius: 8px; font-size: 13px; font-weight: 700; color: #3d5dc0; line-height: 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                                2
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="middle" style="padding-left: 12px;">
+                          <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #1f6b95;">
+                            {{ tipTwo }}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                {{-- Paso 3 --}}
+                <tr>
+                  <td style="padding: 0 32px 24px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td valign="middle" width="36" style="width: 36px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td align="center" valign="middle" width="28" height="28" style="width: 28px; height: 28px; background-color: #eef2ff; border-radius: 8px; font-size: 13px; font-weight: 700; color: #3d5dc0; line-height: 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                                3
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td valign="middle" style="padding-left: 12px;">
+                          <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #1f6b95;">
+                            {{ tipThree }}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                {{-- Soporte --}}
+                <tr>
+                  <td style="padding: 0 32px 28px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top: 1px solid #e2e8f0;">
+                      <tr>
+                        <td style="padding-top: 20px;">
+                          <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #64748b;">
+                            {{ support }}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
+          {{-- Pie de página --}}
           <tr>
-            <td style="padding: 20px 24px 0 24px;">
-              <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #64748b;">
-                {{ support }}
-              </p>
-            </td>
-          </tr>
-
-          <tr>
-            <td align="center" style="padding: 24px 24px 32px 24px;">
+            <td align="center" style="padding: 24px 32px 32px 32px;">
               <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #94a3b8;">
                 {{ footer }}
               </p>

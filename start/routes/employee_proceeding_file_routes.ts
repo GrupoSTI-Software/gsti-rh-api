@@ -21,6 +21,10 @@ router
       '/:employeeProceedingFileId',
       '#controllers/employee_proceeding_file_controller.show'
     )
+    router.get(
+      '/:employeeProceedingFileId/download',
+      '#controllers/employee_proceeding_file_controller.download'
+    ).use(middleware.businessScopeOptional())
   })
   .prefix('/api/employees-proceeding-files')
   .use(middleware.auth())

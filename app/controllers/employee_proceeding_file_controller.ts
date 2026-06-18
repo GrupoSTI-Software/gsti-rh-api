@@ -8,6 +8,8 @@ import {
 import { HttpContext } from '@adonisjs/core/http'
 import { EmployeeProceedingFileFilterInterface } from '../interfaces/employee_proceeding_file_filter_interface.js'
 import UserService from '#services/user_service'
+import UploadService from '#services/upload_service'
+import { inject } from '@adonisjs/core'
 
 export default class EmployeeProceedingFileController {
   /**
@@ -909,6 +911,160 @@ export default class EmployeeProceedingFileController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees-proceeding-files/{employeeProceedingFileId}/download:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees Proceeding Files
+   *     summary: Descarga el binario de un expediente de empleado (proxy autenticado)
+   *     description: |
+   *       Proxy server-side para expedientes de empleado. El API valida que el
+   *       expediente pertenezca al scope del usuario autenticado y, si es válido,
+   *       transmite (stream) el binario desde DigitalOcean Spaces sin exponer la URL
+   *       de origen. Responde 404 tanto si el expediente no existe como si está fuera
+   *       del scope del usuario (no se revela la existencia del recurso ajeno).
+   *     parameters:
+   *       - in: path
+   *         name: employeeProceedingFileId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Identificador del registro employee_proceeding_file
+   *     responses:
+   *       200:
+   *         description: Stream binario del documento
+   *         headers:
+   *           Content-Type:
+   *             schema:
+   *               type: string
+   *           Content-Disposition:
+   *             schema:
+   *               type: string
+   *           Cache-Control:
+   *             schema:
+   *               type: string
+   *               example: private, no-store
+   *       400:
+   *         description: ID inválido
+   *       401:
+   *         description: Sin token de autenticación válido
+   *       404:
+   *         description: Expediente no encontrado o fuera del scope del usuario
+   *       500:
+   *         description: Error inesperado al descargar el archivo
+   */
+  @inject()
+  async download(
+    { auth, request, response, logger, businessUnitScope }: HttpContext,
+    uploadService: UploadService
+  ) {
+    try {
+      const rawId = request.param('employeeProceedingFileId')
+      const employeeProceedingFileId = Number(rawId)
+
+      if (!Number.isInteger(employeeProceedingFileId) || employeeProceedingFileId <= 0) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del expediente es inválido',
+          data: { employeeProceedingFileId: rawId },
+        }
+      }
+
+      const user = auth.user!
+      if (!user.role) {
+        await user.load('role')
+      }
+      const isRoot = user.role?.roleSlug === 'root'
+
+      const query = EmployeeProceedingFile.query()
+        .where('employee_proceeding_file_id', employeeProceedingFileId)
+        .whereNull('employee_proceeding_file_deleted_at')
+        .preload('proceedingFile')
+
+      // Filtrar por scope usando whereHas para evitar depender del preload de employee,
+      // que el mixin withBusinessUnitScope filtraría dejando la relación en null.
+      if (!isRoot) {
+        query.whereHas('employee', (q) => {
+          q.whereIn('business_unit_id', businessUnitScope)
+        })
+      }
+
+      const record = await query.first()
+
+      if (!record) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Expediente no encontrado',
+          message: 'El expediente no fue encontrado',
+          data: null,
+        }
+      }
+
+      const proceedingFile = record.proceedingFile
+
+      if (!proceedingFile?.proceedingFilePath) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El expediente no tiene un archivo asociado',
+          data: null,
+        }
+      }
+      const object = await uploadService.streamStoredFile(proceedingFile.proceedingFilePath)
+
+      if (!object) {
+        logger.warn(
+          { employeeProceedingFileId, path: proceedingFile.proceedingFilePath },
+          'Expediente registrado en BD pero no encontrado en almacenamiento'
+        )
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El archivo del expediente no fue encontrado en el almacenamiento',
+          data: null,
+        }
+      }
+
+      const fileName = proceedingFile.proceedingFileName || `expediente-${employeeProceedingFileId}`
+
+      response.header('Content-Type', object.contentType || 'application/octet-stream')
+      response.header('Content-Disposition', `inline; filename="${fileName}"`)
+      response.header('Cache-Control', 'private, no-store')
+      if (object.contentLength !== undefined) {
+        response.header('Content-Length', String(object.contentLength))
+      }
+      if (object.etag) {
+        response.header('ETag', object.etag)
+      }
+      if (object.lastModified) {
+        response.header('Last-Modified', object.lastModified.toUTCString())
+      }
+
+      response.status(200)
+      return response.stream(object.stream)
+    } catch (error: any) {
+      logger.error(
+        { err: error, employeeProceedingFileId: request.param('employeeProceedingFileId') },
+        'Error inesperado al descargar expediente del almacenamiento'
+      )
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al obtener el archivo del expediente',
+        error: error?.message,
       }
     }
   }

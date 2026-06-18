@@ -133,11 +133,18 @@ export default class ExceptionTypeController {
         })
       }
       await user.load('role')
-      var canEmployeeRequests = false
+      /**
+       * `restrictToEmployeeRequestable` indica si la respuesta debe quedar
+       * acotada a los tipos que pueden ser solicitados directamente por una
+       * empleada (`exception_type_can_employee_requests = 1`).
+       *
+       * Sólo se aplica el filtro cuando el usuario autenticado es un empleado
+       * regular (`employee` / `employee-sae`); los roles administrativos
+       * (root, super-administrador, rh-manager, etc.) reciben todos los tipos.
+       */
       const roleSlug = user.role.roleSlug
-      if (roleSlug !== 'employee') {
-        canEmployeeRequests = true
-      }
+      const restrictToEmployeeRequestable =
+        roleSlug === 'employee' || roleSlug === 'employee-sae'
       const search = request.input('search')
       const onlyActive = request.input('onlyActive', true)
       const page = request.input('page', 1)
@@ -149,7 +156,10 @@ export default class ExceptionTypeController {
         limit: limit,
       } as ExceptionTypeFilterSearchInterface
       const exceptionTypeService = new ExceptionTypeService()
-      const exceptionTypes = await exceptionTypeService.index(filters, canEmployeeRequests)
+      const exceptionTypes = await exceptionTypeService.index(
+        filters,
+        restrictToEmployeeRequestable
+      )
       response.status(200)
       return {
         type: 'success',

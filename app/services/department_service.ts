@@ -11,7 +11,6 @@ import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeService from './employee_service.js'
 import { DepartmentShiftEmployeeWarningInterface } from '../interfaces/department_shift_employee_warning_interface.js'
 import EmployeeShift from '#models/employee_shift'
-import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import Employee from '#models/employee'
@@ -36,26 +35,19 @@ export default class DepartmentService {
     this.i18n = i18n
   }
 
-  async index(departmentsList: Array<number>, filters?: DepartmentIndexFilterInterface) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async index(departmentsList: Array<number>, filters?: DepartmentIndexFilterInterface, allowedBusinessUnitIds: number[] = []) {
+    if (allowedBusinessUnitIds.length === 0) return []
     const departments = await Department.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereIn('departmentId', departmentsList)
       .where('departmentId', '<>', 999)
       .if(filters?.departmentName, (query) => {
         applyDepartmentNameOrAliasesSearch(query, filters?.departmentName)
       })
+      // `only-parents=true` limita a departamentos raíz; sin el flag se devuelven
+      // todos (raíces incluidas) para poder elegirlos como padre en los selectores.
       .if(filters?.onlyParents, (query) => {
         query.whereNull('parentDepartmentId')
-      })
-      .if(!filters?.onlyParents, (query) => {
-        query.whereNotNull('parentDepartmentId')
       })
       .orderBy('departmentName', 'asc')
 
@@ -64,18 +56,12 @@ export default class DepartmentService {
 
   async getOnlyWithEmployees(
     departmentsList: Array<number>,
-    filters?: DepartmentIndexFilterInterface
+    filters?: DepartmentIndexFilterInterface,
+    allowedBusinessUnitIds: number[] = []
   ) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+    if (allowedBusinessUnitIds.length === 0) return []
     const departments = await Department.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereIn('departmentId', departmentsList)
       .where('departmentId', '<>', 999)
       .if(filters?.departmentName, (query) => {
@@ -488,19 +474,12 @@ export default class DepartmentService {
     }
   }
 
-  async getPositions(departmentId: number, userResponsibleId?: number | null) {
+  async getPositions(departmentId: number, userResponsibleId?: number | null, allowedBusinessUnitIds: number[] = []) {
     const positionList: number[] = []
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
       if (userResponsibleId &&
         typeof userResponsibleId && userResponsibleId > 0) {
           const employees = await Employee.query()
-          .whereIn('businessUnitId', businessUnitsList)
+          .if(allowedBusinessUnitIds.length > 0, (q) => q.whereIn('businessUnitId', allowedBusinessUnitIds))
           .if(userResponsibleId &&
             typeof userResponsibleId && userResponsibleId > 0,
             (query) => {
@@ -702,16 +681,15 @@ export default class DepartmentService {
    * 
    * @returns Objeto con el resultado de la operación y los departamentos creados
    */
-  async createDepartmentDemo() {
+  async createDepartmentDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
+      const query = BusinessUnit.query().where('business_unit_active', 1)
+      if (allowedBusinessUnitIds.length > 0) {
+        query.whereIn('business_unit_id', allowedBusinessUnitIds)
+      }
+      const firstBusinessUnit = await query.first()
 
-      const businessUnitId = businessUnits?.businessUnitId || 0
+      const businessUnitId = firstBusinessUnit?.businessUnitId || 0
       const createdDepartments: { [key: string]: Department } = {}
 
       // Array de departamentos a crear (ordenados para que los padres se creen antes que los hijos)

@@ -37,6 +37,7 @@ import {
   isValidEmployeeTerminationModality,
 } from '../constants/employee_termination.js'
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -273,7 +274,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async synchronization({ request, response, i18n }: HttpContext) {
+  async synchronization({ request, response, i18n, auth }: HttpContext) {
     try {
       const page = request.input('page', 1)
       const limit = request.input('limit', 1000)
@@ -288,11 +289,10 @@ export default class EmployeeController {
       const positionId = request.input('positionId')
       const hireDate = request.input('hireDate')
 
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereIn('business_unit_id', allowedIds)
 
       const businessUnitsList = businessUnits.map((business) => business.businessUnitName)
 
@@ -601,7 +601,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async index({ auth, request, response, i18n }: HttpContext) {
+  async index({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -677,7 +677,7 @@ export default class EmployeeController {
       } as EmployeeFilterSearchInterface
 
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.index(filters, departmentsList)
+      const employees = await employeeService.index(filters, departmentsList, businessUnitScope)
 
       response.status(200)
 
@@ -3270,7 +3270,6 @@ export default class EmployeeController {
    *         description: Business Unit Id
    *         schema:
    *           type: integer
-   *         description: ID of the business unit to filter
    *       - in: query
    *         name: departmentId
    *         schema:
@@ -3584,7 +3583,7 @@ export default class EmployeeController {
    *       500:
    *         description: Error al generar la plantilla
    */
-  async getTemplateExcel({ request, response, i18n }: HttpContext) {
+  async getTemplateExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const fillWithExisting = request.input('fillWithExisting') === true ||
         request.input('fillWithExisting') === '1' ||
@@ -3639,6 +3638,7 @@ export default class EmployeeController {
         branchNameIds,
         orderBy,
         orderDirection: orderDirection !== undefined && orderDirection !== '' ? String(orderDirection) : undefined,
+        allowedBusinessUnitIds: businessUnitScope,
       })
 
       response.header(
@@ -4645,7 +4645,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getBirthday({ auth, request, response, i18n }: HttpContext) {
+  async getBirthday({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -4668,7 +4668,7 @@ export default class EmployeeController {
         userResponsibleId: userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getBirthday(filters)
+      const employees = await employeeService.getBirthday(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -4804,7 +4804,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getAnniversary({ auth, request, response, i18n }: HttpContext) {
+  async getAnniversary({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -4827,7 +4827,7 @@ export default class EmployeeController {
         userResponsibleId: userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getAnniversary(filters)
+      const employees = await employeeService.getAnniversary(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -4977,7 +4977,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getVacations({ auth, request, response, i18n }: HttpContext) {
+  async getVacations({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -5012,7 +5012,7 @@ export default class EmployeeController {
         payrollBusinessUnitId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getVacations(filters)
+      const employees = await employeeService.getVacations(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -5154,7 +5154,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getAllVacationsByPeriod({ auth, request, response, i18n }: HttpContext) {
+  async getAllVacationsByPeriod({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -5184,7 +5184,7 @@ export default class EmployeeController {
         userResponsibleId: userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getAllVacationsByPeriod(filters, departmentsList)
+      const employees = await employeeService.getAllVacationsByPeriod(filters, departmentsList, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -5894,7 +5894,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getUserResponsible({ request, response, i18n }: HttpContext) {
+  async getUserResponsible({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       const userId = request.param('userId')
@@ -5921,7 +5921,7 @@ export default class EmployeeController {
         }
       }
 
-      const userResponsibles = await employeeService.getUserResponsible(employeeId, userId)
+      const userResponsibles = await employeeService.getUserResponsible(employeeId, userId, businessUnitScope)
 
       response.status(200)
       return {
@@ -6176,11 +6176,11 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getBiometrics({ response, i18n }: HttpContext) {
+  async getBiometrics({ response, i18n, businessUnitScope }: HttpContext) {
     try {
       const employeeService = new EmployeeService(i18n)
       let employeesSync = [] as EmployeeSyncInterface[]
-      employeesSync = await employeeService.getEmployeesToSyncFromBiometrics()
+      employeesSync = await employeeService.getEmployeesToSyncFromBiometrics(businessUnitScope)
       response.status(200)
 
       return {
@@ -6305,14 +6305,13 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async synchronizationBySelection({ request, response, i18n }: HttpContext) {
+  async synchronizationBySelection({ request, response, i18n, auth }: HttpContext) {
     try {
       const employees = request.input('employees')
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereIn('business_unit_id', allowedIds)
 
       const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
       const params = new URLSearchParams()
@@ -6521,7 +6520,7 @@ export default class EmployeeController {
    *                   type: string
    *                   description: Detailed error information
    */
-  async importFromExcel({ request, response, i18n }: HttpContext) {
+  async importFromExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const file = request.file('file')
 
@@ -6573,7 +6572,7 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const result = await employeeService.importFromExcel(file)
+      const result = await employeeService.importFromExcel(file, businessUnitScope)
 
       // Determinar el tipo de respuesta basado en los resultados
       let responseType = 'success'
@@ -6873,7 +6872,7 @@ export default class EmployeeController {
    *                   type: string
    *                   example: Error details
    */
-  async getShiftAssignmentTemplate({ auth, request, response, i18n }: HttpContext) {
+  async getShiftAssignmentTemplate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
 
@@ -6974,7 +6973,8 @@ export default class EmployeeController {
         isReport,
         businessUnitId !== undefined && !Number.isNaN(businessUnitId) ? businessUnitId : undefined,
         payrollBusinessUnitId !== undefined && !Number.isNaN(payrollBusinessUnitId) ? payrollBusinessUnitId : undefined,
-        branchNameIds
+        branchNameIds,
+        businessUnitScope
       )
 
       // Configurar headers para la descarga del archivo
@@ -7175,7 +7175,7 @@ export default class EmployeeController {
    *       '500':
    *         description: Error del servidor
    */
-  async getAttendanceReport({ auth, request, response, i18n }: HttpContext) {
+  async getAttendanceReport({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
 
@@ -7331,7 +7331,8 @@ export default class EmployeeController {
         employeeIds,
         businessUnitId,
         payrollBusinessUnitId,
-        branchNameIds
+        branchNameIds,
+        businessUnitScope
       )
 
       // Configurar headers para la descarga del archivo
@@ -7852,6 +7853,286 @@ export default class EmployeeController {
       return {
         type: 'error',
         title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/to-assigned:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get all employees to assigned
+   *     parameters:
+   *       - name: search
+   *         in: query
+   *         required: false
+   *         description: Search
+   *         schema:
+   *           type: string
+   *       - name: departmentId
+   *         in: query
+   *         required: false
+   *         description: DepartmentId
+   *         schema:
+   *           type: integer
+   *       - name: positionId
+   *         in: query
+   *         required: false
+   *         description: PositionId
+   *         schema:
+   *           type: integer
+   *       - name: employeeWorkSchedule
+   *         in: query
+   *         required: false
+   *         description: Employee work schedule
+   *         schema:
+   *           type: string
+   *       - name: onlyInactive
+   *         in: query
+   *         required: false
+   *         description: Include only inactive
+   *         default: false
+   *         schema:
+   *           type: boolean
+   *       - name: employeeTypeId
+   *         in: query
+   *         required: false
+   *         description: Employee Type Id
+   *         schema:
+   *           type: integer
+   *       - name: page
+   *         in: query
+   *         required: true
+   *         description: The page number for pagination
+   *         default: 1
+   *         schema:
+   *           type: integer
+   *       - name: limit
+   *         in: query
+   *         required: true
+   *         description: The number of records per page
+   *         default: 100
+   *         schema:
+   *           type: integer
+   *       - name: orderBy
+   *         in: query
+   *         required: false
+   *         description: Order by field (number or name)
+   *         schema:
+   *           type: string
+   *           enum: [number, name]
+   *       - name: orderDirection
+   *         in: query
+   *         required: false
+   *         description: Order direction (ascend or descend)
+   *         schema:
+   *           type: string
+   *           enum: [ascend, descend]
+   *       - name: businessUnitId
+   *         in: query
+   *         required: false
+   *         description: Business Unit Id
+   *         schema:
+   *           type: integer
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         required: false
+   *         description: Payroll Business Unit Id
+   *         schema:
+   *           type: integer
+   *       - name: branchNameIds
+   *         in: query
+   *         required: false
+   *         description: IDs de sucursal (branch_office_id) separados por comas. Solo empleados con asignación activa a alguna de ellas. Vacío u omitido = sin filtro.
+   *         schema:
+   *           type: string
+   *           example: "2,3,4"
+   *       - name: getMails
+   *         in: query
+   *         required: false
+   *         description: Si es true, employeeBusinessEmail en la respuesta usa jerarquía (usuario > empresa > personal)
+   *         schema:
+   *           type: boolean
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Object processed
+   *       '404':
+   *         description: The resource could not be found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async indexToAssigned({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      await auth.check()
+      const user = auth.user
+
+      let hasAccessToFullEmployees = false
+      let userResponsibleId = null
+
+      if (user) {
+        await user.load('role')
+
+        if (user.role.roleSlug !== 'root') {
+          const roleService = new RoleService()
+          hasAccessToFullEmployees = await roleService.hasAccessToFullEmployees(user.role.roleId)
+        }
+
+        if (user.role.roleSlug !== 'root' && !hasAccessToFullEmployees) {
+          userResponsibleId = user?.userId
+        }
+      }
+
+      const userService = new UserService(i18n)
+      let departmentsList = [] as Array<number>
+
+      if (user) {
+        departmentsList = await userService.getRoleDepartments(user.userId, hasAccessToFullEmployees)
+      }
+
+      const search = request.input('search')
+      const departmentId = this.parseIdOrIds(request.input('departmentId'))
+      const positionId = this.parseIdOrIds(request.input('positionId'))
+      const employeeWorkSchedule = request.input('employeeWorkSchedule')
+      const onlyInactive = request.input('onlyInactive')
+      const employeeTypeId = request.input('employeeTypeId')
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 100)
+      const orderBy = request.input('orderBy')
+      const orderDirection = request.input('orderDirection')
+      const shiftStartTimeInit = request.input('shiftStartTimeInit')
+      const shiftStartTimeEnd = request.input('shiftStartTimeEnd')
+      const shiftEndTimeStart = request.input('shiftEndTimeStart')
+      const shiftEndTimeEnd = request.input('shiftEndTimeEnd')
+      const exceptionDate = request.input('exceptionDate')
+      const shiftStartTime = request.input('shiftStartTime')
+      const shiftEndTime = request.input('shiftEndTime')
+      const businessUnitId = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
+      const getMails = request.input('getMails')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
+
+      const filters = {
+        search: search,
+        departmentId: departmentId,
+        positionId: positionId,
+        employeeWorkSchedule: employeeWorkSchedule,
+        onlyInactive: onlyInactive,
+        employeeTypeId: employeeTypeId,
+        userResponsibleId: userResponsibleId,
+        page: page,
+        limit: limit,
+        orderBy: orderBy,
+        orderDirection: orderDirection,
+        shiftStartTimeInit: shiftStartTimeInit,
+        shiftStartTimeEnd: shiftStartTimeEnd,
+        shiftEndTimeStart: shiftEndTimeStart,
+        shiftEndTimeEnd: shiftEndTimeEnd,
+        exceptionDate: exceptionDate,
+        shiftStartTime: shiftStartTime,
+        shiftEndTime: shiftEndTime,
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
+        branchNameIds: branchNameIds,
+        getMails: getMails,
+      } as EmployeeFilterSearchInterface
+
+      const employeeService = new EmployeeService(i18n)
+      const employees = await employeeService.indexToAssigned(filters, departmentsList, businessUnitScope)
+
+      response.status(200)
+
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employees were found successfully',
+        data: {
+          employees,
+        },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
       }

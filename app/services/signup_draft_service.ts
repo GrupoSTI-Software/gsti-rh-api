@@ -5,12 +5,12 @@ import { I18n } from '@adonisjs/i18n'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
-import ApiToken from '#models/api_token'
 import SignupDraft from '#models/signup_draft'
 import AuthMailService from '#services/auth_mail_service'
 import PersonService from '#services/person_service'
 import UserService from '#services/user_service'
 import BusinessUnitService from '#services/business_unit_service'
+import AuthTokenService from '#services/auth_token_service'
 
 export interface StartSignupData {
   firstName: string
@@ -271,8 +271,8 @@ export default class SignupDraftService {
         )
       )
 
-    const token = await User.accessTokens.create(user)
-    await ApiToken.query().where('id', String(token.identifier)).update({ origin: 'web' })
+    const authTokenService = new AuthTokenService()
+    const { accessToken, refreshToken } = await authTokenService.issueTokenPair(user, 'web')
 
     return {
       status: 200,
@@ -280,7 +280,8 @@ export default class SignupDraftService {
       title: 'Signup',
       message: this.t('signup_account_created'),
       data: {
-        token: token.value!.release(),
+        token: accessToken,
+        refreshToken,
         user,
         businessUnit,
       },

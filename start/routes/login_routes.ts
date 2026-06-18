@@ -6,6 +6,7 @@ import { middleware } from '../kernel.js'
 router
   .group(() => {
     router.post('/login', '#controllers/user_controller.login')
+    router.post('/refresh', '#controllers/user_controller.refresh')
     router
       .post('/logout', '#controllers/user_controller.logout')
       .use(middleware.auth({ guards: ['api'] }))
