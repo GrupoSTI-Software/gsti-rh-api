@@ -18,16 +18,27 @@ router
     router
       .post('/', '#controllers/complaint_controller.store')
       .use(middleware.auth())
+      .use(middleware.businessScope())
 
     router
       .get('/', '#controllers/complaint_controller.index')
       .use(middleware.auth())
-      .use(middleware.businessScope())
+      .use(middleware.businessScopeOptional())
 
     router
-      .put('/:complaintId/status', '#controllers/complaint_controller.updateStatus')
+      .get('/:complaintId/history', '#controllers/complaint_controller.history')
       .use(middleware.auth())
-      .use(middleware.businessScope())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .patch('/:complaintId/status', '#controllers/complaint_controller.patchStatus')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .get('/:complaintId', '#controllers/complaint_controller.show')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
 
     router
       .post('/:folio/attachments', '#controllers/complaint_attachment_controller.store')

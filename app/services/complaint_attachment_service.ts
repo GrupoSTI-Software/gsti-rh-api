@@ -70,7 +70,9 @@ export default class ComplaintAttachmentService {
         'No se pudo generar el enlace de descarga',
         COMPLAINT_ERROR_CODES.S3_OPERATION_FAILED,
         500,
-        'complaint-attachment-download-failed'
+        'complaint-attachment-download-failed',
+        undefined,
+        'complaint_attachment_download_failed'
       )
     }
 
@@ -100,18 +102,18 @@ export default class ComplaintAttachmentService {
     this.assertClientFileExtensionAllowed(file)
 
     if (typeof file.size === 'number' && file.size > COMPLAINT_ATTACHMENT_MAX_BYTES) {
-      throw this.invalidFileError('El archivo excede el tamaño máximo permitido')
+      throw this.invalidFileError('complaint_attachment_file_too_large')
     }
 
     let sanitized
     try {
       sanitized = await this.sanitizer.sanitizeFromPath(file.tmpPath)
     } catch {
-      throw this.invalidFileError('El tipo o contenido del archivo no está permitido')
+      throw this.invalidFileError('complaint_attachment_file_type_invalid')
     }
 
     if (sanitized.fileSize > COMPLAINT_ATTACHMENT_MAX_BYTES) {
-      throw this.invalidFileError('El archivo excede el tamaño máximo permitido')
+      throw this.invalidFileError('complaint_attachment_file_too_large')
     }
 
     const storageFileName = buildComplaintAttachmentStorageFileName(sanitized.mimeType)
@@ -129,7 +131,9 @@ export default class ComplaintAttachmentService {
         'Error al subir el archivo sanitizado a S3',
         COMPLAINT_ERROR_CODES.S3_OPERATION_FAILED,
         500,
-        'complaint-attachment-upload-failed'
+        'complaint-attachment-upload-failed',
+        undefined,
+        'complaint_attachment_upload_failed'
       )
     }
 
@@ -153,7 +157,9 @@ export default class ComplaintAttachmentService {
         'El usuario no tiene una persona asociada',
         COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
         403,
-        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND'
+        'AUTH.COMPLAINT.PERSON_NOT_FOUND',
+        undefined,
+        'complaint_person_not_found'
       )
     }
 
@@ -167,7 +173,9 @@ export default class ComplaintAttachmentService {
         'El usuario no tiene un registro de empleado asociado',
         COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
         403,
-        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND'
+        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND',
+        undefined,
+        'complaint_employee_not_found'
       )
     }
 
@@ -182,7 +190,9 @@ export default class ComplaintAttachmentService {
         'La queja no existe o no pertenece al empleado autenticado',
         COMPLAINT_ERROR_CODES.STATUS_NOT_FOUND,
         404,
-        'caso-no-encontrado'
+        'caso-no-encontrado',
+        undefined,
+        'complaint_case_not_found_for_employee'
       )
     }
 
@@ -241,24 +251,24 @@ export default class ComplaintAttachmentService {
 
   private assertFilePresent(file: any) {
     if (!file || !file.tmpPath) {
-      throw this.invalidFileError('No se recibió ningún archivo')
+      throw this.invalidFileError('complaint_attachment_file_missing')
     }
   }
 
   private assertClientFileExtensionAllowed(file: any) {
     if (!isComplaintAttachmentClientFileAllowed(file.clientName, file.extname)) {
-      throw this.invalidFileError(
-        'La extensión del archivo no está permitida o corresponde a un tipo de código ejecutable'
-      )
+      throw this.invalidFileError('complaint_attachment_extension_blocked')
     }
   }
 
-  private invalidFileError(message: string) {
+  private invalidFileError(messageKey: string) {
     return new ComplaintServiceError(
-      message,
+      'El archivo no cumple con los requisitos permitidos',
       COMPLAINT_ERROR_CODES.INVALID_FILE,
       422,
-      'archivo-invalido'
+      'archivo-invalido',
+      undefined,
+      messageKey
     )
   }
 
@@ -267,7 +277,9 @@ export default class ComplaintAttachmentService {
       'La queja no existe o está fuera del alcance del usuario autenticado',
       COMPLAINT_ERROR_CODES.STATUS_NOT_FOUND,
       404,
-      'queja-no-encontrada'
+      'queja-no-encontrada',
+      undefined,
+      'complaint_not_found'
     )
   }
 
@@ -276,7 +288,9 @@ export default class ComplaintAttachmentService {
       'El adjunto no existe o está fuera del alcance del usuario autenticado',
       COMPLAINT_ERROR_CODES.ATTACHMENT_NOT_FOUND,
       404,
-      'adjunto-no-encontrado'
+      'adjunto-no-encontrado',
+      undefined,
+      'complaint_attachment_not_found'
     )
   }
 
