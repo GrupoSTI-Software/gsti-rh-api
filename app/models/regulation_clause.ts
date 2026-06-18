@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
-import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
+import { BaseModel, belongsTo, column, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Regulation from './regulation.js'
 import RegulationClauseFeature from './regulation_clause_feature.js'
 import RegulationEvidenceRequirement from './regulation_evidence_requirement.js'
+import RegulationQuestionnaire from './regulation_questionnaire.js'
 
 /**
  * @swagger
@@ -151,4 +152,15 @@ export default class RegulationClause extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'regulationClauseId',
   })
   declare evidenceRequirements: HasMany<typeof RegulationEvidenceRequirement>
+
+  /** Cuestionarios e instrumentos de evaluación vinculados a este numeral (N:N). */
+  @manyToMany(() => RegulationQuestionnaire, {
+    pivotTable: 'regulation_clause_questionnaires',
+    localKey: 'regulationClauseId',
+    pivotForeignKey: 'regulation_clause_id',
+    relatedKey: 'regulationQuestionnaireId',
+    pivotRelatedForeignKey: 'regulation_questionnaire_id',
+    pivotColumns: ['regulation_clause_questionnaire_notes'],
+  })
+  declare questionnaires: ManyToMany<typeof RegulationQuestionnaire>
 }

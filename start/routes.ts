@@ -130,6 +130,7 @@ import '#modules/working-time-rules/effective/effective.routes'
 import '#modules/working-time-rules/federal/federal.routes'
 import '#modules/onboarding/catalog/catalog.routes'
 import '#modules/onboarding/state/state.routes'
+import '#modules/consent/acceptance/acceptance.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')
@@ -166,6 +167,7 @@ import './routes/employee_certification_routes.js'
 import './routes/employee_lactation_periods_routes.js'
 import './routes/repse_registration_routes.js'
 import './routes/repse_specialized_service_routes.js'
+import './routes/repse_coverage_report_routes.js'
 import './routes/empresas_contratantes_routes.js'
 import './routes/contratos_servicios_especializados_routes.js'
 import './routes/documentos_contrato_especializado_routes.js'

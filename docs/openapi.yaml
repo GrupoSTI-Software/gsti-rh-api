@@ -1717,6 +1717,147 @@ components:
               type: string
               format: date-time
 
+    RepseCoverageReportCompany:
+      type: object
+      required:
+        - companyId
+        - companyName
+        - diasBase
+        - diasPrestados
+        - diasServidos
+        - porcentajeObservado
+      properties:
+        companyId:
+          type: integer
+        companyName:
+          type: string
+        diasBase:
+          type: integer
+        diasPrestados:
+          type: integer
+        diasServidos:
+          type: integer
+        porcentajeObservado:
+          type: number
+          format: float
+          description: Porcentaje observado redondeado a 2 decimales.
+        porcentajeDeclarado:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Porcentaje declarado redondeado a 2 decimales.
+            Null cuando no existe asignación REPSE declarada para empleado-empresa.
+        diferencia:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Diferencia observada - declarada, redondeada a 2 decimales.
+            Null cuando porcentajeDeclarado es null.
+
+    RepseCoverageReportMovement:
+      type: object
+      required:
+        - assignmentId
+        - startDate
+        - endDate
+        - effectiveEndDate
+        - sourceBranchId
+        - sourceBranchName
+        - targetBranchId
+        - targetBranchName
+      properties:
+        assignmentId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        effectiveEndDate:
+          type: string
+          format: date
+        sourceBranchId:
+          type: integer
+        sourceBranchName:
+          type: string
+        sourceCompanyId:
+          type: integer
+          nullable: true
+        sourceCompanyName:
+          type: string
+          nullable: true
+        targetBranchId:
+          type: integer
+        targetBranchName:
+          type: string
+        targetCompanyId:
+          type: integer
+          nullable: true
+        targetCompanyName:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+
+    RepseCoverageReportEmployee:
+      type: object
+      required: [employeeId, employeeName, diasLaborados, companies, movimientos]
+      properties:
+        employeeId:
+          type: integer
+        employeeName:
+          type: string
+        employeeCode:
+          type: string
+          nullable: true
+        diasLaborados:
+          type: integer
+          description: Días laborados reales del empleado en el periodo.
+        companies:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepseCoverageReportCompany'
+        movimientos:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepseCoverageReportMovement'
+
+    RepseCoverageReportSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [meta, data]
+          properties:
+            meta:
+              type: object
+              required: [total, perPage, currentPage, lastPage]
+              properties:
+                total:
+                  type: integer
+                perPage:
+                  type: integer
+                currentPage:
+                  type: integer
+                lastPage:
+                  type: integer
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/RepseCoverageReportEmployee'
+
 paths:
   /api/employees/{employeeId}/temporary-assignments:
     post:
@@ -1968,6 +2109,288 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+
+  /api/repse/coverage-report:
+    get:
+      summary: Reporte de cobertura REPSE por empleado y empresa
+      tags: [RepseCoverageReport]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: companyId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: employeeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: perPage
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+      responses:
+        '200':
+          description: Reporte calculado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseCoverageReportSuccess'
+              example:
+                type: success
+                title: Recursos
+                message: Los recursos fueron encontrados correctamente
+                data:
+                  meta:
+                    total: 1
+                    perPage: 20
+                    currentPage: 1
+                    lastPage: 1
+                  data:
+                    - employeeId: 1
+                      employeeName: Empleado Temporal Repse
+                      employeeCode: TRC-E001
+                      diasLaborados: 5
+                      companies:
+                        - companyId: 1
+                          companyName: Empresa temporal REPSE Coverage
+                          diasBase: 0
+                          diasPrestados: 5
+                          diasServidos: 5
+                          porcentajeObservado: 100
+                          porcentajeDeclarado: 100
+                          diferencia: 0
+                      movimientos:
+                        - assignmentId: 1
+                          startDate: '2026-06-10'
+                          endDate: '2026-06-16'
+                          effectiveEndDate: '2026-06-16'
+                          sourceBranchId: 1
+                          sourceBranchName: Sucursal Matriz
+                          sourceCompanyId: null
+                          sourceCompanyName: null
+                          targetBranchId: 2
+                          targetBranchName: Sucursal Cliente Norte
+                          targetCompanyId: 1
+                          targetCompanyName: Empresa temporal REPSE Coverage
+                          reason: cobertura
+        '400':
+          description: Datos inválidos (key query-invalida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error de validación
+                message: El campo from es obligatorio
+                key: query-invalida
+                data:
+                  errors:
+                    - message: El campo from es obligatorio
+                      rule: required
+                      field: from
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: No autenticado
+                message: No autenticado
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No cuentas con permisos para realizar esta acción.
+                key: sin-permiso
+                data: null
+        '422':
+          description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                rangoFechasInvalido:
+                  summary: key rango-fechas-invalido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas es inválido.
+                    key: rango-fechas-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas excede el máximo permitido
+                    key: rango-maximo-excedido
+                    data:
+                      maxDays: 366
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado en el servidor
+                data: null
+
+  /api/repse/coverage-report/export:
+    get:
+      summary: Exportar reporte de cobertura REPSE en Excel
+      tags: [RepseCoverageReport]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: companyId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: employeeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [xlsx]
+      responses:
+        '200':
+          description: Archivo Excel generado correctamente
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Datos inválidos (key query-invalida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error de validación
+                message: El campo from es obligatorio
+                key: query-invalida
+                data:
+                  errors:
+                    - message: El campo from es obligatorio
+                      rule: required
+                      field: from
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: No autenticado
+                message: No autenticado
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No cuentas con permisos para realizar esta acción.
+                key: sin-permiso
+                data: null
+        '422':
+          description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                rangoFechasInvalido:
+                  summary: key rango-fechas-invalido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas es inválido.
+                    key: rango-fechas-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas excede el máximo permitido
+                    key: rango-maximo-excedido
+                    data:
+                      maxDays: 366
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado en el servidor
+                data: null
 
   /api/empresas-contratantes:
     get:
