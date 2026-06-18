@@ -167,6 +167,7 @@ import './routes/employee_certification_routes.js'
 import './routes/employee_lactation_periods_routes.js'
 import './routes/repse_registration_routes.js'
 import './routes/repse_specialized_service_routes.js'
+import './routes/repse_coverage_report_routes.js'
 import './routes/empresas_contratantes_routes.js'
 import './routes/contratos_servicios_especializados_routes.js'
 import './routes/documentos_contrato_especializado_routes.js'
@@ -177,6 +178,7 @@ import './routes/employee_certification_expiration_routes.js'
 import './routes/competency_descriptor_routes.js'
 import './routes/competency_bracket_routes.js'
 import './routes/auth_signup_routes.js'
+import './routes/complaint_routes.js'
 
 router
   .get('/', async ({ view }) => {

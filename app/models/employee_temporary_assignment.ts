@@ -3,6 +3,9 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
 import BranchOffice from './branch_office.js'
+import Shift from './shift.js'
+import { compose } from '@adonisjs/core/helpers'
+import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 
 /**
  * @swagger
@@ -34,6 +37,20 @@ import BranchOffice from './branch_office.js'
  *         days:
  *           type: number
  *           description: Duración en días (mínimo 1)
+ *         reason:
+ *           type: string
+ *           nullable: true
+ *           enum: [cobertura]
+ *           description: Motivo del préstamo temporal
+ *         destinationShiftId:
+ *           type: number
+ *           nullable: true
+ *           description: Turno destino configurado para toda la vigencia
+ *         cancelledAt:
+ *           type: string
+ *           format: date
+ *           nullable: true
+ *           description: Fecha de cancelación anticipada del préstamo
  *         shiftOverrideStart:
  *           type: string
  *           nullable: true
@@ -48,8 +65,12 @@ import BranchOffice from './branch_office.js'
  *         employeeTemporaryAssignmentUpdatedAt:
  *           type: string
  *           format: date-time
+ *         employeeTemporaryAssignmentDeletedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
  */
-export default class EmployeeTemporaryAssignment extends BaseModel {
+export default class EmployeeTemporaryAssignment extends compose(BaseModel, SoftDeletes) {
   static table = 'employee_temporary_assignments'
 
   @column({ isPrimary: true })
@@ -74,6 +95,15 @@ export default class EmployeeTemporaryAssignment extends BaseModel {
   declare days: number
 
   @column()
+  declare reason: string | null
+
+  @column()
+  declare destinationShiftId: number | null
+
+  @column.date()
+  declare cancelledAt: DateTime | null
+
+  @column()
   declare shiftOverrideStart: string | null
 
   @column()
@@ -84,6 +114,11 @@ export default class EmployeeTemporaryAssignment extends BaseModel {
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare employeeTemporaryAssignmentUpdatedAt: DateTime
+
+  static softDeleteColumn = 'employee_temporary_assignment_deleted_at'
+
+  @column.dateTime({ columnName: 'employee_temporary_assignment_deleted_at' })
+  declare deletedAt: DateTime | null
 
   @belongsTo(() => Employee, {
     foreignKey: 'employeeId',
@@ -105,4 +140,12 @@ export default class EmployeeTemporaryAssignment extends BaseModel {
     },
   })
   declare targetBranch: BelongsTo<typeof BranchOffice>
+
+  @belongsTo(() => Shift, {
+    foreignKey: 'destinationShiftId',
+    onQuery: (query) => {
+      query.whereNull('shift_deleted_at')
+    },
+  })
+  declare destinationShift: BelongsTo<typeof Shift>
 }
