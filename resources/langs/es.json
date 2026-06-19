@@ -825,6 +825,19 @@
   "complaint_attachment_upload_failed": "Error al subir el archivo sanitizado",
   "complaint_attachment_download_failed": "No se pudo generar el enlace de descarga",
   "complaint_attachment_not_found": "El adjunto no existe o está fuera de tu alcance",
+  "complaint_new_admin_notification": {
+    "subject": "[NOM-035] {tradeName} · Nueva queja {folio}",
+    "preheader": "Hay {pendingNewCount, plural, one {# queja nueva} other {# quejas nuevas}} sin atender en la bandeja.",
+    "greeting": "Hola:",
+    "intro": "Se registró una nueva queja confidencial en el buzón. Revisa el folio del caso y atiende oportunamente desde la bandeja del backoffice.",
+    "cta": "Ir a la bandeja de quejas",
+    "cta_caption": "Te llevará al módulo de quejas donde podrás consultar el detalle del caso.",
+    "folio_label": "Folio del caso",
+    "pending_count": "Actualmente hay {pendingNewCount, plural, one {# queja en estatus nuevo} other {# quejas en estatus nuevo}} sin atender en tu bandeja.",
+    "confidentiality_note": "Por confidencialidad, este aviso no incluye la identidad del denunciante. Utiliza el folio y la bandeja del backoffice para dar seguimiento oportuno.",
+    "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
+    "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
+  },
   "regulatory": {
     "authorities": {
       "stps": {

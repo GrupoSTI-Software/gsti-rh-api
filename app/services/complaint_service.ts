@@ -6,6 +6,7 @@ import Employee from '#models/employee'
 import User from '#models/user'
 import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
+import ComplaintNotificationService from '#services/complaint_notification_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
   COMPLAINT_FOLIO_PREFIX,
@@ -78,6 +79,7 @@ function serializeComplaintDetail(
 export default class ComplaintService {
   private readonly historyService = new ComplaintStatusHistoryService()
   private readonly attachmentService = new ComplaintAttachmentService()
+  private readonly notificationService = new ComplaintNotificationService()
 
   /**
    * Registra una queja asociada al empleado autenticado.
@@ -126,6 +128,8 @@ export default class ComplaintService {
       complaintDescription: input.description.trim(),
       complaintStatus: COMPLAINT_INITIAL_STATUS,
     })
+
+    void this.notificationService.notifyOnNewComplaint(complaint.complaintId)
 
     return {
       folio: complaint.complaintFolio,
@@ -200,9 +204,15 @@ export default class ComplaintService {
     query.orderBy('complaint_created_at', 'desc')
 
     const paginator = await query.paginate(safePage, safeLimit)
+    const pendingNewCount = await this.notificationService.countNewPendingComplaints(
+      allowedBusinessUnitIds
+    )
 
     return {
-      meta: paginator.serialize().meta,
+      meta: {
+        ...paginator.serialize().meta,
+        pendingNewCount,
+      },
       data: paginator.all().map((row) => serializeComplaintBoardItem(row)),
     }
   }
