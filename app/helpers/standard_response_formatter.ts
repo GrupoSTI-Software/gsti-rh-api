@@ -91,6 +91,8 @@ export class StandardResponseFormatter {
       'Certifications': 'certifications',
       'Certification': 'certification',
       'Certification Categories': 'certificationCategories',
+      'Questionnaire Applicability': 'questionnaireApplicability',
+      'Questionnaire Applicabilities': 'questionnaireApplicabilities',
       'Employee Lactation Periods': 'employeeLactationPeriods',
       'Employee Lactation Period': 'employeeLactationPeriod',
       'Employee Lactation Period Evidences': 'employeeLactationPeriodEvidences',

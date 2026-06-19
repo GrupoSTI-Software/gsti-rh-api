@@ -10,6 +10,7 @@ import { ShiftExceptionFilterInterface } from '../interfaces/shift_exception_fil
 import HolidayService from './holiday_service.js'
 import SyncAssistsService from './sync_assists_service.js'
 import { I18n } from '@adonisjs/i18n'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 // import { AssistInterface } from '../interfaces/assist_interface.js'
 
 export default class EmployeeAssistsCalendarService {
@@ -70,6 +71,18 @@ export default class EmployeeAssistsCalendarService {
       }
       employeeCalendar = await this.fetchCalendarData(filters, filterInitialDate, filterEndDate, employee)
     }
+
+    let temporaryAssignments: Awaited<
+      ReturnType<typeof EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod>
+    > = []
+    if (employee && filters.dateStart && filters.dateEnd) {
+      temporaryAssignments = await EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod(
+        employee.employeeId,
+        filterInitialDate,
+        filterEndDate
+      )
+    }
+
     return {
       status: 200,
       type: 'success',
@@ -77,6 +90,7 @@ export default class EmployeeAssistsCalendarService {
       message: this.t('resources_were_found_successfully'),
       data: {
         employeeCalendar,
+        temporaryAssignments,
       },
     }
   }

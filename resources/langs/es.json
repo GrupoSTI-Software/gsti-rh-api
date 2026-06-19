@@ -600,6 +600,16 @@
   "business_unit_competency_level": "Nivel de competencia de la unidad de negocio",
   "the_range_min_must_be_less_than_the_range_max": "El rango mínimo debe ser menor que el rango máximo",
   "competency_descriptor": "Descriptor de competencia",
+  "nom035": {
+    "questionnaire_applicability": {
+      "index_message": "Aplicabilidad por sucursal obtenida correctamente",
+      "show_message": "Aplicabilidad de sucursal obtenida correctamente",
+      "none_note": "El centro de trabajo cuenta con {count} trabajadores activos. La NOM-035-STPS-2018 no exige la aplicación de cuestionarios para centros con 15 o menos trabajadores.",
+      "branch_not_found": "Sucursal no encontrada o no disponible para esta instancia del sistema",
+      "company_not_found": "Empresa no encontrada o no disponible para esta instancia del sistema",
+      "forbidden": "Sin permiso para consultar la aplicabilidad de cuestionarios"
+    }
+  },
   "employee_lactation_period": "Periodo de lactancia",
   "employee_lactation_periods": "Periodos de lactancia",
   "employee_lactation_period_no_permission": "No tienes permiso para gestionar periodos de lactancia",
@@ -755,8 +765,8 @@
   },
   "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
   "attendance_stats_invalid_range": "El rango de fechas es inválido: startDay no puede ser posterior a endDay",
-  "repse_coverage_report_range_too_large": "El rango de fechas excede el máximo permitido",
   "attendance_stats_invalid_input": "Los parámetros enviados no son válidos",
+  "repse_coverage_report_range_too_large": "El rango de fechas excede el máximo permitido",
   "attendance_stats_coverage_single_day_required": "La cobertura requiere un único día: startDay debe ser igual a endDay",
   "attendance_stats_scope_required": "El usuario no tiene unidades de negocio asignadas para consultar estadísticas de asistencia",
   "forbidden": "Acceso denegado",
