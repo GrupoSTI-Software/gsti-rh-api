@@ -372,6 +372,7 @@ export default class EmployeeLactationPeriodService {
     lactationPeriodId: number
     regeneratedExceptionsCount: number
     omittedDaysWithoutShift: string[]
+    skippedDaysWithConflict: string[]
   }> {
     const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
@@ -402,6 +403,7 @@ export default class EmployeeLactationPeriodService {
       lactationPeriodId: period.employeeLactationPeriodId,
       regeneratedExceptionsCount: result.generatedCount,
       omittedDaysWithoutShift: result.omittedDaysWithoutShift,
+      skippedDaysWithConflict: result.skippedDaysWithConflict,
     }
   }
 
