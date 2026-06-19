@@ -3,7 +3,8 @@ import ComplaintService from '#services/complaint_service'
 import {
   consultComplaintStatusValidator,
   createComplaintValidator,
-  updateComplaintStatusValidator,
+  complaintListValidator,
+  patchComplaintStatusValidator,
 } from '#validators/complaint'
 import { resolveComplaintApiError } from '../helpers/complaint_api_error.js'
 
@@ -87,27 +88,6 @@ export default class ComplaintController {
    *                 data:
    *                   type: object
    *                   description: Public complaint credentials (passphrase shown only once)
-   *                   properties:
-   *                     folio:
-   *                       type: string
-   *                       description: Public case identifier without personal data
-   *                       example: BQ-2026-482917
-   *                     passphrase:
-   *                       type: string
-   *                       description: One-time access key for status lookup (store securely)
-   *                       example: ABCD2345EFGH
-   *                     status:
-   *                       type: string
-   *                       description: Initial complaint status
-   *                       example: nuevo
-   *                     category:
-   *                       type: string
-   *                       description: Complaint category
-   *                       example: violencia-laboral
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       description: Complaint creation timestamp (ISO 8601)
    *       '400':
    *         description: The parameters entered are invalid or essential data is missing to process the request
    *         content:
@@ -238,6 +218,13 @@ export default class ComplaintController {
    *           enum: [nuevo, en-revision, resuelto, cerrado]
    *         description: Filter by workflow status
    *         required: false
+   *       - in: query
+   *         name: category
+   *         schema:
+   *           type: string
+   *           enum: [violencia-laboral, entorno, otro]
+   *         description: Filter by complaint category (NOM-035 reporting type)
+   *         required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -316,9 +303,10 @@ export default class ComplaintController {
    *                   type: object
    *                   description: Error message obtained
    */
-  async index({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
-      const filters = request.qs()
+      const filters = await request.validateUsing(complaintListValidator)
       const complaintService = new ComplaintService()
       const result = await complaintService.listPaginated(filters, businessUnitScope ?? [])
 
@@ -336,36 +324,42 @@ export default class ComplaintController {
 
   /**
    * @swagger
-   * /api/v1/complaints/{complaintId}/status:
-   *   put:
+   * /api/v1/complaints/{complaintId}:
+   *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
    *       - Complaints
-   *     summary: update complaint status
+   *     summary: get complaint detail with history and attachments
+   *     description: |
+   *       Backoffice endpoint for the NOM-035 complaint management board. Returns the
+   *       full case detail used in the BO viewer: public folio, category, description,
+   *       workflow status, immutable status timeline (audit log), and sanitized evidence
+   *       attachments metadata.
+   *
+   *       **Confidentiality:** reporter identity (`employeeId`, name, email, etc.) is
+   *       never included in the response. Only the public folio identifies the case.
+   *
+   *       **Scope:** the business unit scope is resolved automatically from the
+   *       authenticated user's accessible units. The complaint must belong to that scope.
+   *
+   *       **Attachments:** metadata only (no S3 paths). Use
+   *       `GET /api/v1/complaints/attachments/{id}/download-url` for temporary signed
+   *       download links to the already sanitized files.
    *     produces:
    *       - application/json
    *     parameters:
    *       - in: path
    *         name: complaintId
-   *         schema:
-   *           type: number
-   *         description: Complaint id
    *         required: true
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               status:
-   *                 type: string
-   *                 description: New workflow status
-   *                 enum: [nuevo, en-revision, resuelto, cerrado]
-   *                 required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Internal complaint identifier
+   *         example: 42
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Complaint detail retrieved successfully
    *         content:
    *           application/json:
    *             schema:
@@ -373,18 +367,61 @@ export default class ComplaintController {
    *               properties:
    *                 type:
    *                   type: string
+   *                   example: success
    *                   description: Type of response generated
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
+   *                   description: Localized module title
    *                 message:
    *                   type: string
-   *                   description: Message of response
+   *                   description: Localized success message
    *                 data:
    *                   type: object
-   *                   description: Updated complaint (reporter identity is never included)
+   *                   description: Case detail without reporter identity
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '403':
+   *         description: Missing read permission on the complaints module (complaint.manage)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       '404':
-   *         description: Resource not found
+   *         description: Complaint not found or outside business unit scope
    *         content:
    *           application/json:
    *             schema:
@@ -392,35 +429,22 @@ export default class ComplaintController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Type of response generated
+   *                   example: error
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   description: Message of response
+   *                 key:
+   *                   type: string
+   *                   example: queja-no-encontrada
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMP.NF.001
    *                 data:
    *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *                   nullable: true
    *       default:
    *         description: Unexpected error
    *         content:
@@ -430,24 +454,408 @@ export default class ComplaintController {
    *               properties:
    *                 type:
    *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   */
+  async show(ctx: HttpContext) {
+    const { params, response, i18n, businessUnitScope } = ctx
+    try {
+      const complaintService = new ComplaintService()
+      const result = await complaintService.getDetailById(
+        Number(params.complaintId),
+        businessUnitScope ?? []
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_detail_success'),
+        data: result,
+      }
+    } catch (error) {
+      return this.respondError(error, response, 404, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/{complaintId}/history:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: get complaint status history timeline
+   *     description: Immutable chronological audit log of status transitions.
+   *     parameters:
+   *       - in: path
+   *         name: complaintId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: History retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                   description: Localized module title
+   *                 message:
+   *                   type: string
+   *                   description: Localized success message
+   *                 data:
+   *                   type: object
+   *                   description: Immutable chronological audit log of status transitions
+   *       '403':
+   *         description: Missing complaint.manage permission
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '404':
+   *         description: Complaint not found or out of scope
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   */
+  async history(ctx: HttpContext) {
+    const { params, response, i18n, businessUnitScope } = ctx
+    try {
+      const complaintService = new ComplaintService()
+      const result = await complaintService.listHistoryByComplaintId(
+        Number(params.complaintId),
+        businessUnitScope ?? []
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_history_success'),
+        data: result,
+      }
+    } catch (error) {
+      return this.respondError(error, response, 404, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/{complaintId}/status:
+   *   patch:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: transition complaint status with mandatory note
+   *     description: |
+   *       Backoffice endpoint to advance a complaint through the NOM-035 workflow. Updates
+   *       the case status and appends an **immutable** entry to the audit log
+   *       (`complaint_status_histories`) with: actor, previous status, new status, note
+   *       and timestamp.
+   *
+   *       **Mandatory note:** every transition requires a non-empty `note`. If the note is
+   *       missing or only whitespace, the API responds with **422** and
+   *       `key: nota-requerida`, `code: CMPL.VAL.NOTE.001`.
+   *
+   *       **Same status:** transitioning to the current status is rejected with **422**
+   *       and `key: estatus-sin-cambio`.
+   *
+   *       **Scope:** the business unit scope is resolved automatically from the
+   *       authenticated user's accessible units.
+   *
+   *       **Confidentiality:** the response never exposes reporter identity.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: complaintId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Internal complaint identifier
+   *         example: 42
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - toStatus
+   *               - note
+   *             properties:
+   *               toStatus:
+   *                 type: string
+   *                 description: Target workflow status (must differ from current status)
+   *                 enum: [nuevo, en-revision, resuelto, cerrado]
+   *                 example: en-revision
+   *               note:
+   *                 type: string
+   *                 description: Mandatory administrator note describing the action taken
+   *                 minLength: 1
+   *                 maxLength: 5000
+   *                 example: Se inició la revisión del caso conforme al protocolo interno.
+   *           examples:
+   *             startReview:
+   *               summary: Move case to under review
+   *               value:
+   *                 toStatus: en-revision
+   *                 note: Se inició la revisión del caso conforme al protocolo interno.
+   *             resolve:
+   *               summary: Resolve the case
+   *               value:
+   *                 toStatus: resuelto
+   *                 note: Se documentó la resolución y las acciones correctivas aplicadas.
+   *     responses:
+   *       '200':
+   *         description: Status transitioned and audit log entry created successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
    *                   description: Type of response generated
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
+   *                   description: Localized module title
    *                 message:
    *                   type: string
-   *                   description: Message of response
+   *                   description: Localized success message
    *                 data:
    *                   type: object
-   *                   description: Error message obtained
+   *                   description: Updated complaint snapshot (no reporter identity)
+   *       '400':
+   *         description: Request body validation failed (invalid enum or field format)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: AUTH.COMPLAINT.VAL_INPUT
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '403':
+   *         description: Missing update permission on the complaints module
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '404':
+   *         description: Complaint not found or outside business unit scope
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: queja-no-encontrada
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMP.NF.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '422':
+   *         description: Missing note or invalid status transition
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   description: Stable client error key
+   *                   enum: [nota-requerida, estatus-sin-cambio]
+   *                   example: nota-requerida
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   description: Stable client error code
+   *                   enum: [CMPL.VAL.NOTE.001, CMPL.VAL.001]
+   *                   example: CMPL.VAL.NOTE.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    */
-  async updateStatus({ request, params, response, i18n, businessUnitScope }: HttpContext) {
+  async patchStatus(ctx: HttpContext) {
+    const { auth, request, params, response, i18n, businessUnitScope } = ctx
     try {
-      const payload = await request.validateUsing(updateComplaintStatusValidator)
+      const payload = await request.validateUsing(patchComplaintStatusValidator)
       const complaintService = new ComplaintService()
-      const result = await complaintService.updateStatus(
+      const result = await complaintService.transitionStatus(
         Number(params.complaintId),
         payload,
+        auth.user!.userId,
         businessUnitScope ?? []
       )
 
@@ -459,7 +867,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 400, i18n)
+      return this.respondError(error, response, 422, i18n)
     }
   }
 
@@ -517,29 +925,6 @@ export default class ComplaintController {
    *                 data:
    *                   type: object
    *                   description: Public complaint status snapshot (no reporter identity)
-   *                   properties:
-   *                     folio:
-   *                       type: string
-   *                       description: Public case identifier
-   *                       example: BQ-2026-482917
-   *                     status:
-   *                       type: string
-   *                       description: Current complaint workflow status
-   *                       enum: [nuevo, en-revision, resuelto, cerrado]
-   *                       example: en-revision
-   *                     category:
-   *                       type: string
-   *                       description: Complaint category
-   *                       enum: [violencia-laboral, entorno, otro]
-   *                       example: violencia-laboral
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       description: Complaint creation timestamp (ISO 8601)
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       description: Last status update timestamp (ISO 8601)
    *       '400':
    *         description: The parameters entered are invalid or essential data is missing to process the request
    *         content:

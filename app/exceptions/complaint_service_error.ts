@@ -8,13 +8,16 @@ export class ComplaintServiceError extends Error {
   readonly httpStatus: number
   readonly key?: string
   readonly detail?: string
+  /** Clave i18n en `resources/langs/*.json` para el mensaje traducido. */
+  readonly messageKey?: string
 
   constructor(
     message: string,
     errorCode: ComplaintErrorCode,
     httpStatus: number = 400,
     key?: string,
-    detail?: string
+    detail?: string,
+    messageKey?: string
   ) {
     super(message)
     this.name = 'ComplaintServiceError'
@@ -22,5 +25,6 @@ export class ComplaintServiceError extends Error {
     this.httpStatus = httpStatus
     this.key = key
     this.detail = detail
+    this.messageKey = messageKey
   }
 }

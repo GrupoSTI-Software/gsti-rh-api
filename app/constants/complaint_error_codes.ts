@@ -15,6 +15,14 @@ export const COMPLAINT_ERROR_CODES = {
   FOLIO_GENERATION_FAILED: 'CMPL.SYS.001',
   /** Error no tipado */
   SYS_UNHANDLED: 'CMPL.SYS.002',
+  /** Archivo inválido (tipo, tamaño o contenido) */
+  INVALID_FILE: 'CMPL.VAL.FILE.001',
+  /** Adjunto inexistente o fuera del alcance */
+  ATTACHMENT_NOT_FOUND: 'CMP.NF.002',
+  /** Error al subir o firmar URL en S3 */
+  S3_OPERATION_FAILED: 'CMPL.S3.001',
+  /** Nota obligatoria ausente en transición de estatus */
+  NOTE_REQUIRED: 'CMPL.VAL.NOTE.001',
 } as const
 
 export type ComplaintErrorCode =

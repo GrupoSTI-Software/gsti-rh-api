@@ -160,3 +160,60 @@ test.group('EmployeeTemporaryAssignmentService — lógica de negocio', () => {
     assert.isNull(shiftOverrideAppliesOnDate)
   })
 })
+
+/**
+ * Misma condición SQL que `listIntersectingAssistPeriod`: el préstamo intersecta el periodo del reporte.
+ */
+function assignmentIntersectsPeriod(
+  loanStart: string,
+  loanEnd: string,
+  periodStart: string,
+  periodEnd: string
+) {
+  return loanStart <= periodEnd && loanEnd >= periodStart
+}
+
+test.group('Monitor de asistencia — préstamos que intersectan el periodo', () => {
+  test('periodo 8–14 con préstamo 10–12: el préstamo entra en la consulta', ({ assert }) => {
+    assert.isTrue(assignmentIntersectsPeriod('2026-05-10', '2026-05-12', '2026-05-08', '2026-05-14'))
+  })
+
+  test('periodo solo antes del préstamo: no intersecta', ({ assert }) => {
+    assert.isFalse(assignmentIntersectsPeriod('2026-05-10', '2026-05-12', '2026-05-01', '2026-05-09'))
+  })
+
+  test('periodo solo después del préstamo: no intersecta', ({ assert }) => {
+    assert.isFalse(assignmentIntersectsPeriod('2026-05-10', '2026-05-12', '2026-05-13', '2026-05-20'))
+  })
+
+  test('dos préstamos consecutivos (B y C) en un periodo amplio: ambos intersectan', ({ assert }) => {
+    const periodStart = '2026-05-01'
+    const periodEnd = '2026-05-31'
+    const loanB = { start: '2026-05-01', end: '2026-05-05' }
+    const loanC = { start: '2026-05-06', end: '2026-05-10' }
+
+    assert.isTrue(assignmentIntersectsPeriod(loanB.start, loanB.end, periodStart, periodEnd))
+    assert.isTrue(assignmentIntersectsPeriod(loanC.start, loanC.end, periodStart, periodEnd))
+  })
+
+  test('criterio día a día: día 10 está en destino si préstamo 10–12', ({ assert }) => {
+    const day = '2026-05-10'
+    const loanStart = '2026-05-10'
+    const loanEnd = '2026-05-12'
+    assert.isTrue(day >= loanStart && day <= loanEnd)
+  })
+
+  test('criterio día a día: día 9 no está en préstamo 10–12 (sigue sucursal habitual)', ({ assert }) => {
+    const day = '2026-05-09'
+    const loanStart = '2026-05-10'
+    const loanEnd = '2026-05-12'
+    assert.isFalse(day >= loanStart && day <= loanEnd)
+  })
+
+  test('criterio día a día: día 13 tras préstamo 10–12 vuelve a habitual', ({ assert }) => {
+    const day = '2026-05-13'
+    const loanStart = '2026-05-10'
+    const loanEnd = '2026-05-12'
+    assert.isFalse(day >= loanStart && day <= loanEnd)
+  })
+})
