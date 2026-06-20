@@ -36,6 +36,16 @@ router
       .use(middleware.businessScopeOptional())
 
     router
+      .post('/:complaintId/reveal-identity', '#controllers/complaint_controller.revealIdentity')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .get('/:complaintId/reveal-history', '#controllers/complaint_controller.revealHistory')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
       .get('/:complaintId', '#controllers/complaint_controller.show')
       .use(middleware.auth())
       .use(middleware.businessScopeOptional())

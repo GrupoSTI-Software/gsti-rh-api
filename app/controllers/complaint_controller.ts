@@ -1,35 +1,20 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import ComplaintService from '#services/complaint_service'
+import ComplaintApiService from '#services/complaint_api_service'
 import {
   consultComplaintStatusValidator,
   createComplaintValidator,
   complaintListValidator,
   patchComplaintStatusValidator,
+  revealComplaintIdentityValidator,
 } from '#validators/complaint'
-import { resolveComplaintApiError } from '../helpers/complaint_api_error.js'
 
 /**
  * Controlador del buzón de quejas confidencial (NOM-035 8.1.b).
  */
 export default class ComplaintController {
-  private respondError(
-    error: unknown,
-    response: HttpContext['response'],
-    fallbackStatus: number,
-    i18n: HttpContext['i18n']
-  ) {
-    const resolved = resolveComplaintApiError(error, fallbackStatus, i18n)
-    response.status(resolved.status)
-    return {
-      type: 'error',
-      title: resolved.title,
-      message: resolved.message,
-      key: resolved.key,
-      detail: resolved.detail,
-      code: resolved.errorCode,
-      data: null,
-    }
-  }
+  private readonly complaintApiService = new ComplaintApiService()
+
   /**
    * @swagger
    * /api/v1/complaints:
@@ -183,7 +168,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 500, i18n)
+      return this.complaintApiService.respondError(error, response, 500, i18n)
     }
   }
 
@@ -330,7 +315,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 400, i18n)
+      return this.complaintApiService.respondError(error, response, 400, i18n)
     }
   }
 
@@ -448,7 +433,7 @@ export default class ComplaintController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   example: queja-no-encontrada
+   *                   example: complaint-not-found
    *                 detail:
    *                   type: string
    *                 code:
@@ -492,7 +477,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 404, i18n)
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 
@@ -626,7 +611,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 404, i18n)
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 
@@ -647,10 +632,10 @@ export default class ComplaintController {
    *
    *       **Mandatory note:** every transition requires a non-empty `note`. If the note is
    *       missing or only whitespace, the API responds with **422** and
-   *       `key: nota-requerida`, `code: CMPL.VAL.NOTE.001`.
+   *       `key: note-required`, `code: CMPL.VAL.NOTE.001`.
    *
    *       **Same status:** transitioning to the current status is rejected with **422**
-   *       and `key: estatus-sin-cambio`.
+   *       and `key: status-unchanged`.
    *
    *       **Scope:** the business unit scope is resolved automatically from the
    *       authenticated user's accessible units.
@@ -803,7 +788,7 @@ export default class ComplaintController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   example: queja-no-encontrada
+   *                   example: complaint-not-found
    *                 detail:
    *                   type: string
    *                 code:
@@ -829,8 +814,8 @@ export default class ComplaintController {
    *                 key:
    *                   type: string
    *                   description: Stable client error key
-   *                   enum: [nota-requerida, estatus-sin-cambio]
-   *                   example: nota-requerida
+   *                   enum: [note-required, status-unchanged]
+   *                   example: note-required
    *                 detail:
    *                   type: string
    *                 code:
@@ -879,7 +864,415 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 422, i18n)
+      return this.complaintApiService.respondError(error, response, 422, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/{complaintId}/reveal-identity:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: reveal reporter identity with mandatory justification
+   *     description: |
+   *       Backoffice endpoint to reveal the confidential reporter identity for a complaint.
+   *       Requires the dedicated RBAC permission `reveal-identity` on the complaints module
+   *       (`complaint.reveal_identity`). Having `update` alone does **not** authorize this action.
+   *
+   *       Creates an immutable audit entry in `complaint_identity_reveal_audits` with the
+   *       actor, justification and timestamp. Reporter identity is returned **only** in this
+   *       response; it is never included in list, detail or status endpoints.
+   *
+   *       **Mandatory justification:** every reveal requires a non-empty `justification`. If
+   *       missing or only whitespace, the API responds with **422** and
+   *       `key: justification-required`, `code: CMPL.VAL.JUST.001`.
+   *
+   *       **Scope:** the business unit scope is resolved automatically from the authenticated
+   *       user's accessible units. The complaint must belong to that scope.
+   *
+   *       **Repeat reveals:** each call creates a new immutable audit entry, even if the same
+   *       authorized user reveals the same case again.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: complaintId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Internal complaint identifier
+   *         example: 42
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - justification
+   *             properties:
+   *               justification:
+   *                 type: string
+   *                 description: Mandatory reason documented for the identity reveal (NOM-035 audit trail)
+   *                 minLength: 1
+   *                 maxLength: 5000
+   *                 example: Se requiere identificar al denunciante para dar seguimiento conforme al protocolo interno de NOM-035.
+   *           examples:
+   *             protocolFollowUp:
+   *               summary: Protocol-based follow-up
+   *               value:
+   *                 justification: Se requiere identificar al denunciante para dar seguimiento conforme al protocolo interno de NOM-035.
+   *     responses:
+   *       '200':
+   *         description: Reporter identity revealed and immutable audit entry created
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Localized module title
+   *                 message:
+   *                   type: string
+   *                   description: Localized success message
+   *                 data:
+   *                   type: object
+   *                   description: Reporter identity (only exposed via this endpoint) plus audit snapshot
+   *       '400':
+   *         description: Request body validation failed (invalid field format)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: AUTH.COMPLAINT.VAL_INPUT
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '403':
+   *         description: Missing reveal-identity permission (`complaint.reveal_identity`)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: reveal-permission-denied
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.REVEAL.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '404':
+   *         description: Complaint not found, outside business unit scope, or reporter employee missing
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   description: Stable client error key
+   *                   enum: [complaint-not-found, reporter-not-found]
+   *                   example: complaint-not-found
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   description: Stable client error code
+   *                   enum: [CMP.NF.001, CMPL.EMP.001]
+   *                   example: CMP.NF.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '422':
+   *         description: Missing or empty justification
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: justification-required
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.JUST.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   */
+  async revealIdentity(ctx: HttpContext) {
+    const { auth, request, params, response, i18n, businessUnitScope } = ctx
+    try {
+      await this.complaintApiService.assertRevealIdentityPermission(auth.user!)
+
+      const payload = await request.validateUsing(revealComplaintIdentityValidator)
+      const complaintService = new ComplaintService()
+      const result = await complaintService.revealIdentity(
+        Number(params.complaintId),
+        payload,
+        auth.user!.userId,
+        businessUnitScope ?? []
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_reveal_identity_success'),
+        data: result,
+      }
+    } catch (error) {
+      return this.complaintApiService.respondError(error, response, 422, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/{complaintId}/reveal-history:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: get identity reveal audit history for a complaint
+   *     description: |
+   *       Backoffice endpoint that returns the chronological immutable log of identity reveals
+   *       for a complaint (`complaint_identity_reveal_audits`). Each entry records the actor,
+   *       mandatory justification and timestamp.
+   *
+   *       Requires the same dedicated RBAC permission `reveal-identity` on the complaints
+   *       module (`complaint.reveal_identity`) as POST reveal-identity. Having `update` alone
+   *       does **not** authorize this action.
+   *
+   *       **Confidentiality:** this endpoint does **not** return reporter PII (name, employee
+   *       code, etc.). It only exposes reveal audit metadata. Use POST reveal-identity to
+   *       obtain the reporter identity.
+   *
+   *       **Scope:** the business unit scope is resolved automatically from the authenticated
+   *       user's accessible units.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: complaintId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Internal complaint identifier
+   *         example: 42
+   *     responses:
+   *       '200':
+   *         description: Reveal history retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Localized module title
+   *                 message:
+   *                   type: string
+   *                   description: Localized success message
+   *                 data:
+   *                   type: array
+   *                   description: Chronological immutable log of identity reveals (oldest first)
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '403':
+   *         description: Missing reveal-identity permission (`complaint.reveal_identity`)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: reveal-permission-denied
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.REVEAL.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '404':
+   *         description: Complaint not found or outside business unit scope
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: complaint-not-found
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMP.NF.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   */
+  async revealHistory(ctx: HttpContext) {
+    const { auth, params, response, i18n, businessUnitScope } = ctx
+    try {
+      await this.complaintApiService.assertRevealIdentityPermission(auth.user!)
+
+      const complaintService = new ComplaintService()
+      const result = await complaintService.listRevealHistory(
+        Number(params.complaintId),
+        businessUnitScope ?? []
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_reveal_history_success'),
+        data: result,
+      }
+    } catch (error) {
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 
@@ -982,7 +1375,7 @@ export default class ComplaintController {
    *                 key:
    *                   type: string
    *                   description: Stable client error key
-   *                   example: caso-no-encontrado
+   *                   example: case-not-found
    *                 code:
    *                   type: string
    *                   description: Stable client error code
@@ -1038,7 +1431,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 500, i18n)
+      return this.complaintApiService.respondError(error, response, 500, i18n)
     }
   }
 }
