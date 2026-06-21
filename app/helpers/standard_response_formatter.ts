@@ -102,6 +102,8 @@ export class StandardResponseFormatter {
       'Employee Lactation Expiring Notifications': 'employeeLactationExpiringNotifications',
       'Traumatic Event Reports': 'traumaticEventReports',
       'Traumatic Event Report': 'traumaticEventReport',
+      'Traumatic Event Referrals': 'traumaticEventReferrals',
+      'Traumatic Event Referral': 'traumaticEventReferral',
       'Repse': 'repseRegistrations',
       'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
