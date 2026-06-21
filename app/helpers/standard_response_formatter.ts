@@ -104,6 +104,8 @@ export class StandardResponseFormatter {
       'Traumatic Event Report': 'traumaticEventReport',
       'Traumatic Event Referrals': 'traumaticEventReferrals',
       'Traumatic Event Referral': 'traumaticEventReferral',
+      'Traumatic Event Exams': 'traumaticEventExams',
+      'Traumatic Event Exam': 'traumaticEventExam',
       'Repse': 'repseRegistrations',
       'Repse Registrations': 'repseRegistrations',
       'Repse Registration': 'repseRegistration',
