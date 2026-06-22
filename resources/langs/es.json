@@ -608,6 +608,22 @@
       "branch_not_found": "Sucursal no encontrada o no disponible para esta instancia del sistema",
       "company_not_found": "Empresa no encontrada o no disponible para esta instancia del sistema",
       "forbidden": "Sin permiso para consultar la aplicabilidad de cuestionarios"
+    },
+    "questionnaire_application": {
+      "title": "Aplicación NOM-035",
+      "index_message": "Aplicaciones de cuestionario obtenidas correctamente",
+      "show_message": "Aplicación de cuestionario obtenida correctamente",
+      "store_message": "Aplicación de cuestionario lanzada correctamente",
+      "delete_message": "Aplicación de cuestionario eliminada correctamente",
+      "val_input": "Datos inválidos",
+      "not_applicable": "Sucursal no aplicable para lanzamiento de cuestionario",
+      "branch_not_found": "Sucursal no encontrada o fuera del alcance del usuario",
+      "already_open": "Ya existe una aplicación abierta para la sucursal",
+      "forbidden": "Sin permiso para gestionar aplicaciones de cuestionario",
+      "not_found": "Aplicación de cuestionario no encontrada o fuera del alcance del usuario",
+      "has_responses": "No se puede eliminar una aplicación con respuestas capturadas",
+      "folio_generation_failed": "No se pudo generar un folio único para la aplicación",
+      "questionnaire_not_found": "No se encontró el cuestionario regulatorio configurado para el instrumento"
     }
   },
   "employee_lactation_period": "Periodo de lactancia",

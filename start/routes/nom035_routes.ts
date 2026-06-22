@@ -11,6 +11,16 @@ router
       '/nom035/questionnaire-applicability/:branchOfficeId',
       '#controllers/questionnaire_applicability_controller.show'
     )
+
+    router
+      .group(() => {
+        router.get('/', '#controllers/questionnaire_application_controller.index')
+        router.post('/', '#controllers/questionnaire_application_controller.store')
+        router.get('/:id', '#controllers/questionnaire_application_controller.show')
+        router.delete('/:id', '#controllers/questionnaire_application_controller.destroy')
+      })
+      .prefix('/nom035/questionnaire-applications')
+      .use(middleware.businessScopeOptional())
   })
   .prefix('/api')
   .use(middleware.auth())
