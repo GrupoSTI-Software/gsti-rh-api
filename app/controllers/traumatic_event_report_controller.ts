@@ -1,10 +1,14 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
 import RoleService from '#services/role_service'
 import TraumaticEventReportService from '#services/traumatic_event_report_service'
+import TraumaticEventRegistryReportService from '#services/traumatic_event_registry_report_service'
+import type { RegistryReportFilters } from '#services/traumatic_event_registry_report_service'
 import {
   traumaticEventReportListValidator,
   createTraumaticEventReportValidator,
   updateTraumaticEventReportValidator,
+  traumaticEventRegistryFiltersValidator,
 } from '#validators/traumatic_event_report'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { resolveTraumaticEventReportApiError } from '../helpers/traumatic_event_report_api_error.js'
@@ -367,6 +371,136 @@ export default class TraumaticEventReportController {
       return false
     }
     return true
+  }
+
+  // ---------------------------------------------------------------------------
+  // GET /api/traumatic-event-reports/registry
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports/registry:
+   *   get:
+   *     summary: Registro auditable paginado de eventos traumáticos (NOM-035 §5.8.c)
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: from
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: to
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: eventTypeId
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: page
+   *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, minimum: 1, maximum: 500 }
+   *     responses:
+   *       '200': { description: Registro paginado con canalizaciones y exámenes }
+   *       '400': { description: Rango invertido ETR.VAL.RANGE.001 }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso read ETR.FORBID.001 }
+   */
+  async registry(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const raw = await request.validateUsing(traumaticEventRegistryFiltersValidator)
+      const filters = this.toRegistryFilters(raw)
+      const service = new TraumaticEventRegistryReportService()
+      const bundle = await service.getRegistryPaginated(filters, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        bundle,
+        'Traumatic Event Registry',
+        'Registro auditable obtenido correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // GET /api/traumatic-event-reports/registry/export
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports/registry/export:
+   *   get:
+   *     summary: Exporta el registro auditable NOM-035 §5.8.c en PDF
+   *     description: |
+   *       Genera el PDF del registro en memoria (sin persistir en disco) con marca
+   *       Valanserh, fundamento legal NOM-035 §5.8.c y las tarjetas de cada trabajador
+   *       con sus canalizaciones y exámenes practicados. Devuelve siempre 200 (el PDF
+   *       incluye estado vacío si no hay registros — nunca 404).
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: from
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: to
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: eventTypeId
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: PDF binario (application/pdf)
+   *         content:
+   *           application/pdf:
+   *             schema: { type: string, format: binary }
+   *       '400': { description: Rango invertido ETR.VAL.RANGE.001 }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso read ETR.FORBID.001 }
+   */
+  async registryExport(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const raw = await request.validateUsing(traumaticEventRegistryFiltersValidator)
+      const filters = this.toRegistryFilters(raw)
+      const service = new TraumaticEventRegistryReportService()
+      const pdfBuffer = await service.buildRegistryPdf(filters, ctx.businessUnitScope)
+
+      const dateTag = DateTime.now().setZone('America/Mexico_City').toFormat('yyyyLLdd')
+      response.header('Content-Type', 'application/pdf')
+      response.header(
+        'Content-Disposition',
+        `attachment; filename="registro-eventos-traumaticos-${dateTag}.pdf"`
+      )
+      return response.send(pdfBuffer)
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  private toRegistryFilters(raw: {
+    from?: Date
+    to?: Date
+    eventTypeId?: number
+    page?: number
+    limit?: number
+  }): RegistryReportFilters {
+    return {
+      from: raw.from ? DateTime.fromJSDate(raw.from).startOf('day') : null,
+      to: raw.to ? DateTime.fromJSDate(raw.to).startOf('day') : null,
+      eventTypeId: raw.eventTypeId,
+      page: raw.page,
+      limit: raw.limit,
+    }
   }
 
   private parseId(raw: unknown): number {
