@@ -597,6 +597,16 @@
   "business_unit_competency_level": "Business unit competency level",
   "the_range_min_must_be_less_than_the_range_max": "The range min must be less than the range max",
   "competency_descriptor": "Competency descriptor",
+  "nom035": {
+    "questionnaire_applicability": {
+      "index_message": "Applicability by branch office was fetched successfully",
+      "show_message": "Branch office applicability was fetched successfully",
+      "none_note": "The workplace has {count} active employees. NOM-035-STPS-2018 does not require applying questionnaires for workplaces with 15 or fewer workers.",
+      "branch_not_found": "Branch office not found or unavailable for this system instance",
+      "company_not_found": "Company not found or unavailable for this system instance",
+      "forbidden": "You do not have permission to consult questionnaire applicability"
+    }
+  },
   "employee_lactation_period": "Lactation period",
   "employee_lactation_periods": "Lactation periods",
   "employee_lactation_period_no_permission": "You don't have permission to manage lactation periods",
