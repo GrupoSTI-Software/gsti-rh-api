@@ -832,6 +832,19 @@
   "complaint_attachment_upload_failed": "Failed to upload the sanitized file",
   "complaint_attachment_download_failed": "Could not generate the download link",
   "complaint_attachment_not_found": "The attachment does not exist or is outside your scope",
+  "complaint_new_admin_notification": {
+    "subject": "[NOM-035] {tradeName} · New complaint {folio}",
+    "preheader": "There {pendingNewCount, plural, one {is # new complaint} other {are # new complaints}} pending in the board.",
+    "greeting": "Hello:",
+    "intro": "A new confidential complaint was submitted. Review the case folio and follow up promptly from the backoffice board.",
+    "cta": "Go to complaint board",
+    "cta_caption": "This will take you to the complaints module where you can review the case details.",
+    "folio_label": "Case folio",
+    "pending_count": "There {pendingNewCount, plural, one {is # complaint with status nuevo} other {are # complaints with status nuevo}} pending in your board.",
+    "confidentiality_note": "For confidentiality, this notice does not include the reporter's identity. Use the folio and the backoffice board for timely follow-up.",
+    "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
+    "footer": "© {tradeName} · Automatic message, do not reply to this address."
+  },
   "regulatory": {
     "authorities": {
       "stps": {

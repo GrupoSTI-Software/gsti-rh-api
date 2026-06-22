@@ -245,6 +245,18 @@ export default class ComplaintController {
    *                 data:
    *                   type: object
    *                   description: Paginated complaints (reporter identity is never included)
+   *                   properties:
+   *                     meta:
+   *                       type: object
+   *                       description: Pagination metadata plus badge counter
+   *                       properties:
+   *                         pendingNewCount:
+   *                           type: integer
+   *                           description: Count of complaints in status nuevo within the user scope (BO badge)
+   *                     data:
+   *                       type: array
+   *                       items:
+   *                         type: object
    *       '404':
    *         description: The resource could not be found
    *         content:
