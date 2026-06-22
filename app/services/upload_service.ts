@@ -83,6 +83,37 @@ export default class UploadService {
     }
   }
 
+  /**
+   * Sube un buffer ya sanitizado como objeto privado en S3.
+   * Devuelve la Key completa del objeto (misma convención que `fileUpload`).
+   */
+  async uploadPrivateBuffer(
+    relativeKey: string,
+    body: Buffer,
+    contentType: string
+  ): Promise<string | null> {
+    try {
+      const s3 = new AWS.S3()
+      const key = relativeKey.startsWith(this.APP_NAME)
+        ? relativeKey
+        : `${this.APP_NAME}files/${relativeKey}`
+
+      const response = await s3
+        .upload({
+          Bucket: this.BUCKET_NAME as string,
+          Key: key,
+          Body: body,
+          ACL: 'private',
+          ContentType: contentType,
+        })
+        .promise()
+
+      return response.Key
+    } catch {
+      return null
+    }
+  }
+
   async getDownloadLink(filePath: string, expireSeconds = 60 * 60 * 24) {
     if (!filePath) {
       return { status: 404, data: null, message: 'file_path_not_found' }

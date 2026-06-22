@@ -52,13 +52,33 @@ import SystemFeature from '#models/system_feature'
 export default class RegulationClauseFeature extends compose(BaseModel, SoftDeletes) {
   static table = 'regulation_clause_features'
 
-  /** Identificador único del registro de cobertura. */
+  /** Identificador único del registro de cobertura de feature. */
   @column({ isPrimary: true })
   declare regulationClauseFeatureId: number
 
-  /** FK hacia el numeral regulatorio que esta funcionalidad cubre. */
+  /** FK hacia el numeral regulatorio que esta feature cubre. */
   @column()
   declare regulationClauseId: number
+
+  /** Identificador textual de la feature en el producto (p. ej. "encuesta-factores-riesgo"). */
+  @column()
+  declare regulationClauseFeatureSlug: string
+
+  /** Módulo del producto al que pertenece la feature (p. ej. "nom035"). */
+  @column()
+  declare regulationClauseFeatureModule: string
+
+  /** Estado de disponibilidad de la feature: planeado, en_desarrollo, disponible o no_aplica. */
+  @column()
+  declare regulationClauseFeatureStatus: 'planeado' | 'en_desarrollo' | 'disponible' | 'no_aplica'
+
+  /** Notas adicionales sobre la cobertura, limitaciones o pendientes. */
+  @column()
+  declare regulationClauseFeatureNotes: string | null
+
+  /** Versión del producto desde la que la feature está disponible (p. ej. "2.4.0"). */
+  @column()
+  declare regulationClauseFeatureAvailableSince: string | null
 
   /** FK hacia la funcionalidad del producto que otorga cobertura al numeral. */
   @column()
