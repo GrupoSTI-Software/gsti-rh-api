@@ -18,7 +18,7 @@ router
     router
       .post('/', '#controllers/complaint_controller.store')
       .use(middleware.auth())
-      .use(middleware.businessScope())
+      .use(middleware.businessScopeOptional())
 
     router
       .get('/', '#controllers/complaint_controller.index')

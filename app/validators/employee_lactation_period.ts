@@ -105,3 +105,55 @@ export const employeeLactationComplianceReportValidator = vine.compile(
     businessUnitId: vine.number().positive().optional(),
   })
 )
+
+const LACTATION_CONFLICT_TYPE_VALUES = [
+  'vacation',
+  'work_disability',
+  'maternity',
+  'rest_or_permission',
+  'holiday',
+] as const
+
+/**
+ * Validador de filtros del listado GLOBAL de conflictos (vista a nivel
+ * empresa). Reusa la convención de paginación y multitenant del reporte
+ * de cumplimiento.
+ *
+ * - `page` / `limit` requeridos.
+ * - `businessUnitId` acota al selector del header global; el service
+ *   valida que pertenezca al scope del usuario.
+ * - `employeeId` acota a una empleada concreta.
+ * - `conflictType` filtra por uno de los tipos clasificados por el
+ *   detector (`vacation`, `work_disability`, etc.).
+ * - `from` / `to` opcionales sobre la fecha del conflicto.
+ */
+export const employeeLactationPeriodConflictsListValidator = vine.compile(
+  vine.object({
+    page: vine.number().positive(),
+    limit: vine.number().positive().max(500),
+    businessUnitId: vine.number().positive().optional(),
+    employeeId: vine.number().positive().optional(),
+    conflictType: vine.enum([...LACTATION_CONFLICT_TYPE_VALUES]).optional(),
+    from: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
+    to: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
+  })
+)
+
+/**
+ * Validador del body para la reasignación BULK. Acepta entre 1 y 50
+ * `shiftExceptionIds` para evitar abusos y para mantener el tiempo de
+ * respuesta acotado (la transacción puede recorrer N días para calcular
+ * la siguiente fecha disponible en cada paso).
+ *
+ * El service valida adicionalmente que todos los ids pertenezcan al
+ * mismo periodo y sean conflictos vivos antes de iniciar la transacción.
+ */
+export const employeeLactationPeriodConflictsReassignBulkValidator = vine.compile(
+  vine.object({
+    shiftExceptionIds: vine
+      .array(vine.number().positive())
+      .minLength(1)
+      .maxLength(50)
+      .distinct(),
+  })
+)
