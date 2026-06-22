@@ -31,8 +31,8 @@ type QuestionnaireApplicationRow = {
   status: 'borrador' | 'en-curso' | 'cerrada'
   targetCount: number | string
   respondedCount: number | string
-  launchedAt: string
-  closedAt: string | null
+  launchedAt: string | Date | null
+  closedAt: string | Date | null
 }
 
 export default class QuestionnaireApplicationService {
@@ -390,7 +390,7 @@ export default class QuestionnaireApplicationService {
       status: row.status,
       targetCount: Number(row.targetCount),
       respondedCount: Number(row.respondedCount),
-      launchedAt: DateTime.fromSQL(row.launchedAt, { zone: 'utc' }).toISO()!,
+      launchedAt: this.toIsoUtc(row.launchedAt)!,
     }
   }
 
@@ -399,8 +399,23 @@ export default class QuestionnaireApplicationService {
       ...this.serializeListRow(row),
       businessUnitId: Number(row.businessUnitId),
       regulationQuestionnaireId: Number(row.regulationQuestionnaireId),
-      closedAt: row.closedAt ? DateTime.fromSQL(row.closedAt, { zone: 'utc' }).toISO() : null,
+      closedAt: this.toIsoUtc(row.closedAt),
     }
+  }
+
+  private toIsoUtc(value: string | Date | null): string | null {
+    if (!value) return null
+    if (value instanceof Date) {
+      return DateTime.fromJSDate(value, { zone: 'utc' }).toISO()
+    }
+
+    const sqlDate = DateTime.fromSQL(value, { zone: 'utc' })
+    if (sqlDate.isValid) return sqlDate.toISO()
+
+    const isoDate = DateTime.fromISO(value, { zone: 'utc' })
+    if (isoDate.isValid) return isoDate.toISO()
+
+    return null
   }
 
   private translate(i18n: I18n | undefined, key: string, fallback: string): string {
