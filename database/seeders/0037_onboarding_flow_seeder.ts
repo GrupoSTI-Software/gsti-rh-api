@@ -65,7 +65,7 @@ export default class extends BaseSeeder {
         name: 'Configura la estructura de tu empresa',
         description: 'Define departamentos, sucursales y puestos para reflejar cómo está organizada tu empresa.',
         order: 1,
-        isSkippable: false,
+        isSkippable: true,
         completionHint: 'company.structure.ready',
       },
       {
