@@ -95,6 +95,8 @@ export class StandardResponseFormatter {
       'Questionnaire Applicabilities': 'questionnaireApplicabilities',
       'Questionnaire Application': 'questionnaireApplication',
       'Questionnaire Applications': 'questionnaireApplications',
+      Instrumento: 'instrument',
+      'Captura de respuestas': 'questionnaireApplicationResponse',
       'Employee Lactation Periods': 'employeeLactationPeriods',
       'Employee Lactation Period': 'employeeLactationPeriod',
       'Employee Lactation Period Evidences': 'employeeLactationPeriodEvidences',

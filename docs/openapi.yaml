@@ -226,6 +226,132 @@ components:
                   items:
                     $ref: '#/components/schemas/QuestionnaireApplicationListItem'
 
+    QuestionnaireCaptureAnswerInput:
+      type: object
+      required: [questionId, optionKey]
+      properties:
+        questionId:
+          type: integer
+          minimum: 1
+        optionKey:
+          type: string
+
+    QuestionnaireCaptureSubmitRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
+
+    QuestionnaireCaptureScaleOption:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: integer
+
+    QuestionnaireCaptureScale:
+      type: object
+      properties:
+        code:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureScaleOption'
+
+    QuestionnaireCaptureQuestion:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        textKey:
+          type: string
+        helpKey:
+          type: string
+          nullable: true
+        answerScale:
+          $ref: '#/components/schemas/QuestionnaireCaptureScale'
+
+    QuestionnaireCaptureSection:
+      type: object
+      properties:
+        titleKey:
+          type: string
+        ord:
+          type: integer
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureQuestion'
+
+    QuestionnaireCaptureInstrument:
+      type: object
+      properties:
+        questionnaireApplicationId:
+          type: integer
+        employeeId:
+          type: integer
+        instrument:
+          type: string
+          enum: [guide_ii, guide_iii]
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureSection'
+
+    QuestionnaireCaptureInstrumentSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            instrument:
+              $ref: '#/components/schemas/QuestionnaireCaptureInstrument'
+
+    QuestionnaireApplicationResponseDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        employeeId:
+          type: integer
+        answeredCount:
+          type: integer
+        targetStatus:
+          type: string
+          enum: [respondido]
+        respondedAt:
+          type: string
+          format: date-time
+
+    QuestionnaireApplicationResponseSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationResponseDetail'
+
     ServicioRegistradoResumen:
       type: object
       required: [id, name]
@@ -4324,6 +4450,126 @@ paths:
                 $ref: '#/components/schemas/Nom035QrunError'
         '422':
           description: Aplicación con respuestas capturadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/instrument:
+    get:
+      summary: Obtener instrumento para captura por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Instrumento obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireCaptureInstrumentSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar instrumento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/answers:
+    post:
+      summary: Capturar y persistir respuestas por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireCaptureSubmitRequest'
+      responses:
+        '201':
+          description: Respuestas guardadas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationResponseSuccess'
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para capturar respuestas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Empleado ya respondido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Cuestionario incompleto u opción inválida
           content:
             application/json:
               schema:
