@@ -30,6 +30,21 @@ export const createTraumaticEventReportValidator = vine.compile(
 )
 
 /**
+ * Filtros para el registro auditable NOM-035 §5.8.c (JSON + export PDF).
+ * `page` y `limit` son obligatorios para el JSON; el export los ignora pero
+ * los acepta para no duplicar el validador.
+ */
+export const traumaticEventRegistryFiltersValidator = vine.compile(
+  vine.object({
+    from: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
+    to: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
+    eventTypeId: vine.number().positive().optional(),
+    page: vine.number().positive().optional(),
+    limit: vine.number().positive().max(500).optional(),
+  })
+)
+
+/**
  * Edición parcial. Cualquier subconjunto de campos editables es válido.
  * Origen, fecha de elaboración y capturador no se modifican.
  */
