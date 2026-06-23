@@ -13,6 +13,8 @@ export const ETR_ERROR_CODES = {
   EMPLOYEE_NOT_FOUND: 'ETR.NF.EMP.001',
   /** Reporte no encontrado o ajeno al scope del usuario autenticado */
   REPORT_NOT_FOUND: 'ETR.NF.REPORT.001',
+  /** Rango de fechas invertido (fin menor que inicio) en el registro */
+  RANGE_INVALID: 'ETR.VAL.RANGE.001',
   /** Sin permisos sobre el módulo */
   FORBIDDEN: 'ETR.FORBID.001',
   /** Error no clasificado del dominio */

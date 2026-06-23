@@ -605,6 +605,22 @@
       "branch_not_found": "Branch office not found or unavailable for this system instance",
       "company_not_found": "Company not found or unavailable for this system instance",
       "forbidden": "You do not have permission to consult questionnaire applicability"
+    },
+    "questionnaire_application": {
+      "title": "NOM-035 Application",
+      "index_message": "Questionnaire applications fetched successfully",
+      "show_message": "Questionnaire application fetched successfully",
+      "store_message": "Questionnaire application launched successfully",
+      "delete_message": "Questionnaire application deleted successfully",
+      "val_input": "Invalid data",
+      "not_applicable": "Branch office is not applicable for questionnaire launch",
+      "branch_not_found": "Branch office not found or outside user scope",
+      "already_open": "An open application already exists for this branch office",
+      "forbidden": "You do not have permission to manage questionnaire applications",
+      "not_found": "Questionnaire application not found or outside user scope",
+      "has_responses": "Cannot delete an application with captured responses",
+      "folio_generation_failed": "Could not generate a unique application folio",
+      "questionnaire_not_found": "Configured regulatory questionnaire was not found for the instrument"
     }
   },
   "employee_lactation_period": "Lactation period",
