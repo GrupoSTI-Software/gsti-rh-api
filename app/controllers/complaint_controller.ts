@@ -493,13 +493,26 @@ export default class ComplaintController {
    *     tags:
    *       - Complaints
    *     summary: get complaint status history timeline
-   *     description: Immutable chronological audit log of status transitions.
+   *     description: |
+   *       Backoffice endpoint that returns the immutable chronological audit log of status
+   *       transitions for a complaint (`complaint_status_histories`). Each entry records the
+   *       actor, previous status, new status, mandatory note and timestamp.
+   *
+   *       **Scope:** the business unit scope is resolved automatically from the authenticated
+   *       user's accessible units.
+   *
+   *       **Confidentiality:** the response never exposes reporter identity.
+   *     produces:
+   *       - application/json
    *     parameters:
    *       - in: path
    *         name: complaintId
    *         required: true
    *         schema:
    *           type: integer
+   *           minimum: 1
+   *         description: Internal complaint identifier
+   *         example: 42
    *     responses:
    *       '200':
    *         description: History retrieved successfully
@@ -518,10 +531,27 @@ export default class ComplaintController {
    *                   type: string
    *                   description: Localized success message
    *                 data:
+   *                   type: array
+   *                   description: Immutable chronological audit log of status transitions (oldest first)
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
    *                   type: object
-   *                   description: Immutable chronological audit log of status transitions
+   *                   nullable: true
    *       '403':
-   *         description: Missing complaint.manage permission
+   *         description: Missing read permission on the complaints module (complaint.manage)
    *         content:
    *           application/json:
    *             schema:
@@ -536,7 +566,7 @@ export default class ComplaintController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   example: sin-permiso
+   *                   example: permission-denied
    *                 detail:
    *                   type: string
    *                 code:
@@ -545,25 +575,8 @@ export default class ComplaintController {
    *                 data:
    *                   type: object
    *                   nullable: true
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   example: error
-   *                 title:
-   *                   type: string
-   *                 message:
-   *                   type: string
-   *                 data:
-   *                   type: object
-   *                   nullable: true
    *       '404':
-   *         description: Complaint not found or out of scope
+   *         description: Complaint not found or outside business unit scope
    *         content:
    *           application/json:
    *             schema:
@@ -576,6 +589,14 @@ export default class ComplaintController {
    *                   type: string
    *                 message:
    *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: complaint-not-found
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMP.NF.001
    *                 data:
    *                   type: object
    *                   nullable: true
@@ -1302,24 +1323,151 @@ export default class ComplaintController {
    *       - in: query
    *         name: from
    *         required: true
+   *         description: Start date of the reporting period (inclusive, ISO 8601 date)
    *         schema:
    *           type: string
    *           format: date
+   *           pattern: '^\\d{4}-\\d{2}-\\d{2}$'
    *           example: "2026-01-01"
    *       - in: query
    *         name: to
    *         required: true
+   *         description: End date of the reporting period (inclusive, ISO 8601 date)
    *         schema:
    *           type: string
    *           format: date
+   *           pattern: '^\\d{4}-\\d{2}-\\d{2}$'
    *           example: "2026-06-30"
    *     responses:
    *       '200':
    *         description: Aggregate report generated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Localized module title
+   *                 message:
+   *                   type: string
+   *                   description: Localized success message
+   *                 data:
+   *                   type: object
+   *                   description: STPS aggregate metrics (no reporter identity or per-case rows)
+   *       '400':
+   *         description: Query validation failed (missing or malformed from/to dates)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: AUTH.COMPLAINT.VAL_INPUT
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       '403':
-   *         description: Missing report permission (key permission-denied)
+   *         description: Missing report permission on the complaints module (`complaint.report`)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: permission-denied
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       '422':
-   *         description: Inverted date range (key invalid-date-range)
+   *         description: Inverted date range (start date after end date)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: invalid-date-range
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.DATE.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    */
   async report(ctx: HttpContext) {
     const { auth, request, response, i18n, businessUnitScope } = ctx
@@ -1362,6 +1510,9 @@ export default class ComplaintController {
    *
    *       Requires the dedicated RBAC permission `report` on the complaints module
    *       (`complaint.report`). Having `read` alone does not authorize this endpoint.
+   *
+   *       On success the response body is the binary file (not JSON). Error responses
+   *       follow the standard JSON error envelope.
    *     produces:
    *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
    *       - application/pdf
@@ -1369,28 +1520,161 @@ export default class ComplaintController {
    *       - in: query
    *         name: from
    *         required: true
+   *         description: Start date of the reporting period (inclusive, ISO 8601 date)
    *         schema:
    *           type: string
    *           format: date
+   *           pattern: '^\\d{4}-\\d{2}-\\d{2}$'
+   *           example: "2026-01-01"
    *       - in: query
    *         name: to
    *         required: true
+   *         description: End date of the reporting period (inclusive, ISO 8601 date)
    *         schema:
    *           type: string
    *           format: date
+   *           pattern: '^\\d{4}-\\d{2}-\\d{2}$'
+   *           example: "2026-06-30"
    *       - in: query
    *         name: format
    *         required: true
+   *         description: Export format (Excel workbook or PDF document)
    *         schema:
    *           type: string
    *           enum: [xlsx, pdf]
+   *           example: xlsx
    *     responses:
    *       '200':
    *         description: Export file generated successfully
+   *         headers:
+   *           Content-Disposition:
+   *             schema:
+   *               type: string
+   *             description: Attachment filename (`reporte-quejas_{from}_{to}.{xlsx|pdf}`)
+   *           Content-Length:
+   *             schema:
+   *               type: integer
+   *             description: File size in bytes
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *               description: Excel workbook when format=xlsx
+   *           application/pdf:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *               description: PDF document when format=pdf
+   *       '400':
+   *         description: Query validation failed (missing/malformed dates or invalid format)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: AUTH.COMPLAINT.VAL_INPUT
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '401':
+   *         description: User is not authenticated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       '403':
-   *         description: Missing report permission (key permission-denied)
+   *         description: Missing report permission on the complaints module (`complaint.report`)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: permission-denied
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.FORB.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       '422':
-   *         description: Inverted date range (key invalid-date-range)
+   *         description: Inverted date range (start date after end date)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: invalid-date-range
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.DATE.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    */
   async reportExport(ctx: HttpContext) {
     const { auth, request, response, i18n, businessUnitScope } = ctx
