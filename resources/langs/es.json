@@ -1536,5 +1536,13 @@
     },
     "status_success": "Estado de consentimiento obtenido correctamente.",
     "record_success": "Consentimiento registrado correctamente."
+  },
+  "onboarding": {
+    "trial_access_title": "Acceso temporal generado",
+    "trial_access_detail": "El enlace de prueba es válido por 30 minutos y de un solo uso.",
+    "trial_access_invalid_params_title": "Parámetros inválidos",
+    "trial_access_invalid_params_detail": "El campo userId es requerido y debe ser un número válido.",
+    "trial_access_user_not_found_title": "Usuario no encontrado",
+    "trial_access_user_not_found_detail": "El usuario indicado no existe o no está activo."
   }
 }

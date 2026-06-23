@@ -1533,5 +1533,13 @@
     },
     "status_success": "Consent status retrieved successfully.",
     "record_success": "Consent recorded successfully."
+  },
+  "onboarding": {
+    "trial_access_title": "Temporary access generated",
+    "trial_access_detail": "The trial link is valid for 30 minutes and single-use.",
+    "trial_access_invalid_params_title": "Invalid parameters",
+    "trial_access_invalid_params_detail": "The userId field is required and must be a valid number.",
+    "trial_access_user_not_found_title": "User not found",
+    "trial_access_user_not_found_detail": "The specified user does not exist or is not active."
   }
 }
