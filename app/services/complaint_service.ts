@@ -6,6 +6,8 @@ import Employee from '#models/employee'
 import User from '#models/user'
 import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
+import ComplaintNotificationService from '#services/complaint_notification_service'
+import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
   COMPLAINT_FOLIO_PREFIX,
@@ -25,6 +27,9 @@ import type {
   ConsultComplaintStatusInput,
   CreateComplaintInput,
   PatchComplaintStatusInput,
+  RevealComplaintIdentityInput,
+  ComplaintRevealIdentityResult,
+  ComplaintIdentityRevealAuditRow,
 } from '../interfaces/complaint_interface.js'
 
 const PASSPHRASE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -78,6 +83,8 @@ function serializeComplaintDetail(
 export default class ComplaintService {
   private readonly historyService = new ComplaintStatusHistoryService()
   private readonly attachmentService = new ComplaintAttachmentService()
+  private readonly notificationService = new ComplaintNotificationService()
+  private readonly identityRevealService = new ComplaintIdentityRevealService()
 
   /**
    * Registra una queja asociada al empleado autenticado.
@@ -87,13 +94,11 @@ export default class ComplaintService {
     await user.load('person')
 
     if (!user.person?.personId) {
-      throw new ComplaintServiceError(
-        'El usuario no tiene una persona asociada',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_person_not_found',
         COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
         403,
-        'AUTH.COMPLAINT.PERSON_NOT_FOUND',
-        undefined,
-        'complaint_person_not_found'
+        'AUTH.COMPLAINT.PERSON_NOT_FOUND'
       )
     }
 
@@ -103,13 +108,11 @@ export default class ComplaintService {
       .first()
 
     if (!employee) {
-      throw new ComplaintServiceError(
-        'El usuario no tiene un registro de empleado asociado',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_employee_not_found',
         COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
         403,
-        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND',
-        undefined,
-        'complaint_employee_not_found'
+        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND'
       )
     }
 
@@ -126,6 +129,8 @@ export default class ComplaintService {
       complaintDescription: input.description.trim(),
       complaintStatus: COMPLAINT_INITIAL_STATUS,
     })
+
+    void this.notificationService.notifyOnNewComplaint(complaint.complaintId)
 
     return {
       folio: complaint.complaintFolio,
@@ -150,13 +155,11 @@ export default class ComplaintService {
       (await hash.verify(complaint.complaintPassphraseHash, input.passphrase.trim()))
 
     if (!passphraseValid) {
-      throw new ComplaintServiceError(
-        'Folio o clave de acceso incorrectos',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_status_not_found',
         COMPLAINT_ERROR_CODES.STATUS_NOT_FOUND,
         404,
-        'caso-no-encontrado',
-        undefined,
-        'complaint_status_not_found'
+        'case-not-found'
       )
     }
 
@@ -200,9 +203,15 @@ export default class ComplaintService {
     query.orderBy('complaint_created_at', 'desc')
 
     const paginator = await query.paginate(safePage, safeLimit)
+    const pendingNewCount = await this.notificationService.countNewPendingComplaints(
+      allowedBusinessUnitIds
+    )
 
     return {
-      meta: paginator.serialize().meta,
+      meta: {
+        ...paginator.serialize().meta,
+        pendingNewCount,
+      },
       data: paginator.all().map((row) => serializeComplaintBoardItem(row)),
     }
   }
@@ -246,13 +255,11 @@ export default class ComplaintService {
   ): Promise<ComplaintAdminResult> {
     const note = input.note?.trim()
     if (!note) {
-      throw new ComplaintServiceError(
-        'La nota es obligatoria para registrar la transición de estatus',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_note_required',
         COMPLAINT_ERROR_CODES.NOTE_REQUIRED,
         422,
-        'nota-requerida',
-        undefined,
-        'complaint_note_required'
+        'note-required'
       )
     }
 
@@ -261,13 +268,11 @@ export default class ComplaintService {
     const toStatus = input.toStatus
 
     if (fromStatus === toStatus) {
-      throw new ComplaintServiceError(
-        'El estatus destino debe ser diferente al estatus actual',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_status_unchanged',
         COMPLAINT_ERROR_CODES.VAL_INPUT,
         422,
-        'estatus-sin-cambio',
-        undefined,
-        'complaint_status_unchanged'
+        'status-unchanged'
       )
     }
 
@@ -292,6 +297,68 @@ export default class ComplaintService {
     return serializeComplaintAdmin(complaint)
   }
 
+  /**
+   * Revela la identidad del denunciante y registra un asiento inmutable de auditoría.
+   * La identidad solo se devuelve en esta operación; nunca en listado ni detalle.
+   */
+  async revealIdentity(
+    complaintId: number,
+    input: RevealComplaintIdentityInput,
+    actorUserId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<ComplaintRevealIdentityResult> {
+    const justification = input.justification?.trim()
+    if (!justification) {
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_justification_required',
+        COMPLAINT_ERROR_CODES.JUSTIFICATION_REQUIRED,
+        422,
+        'justification-required'
+      )
+    }
+
+    const complaint = await this.findInScopeOrFail(complaintId, allowedBusinessUnitIds)
+    const identity = await this.identityRevealService.loadReporterIdentity(complaint.employeeId)
+
+    if (!identity) {
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_reporter_not_found',
+        COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+        404,
+        'reporter-not-found'
+      )
+    }
+
+    const audit = await this.identityRevealService.appendAudit({
+      complaintId: complaint.complaintId,
+      revealedByUserId: actorUserId,
+      justification,
+    })
+
+    return {
+      complaintId: complaint.complaintId,
+      folio: complaint.complaintFolio,
+      identity,
+      audit: {
+        complaintIdentityRevealAuditId: audit.complaintIdentityRevealAuditId,
+        justification: audit.complaintIdentityRevealAuditJustification,
+        revealedByUserId: audit.revealedByUserId,
+        createdAt: audit.complaintIdentityRevealAuditCreatedAt.toISO()!,
+      },
+    }
+  }
+
+  /**
+   * Historial cronológico de revelaciones de identidad de una queja.
+   */
+  async listRevealHistory(
+    complaintId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<ComplaintIdentityRevealAuditRow[]> {
+    await this.findInScopeOrFail(complaintId, allowedBusinessUnitIds)
+    return this.identityRevealService.listByComplaintId(complaintId)
+  }
+
   private async findInScopeOrFail(
     complaintId: number,
     allowedBusinessUnitIds: number[]
@@ -314,13 +381,11 @@ export default class ComplaintService {
   }
 
   private complaintNotFoundError() {
-    return new ComplaintServiceError(
-      'La queja no existe o está fuera del alcance del usuario autenticado',
+    return ComplaintServiceError.withMessageKey(
+      'complaint_not_found',
       COMPLAINT_ERROR_CODES.STATUS_NOT_FOUND,
       404,
-      'queja-no-encontrada',
-      undefined,
-      'complaint_not_found'
+      'complaint-not-found'
     )
   }
 
@@ -345,13 +410,11 @@ export default class ComplaintService {
       }
     }
 
-    throw new ComplaintServiceError(
-      'No se pudo generar un folio único para la queja',
+    throw ComplaintServiceError.withMessageKey(
+      'complaint_folio_generation_failed',
       COMPLAINT_ERROR_CODES.FOLIO_GENERATION_FAILED,
       500,
-      'AUTH.COMPLAINT.FOLIO_GENERATION_FAILED',
-      undefined,
-      'complaint_folio_generation_failed'
+      'AUTH.COMPLAINT.FOLIO_GENERATION_FAILED'
     )
   }
 }

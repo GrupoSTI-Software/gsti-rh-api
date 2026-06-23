@@ -31,6 +31,12 @@ export const patchComplaintStatusValidator = vine.compile(
   })
 )
 
+export const revealComplaintIdentityValidator = vine.compile(
+  vine.object({
+    justification: vine.string().trim().minLength(1).maxLength(5000),
+  })
+)
+
 /** @deprecated Usar patchComplaintStatusValidator */
 export const updateComplaintStatusValidator = vine.compile(
   vine.object({
@@ -48,4 +54,8 @@ export type ComplaintListPayload = Awaited<ReturnType<typeof complaintListValida
 
 export type PatchComplaintStatusPayload = Awaited<
   ReturnType<typeof patchComplaintStatusValidator.validate>
+>
+
+export type RevealComplaintIdentityPayload = Awaited<
+  ReturnType<typeof revealComplaintIdentityValidator.validate>
 >

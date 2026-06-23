@@ -91,3 +91,37 @@ export interface PatchComplaintStatusInput {
 export interface UpdateComplaintStatusInput {
   status: ComplaintStatus
 }
+
+export interface RevealComplaintIdentityInput {
+  justification: string
+}
+
+/** Identidad del denunciante; solo se expone vía POST reveal-identity. */
+export interface ComplaintReporterIdentity {
+  employeeId: number
+  employeeCode: string | null
+  fullName: string
+  departmentName: string | null
+  positionName: string | null
+}
+
+export interface ComplaintRevealIdentityResult {
+  complaintId: number
+  folio: string
+  identity: ComplaintReporterIdentity
+  audit: {
+    complaintIdentityRevealAuditId: number
+    justification: string
+    revealedByUserId: number
+    createdAt: string
+  }
+}
+
+export interface ComplaintIdentityRevealAuditRow {
+  complaintIdentityRevealAuditId: number
+  complaintId: number
+  revealedByUserId: number
+  actorDisplayName: string | null
+  justification: string
+  createdAt: string
+}

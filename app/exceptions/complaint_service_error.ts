@@ -27,4 +27,17 @@ export class ComplaintServiceError extends Error {
     this.detail = detail
     this.messageKey = messageKey
   }
+
+  /**
+   * Crea un error cuyo mensaje se resuelve vía i18n (`resources/langs/*.json`).
+   * El servicio no debe hardcodear textos; la traducción ocurre en el controlador.
+   */
+  static withMessageKey(
+    messageKey: string,
+    errorCode: ComplaintErrorCode,
+    httpStatus: number,
+    key?: string
+  ): ComplaintServiceError {
+    return new ComplaintServiceError(messageKey, errorCode, httpStatus, key, undefined, messageKey)
+  }
 }

@@ -1,11 +1,12 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import ComplaintAttachmentService from '#services/complaint_attachment_service'
-import { resolveComplaintApiError } from '../helpers/complaint_api_error.js'
+import ComplaintApiService from '#services/complaint_api_service'
 
 /**
  * Controlador REST de adjuntos del buzón de quejas (NOM-035 8.1.b).
  */
 export default class ComplaintAttachmentController {
+  private readonly complaintApiService = new ComplaintApiService()
   /**
    * @swagger
    * /api/v1/complaints/{folio}/attachments:
@@ -65,31 +66,6 @@ export default class ComplaintAttachmentController {
    *                 data:
    *                   type: object
    *                   description: Sanitized attachment metadata (S3 path is never exposed)
-   *                   properties:
-   *                     complaintAttachmentId:
-   *                       type: integer
-   *                       description: Attachment identifier
-   *                     complaintId:
-   *                       type: integer
-   *                       description: Parent complaint identifier
-   *                     fileName:
-   *                       type: string
-   *                       description: Display file name
-   *                     mimeType:
-   *                       type: string
-   *                       description: MIME type of the sanitized file
-   *                     fileSize:
-   *                       type: integer
-   *                       description: Sanitized file size in bytes
-   *                     sanitized:
-   *                       type: boolean
-   *                       description: Always true after successful upload
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
    *       '404':
    *         description: The resource could not be found
    *         content:
@@ -174,7 +150,7 @@ export default class ComplaintAttachmentController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 500, i18n)
+      return this.complaintApiService.respondError(error, response, 500, i18n)
     }
   }
 
@@ -321,7 +297,7 @@ export default class ComplaintAttachmentController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 404, i18n)
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 
@@ -428,7 +404,7 @@ export default class ComplaintAttachmentController {
         data: result,
       }
     } catch (error) {
-      return this.respondError(error, response, 404, i18n)
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 
@@ -524,26 +500,7 @@ export default class ComplaintAttachmentController {
         data: null,
       }
     } catch (error) {
-      return this.respondError(error, response, 404, i18n)
-    }
-  }
-
-  private respondError(
-    error: unknown,
-    response: HttpContext['response'],
-    fallbackStatus: number,
-    i18n: HttpContext['i18n']
-  ) {
-    const resolved = resolveComplaintApiError(error, fallbackStatus, i18n)
-    response.status(resolved.status)
-    return {
-      type: 'error',
-      title: resolved.title,
-      message: resolved.message,
-      key: resolved.key,
-      detail: resolved.detail,
-      code: resolved.errorCode,
-      data: null,
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 }
