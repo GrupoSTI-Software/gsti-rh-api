@@ -612,6 +612,7 @@
       "show_message": "Questionnaire application fetched successfully",
       "store_message": "Questionnaire application launched successfully",
       "store_response_message": "Responses saved successfully",
+      "targets_message": "Targets fetched successfully",
       "delete_message": "Questionnaire application deleted successfully",
       "val_input": "Invalid data",
       "not_applicable": "Branch office is not applicable for questionnaire launch",

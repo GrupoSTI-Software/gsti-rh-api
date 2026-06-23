@@ -615,6 +615,7 @@
       "show_message": "Aplicación de cuestionario obtenida correctamente",
       "store_message": "Aplicación de cuestionario lanzada correctamente",
       "store_response_message": "Respuestas guardadas correctamente",
+      "targets_message": "Objetivos obtenidos correctamente",
       "delete_message": "Aplicación de cuestionario eliminada correctamente",
       "val_input": "Datos inválidos",
       "not_applicable": "Sucursal no aplicable para lanzamiento de cuestionario",

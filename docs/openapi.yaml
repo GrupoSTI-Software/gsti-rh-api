@@ -226,6 +226,42 @@ components:
                   items:
                     $ref: '#/components/schemas/QuestionnaireApplicationListItem'
 
+    QuestionnaireApplicationTargetItem:
+      type: object
+      properties:
+        questionnaireApplicationTargetId:
+          type: integer
+        employeeId:
+          type: integer
+        employeeFullName:
+          type: string
+          description: Nombre completo del empleado
+        status:
+          type: string
+          enum: [pendiente, respondido]
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    QuestionnaireApplicationTargetsSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            targets:
+              type: array
+              items:
+                $ref: '#/components/schemas/QuestionnaireApplicationTargetItem'
+
     QuestionnaireCaptureAnswerInput:
       type: object
       required: [questionId, optionKey]
@@ -4454,6 +4490,113 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets:
+    get:
+      summary: Listar objetivos de una ronda de cuestionario NOM-035
+      description: >
+        Devuelve la lista de empleados objetivo de la ronda con su estado actual
+        (pendiente/respondido). Permite filtrar por status y buscar por nombre
+        completo para consumo del selector de captura en BO.
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: ID de la aplicación de cuestionario
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, respondido]
+          description: Filtra objetivos por estado
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Búsqueda por nombre completo del empleado
+      responses:
+        '200':
+          description: Objetivos obtenidos correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationTargetsSuccess'
+              examples:
+                lista:
+                  summary: Lista de objetivos con estado
+                  value:
+                    type: success
+                    title: Objetivos de la ronda
+                    message: Objetivos obtenidos correctamente
+                    data:
+                      targets:
+                        - questionnaireApplicationTargetId: 1
+                          employeeId: 42
+                          employeeFullName: Juan Pérez López
+                          status: pendiente
+                          respondedAt: null
+                        - questionnaireApplicationTargetId: 2
+                          employeeId: 43
+                          employeeFullName: María García Soto
+                          status: respondido
+                          respondedAt: '2026-06-23T17:56:45.793Z'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Datos inválidos
+                key: datos-invalidos
+                detail: Datos inválidos
+                code: NOM035.QRUN.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para consultar objetivos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Sin permiso para gestionar aplicaciones de cuestionario
+                key: sin-permiso
+                detail: Sin permiso para gestionar aplicaciones de cuestionario
+                code: NOM035.QRUN.FORBIDDEN
+                data: null
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+                key: aplicacion-no-encontrada
+                detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+                code: NOM035.QRUN.NOT_FOUND
+                data: null
 
   /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/instrument:
     get:

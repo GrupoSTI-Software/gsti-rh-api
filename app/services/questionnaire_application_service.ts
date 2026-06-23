@@ -17,6 +17,8 @@ import type {
   QuestionnaireApplicationListFilters,
   QuestionnaireApplicationListItem,
   QuestionnaireApplicationListResult,
+  QuestionnaireApplicationTargetListFilters,
+  QuestionnaireApplicationTargetListItem,
 } from '../interfaces/questionnaire_application_interface.js'
 import type { QuestionnaireApplicationInstrument } from '#models/questionnaire_application'
 
@@ -33,6 +35,14 @@ type QuestionnaireApplicationRow = {
   respondedCount: number | string
   launchedAt: string | Date | null
   closedAt: string | Date | null
+}
+
+type QuestionnaireApplicationTargetRow = {
+  questionnaireApplicationTargetId: number | string
+  employeeId: number | string
+  employeeFullName: string
+  status: 'pendiente' | 'respondido'
+  respondedAt: string | Date | null
 }
 
 export default class QuestionnaireApplicationService {
@@ -254,6 +264,46 @@ export default class QuestionnaireApplicationService {
     }
 
     return this.serializeDetailRow(row)
+  }
+
+  async listTargets(
+    questionnaireApplicationId: number,
+    filters: QuestionnaireApplicationTargetListFilters,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<QuestionnaireApplicationTargetListItem[]> {
+    await this.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
+
+    const employeeFullNameExpression =
+      "TRIM(CONCAT(COALESCE(e.employee_first_name, ''), ' ', COALESCE(e.employee_last_name, ''), ' ', COALESCE(e.employee_second_last_name, '')))"
+
+    const rows = (await db
+      .from('questionnaire_application_targets as qat')
+      .join('employees as e', 'e.employee_id', 'qat.employee_id')
+      .where('qat.questionnaire_application_id', questionnaireApplicationId)
+      .whereNull('e.employee_deleted_at')
+      .if(!!filters.status, (query) => {
+        query.where('qat.questionnaire_application_target_status', filters.status!)
+      })
+      .if(!!filters.search, (query) => {
+        query.whereRaw(`${employeeFullNameExpression} LIKE ?`, [`%${filters.search}%`])
+      })
+      .select(
+        'qat.questionnaire_application_target_id as questionnaireApplicationTargetId',
+        'qat.employee_id as employeeId',
+        db.raw(`${employeeFullNameExpression} as employeeFullName`),
+        'qat.questionnaire_application_target_status as status',
+        'qat.questionnaire_application_target_responded_at as respondedAt'
+      )
+      .orderBy('qat.questionnaire_application_target_id', 'asc')) as QuestionnaireApplicationTargetRow[]
+
+    return rows.map((row) => ({
+      questionnaireApplicationTargetId: Number(row.questionnaireApplicationTargetId),
+      employeeId: Number(row.employeeId),
+      employeeFullName: row.employeeFullName,
+      status: row.status,
+      respondedAt: this.toIsoUtc(row.respondedAt),
+    }))
   }
 
   async softDelete(

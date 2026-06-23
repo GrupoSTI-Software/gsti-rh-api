@@ -57,6 +57,19 @@ export interface QuestionnaireApplicationTargetRow {
   respondedAt: string | null
 }
 
+export interface QuestionnaireApplicationTargetListFilters {
+  status?: QuestionnaireApplicationTargetStatus
+  search?: string
+}
+
+export interface QuestionnaireApplicationTargetListItem {
+  questionnaireApplicationTargetId: number
+  employeeId: number
+  employeeFullName: string
+  status: QuestionnaireApplicationTargetStatus
+  respondedAt: string | null
+}
+
 export interface AnswerInput {
   questionId: number
   optionKey: string

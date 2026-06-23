@@ -4,6 +4,7 @@ import RoleService from '#services/role_service'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import {
   createQuestionnaireApplicationValidator,
+  listQuestionnaireApplicationTargetsValidator,
   listQuestionnaireApplicationsValidator,
   showQuestionnaireApplicationValidator,
 } from '#validators/questionnaire_application'
@@ -462,6 +463,88 @@ export default class QuestionnaireApplicationController {
         result,
         'Questionnaire Application',
         i18n.formatMessage('nom035.questionnaire_application.show_message')
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/nom035/questionnaire-applications/{id}/targets:
+   *   get:
+   *     summary: Listar objetivos de una ronda de cuestionario NOM-035
+   *     description: >
+   *       Devuelve la lista de empleados objetivo de la ronda con su estado
+   *       (pendiente/respondido). Permite filtrar por status y búsqueda por
+   *       nombre completo para consumo del selector de captura en BO.
+   *     tags: [NOM035]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *       - in: query
+   *         name: status
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [pendiente, respondido]
+   *       - in: query
+   *         name: search
+   *         required: false
+   *         schema:
+   *           type: string
+   *           minLength: 1
+   *     responses:
+   *       200:
+   *         description: Objetivos obtenidos correctamente
+   *       400:
+   *         description: Parámetros inválidos
+   *       403:
+   *         description: Sin permiso para consultar objetivos
+   *       404:
+   *         description: Aplicación no encontrada o fuera de alcance
+   */
+  async targets(ctx: HttpContext) {
+    const { params, request, response, i18n, businessUnitScope } = ctx
+    try {
+      if (!(await this.checkPermission(ctx, 'read'))) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.forbidden'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN,
+          403,
+          'sin-permiso'
+        )
+      }
+
+      const payload = await showQuestionnaireApplicationValidator.validate({
+        questionnaireApplicationId: Number(params.id),
+      })
+      const filters = await request.validateUsing(listQuestionnaireApplicationTargetsValidator)
+      const service = new QuestionnaireApplicationService()
+      const result = await service.listTargets(
+        payload.questionnaireApplicationId,
+        filters,
+        businessUnitScope ?? [],
+        i18n
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Objetivos de la ronda',
+        i18n.formatMessage('nom035.questionnaire_application.targets_message')
       )
     } catch (error) {
       return this.respondError(error, response, 400, i18n)

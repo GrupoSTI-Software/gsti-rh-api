@@ -21,3 +21,10 @@ export const showQuestionnaireApplicationValidator = vine.compile(
     questionnaireApplicationId: vine.number().positive(),
   })
 )
+
+export const listQuestionnaireApplicationTargetsValidator = vine.compile(
+  vine.object({
+    status: vine.enum(['pendiente', 'respondido']).optional(),
+    search: vine.string().trim().minLength(1).optional(),
+  })
+)

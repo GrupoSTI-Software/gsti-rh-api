@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import QuestionnaireApplicationResponseService from '#services/questionnaire_application_response_service'
+import QuestionnaireApplicationService from '#services/questionnaire_application_service'
 import { QuestionnaireApplicationServiceError } from '#exceptions/questionnaire_application_service_error'
 import { QUESTIONNAIRE_APPLICATION_ERROR_CODES } from '#constants/questionnaire_application_error_codes'
 
@@ -447,6 +448,77 @@ test.group('QuestionnaireApplicationResponseService — HU USRH1782184103374', (
       )
       assert.equal((captured as QuestionnaireApplicationServiceError).httpStatus, 404)
       assert.equal((captured as QuestionnaireApplicationServiceError).key, 'empleado-no-objetivo')
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+})
+
+test.group('QuestionnaireApplicationService.listTargets — objetivos por ronda', () => {
+  test('lista objetivos con datos de estado y nombre completo', async ({ assert }) => {
+    const fixture = await createScenarioFixture(assert)
+    if (!fixture) return
+
+    try {
+      const service = new QuestionnaireApplicationService()
+      const targets = await service.listTargets(
+        fixture.questionnaireApplicationId,
+        {},
+        [fixture.businessUnitId]
+      )
+
+      assert.lengthOf(targets, 1)
+      assert.equal(targets[0].employeeId, fixture.employeeId)
+      assert.equal(targets[0].status, 'pendiente')
+      assert.isString(targets[0].employeeFullName)
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
+  test('aplica filtros status y search', async ({ assert }) => {
+    const fixture = await createScenarioFixture(assert)
+    if (!fixture) return
+
+    try {
+      const service = new QuestionnaireApplicationService()
+      const allTargets = await service.listTargets(
+        fixture.questionnaireApplicationId,
+        {},
+        [fixture.businessUnitId]
+      )
+      const searchTerm = allTargets[0].employeeFullName.split(' ')[0]
+
+      const pendingTargets = await service.listTargets(
+        fixture.questionnaireApplicationId,
+        { status: 'pendiente' },
+        [fixture.businessUnitId]
+      )
+      assert.lengthOf(pendingTargets, 1)
+
+      await db
+        .from('questionnaire_application_targets')
+        .where('questionnaire_application_id', fixture.questionnaireApplicationId)
+        .where('employee_id', fixture.employeeId)
+        .update({
+          questionnaire_application_target_status: 'respondido',
+          questionnaire_application_target_responded_at: DateTime.utc().toSQL({ includeOffset: false }),
+        })
+
+      const pendingAfterUpdate = await service.listTargets(
+        fixture.questionnaireApplicationId,
+        { status: 'pendiente' },
+        [fixture.businessUnitId]
+      )
+      const answeredTargets = await service.listTargets(
+        fixture.questionnaireApplicationId,
+        { status: 'respondido', search: searchTerm },
+        [fixture.businessUnitId]
+      )
+
+      assert.lengthOf(pendingAfterUpdate, 0)
+      assert.lengthOf(answeredTargets, 1)
+      assert.equal(answeredTargets[0].status, 'respondido')
     } finally {
       await fixture.cleanup()
     }
