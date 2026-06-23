@@ -247,6 +247,15 @@ export default class TraumaticEventReportService {
     return serializeReport(report)
   }
 
+  /**
+   * Valida que el reporte exista, esté vivo y dentro del scope del usuario, y
+   * devuelve el modelo (para que módulos hijos lean datos como la fecha de
+   * ocurrencia sin duplicar la lógica de scope). Lanza ETR.NF.REPORT.001 si no.
+   */
+  async assertReportInScope(reportId: number, allowedBusinessUnitIds: number[] = []) {
+    return this.findInScopeOrFail(reportId, allowedBusinessUnitIds)
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers privados
   // ---------------------------------------------------------------------------
