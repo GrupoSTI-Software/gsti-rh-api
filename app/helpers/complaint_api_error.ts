@@ -40,6 +40,7 @@ function resolveComplaintMessageKey(error: ComplaintServiceError): string | unde
     'reveal-permission-denied': 'complaint_reveal_forbidden',
     'justification-required': 'complaint_justification_required',
     'reporter-not-found': 'complaint_reporter_not_found',
+    'invalid-date-range': 'complaint_report_invalid_date_range',
   }
 
   if (error.key && byClientKey[error.key]) {
@@ -58,6 +59,7 @@ function resolveComplaintMessageKey(error: ComplaintServiceError): string | unde
     [COMPLAINT_ERROR_CODES.NOTE_REQUIRED]: 'complaint_note_required',
     [COMPLAINT_ERROR_CODES.JUSTIFICATION_REQUIRED]: 'complaint_justification_required',
     [COMPLAINT_ERROR_CODES.REVEAL_FORBIDDEN]: 'complaint_reveal_forbidden',
+    [COMPLAINT_ERROR_CODES.DATE_RANGE_INVALID]: 'complaint_report_invalid_date_range',
   }
 
   return byErrorCode[error.errorCode]

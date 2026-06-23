@@ -7,7 +7,10 @@ import {
   complaintListValidator,
   patchComplaintStatusValidator,
   revealComplaintIdentityValidator,
+  complaintReportValidator,
+  complaintReportExportValidator,
 } from '#validators/complaint'
+import { parseComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
 
 /**
  * Controlador del buzón de quejas confidencial (NOM-035 8.1.b).
@@ -1273,6 +1276,156 @@ export default class ComplaintController {
       }
     } catch (error) {
       return this.complaintApiService.respondError(error, response, 404, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/report:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: aggregated complaint report by period
+   *     description: |
+   *       STPS aggregate report for the confidential complaint mailbox. Returns total volume,
+   *       breakdown by category and average resolution time (capture → first resuelto/cerrado).
+   *
+   *       **Confidentiality:** 100% aggregated metrics; no reporter identity or per-case detail.
+   *
+   *       Requires the dedicated RBAC permission `report` on the complaints module
+   *       (`complaint.report`). Having `read` alone does not authorize this endpoint.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: query
+   *         name: from
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: date
+   *           example: "2026-01-01"
+   *       - in: query
+   *         name: to
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: date
+   *           example: "2026-06-30"
+   *     responses:
+   *       '200':
+   *         description: Aggregate report generated successfully
+   *       '403':
+   *         description: Missing report permission (key permission-denied)
+   *       '422':
+   *         description: Inverted date range (key invalid-date-range)
+   */
+  async report(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
+    try {
+      await this.complaintApiService.assertReportPermission(auth.user!)
+
+      const payload = await request.validateUsing(complaintReportValidator, {
+        data: request.qs(),
+      })
+      const period = parseComplaintReportDateRange(payload.from, payload.to)
+
+      const complaintService = new ComplaintService()
+      const result = await complaintService.buildAggregatedReport(period, businessUnitScope ?? [])
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_report_success'),
+        data: result,
+      }
+    } catch (error) {
+      return this.complaintApiService.respondError(error, response, 422, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/report/export:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: export aggregated complaint report (Excel or PDF)
+   *     description: |
+   *       Server-side export of the same aggregate metrics as GET /complaints/report.
+   *       The file contains **only** aggregated counts and averages — never reporter identity,
+   *       employee data, folios or per-case rows.
+   *
+   *       Requires the dedicated RBAC permission `report` on the complaints module
+   *       (`complaint.report`). Having `read` alone does not authorize this endpoint.
+   *     produces:
+   *       - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   *       - application/pdf
+   *     parameters:
+   *       - in: query
+   *         name: from
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: date
+   *       - in: query
+   *         name: to
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: date
+   *       - in: query
+   *         name: format
+   *         required: true
+   *         schema:
+   *           type: string
+   *           enum: [xlsx, pdf]
+   *     responses:
+   *       '200':
+   *         description: Export file generated successfully
+   *       '403':
+   *         description: Missing report permission (key permission-denied)
+   *       '422':
+   *         description: Inverted date range (key invalid-date-range)
+   */
+  async reportExport(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
+    try {
+      await this.complaintApiService.assertReportPermission(auth.user!)
+
+      const payload = await request.validateUsing(complaintReportExportValidator, {
+        data: request.qs(),
+      })
+      const period = parseComplaintReportDateRange(payload.from, payload.to)
+
+      const complaintService = new ComplaintService()
+      const report = await complaintService.buildAggregatedReport(period, businessUnitScope ?? [])
+      const filename = complaintService.buildReportExportFilename(report, payload.format)
+
+      if (payload.format === 'xlsx') {
+        const buffer = await complaintService.buildReportExcel(report, i18n)
+        response.header(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response.header('Content-Disposition', `attachment; filename="${filename}"`)
+        response.header('Content-Length', buffer.length.toString())
+        response.status(200)
+        return response.send(buffer)
+      }
+
+      const pdfBuffer = await complaintService.buildReportPdf(report, i18n)
+      response.header('Content-Type', 'application/pdf')
+      response.header('Content-Disposition', `attachment; filename="${filename}"`)
+      response.header('Content-Length', pdfBuffer.length.toString())
+      response.status(200)
+      return response.send(pdfBuffer)
+    } catch (error) {
+      return this.complaintApiService.respondError(error, response, 422, i18n)
     }
   }
 

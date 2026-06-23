@@ -13,8 +13,10 @@ import RoleSystemPermission from '../../app/models/role_system_permission.js'
  *  2. Los 4 permisos read/create/update/delete (ids 169-172) ligados al módulo.
  *  3. El permiso reveal-identity (id 173) ligado al módulo, sin asignación a roles
  *     (se configura manualmente en el sistema).
- *  4. El vínculo del módulo con el system_setting activo (id 1) para que aparezca en el menú.
- *  5. La asignación de los 4 permisos CRUD a los roles super-administrador (1) y rh-manager (2).
+ *  4. El permiso report (id 174) ligado al módulo, sin asignación a roles
+ *     (se configura manualmente en el sistema).
+ *  5. El vínculo del módulo con el system_setting activo (id 1) para que aparezca en el menú.
+ *  6. La asignación de los 4 permisos CRUD a los roles super-administrador (1) y rh-manager (2).
  *
  * El módulo es confidencial: solo super-administrador y rh-manager tienen acceso;
  * el supervisor directo no accede (criterio NOM-035 buzón confidencial).
@@ -45,10 +47,18 @@ export default class extends BaseSeeder {
     systemPermissionSlug: 'reveal-identity',
   }
 
+  /** Permiso dedicado del reporte agregado STPS; solo se registra, no se asigna a roles. */
+  private readonly reportPermission = {
+    systemPermissionId: 174,
+    systemPermissionName: 'Report',
+    systemPermissionSlug: 'report',
+  }
+
   async run() {
     await this.seedModule()
     await this.seedPermissions()
     await this.seedRevealIdentityPermission()
+    await this.seedReportPermission()
     await this.linkModuleToActiveSetting()
     await this.assignPermissionsToRoles()
   }
@@ -103,7 +113,15 @@ export default class extends BaseSeeder {
     )
   }
 
-  /** 4. Vínculo del módulo con el system_setting activo (para que salga en el menú). */
+  /** 4. Alta del permiso report (sin asignación a roles). */
+  private async seedReportPermission() {
+    await SystemPermission.updateOrCreate(
+      { systemPermissionId: this.reportPermission.systemPermissionId },
+      { ...this.reportPermission, systemModuleId: this.moduleId }
+    )
+  }
+
+  /** 5. Vínculo del módulo con el system_setting activo (para que salga en el menú). */
   private async linkModuleToActiveSetting() {
     await SystemSettingSystemModule.firstOrCreate(
       { systemSettingId: this.activeSettingId, systemModuleId: this.moduleId },
@@ -111,7 +129,7 @@ export default class extends BaseSeeder {
     )
   }
 
-  /** 5. Asignación de los permisos CRUD a los roles indicados. */
+  /** 6. Asignación de los permisos CRUD a los roles indicados. */
   private async assignPermissionsToRoles() {
     for (const roleId of this.roleIds) {
       for (const permission of this.permissions) {

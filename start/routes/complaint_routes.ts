@@ -26,6 +26,16 @@ router
       .use(middleware.businessScopeOptional())
 
     router
+      .get('/report/export', '#controllers/complaint_controller.reportExport')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .get('/report', '#controllers/complaint_controller.report')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
       .get('/:complaintId/history', '#controllers/complaint_controller.history')
       .use(middleware.auth())
       .use(middleware.businessScopeOptional())

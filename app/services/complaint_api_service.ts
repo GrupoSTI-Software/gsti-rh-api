@@ -1,8 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { I18n } from '@adonisjs/i18n'
 import User from '#models/user'
+import RoleService from '#services/role_service'
 import { ComplaintServiceError } from '#exceptions/complaint_service_error'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
+import { COMPLAINT_MODULE_SLUG, COMPLAINT_REPORT_PERMISSION } from '#constants/complaint_identity_reveal'
 import { resolveComplaintApiError } from '../helpers/complaint_api_error.js'
 
 /**
@@ -26,6 +28,52 @@ export default class ComplaintApiService {
       detail: resolved.detail,
       code: resolved.errorCode,
       data: null,
+    }
+  }
+
+  /** Verifica permiso `read` del módulo complaints (complaint.manage en BO). */
+  async assertReadPermission(user: User): Promise<void> {
+    await user.load('role')
+
+    if (user.role?.roleSlug === 'root') {
+      return
+    }
+
+    const roleService = new RoleService()
+    const allowed = await roleService.hasAccess(user.roleId, COMPLAINT_MODULE_SLUG, 'read')
+
+    if (!allowed) {
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_forbidden',
+        COMPLAINT_ERROR_CODES.FORBIDDEN,
+        403,
+        'permission-denied'
+      )
+    }
+  }
+
+  /** Verifica permiso `report` del módulo complaints (complaint.report en BO). */
+  async assertReportPermission(user: User): Promise<void> {
+    await user.load('role')
+
+    if (user.role?.roleSlug === 'root') {
+      return
+    }
+
+    const roleService = new RoleService()
+    const allowed = await roleService.hasAccess(
+      user.roleId,
+      COMPLAINT_MODULE_SLUG,
+      COMPLAINT_REPORT_PERMISSION
+    )
+
+    if (!allowed) {
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_forbidden',
+        COMPLAINT_ERROR_CODES.FORBIDDEN,
+        403,
+        'permission-denied'
+      )
     }
   }
 

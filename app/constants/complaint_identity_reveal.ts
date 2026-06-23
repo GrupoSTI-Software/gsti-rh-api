@@ -6,3 +6,9 @@ export const COMPLAINT_MODULE_SLUG = 'complaints'
  * Separado de `read`/`update`; operar la bandeja no autoriza la revelación.
  */
 export const COMPLAINT_REVEAL_IDENTITY_PERMISSION = 'reveal-identity'
+
+/**
+ * Permiso RBAC dedicado para el reporte agregado STPS (`complaint.report`).
+ * Separado de `read`; consultar la bandeja no autoriza el reporte.
+ */
+export const COMPLAINT_REPORT_PERMISSION = 'report'

@@ -125,3 +125,25 @@ export interface ComplaintIdentityRevealAuditRow {
   justification: string
   createdAt: string
 }
+
+export interface ComplaintReportPeriod {
+  from: string
+  to: string
+}
+
+export interface ComplaintReportCategoryRow {
+  category: ComplaintCategory
+  count: number
+}
+
+/** Reporte agregado STPS; sin identidades ni detalle por caso. */
+export interface ComplaintReportResult {
+  period: ComplaintReportPeriod
+  totalVolume: number
+  byCategory: ComplaintReportCategoryRow[]
+  /** Promedio en horas entre captura y primer estatus resuelto/cerrado; null si no hay casos resueltos. */
+  averageResolutionTimeHours: number | null
+  resolvedCasesCount: number
+}
+
+export type ComplaintReportExportFormat = 'xlsx' | 'pdf'
