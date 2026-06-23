@@ -233,9 +233,23 @@ components:
           type: integer
         employeeId:
           type: integer
+        employeeCode:
+          oneOf:
+            - type: integer
+            - type: string
+        employeePayrollNum:
+          type: string
         employeeFullName:
           type: string
           description: Nombre completo del empleado
+        departmentName:
+          type: string
+          nullable: true
+        positionName:
+          type: string
+          nullable: true
+        branchOfficeName:
+          type: string
         status:
           type: string
           enum: [pendiente, respondido]
@@ -4547,12 +4561,22 @@ paths:
                       targets:
                         - questionnaireApplicationTargetId: 1
                           employeeId: 42
+                          employeeCode: 10042
+                          employeePayrollNum: A-10042
                           employeeFullName: Juan Pérez López
+                          departmentName: Operaciones
+                          positionName: Supervisor
+                          branchOfficeName: Sucursal Centro
                           status: pendiente
                           respondedAt: null
                         - questionnaireApplicationTargetId: 2
                           employeeId: 43
+                          employeeCode: 10043
+                          employeePayrollNum: A-10043
                           employeeFullName: María García Soto
+                          departmentName: Recursos Humanos
+                          positionName: Analista RH
+                          branchOfficeName: Sucursal Centro
                           status: respondido
                           respondedAt: '2026-06-23T17:56:45.793Z'
         '400':

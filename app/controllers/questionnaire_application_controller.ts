@@ -509,12 +509,110 @@ export default class QuestionnaireApplicationController {
    *     responses:
    *       200:
    *         description: Objetivos obtenidos correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     targets:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           questionnaireApplicationTargetId: { type: integer }
+   *                           employeeId: { type: integer }
+   *                           employeeCode:
+   *                             oneOf:
+   *                               - type: integer
+   *                               - type: string
+   *                           employeePayrollNum: { type: string }
+   *                           employeeFullName: { type: string }
+   *                           departmentName:
+   *                             type: string
+   *                             nullable: true
+   *                           positionName:
+   *                             type: string
+   *                             nullable: true
+   *                           branchOfficeName: { type: string }
+   *                           status:
+   *                             type: string
+   *                             enum: [pendiente, respondido]
+   *                           respondedAt:
+   *                             type: string
+   *                             format: date-time
+   *                             nullable: true
+   *             example:
+   *               type: success
+   *               title: Objetivos de la ronda
+   *               message: Objetivos obtenidos correctamente
+   *               data:
+   *                 targets:
+   *                   - questionnaireApplicationTargetId: 1
+   *                     employeeId: 42
+   *                     employeeCode: 10042
+   *                     employeePayrollNum: A-10042
+   *                     employeeFullName: Juan Pérez López
+   *                     departmentName: Operaciones
+   *                     positionName: Supervisor
+   *                     branchOfficeName: Sucursal Centro
+   *                     status: pendiente
+   *                     respondedAt: null
+   *                   - questionnaireApplicationTargetId: 2
+   *                     employeeId: 43
+   *                     employeeCode: 10043
+   *                     employeePayrollNum: A-10043
+   *                     employeeFullName: María García Soto
+   *                     departmentName: Recursos Humanos
+   *                     positionName: Analista RH
+   *                     branchOfficeName: Sucursal Centro
+   *                     status: respondido
+   *                     respondedAt: '2026-06-23T17:56:45.793Z'
    *       400:
    *         description: Parámetros inválidos
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Datos inválidos
+   *               key: datos-invalidos
+   *               detail: Datos inválidos
+   *               code: NOM035.QRUN.VAL_INPUT
+   *               data: null
    *       403:
    *         description: Sin permiso para consultar objetivos
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Sin permiso para gestionar aplicaciones de cuestionario
+   *               key: sin-permiso
+   *               detail: Sin permiso para gestionar aplicaciones de cuestionario
+   *               code: NOM035.QRUN.FORBIDDEN
+   *               data: null
    *       404:
    *         description: Aplicación no encontrada o fuera de alcance
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               key: aplicacion-no-encontrada
+   *               detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               code: NOM035.QRUN.NOT_FOUND
+   *               data: null
    */
   async targets(ctx: HttpContext) {
     const { params, request, response, i18n, businessUnitScope } = ctx

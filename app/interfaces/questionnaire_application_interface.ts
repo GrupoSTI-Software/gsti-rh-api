@@ -65,7 +65,12 @@ export interface QuestionnaireApplicationTargetListFilters {
 export interface QuestionnaireApplicationTargetListItem {
   questionnaireApplicationTargetId: number
   employeeId: number
+  employeeCode: number | string
+  employeePayrollNum: string
   employeeFullName: string
+  departmentName: string | null
+  positionName: string | null
+  branchOfficeName: string
   status: QuestionnaireApplicationTargetStatus
   respondedAt: string | null
 }

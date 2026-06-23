@@ -471,6 +471,9 @@ test.group('QuestionnaireApplicationService.listTargets — objetivos por ronda'
       assert.equal(targets[0].employeeId, fixture.employeeId)
       assert.equal(targets[0].status, 'pendiente')
       assert.isString(targets[0].employeeFullName)
+      assert.exists(targets[0].employeeCode)
+      assert.isString(targets[0].employeePayrollNum)
+      assert.isString(targets[0].branchOfficeName)
     } finally {
       await fixture.cleanup()
     }
