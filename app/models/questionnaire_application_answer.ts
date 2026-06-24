@@ -25,6 +25,13 @@ export default class QuestionnaireApplicationAnswer extends BaseModel {
   @column.dateTime({ autoCreate: true, columnName: 'questionnaire_application_answer_created_at' })
   declare questionnaireApplicationAnswerCreatedAt: DateTime
 
+  @column.dateTime({
+    autoCreate: true,
+    autoUpdate: true,
+    columnName: 'questionnaire_application_answer_updated_at',
+  })
+  declare questionnaireApplicationAnswerUpdatedAt: DateTime
+
   @belongsTo(() => QuestionnaireApplicationResponse, {
     foreignKey: 'questionnaireApplicationResponseId',
   })

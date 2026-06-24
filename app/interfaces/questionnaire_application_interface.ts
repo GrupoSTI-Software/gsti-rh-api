@@ -3,6 +3,7 @@ import type {
   QuestionnaireApplicationStatus,
 } from '#models/questionnaire_application'
 import type { QuestionnaireApplicationTargetStatus } from '#models/questionnaire_application_target'
+import type { QuestionnaireApplicationResponseStatus } from '#models/questionnaire_application_response'
 
 export interface CreateQuestionnaireApplicationInput {
   branchOfficeId: number
@@ -84,6 +85,10 @@ export interface SubmitAnswersInput {
   answers: AnswerInput[]
 }
 
+export interface SaveDraftInput {
+  answers: AnswerInput[]
+}
+
 export interface InstrumentForCaptureQuestionOption {
   key: string
   value: number
@@ -118,4 +123,20 @@ export interface SubmitAnswersResult {
   answeredCount: number
   targetStatus: QuestionnaireApplicationTargetStatus
   respondedAt: string
+}
+
+export interface SaveDraftResult {
+  questionnaireApplicationResponseId: number
+  status: QuestionnaireApplicationResponseStatus
+  answeredCount: number
+}
+
+export interface GetResponseResult {
+  questionnaireApplicationResponseId: number
+  status: QuestionnaireApplicationResponseStatus
+  answers: Array<{
+    questionId: number
+    optionKey: string
+    value: number
+  }>
 }

@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import type { I18n } from '@adonisjs/i18n'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import db from '@adonisjs/lucid/services/db'
 import QuestionnaireApplicationService from '#services/questionnaire_application_service'
 import QuestionnaireApplicationTarget from '#models/questionnaire_application_target'
@@ -12,6 +13,9 @@ import type {
   AnswerInput,
   InstrumentForCapture,
   InstrumentForCaptureSection,
+  GetResponseResult,
+  SaveDraftInput,
+  SaveDraftResult,
   SubmitAnswersInput,
   SubmitAnswersResult,
 } from '../interfaces/questionnaire_application_interface.js'
@@ -88,19 +92,6 @@ export default class QuestionnaireApplicationResponseService {
     this.ensureApplicationIsInProgress(application.status, i18n)
     const target = await this.findTargetOrFail(questionnaireApplicationId, employeeId, i18n)
 
-    if (target.questionnaireApplicationTargetStatus === 'respondido') {
-      throw new QuestionnaireApplicationServiceError(
-        this.translate(
-          i18n,
-          'nom035.questionnaire_application.already_answered',
-          'Este empleado ya tiene respuestas registradas para esta ronda'
-        ),
-        QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_ANSWERED,
-        409,
-        'captura-duplicada'
-      )
-    }
-
     const questionnaire = await this.loadQuestionnaireOrFail(application.regulationQuestionnaireId, i18n)
     const questionDefinitions = this.extractQuestionDefinitions(questionnaire.sections)
     this.ensureAnswersAreComplete(input.answers, questionDefinitions, i18n)
@@ -108,24 +99,19 @@ export default class QuestionnaireApplicationResponseService {
 
     const submittedAt = DateTime.utc()
     const response = await db.transaction(async (trx) => {
-      const createdResponse = await QuestionnaireApplicationResponse.create(
-        {
-          questionnaireApplicationId,
-          employeeId,
-          questionnaireApplicationResponseAnsweredCount: normalizedAnswers.length,
-          questionnaireApplicationResponseSubmittedAt: submittedAt,
-        },
-        { client: trx }
+      const upsertedResponse = await this.upsertResponse(
+        trx,
+        questionnaireApplicationId,
+        employeeId,
+        normalizedAnswers.length,
+        'respondido',
+        submittedAt
       )
 
-      await QuestionnaireApplicationAnswer.createMany(
-        normalizedAnswers.map((answer) => ({
-          questionnaireApplicationResponseId: createdResponse.questionnaireApplicationResponseId,
-          regulationQuestionnaireQuestionId: answer.questionId,
-          questionnaireApplicationAnswerOptionKey: answer.optionKey,
-          questionnaireApplicationAnswerValue: answer.value,
-        })),
-        { client: trx }
+      await this.upsertAnswers(
+        trx,
+        upsertedResponse.questionnaireApplicationResponseId,
+        normalizedAnswers
       )
 
       target.useTransaction(trx)
@@ -133,7 +119,7 @@ export default class QuestionnaireApplicationResponseService {
       target.questionnaireApplicationTargetRespondedAt = submittedAt
       await target.save()
 
-      return createdResponse
+      return upsertedResponse
     })
 
     return {
@@ -142,6 +128,96 @@ export default class QuestionnaireApplicationResponseService {
       answeredCount: normalizedAnswers.length,
       targetStatus: 'respondido',
       respondedAt: submittedAt.toISO()!,
+    }
+  }
+
+  async saveDraft(
+    questionnaireApplicationId: number,
+    employeeId: number,
+    input: SaveDraftInput,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<SaveDraftResult> {
+    const application = await this.questionnaireApplicationService.getById(
+      questionnaireApplicationId,
+      allowedBusinessUnitIds,
+      i18n
+    )
+
+    this.ensureApplicationIsInProgress(application.status, i18n)
+    await this.findTargetOrFail(questionnaireApplicationId, employeeId, i18n)
+
+    const questionnaire = await this.loadQuestionnaireOrFail(application.regulationQuestionnaireId, i18n)
+    const questionDefinitions = this.extractQuestionDefinitions(questionnaire.sections)
+    const normalizedAnswers = this.validateAndNormalizeAnswers(input.answers, questionDefinitions, i18n)
+
+    return db.transaction(async (trx) => {
+      const response = await this.upsertResponse(
+        trx,
+        questionnaireApplicationId,
+        employeeId,
+        0,
+        'borrador',
+        null
+      )
+
+      await this.upsertAnswers(trx, response.questionnaireApplicationResponseId, normalizedAnswers)
+
+      const answeredCount = await QuestionnaireApplicationAnswer.query({ client: trx })
+        .where('questionnaire_application_response_id', response.questionnaireApplicationResponseId)
+        .count('* as total')
+        .first()
+
+      response.useTransaction(trx)
+      response.questionnaireApplicationResponseAnsweredCount = Number(answeredCount?.$extras.total ?? 0)
+      response.questionnaireApplicationResponseStatus = 'borrador'
+      response.questionnaireApplicationResponseSubmittedAt = null
+      await response.save()
+
+      return {
+        questionnaireApplicationResponseId: response.questionnaireApplicationResponseId,
+        status: response.questionnaireApplicationResponseStatus,
+        answeredCount: response.questionnaireApplicationResponseAnsweredCount,
+      }
+    })
+  }
+
+  async getResponseForTarget(
+    questionnaireApplicationId: number,
+    employeeId: number,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<GetResponseResult> {
+    await this.questionnaireApplicationService.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
+    await this.findTargetOrFail(questionnaireApplicationId, employeeId, i18n)
+
+    const response = await QuestionnaireApplicationResponse.query()
+      .where('questionnaire_application_id', questionnaireApplicationId)
+      .where('employee_id', employeeId)
+      .preload('answers')
+      .first()
+
+    if (!response) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.target_not_found',
+          'El empleado no forma parte de los objetivos de esta ronda'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.TARGET_NOT_FOUND,
+        404,
+        'empleado-no-objetivo'
+      )
+    }
+
+    return {
+      questionnaireApplicationResponseId: response.questionnaireApplicationResponseId,
+      status: response.questionnaireApplicationResponseStatus,
+      answers: response.answers.map((answer) => ({
+        questionId: answer.regulationQuestionnaireQuestionId,
+        optionKey: answer.questionnaireApplicationAnswerOptionKey,
+        value: answer.questionnaireApplicationAnswerValue,
+      })),
     }
   }
 
@@ -205,6 +281,19 @@ export default class QuestionnaireApplicationResponseService {
       return
     }
 
+    if (status === 'cerrada') {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.application_closed',
+          'No se pueden registrar ni modificar respuestas en una ronda cerrada.'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.APPLICATION_CLOSED,
+        409,
+        'ronda-cerrada'
+      )
+    }
+
     throw new QuestionnaireApplicationServiceError(
       this.translate(
         i18n,
@@ -215,6 +304,72 @@ export default class QuestionnaireApplicationResponseService {
       422,
       'ronda-no-en-curso'
     )
+  }
+
+  private async upsertResponse(
+    trx: TransactionClientContract,
+    questionnaireApplicationId: number,
+    employeeId: number,
+    answeredCount: number,
+    status: 'borrador' | 'respondido',
+    submittedAt: DateTime | null
+  ): Promise<QuestionnaireApplicationResponse> {
+    const existingResponse = await QuestionnaireApplicationResponse.query({ client: trx })
+      .where('questionnaire_application_id', questionnaireApplicationId)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!existingResponse) {
+      return QuestionnaireApplicationResponse.create(
+        {
+          questionnaireApplicationId,
+          employeeId,
+          questionnaireApplicationResponseAnsweredCount: answeredCount,
+          questionnaireApplicationResponseStatus: status,
+          questionnaireApplicationResponseSubmittedAt: submittedAt,
+        },
+        { client: trx }
+      )
+    }
+
+    existingResponse.useTransaction(trx)
+    existingResponse.questionnaireApplicationResponseAnsweredCount = answeredCount
+    existingResponse.questionnaireApplicationResponseStatus = status
+    existingResponse.questionnaireApplicationResponseSubmittedAt = submittedAt
+    await existingResponse.save()
+
+    return existingResponse
+  }
+
+  private async upsertAnswers(
+    trx: TransactionClientContract,
+    questionnaireApplicationResponseId: number,
+    answers: Array<{ questionId: number; optionKey: string; value: number }>
+  ): Promise<void> {
+    for (const answer of answers) {
+      const existingAnswer = await QuestionnaireApplicationAnswer.query({ client: trx })
+        .where('questionnaire_application_response_id', questionnaireApplicationResponseId)
+        .where('regulation_questionnaire_question_id', answer.questionId)
+        .first()
+
+      if (!existingAnswer) {
+        await QuestionnaireApplicationAnswer.create(
+          {
+            questionnaireApplicationResponseId,
+            regulationQuestionnaireQuestionId: answer.questionId,
+            questionnaireApplicationAnswerOptionKey: answer.optionKey,
+            questionnaireApplicationAnswerValue: answer.value,
+          },
+          { client: trx }
+        )
+        continue
+      }
+
+      existingAnswer.useTransaction(trx)
+      existingAnswer.questionnaireApplicationAnswerOptionKey = answer.optionKey
+      existingAnswer.questionnaireApplicationAnswerValue = answer.value
+      await existingAnswer.save()
+    }
   }
 
   private extractQuestionDefinitions(
