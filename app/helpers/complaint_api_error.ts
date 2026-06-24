@@ -28,15 +28,19 @@ function resolveComplaintMessageKey(error: ComplaintServiceError): string | unde
     'AUTH.COMPLAINT.PERSON_NOT_FOUND': 'complaint_person_not_found',
     'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND': 'complaint_employee_not_found',
     'AUTH.COMPLAINT.FOLIO_GENERATION_FAILED': 'complaint_folio_generation_failed',
-    'caso-no-encontrado': 'complaint_status_not_found',
-    'queja-no-encontrada': 'complaint_not_found',
-    'nota-requerida': 'complaint_note_required',
-    'estatus-sin-cambio': 'complaint_status_unchanged',
-    'archivo-invalido': 'complaint_attachment_invalid_file',
-    'adjunto-no-encontrado': 'complaint_attachment_not_found',
+    'case-not-found': 'complaint_status_not_found',
+    'complaint-not-found': 'complaint_not_found',
+    'note-required': 'complaint_note_required',
+    'status-unchanged': 'complaint_status_unchanged',
+    'invalid-file': 'complaint_attachment_invalid_file',
+    'attachment-not-found': 'complaint_attachment_not_found',
     'complaint-attachment-upload-failed': 'complaint_attachment_upload_failed',
     'complaint-attachment-download-failed': 'complaint_attachment_download_failed',
-    'sin-permiso': 'complaint_forbidden',
+    'permission-denied': 'complaint_forbidden',
+    'reveal-permission-denied': 'complaint_reveal_forbidden',
+    'justification-required': 'complaint_justification_required',
+    'reporter-not-found': 'complaint_reporter_not_found',
+    'invalid-date-range': 'complaint_report_invalid_date_range',
   }
 
   if (error.key && byClientKey[error.key]) {
@@ -53,6 +57,9 @@ function resolveComplaintMessageKey(error: ComplaintServiceError): string | unde
     [COMPLAINT_ERROR_CODES.ATTACHMENT_NOT_FOUND]: 'complaint_attachment_not_found',
     [COMPLAINT_ERROR_CODES.S3_OPERATION_FAILED]: 'complaint_attachment_upload_failed',
     [COMPLAINT_ERROR_CODES.NOTE_REQUIRED]: 'complaint_note_required',
+    [COMPLAINT_ERROR_CODES.JUSTIFICATION_REQUIRED]: 'complaint_justification_required',
+    [COMPLAINT_ERROR_CODES.REVEAL_FORBIDDEN]: 'complaint_reveal_forbidden',
+    [COMPLAINT_ERROR_CODES.DATE_RANGE_INVALID]: 'complaint_report_invalid_date_range',
   }
 
   return byErrorCode[error.errorCode]

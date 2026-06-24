@@ -26,12 +26,32 @@ router
       .use(middleware.businessScopeOptional())
 
     router
+      .get('/report/export', '#controllers/complaint_controller.reportExport')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .get('/report', '#controllers/complaint_controller.report')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
       .get('/:complaintId/history', '#controllers/complaint_controller.history')
       .use(middleware.auth())
       .use(middleware.businessScopeOptional())
 
     router
       .patch('/:complaintId/status', '#controllers/complaint_controller.patchStatus')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .post('/:complaintId/reveal-identity', '#controllers/complaint_controller.revealIdentity')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
+      .get('/:complaintId/reveal-history', '#controllers/complaint_controller.revealHistory')
       .use(middleware.auth())
       .use(middleware.businessScopeOptional())
 

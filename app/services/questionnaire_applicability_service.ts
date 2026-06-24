@@ -76,6 +76,18 @@ export default class QuestionnaireApplicabilityService {
     return countMap
   }
 
+  static async getActiveEmployeeIdsByBranch(branchOfficeId: number): Promise<number[]> {
+    const rows = await db
+      .from('employee_branch_offices as ebo')
+      .innerJoin('employees as e', 'e.employee_id', 'ebo.employee_id')
+      .where('ebo.branch_office_id', branchOfficeId)
+      .where('ebo.employee_branch_office_active', 1)
+      .whereNull('e.employee_deleted_at')
+      .distinct('ebo.employee_id as employeeId')
+
+    return rows.map((row) => Number((row as { employeeId: number | string }).employeeId))
+  }
+
   static async getByBusinessUnit(
     businessUnitId: number,
     i18n: I18n
