@@ -47,6 +47,7 @@ type QuestionnaireApplicationTargetRow = {
   positionName: string | null
   branchOfficeName: string
   status: 'pendiente' | 'respondido'
+  responseStatus: 'borrador' | 'respondido' | null
   respondedAt: string | Date | null
 }
 
@@ -287,6 +288,12 @@ export default class QuestionnaireApplicationService {
       .join('questionnaire_applications as qa', 'qa.questionnaire_application_id', 'qat.questionnaire_application_id')
       .join('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
       .join('employees as e', 'e.employee_id', 'qat.employee_id')
+      .leftJoin('questionnaire_application_responses as qar', (join) => {
+        join
+          .on('qar.questionnaire_application_id', 'qat.questionnaire_application_id')
+          .andOn('qar.employee_id', 'qat.employee_id')
+          .andOnNull('qar.questionnaire_application_response_deleted_at')
+      })
       .leftJoin('departments as d', 'd.department_id', 'e.department_id')
       .leftJoin('positions as p', 'p.position_id', 'e.position_id')
       .where('qat.questionnaire_application_id', questionnaireApplicationId)
@@ -309,6 +316,7 @@ export default class QuestionnaireApplicationService {
         'p.position_name as positionName',
         'bo.branch_office_name as branchOfficeName',
         'qat.questionnaire_application_target_status as status',
+        'qar.questionnaire_application_response_status as responseStatus',
         'qat.questionnaire_application_target_responded_at as respondedAt'
       )
       .orderBy('qat.questionnaire_application_target_id', 'asc')) as QuestionnaireApplicationTargetRow[]
@@ -323,6 +331,7 @@ export default class QuestionnaireApplicationService {
       positionName: row.positionName,
       branchOfficeName: row.branchOfficeName,
       status: row.status,
+      captureStatus: row.status === 'respondido' ? 'respondido' : row.responseStatus === 'borrador' ? 'borrador' : 'pendiente',
       respondedAt: this.toIsoUtc(row.respondedAt),
     }))
   }

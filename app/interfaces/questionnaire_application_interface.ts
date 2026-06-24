@@ -63,6 +63,8 @@ export interface QuestionnaireApplicationTargetListFilters {
   search?: string
 }
 
+export type QuestionnaireApplicationCaptureStatus = 'pendiente' | 'borrador' | 'respondido'
+
 export interface QuestionnaireApplicationTargetListItem {
   questionnaireApplicationTargetId: number
   employeeId: number
@@ -73,6 +75,7 @@ export interface QuestionnaireApplicationTargetListItem {
   positionName: string | null
   branchOfficeName: string
   status: QuestionnaireApplicationTargetStatus
+  captureStatus: QuestionnaireApplicationCaptureStatus
   respondedAt: string | null
 }
 

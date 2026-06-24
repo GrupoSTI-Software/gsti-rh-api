@@ -253,6 +253,10 @@ components:
         status:
           type: string
           enum: [pendiente, respondido]
+        captureStatus:
+          type: string
+          enum: [pendiente, borrador, respondido]
+          description: Estado de captura derivado de target + response
         respondedAt:
           type: string
           format: date-time
@@ -4585,8 +4589,9 @@ paths:
       summary: Listar objetivos de una ronda de cuestionario NOM-035
       description: >
         Devuelve la lista de empleados objetivo de la ronda con su estado actual
-        (pendiente/respondido). Permite filtrar por status y buscar por nombre
-        completo para consumo del selector de captura en BO.
+        de objetivo (pendiente/respondido) y su estado de captura derivado
+        (pendiente/borrador/respondido). Permite filtrar por status y buscar por
+        nombre completo para consumo del selector de captura en BO.
       tags: [NOM035]
       security:
         - bearerAuth: []
@@ -4643,6 +4648,7 @@ paths:
                           positionName: Supervisor
                           branchOfficeName: Sucursal Centro
                           status: pendiente
+                          captureStatus: borrador
                           respondedAt: null
                         - questionnaireApplicationTargetId: 2
                           employeeId: 43
@@ -4653,6 +4659,7 @@ paths:
                           positionName: Analista RH
                           branchOfficeName: Sucursal Centro
                           status: respondido
+                          captureStatus: respondido
                           respondedAt: '2026-06-23T17:56:45.793Z'
         '400':
           description: Parámetros inválidos
