@@ -485,6 +485,12 @@ export default class extends BaseSeeder {
         systemModuleId: 7
       },
       {
+        systemPermissionId: 169,
+        systemPermissionName: 'Shift coverage',
+        systemPermissionSlug: 'shift-coverage',
+        systemModuleId: 7
+      },
+      {
         systemPermissionId: 127,
         systemPermissionName: 'Acceder',
         systemPermissionSlug: 'read',
@@ -687,6 +693,12 @@ export default class extends BaseSeeder {
         systemPermissionName: 'Gestionar',
         systemPermissionSlug: 'gestion',
         systemModuleId: 38
+      },
+      {
+        systemPermissionId: 173,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 42
       },
     ]
 

@@ -68,6 +68,7 @@ import ReservationLeg from '#models/reservation_leg'
 import Ws from '#services/ws'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 export default class EmployeeService {
 
   private i18n: I18n
@@ -736,6 +737,20 @@ export default class EmployeeService {
       currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
       currentEmployee.employeeTerminationType = baja.employeeTerminationType
     }
+    const parsedTerminationDate = baja
+      ? DateTime.fromISO(String(baja.employeeTerminatedDate)).isValid
+        ? DateTime.fromISO(String(baja.employeeTerminatedDate))
+        : DateTime.fromSQL(String(baja.employeeTerminatedDate))
+      : DateTime.now()
+    const terminationDate = (parsedTerminationDate.isValid ? parsedTerminationDate : DateTime.now()).toFormat(
+      'yyyy-MM-dd'
+    )
+
+    await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
+      currentEmployee.employeeId,
+      terminationDate
+    )
+
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()

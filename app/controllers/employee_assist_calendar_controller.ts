@@ -34,7 +34,8 @@ export default class EmployeeAssistCalendarController {
    *         description: Number of limit on paginator page
    *     responses:
    *       200:
-   *         description: Resource action successful
+   *         description: |
+   *           Incluye `data.employeeCalendar` y `data.temporaryAssignments` (misma semántica que GET /api/v1/assists).
    *         content:
    *           application/json:
    *             schema:

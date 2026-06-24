@@ -1,0 +1,26 @@
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+router
+  .group(() => {
+    router.get(
+      '/nom035/questionnaire-applicability',
+      '#controllers/questionnaire_applicability_controller.index'
+    )
+    router.get(
+      '/nom035/questionnaire-applicability/:branchOfficeId',
+      '#controllers/questionnaire_applicability_controller.show'
+    )
+
+    router
+      .group(() => {
+        router.get('/', '#controllers/questionnaire_application_controller.index')
+        router.post('/', '#controllers/questionnaire_application_controller.store')
+        router.get('/:id', '#controllers/questionnaire_application_controller.show')
+        router.delete('/:id', '#controllers/questionnaire_application_controller.destroy')
+      })
+      .prefix('/nom035/questionnaire-applications')
+      .use(middleware.businessScopeOptional())
+  })
+  .prefix('/api')
+  .use(middleware.auth())

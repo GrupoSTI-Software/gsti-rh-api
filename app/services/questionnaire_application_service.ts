@@ -1,0 +1,453 @@
+import { DateTime } from 'luxon'
+import type { I18n } from '@adonisjs/i18n'
+import db from '@adonisjs/lucid/services/db'
+import QuestionnaireApplicabilityService from '#services/questionnaire_applicability_service'
+import {
+  INSTRUMENT_TO_QUESTIONNAIRE_CODE,
+  QUESTIONNAIRE_APPLICATION_FOLIO_PREFIX,
+  QUESTIONNAIRE_APPLICATION_OPEN_STATUSES,
+} from '#constants/questionnaire_application'
+import {
+  QUESTIONNAIRE_APPLICATION_ERROR_CODES,
+} from '#constants/questionnaire_application_error_codes'
+import { QuestionnaireApplicationServiceError } from '#exceptions/questionnaire_application_service_error'
+import type {
+  CreateQuestionnaireApplicationInput,
+  QuestionnaireApplicationDetailResult,
+  QuestionnaireApplicationListFilters,
+  QuestionnaireApplicationListItem,
+  QuestionnaireApplicationListResult,
+} from '../interfaces/questionnaire_application_interface.js'
+import type { QuestionnaireApplicationInstrument } from '#models/questionnaire_application'
+
+type QuestionnaireApplicationRow = {
+  questionnaireApplicationId: number | string
+  folio: string
+  branchOfficeId: number | string
+  branchOfficeName: string
+  businessUnitId: number | string
+  regulationQuestionnaireId: number | string
+  applicableInstrument: QuestionnaireApplicationInstrument
+  status: 'borrador' | 'en-curso' | 'cerrada'
+  targetCount: number | string
+  respondedCount: number | string
+  launchedAt: string | Date | null
+  closedAt: string | Date | null
+}
+
+export default class QuestionnaireApplicationService {
+  async launch(
+    input: CreateQuestionnaireApplicationInput,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<QuestionnaireApplicationDetailResult> {
+    const branch = await this.findBranchInScopeOrFail(input.branchOfficeId, allowedBusinessUnitIds, i18n)
+
+    const applicability = await QuestionnaireApplicabilityService.getByBranchOffice(
+      input.branchOfficeId,
+      i18n!
+    )
+
+    if (applicability.applicableInstrument === 'none') {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.not_applicable',
+          'La sucursal no cumple el umbral mínimo para lanzar cuestionario'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_APPLICABLE,
+        422,
+        'sucursal-no-aplicable'
+      )
+    }
+
+    const hasOpenApplication = await db
+      .from('questionnaire_applications')
+      .where('branch_office_id', input.branchOfficeId)
+      .whereIn('questionnaire_application_status', [...QUESTIONNAIRE_APPLICATION_OPEN_STATUSES])
+      .whereNull('questionnaire_application_deleted_at')
+      .first()
+
+    if (hasOpenApplication) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.already_open',
+          'Ya existe una aplicación abierta para la sucursal'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_OPEN,
+        409,
+        'aplicacion-abierta'
+      )
+    }
+
+    const questionnaireCode = INSTRUMENT_TO_QUESTIONNAIRE_CODE[applicability.applicableInstrument]
+    const regulationQuestionnaire = await db
+      .from('regulation_questionnaires')
+      .where('regulation_questionnaire_code', questionnaireCode)
+      .whereNull('deleted_at')
+      .first()
+
+    if (!regulationQuestionnaire) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.questionnaire_not_found',
+          'No se encontró el cuestionario regulatorio configurado para el instrumento'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.SYS_UNHANDLED,
+        500
+      )
+    }
+
+    const employeeIds = await QuestionnaireApplicabilityService.getActiveEmployeeIdsByBranch(
+      input.branchOfficeId
+    )
+    const now = DateTime.utc().toSQL({ includeOffset: false })!
+    const folio = await this.generateUniqueFolio(i18n)
+    const [questionnaireApplicationId] = await db.transaction(async (trx) => {
+      const insertResult = await trx.table('questionnaire_applications').insert({
+        business_unit_id: branch.businessUnitId,
+        branch_office_id: input.branchOfficeId,
+        regulation_questionnaire_id: regulationQuestionnaire.regulation_questionnaire_id,
+        questionnaire_application_folio: folio,
+        questionnaire_application_instrument: applicability.applicableInstrument,
+        questionnaire_application_status: 'en-curso',
+        questionnaire_application_launched_at: now,
+        questionnaire_application_closed_at: null,
+        questionnaire_application_created_at: now,
+        questionnaire_application_updated_at: now,
+      })
+
+      const applicationId = Number(insertResult[0])
+
+      if (employeeIds.length > 0) {
+        const targetRows = employeeIds.map((employeeId) => ({
+          questionnaire_application_id: applicationId,
+          employee_id: employeeId,
+          questionnaire_application_target_status: 'pendiente',
+          questionnaire_application_target_responded_at: null,
+          questionnaire_application_target_created_at: now,
+          questionnaire_application_target_updated_at: now,
+        }))
+        await trx.table('questionnaire_application_targets').insert(targetRows)
+      }
+
+      return [applicationId]
+    })
+
+    return this.getById(Number(questionnaireApplicationId), allowedBusinessUnitIds, i18n)
+  }
+
+  async listPaginated(
+    filters: QuestionnaireApplicationListFilters,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<QuestionnaireApplicationListResult> {
+    const safePage = Math.max(filters.page ?? 1, 1)
+    const safeLimit = Math.min(Math.max(filters.limit ?? 20, 1), 100)
+    const offset = (safePage - 1) * safeLimit
+
+    const baseQuery = this.baseListQuery(allowedBusinessUnitIds, filters)
+    const totalRow = await baseQuery
+      .clone()
+      .clearSelect()
+      .countDistinct('qa.questionnaire_application_id as total')
+      .first()
+    const total = Number((totalRow as { total?: string | number } | undefined)?.total ?? 0)
+    const lastPage = Math.max(Math.ceil(total / safeLimit), 1)
+
+    const rows = (await baseQuery
+      .clone()
+      .select(
+        'qa.questionnaire_application_id as questionnaireApplicationId',
+        'qa.questionnaire_application_folio as folio',
+        'qa.branch_office_id as branchOfficeId',
+        'bo.branch_office_name as branchOfficeName',
+        'qa.business_unit_id as businessUnitId',
+        'qa.regulation_questionnaire_id as regulationQuestionnaireId',
+        'qa.questionnaire_application_instrument as applicableInstrument',
+        'qa.questionnaire_application_status as status',
+        'qa.questionnaire_application_launched_at as launchedAt',
+        'qa.questionnaire_application_closed_at as closedAt',
+        db.raw('COUNT(qat.questionnaire_application_target_id) as targetCount'),
+        db.raw(
+          "SUM(CASE WHEN qat.questionnaire_application_target_status = 'respondido' THEN 1 ELSE 0 END) as respondedCount"
+        )
+      )
+      .groupBy(
+        'qa.questionnaire_application_id',
+        'qa.questionnaire_application_folio',
+        'qa.branch_office_id',
+        'bo.branch_office_name',
+        'qa.business_unit_id',
+        'qa.regulation_questionnaire_id',
+        'qa.questionnaire_application_instrument',
+        'qa.questionnaire_application_status',
+        'qa.questionnaire_application_launched_at',
+        'qa.questionnaire_application_closed_at'
+      )
+      .orderBy('qa.questionnaire_application_launched_at', 'desc')
+      .limit(safeLimit)
+      .offset(offset)) as QuestionnaireApplicationRow[]
+
+    return {
+      meta: {
+        total,
+        perPage: safeLimit,
+        currentPage: safePage,
+        lastPage,
+        firstPage: 1,
+      },
+      data: rows.map((row) => this.serializeListRow(row)),
+    }
+  }
+
+  async getById(
+    questionnaireApplicationId: number,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<QuestionnaireApplicationDetailResult> {
+    const row = (await this.baseListQuery(allowedBusinessUnitIds, {})
+      .clone()
+      .where('qa.questionnaire_application_id', questionnaireApplicationId)
+      .select(
+        'qa.questionnaire_application_id as questionnaireApplicationId',
+        'qa.questionnaire_application_folio as folio',
+        'qa.branch_office_id as branchOfficeId',
+        'bo.branch_office_name as branchOfficeName',
+        'qa.business_unit_id as businessUnitId',
+        'qa.regulation_questionnaire_id as regulationQuestionnaireId',
+        'qa.questionnaire_application_instrument as applicableInstrument',
+        'qa.questionnaire_application_status as status',
+        'qa.questionnaire_application_launched_at as launchedAt',
+        'qa.questionnaire_application_closed_at as closedAt',
+        db.raw('COUNT(qat.questionnaire_application_target_id) as targetCount'),
+        db.raw(
+          "SUM(CASE WHEN qat.questionnaire_application_target_status = 'respondido' THEN 1 ELSE 0 END) as respondedCount"
+        )
+      )
+      .groupBy(
+        'qa.questionnaire_application_id',
+        'qa.questionnaire_application_folio',
+        'qa.branch_office_id',
+        'bo.branch_office_name',
+        'qa.business_unit_id',
+        'qa.regulation_questionnaire_id',
+        'qa.questionnaire_application_instrument',
+        'qa.questionnaire_application_status',
+        'qa.questionnaire_application_launched_at',
+        'qa.questionnaire_application_closed_at'
+      )
+      .first()) as QuestionnaireApplicationRow | null
+
+    if (!row) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.not_found',
+          'La aplicación de cuestionario no existe o está fuera de alcance'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_FOUND,
+        404,
+        'aplicacion-no-encontrada'
+      )
+    }
+
+    return this.serializeDetailRow(row)
+  }
+
+  async softDelete(
+    questionnaireApplicationId: number,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<void> {
+    const row = await db
+      .from('questionnaire_applications as qa')
+      .where('qa.questionnaire_application_id', questionnaireApplicationId)
+      .whereNull('qa.questionnaire_application_deleted_at')
+      .if(allowedBusinessUnitIds.length > 0, (query) => {
+        query.whereIn('qa.business_unit_id', allowedBusinessUnitIds)
+      })
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
+      .first()
+
+    if (!row) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.not_found',
+          'La aplicación de cuestionario no existe o está fuera de alcance'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_FOUND,
+        404,
+        'aplicacion-no-encontrada'
+      )
+    }
+
+    const responseRow = await db
+      .from('questionnaire_application_targets')
+      .where('questionnaire_application_id', questionnaireApplicationId)
+      .where('questionnaire_application_target_status', 'respondido')
+      .count('questionnaire_application_target_id as respondedCount')
+      .first()
+    const respondedCount = Number(
+      (responseRow as { respondedCount?: string | number } | undefined)?.respondedCount ?? 0
+    )
+
+    if (respondedCount > 0) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.has_responses',
+          'No se puede eliminar una aplicación con respuestas capturadas'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.HAS_RESPONSES,
+        422,
+        'aplicacion-con-respuestas'
+      )
+    }
+
+    await db
+      .from('questionnaire_applications')
+      .where('questionnaire_application_id', questionnaireApplicationId)
+      .update({
+        questionnaire_application_deleted_at: DateTime.utc().toSQL({ includeOffset: false }),
+        questionnaire_application_updated_at: DateTime.utc().toSQL({ includeOffset: false }),
+      })
+  }
+
+  private baseListQuery(allowedBusinessUnitIds: number[], filters: QuestionnaireApplicationListFilters) {
+    return db
+      .from('questionnaire_applications as qa')
+      .leftJoin('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
+      .leftJoin(
+        'questionnaire_application_targets as qat',
+        'qat.questionnaire_application_id',
+        'qa.questionnaire_application_id'
+      )
+      .whereNull('qa.questionnaire_application_deleted_at')
+      .whereNull('bo.branch_office_deleted_at')
+      .if(allowedBusinessUnitIds.length > 0, (query) => {
+        query.whereIn('qa.business_unit_id', allowedBusinessUnitIds)
+      })
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
+      .if(!!filters.branchOfficeId, (query) => {
+        query.where('qa.branch_office_id', filters.branchOfficeId!)
+      })
+      .if(!!filters.status, (query) => {
+        query.where('qa.questionnaire_application_status', filters.status!)
+      })
+  }
+
+  private async findBranchInScopeOrFail(
+    branchOfficeId: number,
+    allowedBusinessUnitIds: number[],
+    i18n?: I18n
+  ): Promise<{ branchOfficeId: number; businessUnitId: number }> {
+    const branch = await db
+      .from('branch_offices')
+      .where('branch_office_id', branchOfficeId)
+      .whereNull('branch_office_deleted_at')
+      .if(allowedBusinessUnitIds.length > 0, (query) => {
+        query.whereIn('business_unit_id', allowedBusinessUnitIds)
+      })
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
+      .select('branch_office_id as branchOfficeId', 'business_unit_id as businessUnitId')
+      .first()
+
+    if (!branch) {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.branch_not_found',
+          'Sucursal no encontrada o fuera del alcance del usuario'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_FOUND_BRANCH,
+        404,
+        'sucursal-no-encontrada'
+      )
+    }
+
+    return {
+      branchOfficeId: Number((branch as { branchOfficeId: number | string }).branchOfficeId),
+      businessUnitId: Number((branch as { businessUnitId: number | string }).businessUnitId),
+    }
+  }
+
+  private serializeListRow(row: QuestionnaireApplicationRow): QuestionnaireApplicationListItem {
+    return {
+      questionnaireApplicationId: Number(row.questionnaireApplicationId),
+      folio: row.folio,
+      branchOfficeId: Number(row.branchOfficeId),
+      branchOfficeName: row.branchOfficeName,
+      applicableInstrument: row.applicableInstrument,
+      status: row.status,
+      targetCount: Number(row.targetCount),
+      respondedCount: Number(row.respondedCount),
+      launchedAt: this.toIsoUtc(row.launchedAt)!,
+    }
+  }
+
+  private serializeDetailRow(row: QuestionnaireApplicationRow): QuestionnaireApplicationDetailResult {
+    return {
+      ...this.serializeListRow(row),
+      businessUnitId: Number(row.businessUnitId),
+      regulationQuestionnaireId: Number(row.regulationQuestionnaireId),
+      closedAt: this.toIsoUtc(row.closedAt),
+    }
+  }
+
+  private toIsoUtc(value: string | Date | null): string | null {
+    if (!value) return null
+    if (value instanceof Date) {
+      return DateTime.fromJSDate(value, { zone: 'utc' }).toISO()
+    }
+
+    const sqlDate = DateTime.fromSQL(value, { zone: 'utc' })
+    if (sqlDate.isValid) return sqlDate.toISO()
+
+    const isoDate = DateTime.fromISO(value, { zone: 'utc' })
+    if (isoDate.isValid) return isoDate.toISO()
+
+    return null
+  }
+
+  private translate(i18n: I18n | undefined, key: string, fallback: string): string {
+    if (!i18n) return fallback
+    const translated = i18n.formatMessage(key)
+    return translated === key ? fallback : translated
+  }
+
+  private async generateUniqueFolio(i18n?: I18n): Promise<string> {
+    const year = DateTime.utc().year
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const suffix = String(Math.floor(100000 + Math.random() * 900000))
+      const folio = `${QUESTIONNAIRE_APPLICATION_FOLIO_PREFIX}-${year}-${suffix}`
+      const existing = await db
+        .from('questionnaire_applications')
+        .where('questionnaire_application_folio', folio)
+        .first()
+      if (!existing) {
+        return folio
+      }
+    }
+
+    throw new QuestionnaireApplicationServiceError(
+      this.translate(
+        i18n,
+        'nom035.questionnaire_application.folio_generation_failed',
+        'No se pudo generar un folio único para la aplicación'
+      ),
+      QUESTIONNAIRE_APPLICATION_ERROR_CODES.FOLIO_GENERATION_FAILED,
+      500,
+      'folio-no-generado'
+    )
+  }
+}
