@@ -5,7 +5,10 @@ import { QUESTIONNAIRE_APPLICATION_ERROR_CODES } from '#constants/questionnaire_
 import { QuestionnaireApplicationServiceError } from '#exceptions/questionnaire_application_service_error'
 import { resolveQuestionnaireApplicationApiError } from '../helpers/questionnaire_application_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
-import { submitQuestionnaireApplicationAnswersValidator } from '#validators/questionnaire_application_response'
+import {
+  saveDraftQuestionnaireApplicationAnswersValidator,
+  submitQuestionnaireApplicationAnswersValidator,
+} from '#validators/questionnaire_application_response'
 
 export default class QuestionnaireApplicationResponseController {
   private async checkPermission(ctx: HttpContext, action: 'read' | 'write'): Promise<boolean> {
@@ -229,6 +232,257 @@ export default class QuestionnaireApplicationResponseController {
 
   /**
    * @swagger
+   * /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/draft:
+   *   put:
+   *     summary: Guardar borrador de respuestas por empleado objetivo
+   *     tags: [NOM035]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [answers]
+   *             properties:
+   *               answers:
+   *                 type: array
+   *                 items:
+   *                   type: object
+   *                   required: [questionId, optionKey]
+   *                   properties:
+   *                     questionId:
+   *                       type: integer
+   *                     optionKey:
+   *                       type: string
+   *     responses:
+   *       200:
+   *         description: Borrador guardado correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     questionnaireApplicationResponse:
+   *                       type: object
+   *                       properties:
+   *                         questionnaireApplicationResponseId:
+   *                           type: integer
+   *                         status:
+   *                           type: string
+   *                           enum: [borrador]
+   *                         answeredCount:
+   *                           type: integer
+   *       409:
+   *         description: Ronda cerrada
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: No se pueden registrar ni modificar respuestas en una ronda cerrada.
+   *               key: ronda-cerrada
+   *               detail: No se pueden registrar ni modificar respuestas en una ronda cerrada.
+   *               code: NOM035.QRUN.APPLICATION_CLOSED
+   *               data: null
+   */
+  async draft(ctx: HttpContext) {
+    const { request, params, response, i18n, businessUnitScope } = ctx
+    try {
+      if (!(await this.checkPermission(ctx, 'write'))) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.forbidden'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN,
+          403,
+          'sin-permiso'
+        )
+      }
+
+      const questionnaireApplicationId = this.parsePositiveInt(params.id)
+      const employeeId = this.parsePositiveInt(params.employeeId)
+
+      if (!Number.isFinite(questionnaireApplicationId) || !Number.isFinite(employeeId)) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.val_input'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.VAL_INPUT,
+          400,
+          'datos-invalidos'
+        )
+      }
+
+      const payload = await request.validateUsing(saveDraftQuestionnaireApplicationAnswersValidator)
+      const service = new QuestionnaireApplicationResponseService()
+      const result = await service.saveDraft(
+        questionnaireApplicationId,
+        employeeId,
+        payload,
+        businessUnitScope ?? [],
+        i18n
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Captura de respuestas',
+        i18n.formatMessage('nom035.questionnaire_application.draft_saved')
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/response:
+   *   get:
+   *     summary: Obtener captura guardada para retomar o editar
+   *     tags: [NOM035]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *     responses:
+   *       200:
+   *         description: Captura obtenida correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     questionnaireApplicationResponse:
+   *                       type: object
+   *                       properties:
+   *                         questionnaireApplicationResponseId:
+   *                           type: integer
+   *                         status:
+   *                           type: string
+   *                           enum: [borrador, respondido]
+   *                         answers:
+   *                           type: array
+   *                           items:
+   *                             type: object
+   *                             properties:
+   *                               questionId:
+   *                                 type: integer
+   *                               optionKey:
+   *                                 type: string
+   *                               value:
+   *                                 type: integer
+   *       404:
+   *         description: Captura no encontrada para el objetivo
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: El empleado no forma parte de los objetivos de esta ronda
+   *               key: empleado-no-objetivo
+   *               detail: El empleado no forma parte de los objetivos de esta ronda
+   *               code: NOM035.QRUN.TARGET_NOT_FOUND
+   *               data: null
+   */
+  async show(ctx: HttpContext) {
+    const { params, response, i18n, businessUnitScope } = ctx
+    try {
+      if (!(await this.checkPermission(ctx, 'read'))) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.forbidden'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN,
+          403,
+          'sin-permiso'
+        )
+      }
+
+      const questionnaireApplicationId = this.parsePositiveInt(params.id)
+      const employeeId = this.parsePositiveInt(params.employeeId)
+
+      if (!Number.isFinite(questionnaireApplicationId) || !Number.isFinite(employeeId)) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.val_input'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.VAL_INPUT,
+          400,
+          'datos-invalidos'
+        )
+      }
+
+      const service = new QuestionnaireApplicationResponseService()
+      const result = await service.getResponseForTarget(
+        questionnaireApplicationId,
+        employeeId,
+        businessUnitScope ?? [],
+        i18n
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Captura de respuestas',
+        i18n.formatMessage('nom035.questionnaire_application.response_message')
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
    * /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/answers:
    *   post:
    *     summary: Capturar y persistir respuestas de cuestionario por empleado objetivo
@@ -351,16 +605,16 @@ export default class QuestionnaireApplicationResponseController {
    *               code: NOM035.QRUN.TARGET_NOT_FOUND
    *               data: null
    *       409:
-   *         description: Empleado ya respondido
+   *         description: Ronda cerrada
    *         content:
    *           application/json:
    *             example:
    *               type: error
    *               title: Aplicación NOM-035
-   *               message: Este empleado ya tiene respuestas registradas para esta ronda
-   *               key: captura-duplicada
-   *               detail: Este empleado ya tiene respuestas registradas para esta ronda
-   *               code: NOM035.QRUN.ALREADY_ANSWERED
+   *               message: No se pueden registrar ni modificar respuestas en una ronda cerrada.
+   *               key: ronda-cerrada
+   *               detail: No se pueden registrar ni modificar respuestas en una ronda cerrada.
+   *               code: NOM035.QRUN.APPLICATION_CLOSED
    *               data: null
    *       422:
    *         description: Cuestionario incompleto u opción inválida

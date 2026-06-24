@@ -253,6 +253,10 @@ components:
         status:
           type: string
           enum: [pendiente, respondido]
+        captureStatus:
+          type: string
+          enum: [pendiente, borrador, respondido]
+          description: Estado de captura derivado de target + response
         respondedAt:
           type: string
           format: date-time
@@ -293,6 +297,15 @@ components:
         answers:
           type: array
           minItems: 1
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
+
+    QuestionnaireCaptureDraftRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
           items:
             $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
 
@@ -401,6 +414,72 @@ components:
           properties:
             questionnaireApplicationResponse:
               $ref: '#/components/schemas/QuestionnaireApplicationResponseDetail'
+
+    QuestionnaireApplicationDraftDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        status:
+          type: string
+          enum: [borrador]
+        answeredCount:
+          type: integer
+
+    QuestionnaireApplicationDraftSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationDraftDetail'
+
+    QuestionnaireApplicationSavedResponseAnswer:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        optionKey:
+          type: string
+        value:
+          type: integer
+
+    QuestionnaireApplicationSavedResponseDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        status:
+          type: string
+          enum: [borrador, respondido]
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseAnswer'
+
+    QuestionnaireApplicationSavedResponseSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseDetail'
 
     ServicioRegistradoResumen:
       type: object
@@ -4510,8 +4589,9 @@ paths:
       summary: Listar objetivos de una ronda de cuestionario NOM-035
       description: >
         Devuelve la lista de empleados objetivo de la ronda con su estado actual
-        (pendiente/respondido). Permite filtrar por status y buscar por nombre
-        completo para consumo del selector de captura en BO.
+        de objetivo (pendiente/respondido) y su estado de captura derivado
+        (pendiente/borrador/respondido). Permite filtrar por status y buscar por
+        nombre completo para consumo del selector de captura en BO.
       tags: [NOM035]
       security:
         - bearerAuth: []
@@ -4536,6 +4616,13 @@ paths:
             type: string
             enum: [pendiente, respondido]
           description: Filtra objetivos por estado
+        - name: captureStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, borrador, respondido]
+          description: Filtra objetivos por estado de captura derivado
         - name: search
           in: query
           required: false
@@ -4568,6 +4655,7 @@ paths:
                           positionName: Supervisor
                           branchOfficeName: Sucursal Centro
                           status: pendiente
+                          captureStatus: borrador
                           respondedAt: null
                         - questionnaireApplicationTargetId: 2
                           employeeId: 43
@@ -4578,6 +4666,7 @@ paths:
                           positionName: Analista RH
                           branchOfficeName: Sucursal Centro
                           status: respondido
+                          captureStatus: respondido
                           respondedAt: '2026-06-23T17:56:45.793Z'
         '400':
           description: Parámetros inválidos
@@ -4730,13 +4819,133 @@ paths:
               schema:
                 $ref: '#/components/schemas/Nom035QrunError'
         '409':
-          description: Empleado ya respondido
+          description: Ronda cerrada
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Nom035QrunError'
         '422':
           description: Cuestionario incompleto u opción inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/draft:
+    put:
+      summary: Guardar borrador de respuestas por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireCaptureDraftRequest'
+      responses:
+        '200':
+          description: Borrador guardado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationDraftSuccess'
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para guardar borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ronda cerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Opción inválida para la escala de la pregunta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/response:
+    get:
+      summary: Obtener captura guardada para retomar o editar
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Captura obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar captura
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Captura no encontrada para el objetivo
           content:
             application/json:
               schema:

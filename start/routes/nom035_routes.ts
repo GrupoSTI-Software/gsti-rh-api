@@ -27,6 +27,14 @@ router
           '/:id/targets/:employeeId/answers',
           '#controllers/questionnaire_application_response_controller.store'
         )
+        router.put(
+          '/:id/targets/:employeeId/draft',
+          '#controllers/questionnaire_application_response_controller.draft'
+        )
+        router.get(
+          '/:id/targets/:employeeId/response',
+          '#controllers/questionnaire_application_response_controller.show'
+        )
       })
       .prefix('/nom035/questionnaire-applications')
       .use(middleware.businessScopeOptional())

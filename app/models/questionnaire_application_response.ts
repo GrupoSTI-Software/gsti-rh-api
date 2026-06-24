@@ -7,6 +7,8 @@ import QuestionnaireApplication from '#models/questionnaire_application'
 import Employee from '#models/employee'
 import QuestionnaireApplicationAnswer from '#models/questionnaire_application_answer'
 
+export type QuestionnaireApplicationResponseStatus = 'borrador' | 'respondido'
+
 export default class QuestionnaireApplicationResponse extends compose(BaseModel, SoftDeletes) {
   static table = 'questionnaire_application_responses'
 
@@ -22,8 +24,11 @@ export default class QuestionnaireApplicationResponse extends compose(BaseModel,
   @column()
   declare questionnaireApplicationResponseAnsweredCount: number
 
+  @column()
+  declare questionnaireApplicationResponseStatus: QuestionnaireApplicationResponseStatus
+
   @column.dateTime()
-  declare questionnaireApplicationResponseSubmittedAt: DateTime
+  declare questionnaireApplicationResponseSubmittedAt: DateTime | null
 
   @column.dateTime({ autoCreate: true })
   declare questionnaireApplicationResponseCreatedAt: DateTime

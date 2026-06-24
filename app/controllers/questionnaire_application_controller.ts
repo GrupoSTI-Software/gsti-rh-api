@@ -476,8 +476,9 @@ export default class QuestionnaireApplicationController {
    *     summary: Listar objetivos de una ronda de cuestionario NOM-035
    *     description: >
    *       Devuelve la lista de empleados objetivo de la ronda con su estado
-   *       (pendiente/respondido). Permite filtrar por status y búsqueda por
-   *       nombre completo para consumo del selector de captura en BO.
+   *       de objetivo (pendiente/respondido) y el estado de captura derivado
+   *       (pendiente/borrador/respondido). Permite filtrar por status y búsqueda
+   *       por nombre completo para consumo del selector de captura en BO.
    *     tags: [NOM035]
    *     security:
    *       - bearerAuth: []
@@ -500,6 +501,12 @@ export default class QuestionnaireApplicationController {
    *         schema:
    *           type: string
    *           enum: [pendiente, respondido]
+   *       - in: query
+   *         name: captureStatus
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [pendiente, borrador, respondido]
    *       - in: query
    *         name: search
    *         required: false
@@ -547,6 +554,9 @@ export default class QuestionnaireApplicationController {
    *                           status:
    *                             type: string
    *                             enum: [pendiente, respondido]
+   *                           captureStatus:
+   *                             type: string
+   *                             enum: [pendiente, borrador, respondido]
    *                           respondedAt:
    *                             type: string
    *                             format: date-time
@@ -566,6 +576,7 @@ export default class QuestionnaireApplicationController {
    *                     positionName: Supervisor
    *                     branchOfficeName: Sucursal Centro
    *                     status: pendiente
+   *                     captureStatus: borrador
    *                     respondedAt: null
    *                   - questionnaireApplicationTargetId: 2
    *                     employeeId: 43
@@ -576,6 +587,7 @@ export default class QuestionnaireApplicationController {
    *                     positionName: Analista RH
    *                     branchOfficeName: Sucursal Centro
    *                     status: respondido
+   *                     captureStatus: respondido
    *                     respondedAt: '2026-06-23T17:56:45.793Z'
    *       400:
    *         description: Parámetros inválidos

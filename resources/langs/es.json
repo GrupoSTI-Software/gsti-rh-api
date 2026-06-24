@@ -622,6 +622,7 @@
       "branch_not_found": "Sucursal no encontrada o fuera del alcance del usuario",
       "already_open": "Ya existe una aplicación abierta para la sucursal",
       "already_answered": "Este empleado ya tiene respuestas registradas para esta ronda",
+      "application_closed": "No se pueden registrar ni modificar respuestas en una ronda cerrada.",
       "incomplete_answers": "Debes responder todas las preguntas del cuestionario antes de guardar",
       "invalid_answer_option": "La opción seleccionada no pertenece a la escala de la pregunta",
       "target_not_found": "El empleado no forma parte de los objetivos de esta ronda",
@@ -629,7 +630,9 @@
       "not_found": "Aplicación de cuestionario no encontrada o fuera del alcance del usuario",
       "has_responses": "No se puede eliminar una aplicación con respuestas capturadas",
       "folio_generation_failed": "No se pudo generar un folio único para la aplicación",
-      "questionnaire_not_found": "No se encontró el cuestionario regulatorio configurado para el instrumento"
+      "questionnaire_not_found": "No se encontró el cuestionario regulatorio configurado para el instrumento",
+      "draft_saved": "Borrador guardado correctamente",
+      "response_message": "Captura en curso obtenida correctamente"
     },
     "retention_policy": {
       "title": "Política de retención NOM-035",

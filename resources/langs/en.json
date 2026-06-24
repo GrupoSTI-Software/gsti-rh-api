@@ -619,6 +619,7 @@
       "branch_not_found": "Branch office not found or outside user scope",
       "already_open": "An open application already exists for this branch office",
       "already_answered": "This employee already has recorded responses for this round",
+      "application_closed": "Responses cannot be created or modified in a closed round.",
       "incomplete_answers": "You must answer all questionnaire questions before saving",
       "invalid_answer_option": "The selected option does not belong to the question scale",
       "target_not_found": "The employee is not part of this round targets",
@@ -626,7 +627,9 @@
       "not_found": "Questionnaire application not found or outside user scope",
       "has_responses": "Cannot delete an application with captured responses",
       "folio_generation_failed": "Could not generate a unique application folio",
-      "questionnaire_not_found": "Configured regulatory questionnaire was not found for the instrument"
+      "questionnaire_not_found": "Configured regulatory questionnaire was not found for the instrument",
+      "draft_saved": "Draft saved successfully",
+      "response_message": "In-progress response fetched successfully"
     },
     "retention_policy": {
       "title": "NOM-035 Retention Policy",

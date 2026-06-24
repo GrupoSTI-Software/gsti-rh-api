@@ -41,6 +41,8 @@ function resolveMessageKey(error: QuestionnaireApplicationServiceError): string 
       'nom035.questionnaire_application.incomplete_answers',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.INVALID_ANSWER_OPTION]:
       'nom035.questionnaire_application.invalid_answer_option',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.APPLICATION_CLOSED]:
+      'nom035.questionnaire_application.application_closed',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_ANSWERED]:
       'nom035.questionnaire_application.already_answered',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.TARGET_NOT_FOUND]:
