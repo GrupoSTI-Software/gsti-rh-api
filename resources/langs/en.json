@@ -633,6 +633,8 @@
   "employee_lactation_period_exception_type_missing_detail": "The 'lactation' exception type is not configured. Run the corresponding seeder to enable shift exception generation.",
   "employee_lactation_period_no_active_shift_title": "Employee has no active shift in the period range",
   "employee_lactation_period_no_active_shift_detail": "The employee does not have any active shift in the lactation period range. Assign a shift before regenerating the exceptions.",
+  "employee_lactation_period_child_not_owned_title": "Child does not belong to the employee",
+  "employee_lactation_period_child_not_owned_detail": "The selected child belongs to another employee or no longer exists. Open the selector again and pick one of this employee's registered children.",
   "employee_lactation_period_shift_exceptions_regenerated": "Shift exceptions regenerated successfully",
   "employee_lactation_period_evidence": "Lactation evidence",
   "employee_lactation_period_evidences": "Lactation evidences",

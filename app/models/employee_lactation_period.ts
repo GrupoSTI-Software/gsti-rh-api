@@ -4,6 +4,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from '#models/employee'
+import EmployeeChildren from '#models/employee_children'
 
 /**
  * Tipo de aplicación del horario de lactancia.
@@ -54,6 +55,30 @@ export type EmployeeLactationPeriodReductionApplication = 'start' | 'end' | 'spl
  *           nullable: true
  *           maxLength: 500
  *           description: Observaciones adicionales del periodo.
+ *         employeeChildrenId:
+ *           type: integer
+ *           nullable: true
+ *           description: |
+ *             Vínculo OPCIONAL al hijo registrado de la empleada que justifica
+ *             el derecho de lactancia. FK a `employee_children.employee_children_id`
+ *             con `ON DELETE SET NULL`: si se borra el hijo, el periodo se
+ *             conserva con el vínculo en nulo. Si se envía, debe pertenecer
+ *             al mismo empleado del periodo (validación en el service,
+ *             422 con key `hijo-no-pertenece-al-empleado`).
+ *         employeeChild:
+ *           type: object
+ *           nullable: true
+ *           description: |
+ *             Mini-objeto del hijo vinculado (preload de la relación
+ *             `belongsTo`). Sólo se expone en respuestas de list/create/update
+ *             cuando hay vínculo, para que la card del front pinte el chip
+ *             sin un round-trip adicional.
+ *           properties:
+ *             employeeChildrenId: { type: integer }
+ *             employeeChildrenFirstname: { type: string }
+ *             employeeChildrenLastname: { type: string }
+ *             employeeChildrenSecondLastname: { type: string }
+ *             employeeChildrenBirthday: { type: string, format: date, nullable: true }
  *         employeeLactationPeriodCreatedAt:
  *           type: string
  *           format: date-time
@@ -90,6 +115,16 @@ export default class EmployeeLactationPeriod extends compose(BaseModel, SoftDele
   @column()
   declare employeeLactationPeriodNotes: string | null
 
+  /**
+   * Vínculo OPCIONAL al hijo registrado de la empleada. Es `null` cuando:
+   *   1. El usuario no eligió un hijo al capturar (escenario común
+   *      cuando aún no se actualizó el expediente de hijos).
+   *   2. El hijo previamente vinculado fue eliminado (FK
+   *      `ON DELETE SET NULL` definida en la migración).
+   */
+  @column()
+  declare employeeChildrenId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare employeeLactationPeriodCreatedAt: DateTime
 
@@ -103,4 +138,14 @@ export default class EmployeeLactationPeriod extends compose(BaseModel, SoftDele
     foreignKey: 'employeeId',
   })
   declare employee: BelongsTo<typeof Employee>
+
+  /**
+   * Relación BelongsTo opcional. El preload puede traer `null` cuando
+   * el periodo se guardó sin hijo vinculado o cuando el hijo fue
+   * eliminado posteriormente (FK SET NULL).
+   */
+  @belongsTo(() => EmployeeChildren, {
+    foreignKey: 'employeeChildrenId',
+  })
+  declare employeeChild: BelongsTo<typeof EmployeeChildren>
 }
