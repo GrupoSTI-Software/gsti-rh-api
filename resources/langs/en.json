@@ -611,11 +611,17 @@
       "index_message": "Questionnaire applications fetched successfully",
       "show_message": "Questionnaire application fetched successfully",
       "store_message": "Questionnaire application launched successfully",
+      "store_response_message": "Responses saved successfully",
+      "targets_message": "Targets fetched successfully",
       "delete_message": "Questionnaire application deleted successfully",
       "val_input": "Invalid data",
       "not_applicable": "Branch office is not applicable for questionnaire launch",
       "branch_not_found": "Branch office not found or outside user scope",
       "already_open": "An open application already exists for this branch office",
+      "already_answered": "This employee already has recorded responses for this round",
+      "incomplete_answers": "You must answer all questionnaire questions before saving",
+      "invalid_answer_option": "The selected option does not belong to the question scale",
+      "target_not_found": "The employee is not part of this round targets",
       "forbidden": "You do not have permission to manage questionnaire applications",
       "not_found": "Questionnaire application not found or outside user scope",
       "has_responses": "Cannot delete an application with captured responses",
@@ -1827,7 +1833,13 @@
     "intent_set_success": "Onboarding intent saved successfully.",
     "step_completed_success": "Step completed successfully.",
     "step_skipped_success": "Step skipped successfully.",
-    "status_set_success": "Onboarding status updated successfully."
+    "status_set_success": "Onboarding status updated successfully.",
+    "trial_access_title": "Temporary access generated",
+    "trial_access_detail": "The trial link is valid for 30 minutes and single-use.",
+    "trial_access_invalid_params_title": "Invalid parameters",
+    "trial_access_invalid_params_detail": "The userId field is required and must be a valid number.",
+    "trial_access_user_not_found_title": "User not found",
+    "trial_access_user_not_found_detail": "The specified user does not exist or is not active."
   },
   "consent": {
     "errors": {

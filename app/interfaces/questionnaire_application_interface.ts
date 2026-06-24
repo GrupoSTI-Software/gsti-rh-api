@@ -56,3 +56,66 @@ export interface QuestionnaireApplicationTargetRow {
   status: QuestionnaireApplicationTargetStatus
   respondedAt: string | null
 }
+
+export interface QuestionnaireApplicationTargetListFilters {
+  status?: QuestionnaireApplicationTargetStatus
+  search?: string
+}
+
+export interface QuestionnaireApplicationTargetListItem {
+  questionnaireApplicationTargetId: number
+  employeeId: number
+  employeeCode: number | string
+  employeePayrollNum: string
+  employeeFullName: string
+  departmentName: string | null
+  positionName: string | null
+  branchOfficeName: string
+  status: QuestionnaireApplicationTargetStatus
+  respondedAt: string | null
+}
+
+export interface AnswerInput {
+  questionId: number
+  optionKey: string
+}
+
+export interface SubmitAnswersInput {
+  answers: AnswerInput[]
+}
+
+export interface InstrumentForCaptureQuestionOption {
+  key: string
+  value: number
+}
+
+export interface InstrumentForCaptureQuestion {
+  questionId: number
+  textKey: string
+  helpKey: string | null
+  answerScale: {
+    code: string
+    options: InstrumentForCaptureQuestionOption[]
+  }
+}
+
+export interface InstrumentForCaptureSection {
+  titleKey: string
+  ord: number
+  questions: InstrumentForCaptureQuestion[]
+}
+
+export interface InstrumentForCapture {
+  questionnaireApplicationId: number
+  employeeId: number
+  instrument: QuestionnaireApplicationInstrument
+  sections: InstrumentForCaptureSection[]
+}
+
+export interface SubmitAnswersResult {
+  questionnaireApplicationResponseId: number
+  employeeId: number
+  answeredCount: number
+  targetStatus: QuestionnaireApplicationTargetStatus
+  respondedAt: string
+}

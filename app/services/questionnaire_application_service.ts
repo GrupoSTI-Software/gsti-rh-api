@@ -17,6 +17,8 @@ import type {
   QuestionnaireApplicationListFilters,
   QuestionnaireApplicationListItem,
   QuestionnaireApplicationListResult,
+  QuestionnaireApplicationTargetListFilters,
+  QuestionnaireApplicationTargetListItem,
 } from '../interfaces/questionnaire_application_interface.js'
 import type { QuestionnaireApplicationInstrument } from '#models/questionnaire_application'
 
@@ -33,6 +35,19 @@ type QuestionnaireApplicationRow = {
   respondedCount: number | string
   launchedAt: string | Date | null
   closedAt: string | Date | null
+}
+
+type QuestionnaireApplicationTargetRow = {
+  questionnaireApplicationTargetId: number | string
+  employeeId: number | string
+  employeeCode: number | string
+  employeePayrollNum: string
+  employeeFullName: string
+  departmentName: string | null
+  positionName: string | null
+  branchOfficeName: string
+  status: 'pendiente' | 'respondido'
+  respondedAt: string | Date | null
 }
 
 export default class QuestionnaireApplicationService {
@@ -254,6 +269,62 @@ export default class QuestionnaireApplicationService {
     }
 
     return this.serializeDetailRow(row)
+  }
+
+  async listTargets(
+    questionnaireApplicationId: number,
+    filters: QuestionnaireApplicationTargetListFilters,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<QuestionnaireApplicationTargetListItem[]> {
+    await this.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
+
+    const employeeFullNameExpression =
+      "TRIM(CONCAT(COALESCE(e.employee_first_name, ''), ' ', COALESCE(e.employee_last_name, ''), ' ', COALESCE(e.employee_second_last_name, '')))"
+
+    const rows = (await db
+      .from('questionnaire_application_targets as qat')
+      .join('questionnaire_applications as qa', 'qa.questionnaire_application_id', 'qat.questionnaire_application_id')
+      .join('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
+      .join('employees as e', 'e.employee_id', 'qat.employee_id')
+      .leftJoin('departments as d', 'd.department_id', 'e.department_id')
+      .leftJoin('positions as p', 'p.position_id', 'e.position_id')
+      .where('qat.questionnaire_application_id', questionnaireApplicationId)
+      .whereNull('e.employee_deleted_at')
+      .whereNull('qa.questionnaire_application_deleted_at')
+      .whereNull('bo.branch_office_deleted_at')
+      .if(!!filters.status, (query) => {
+        query.where('qat.questionnaire_application_target_status', filters.status!)
+      })
+      .if(!!filters.search, (query) => {
+        query.whereRaw(`${employeeFullNameExpression} LIKE ?`, [`%${filters.search}%`])
+      })
+      .select(
+        'qat.questionnaire_application_target_id as questionnaireApplicationTargetId',
+        'qat.employee_id as employeeId',
+        'e.employee_code as employeeCode',
+        'e.employee_payroll_num as employeePayrollNum',
+        db.raw(`${employeeFullNameExpression} as employeeFullName`),
+        'd.department_name as departmentName',
+        'p.position_name as positionName',
+        'bo.branch_office_name as branchOfficeName',
+        'qat.questionnaire_application_target_status as status',
+        'qat.questionnaire_application_target_responded_at as respondedAt'
+      )
+      .orderBy('qat.questionnaire_application_target_id', 'asc')) as QuestionnaireApplicationTargetRow[]
+
+    return rows.map((row) => ({
+      questionnaireApplicationTargetId: Number(row.questionnaireApplicationTargetId),
+      employeeId: Number(row.employeeId),
+      employeeCode: row.employeeCode,
+      employeePayrollNum: row.employeePayrollNum,
+      employeeFullName: row.employeeFullName,
+      departmentName: row.departmentName,
+      positionName: row.positionName,
+      branchOfficeName: row.branchOfficeName,
+      status: row.status,
+      respondedAt: this.toIsoUtc(row.respondedAt),
+    }))
   }
 
   async softDelete(
