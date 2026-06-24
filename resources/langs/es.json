@@ -624,6 +624,16 @@
       "has_responses": "No se puede eliminar una aplicación con respuestas capturadas",
       "folio_generation_failed": "No se pudo generar un folio único para la aplicación",
       "questionnaire_not_found": "No se encontró el cuestionario regulatorio configurado para el instrumento"
+    },
+    "retention_policy": {
+      "title": "Política de retención NOM-035",
+      "error_title": "Error en política de retención NOM-035",
+      "get_success": "Política de retención obtenida correctamente",
+      "upsert_success": "Política de retención guardada correctamente",
+      "val_input": "Datos inválidos",
+      "invalid_period": "El periodo de retención debe ser al menos 1 año (piso legal NOM-035 §10.4)",
+      "invalid_evidence_type": "Uno o más tipos de evidencia no son válidos para esta política",
+      "forbidden_scope": "No tienes acceso a la política de retención de esta empresa"
     }
   },
   "employee_lactation_period": "Periodo de lactancia",

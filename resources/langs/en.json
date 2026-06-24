@@ -621,6 +621,16 @@
       "has_responses": "Cannot delete an application with captured responses",
       "folio_generation_failed": "Could not generate a unique application folio",
       "questionnaire_not_found": "Configured regulatory questionnaire was not found for the instrument"
+    },
+    "retention_policy": {
+      "title": "NOM-035 Retention Policy",
+      "error_title": "NOM-035 Retention Policy Error",
+      "get_success": "Retention policy fetched successfully",
+      "upsert_success": "Retention policy saved successfully",
+      "val_input": "Invalid data",
+      "invalid_period": "Retention period must be at least 1 year (NOM-035 §10.4 legal minimum)",
+      "invalid_evidence_type": "One or more evidence types are not valid for this policy",
+      "forbidden_scope": "You do not have access to this company's retention policy"
     }
   },
   "employee_lactation_period": "Lactation period",

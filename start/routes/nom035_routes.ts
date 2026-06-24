@@ -21,6 +21,14 @@ router
       })
       .prefix('/nom035/questionnaire-applications')
       .use(middleware.businessScopeOptional())
+
+    router
+      .group(() => {
+        router.get('/', '#controllers/retention_policy_controller.show')
+        router.put('/', '#controllers/retention_policy_controller.upsert')
+      })
+      .prefix('/nom035/retention-policy')
+      .use(middleware.businessScope())
   })
   .prefix('/api')
   .use(middleware.auth())
