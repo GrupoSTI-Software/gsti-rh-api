@@ -631,6 +631,12 @@
       "invalid_period": "Retention period must be at least 1 year (NOM-035 §10.4 legal minimum)",
       "invalid_evidence_type": "One or more evidence types are not valid for this policy",
       "forbidden_scope": "You do not have access to this company's retention policy"
+    },
+    "retention_guard": {
+      "delete_blocked_title": "Deletion blocked by NOM-035 retention policy",
+      "delete_blocked": "This record cannot be deleted yet. It is protected by the company's retention policy until the date indicated in the detail field.",
+      "bulk_delete_blocked_title": "Bulk deletion blocked by NOM-035 retention policy",
+      "bulk_delete_blocked": "One or more records in the batch are protected by the retention policy and cannot be deleted. The blocked identifiers are indicated in the detail field."
     }
   },
   "employee_lactation_period": "Lactation period",
@@ -890,6 +896,7 @@
   "complaint_report_category_violencia_laboral": "Workplace violence",
   "complaint_report_category_entorno": "Work environment",
   "complaint_report_category_otro": "Other",
+  "complaint_deleted_success": "Complaint deleted successfully",
   "complaint_not_found": "The complaint does not exist or is outside your scope",
   "complaint_forbidden": "You do not have permission for this operation on the complaint mailbox",
   "complaint_unauthorized": "User is not authenticated",

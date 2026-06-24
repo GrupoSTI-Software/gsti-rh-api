@@ -11,6 +11,7 @@ import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
 import ComplaintNotificationService from '#services/complaint_notification_service'
 import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
+import RetentionGuardService from '#services/retention_guard_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
   COMPLAINT_FOLIO_PREFIX,
@@ -652,6 +653,27 @@ export default class ComplaintService {
     }
 
     return complaint
+  }
+
+  /**
+   * Elimina lógicamente una queja (soft-delete).
+   * Solo afecta quejas dentro del scope del usuario; devuelve el registro eliminado.
+   */
+  async destroy(
+    complaintId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<ComplaintAdminResult> {
+    const complaint = await this.findInScopeOrFail(complaintId, allowedBusinessUnitIds)
+
+    const guard = new RetentionGuardService()
+    await guard.assertCanDelete(
+      complaint.businessUnitId,
+      'complaint',
+      complaint.complaintCreatedAt
+    )
+
+    await complaint.delete()
+    return serializeComplaintAdmin(complaint)
   }
 
   private complaintNotFoundError() {

@@ -4,6 +4,7 @@ import TraumaticEventType from '#models/traumatic_event_type'
 import Employee from '#models/employee'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import RetentionGuardService from '#services/retention_guard_service'
 
 export interface TraumaticEventReportCreatePayload {
   traumaticEventReportEmployeeId: number
@@ -243,6 +244,15 @@ export default class TraumaticEventReportService {
   /** Soft delete del reporte. */
   async destroy(id: number, allowedBusinessUnitIds: number[] = []) {
     const report = await this.findInScopeOrFail(id, allowedBusinessUnitIds)
+
+    await report.load('employee')
+    const guard = new RetentionGuardService()
+    await guard.assertCanDelete(
+      report.employee.businessUnitId,
+      'traumatic_event_report',
+      report.traumaticEventReportElaboratedAt
+    )
+
     await report.delete()
     return serializeReport(report)
   }

@@ -634,6 +634,12 @@
       "invalid_period": "El periodo de retención debe ser al menos 1 año (piso legal NOM-035 §10.4)",
       "invalid_evidence_type": "Uno o más tipos de evidencia no son válidos para esta política",
       "forbidden_scope": "No tienes acceso a la política de retención de esta empresa"
+    },
+    "retention_guard": {
+      "delete_blocked_title": "Eliminación bloqueada por política de retención NOM-035",
+      "delete_blocked": "Este registro no puede eliminarse aún. Está protegido por la política de retención de la empresa hasta la fecha indicada en el campo detail.",
+      "bulk_delete_blocked_title": "Eliminación en lote bloqueada por política de retención NOM-035",
+      "bulk_delete_blocked": "Uno o más registros del lote están protegidos por la política de retención y no pueden eliminarse. Los identificadores bloqueados se indican en el campo detail."
     }
   },
   "employee_lactation_period": "Periodo de lactancia",
@@ -893,6 +899,7 @@
   "complaint_report_category_violencia_laboral": "Violencia laboral",
   "complaint_report_category_entorno": "Entorno de trabajo",
   "complaint_report_category_otro": "Otro",
+  "complaint_deleted_success": "Queja eliminada correctamente",
   "complaint_not_found": "La queja no existe o está fuera de tu alcance",
   "complaint_forbidden": "No tienes permiso para esta operación sobre el buzón de quejas",
   "complaint_unauthorized": "Usuario no autenticado",

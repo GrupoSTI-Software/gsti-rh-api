@@ -1,12 +1,14 @@
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import { RetentionGuardError } from '../exceptions/retention_guard_error.js'
 import type { EtrErrorCode } from '../constants/traumatic_event_report_error_codes.js'
 
 export type ResolvedTraumaticEventReportApiError = {
   message: string
   status: number
-  errorCode: EtrErrorCode
+  errorCode: EtrErrorCode | string
   key?: string
+  detail?: string
 }
 
 /**
@@ -41,6 +43,16 @@ export function resolveTraumaticEventReportApiError(
       status: error.httpStatus,
       errorCode: error.errorCode,
       key: error.key,
+    }
+  }
+
+  if (error instanceof RetentionGuardError) {
+    return {
+      message: error.message,
+      status: error.httpStatus,
+      errorCode: error.errorCode,
+      key: error.key,
+      detail: error.detail,
     }
   }
 
