@@ -303,6 +303,27 @@ export default class QuestionnaireApplicationService {
       .if(!!filters.status, (query) => {
         query.where('qat.questionnaire_application_target_status', filters.status!)
       })
+      .if(!!filters.captureStatus, (query) => {
+        if (filters.captureStatus === 'respondido') {
+          query.where('qat.questionnaire_application_target_status', 'respondido')
+          return
+        }
+
+        if (filters.captureStatus === 'borrador') {
+          query
+            .where('qat.questionnaire_application_target_status', 'pendiente')
+            .where('qar.questionnaire_application_response_status', 'borrador')
+          return
+        }
+
+        query
+          .where('qat.questionnaire_application_target_status', 'pendiente')
+          .where((captureQuery) => {
+            captureQuery
+              .whereNull('qar.questionnaire_application_response_status')
+              .orWhereNot('qar.questionnaire_application_response_status', 'borrador')
+          })
+      })
       .if(!!filters.search, (query) => {
         query.whereRaw(`${employeeFullNameExpression} LIKE ?`, [`%${filters.search}%`])
       })

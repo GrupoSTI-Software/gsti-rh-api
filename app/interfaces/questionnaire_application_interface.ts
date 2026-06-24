@@ -60,6 +60,7 @@ export interface QuestionnaireApplicationTargetRow {
 
 export interface QuestionnaireApplicationTargetListFilters {
   status?: QuestionnaireApplicationTargetStatus
+  captureStatus?: QuestionnaireApplicationCaptureStatus
   search?: string
 }
 

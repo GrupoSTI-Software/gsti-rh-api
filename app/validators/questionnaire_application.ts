@@ -25,6 +25,7 @@ export const showQuestionnaireApplicationValidator = vine.compile(
 export const listQuestionnaireApplicationTargetsValidator = vine.compile(
   vine.object({
     status: vine.enum(['pendiente', 'respondido']).optional(),
+    captureStatus: vine.enum(['pendiente', 'borrador', 'respondido']).optional(),
     search: vine.string().trim().minLength(1).optional(),
   })
 )

@@ -502,6 +502,12 @@ export default class QuestionnaireApplicationController {
    *           type: string
    *           enum: [pendiente, respondido]
    *       - in: query
+   *         name: captureStatus
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [pendiente, borrador, respondido]
+   *       - in: query
    *         name: search
    *         required: false
    *         schema:

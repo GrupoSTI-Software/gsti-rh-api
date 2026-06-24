@@ -4616,6 +4616,13 @@ paths:
             type: string
             enum: [pendiente, respondido]
           description: Filtra objetivos por estado
+        - name: captureStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, borrador, respondido]
+          description: Filtra objetivos por estado de captura derivado
         - name: search
           in: query
           required: false
