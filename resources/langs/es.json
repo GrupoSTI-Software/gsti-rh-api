@@ -633,6 +633,16 @@
       "questionnaire_not_found": "No se encontró el cuestionario regulatorio configurado para el instrumento",
       "draft_saved": "Borrador guardado correctamente",
       "response_message": "Captura en curso obtenida correctamente"
+    },
+    "retention_policy": {
+      "title": "Política de retención NOM-035",
+      "error_title": "Error en política de retención NOM-035",
+      "get_success": "Política de retención obtenida correctamente",
+      "upsert_success": "Política de retención guardada correctamente",
+      "val_input": "Datos inválidos",
+      "invalid_period": "El periodo de retención debe ser al menos 1 año (piso legal NOM-035 §10.4)",
+      "invalid_evidence_type": "Uno o más tipos de evidencia no son válidos para esta política",
+      "forbidden_scope": "No tienes acceso a la política de retención de esta empresa"
     }
   },
   "employee_lactation_period": "Periodo de lactancia",
@@ -1829,7 +1839,13 @@
     "intent_set_success": "Intención de onboarding guardada correctamente.",
     "step_completed_success": "Paso completado correctamente.",
     "step_skipped_success": "Paso omitido correctamente.",
-    "status_set_success": "Status de onboarding actualizado correctamente."
+    "status_set_success": "Status de onboarding actualizado correctamente.",
+    "trial_access_title": "Acceso temporal generado",
+    "trial_access_detail": "El enlace de prueba es válido por 30 minutos y de un solo uso.",
+    "trial_access_invalid_params_title": "Parámetros inválidos",
+    "trial_access_invalid_params_detail": "El campo userId es requerido y debe ser un número válido.",
+    "trial_access_user_not_found_title": "Usuario no encontrado",
+    "trial_access_user_not_found_detail": "El usuario indicado no existe o no está activo."
   },
   "consent": {
     "errors": {

@@ -630,6 +630,16 @@
       "questionnaire_not_found": "Configured regulatory questionnaire was not found for the instrument",
       "draft_saved": "Draft saved successfully",
       "response_message": "In-progress response fetched successfully"
+    },
+    "retention_policy": {
+      "title": "NOM-035 Retention Policy",
+      "error_title": "NOM-035 Retention Policy Error",
+      "get_success": "Retention policy fetched successfully",
+      "upsert_success": "Retention policy saved successfully",
+      "val_input": "Invalid data",
+      "invalid_period": "Retention period must be at least 1 year (NOM-035 §10.4 legal minimum)",
+      "invalid_evidence_type": "One or more evidence types are not valid for this policy",
+      "forbidden_scope": "You do not have access to this company's retention policy"
     }
   },
   "employee_lactation_period": "Lactation period",
@@ -1826,7 +1836,13 @@
     "intent_set_success": "Onboarding intent saved successfully.",
     "step_completed_success": "Step completed successfully.",
     "step_skipped_success": "Step skipped successfully.",
-    "status_set_success": "Onboarding status updated successfully."
+    "status_set_success": "Onboarding status updated successfully.",
+    "trial_access_title": "Temporary access generated",
+    "trial_access_detail": "The trial link is valid for 30 minutes and single-use.",
+    "trial_access_invalid_params_title": "Invalid parameters",
+    "trial_access_invalid_params_detail": "The userId field is required and must be a valid number.",
+    "trial_access_user_not_found_title": "User not found",
+    "trial_access_user_not_found_detail": "The specified user does not exist or is not active."
   },
   "consent": {
     "errors": {
