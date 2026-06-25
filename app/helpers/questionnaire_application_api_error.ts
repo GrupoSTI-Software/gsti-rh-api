@@ -35,6 +35,10 @@ function resolveMessageKey(error: QuestionnaireApplicationServiceError): string 
       'nom035.questionnaire_application.already_open',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN]: 'nom035.questionnaire_application.forbidden',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_FOUND]: 'nom035.questionnaire_application.not_found',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_CLOSED]:
+      'nom035.questionnaire_application.already_closed',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_IN_PROGRESS]:
+      'nom035.questionnaire_application.not_in_progress',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.HAS_RESPONSES]:
       'nom035.questionnaire_application.has_responses',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.INCOMPLETE_ANSWERS]:

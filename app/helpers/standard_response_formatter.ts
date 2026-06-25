@@ -95,6 +95,7 @@ export class StandardResponseFormatter {
       'Questionnaire Applicabilities': 'questionnaireApplicabilities',
       'Questionnaire Application': 'questionnaireApplication',
       'Questionnaire Applications': 'questionnaireApplications',
+      'Questionnaire Application State History': 'stateHistory',
       Instrumento: 'instrument',
       'Captura de respuestas': 'questionnaireApplicationResponse',
       'Objetivos de la ronda': 'targets',

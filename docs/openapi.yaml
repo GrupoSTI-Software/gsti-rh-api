@@ -187,6 +187,15 @@ components:
           type: integer
           minimum: 1
 
+    QuestionnaireApplicationCloseRequest:
+      type: object
+      required: [note]
+      properties:
+        note:
+          type: string
+          minLength: 1
+          maxLength: 1000
+
     QuestionnaireApplicationSuccess:
       type: object
       properties:
@@ -226,6 +235,43 @@ components:
                   items:
                     $ref: '#/components/schemas/QuestionnaireApplicationListItem'
 
+    QuestionnaireApplicationStateLogItem:
+      type: object
+      properties:
+        questionnaireApplicationStateLogId:
+          type: integer
+        fromStatus:
+          type: string
+          enum: [borrador, en-curso, cerrada]
+        toStatus:
+          type: string
+          enum: [borrador, en-curso, cerrada]
+        note:
+          type: string
+        actorUserId:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    QuestionnaireApplicationStateHistorySuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            stateHistory:
+              type: array
+              items:
+                $ref: '#/components/schemas/QuestionnaireApplicationStateLogItem'
+
     QuestionnaireApplicationTargetItem:
       type: object
       properties:
@@ -248,8 +294,6 @@ components:
         positionName:
           type: string
           nullable: true
-        branchOfficeName:
-          type: string
         status:
           type: string
           enum: [pendiente, respondido]
@@ -4584,6 +4628,114 @@ paths:
               schema:
                 $ref: '#/components/schemas/Nom035QrunError'
 
+  /api/nom035/questionnaire-applications/{id}/close:
+    patch:
+      summary: Cerrar formalmente una ronda de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireApplicationCloseRequest'
+      responses:
+        '200':
+          description: Ronda cerrada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para cerrar rondas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: La ronda ya se encuentra cerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: La ronda no está en curso y no puede cerrarse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/history:
+    get:
+      summary: Obtener historial de cambios de estado de una ronda NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Historial de estado obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationStateHistorySuccess'
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar historial
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
   /api/nom035/questionnaire-applications/{id}/targets:
     get:
       summary: Listar objetivos de una ronda de cuestionario NOM-035
@@ -4653,7 +4805,6 @@ paths:
                           employeeFullName: Juan Pérez López
                           departmentName: Operaciones
                           positionName: Supervisor
-                          branchOfficeName: Sucursal Centro
                           status: pendiente
                           captureStatus: borrador
                           respondedAt: null
@@ -4664,7 +4815,6 @@ paths:
                           employeeFullName: María García Soto
                           departmentName: Recursos Humanos
                           positionName: Analista RH
-                          branchOfficeName: Sucursal Centro
                           status: respondido
                           captureStatus: respondido
                           respondedAt: '2026-06-23T17:56:45.793Z'

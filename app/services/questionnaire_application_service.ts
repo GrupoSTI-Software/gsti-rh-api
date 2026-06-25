@@ -12,7 +12,9 @@ import {
 } from '#constants/questionnaire_application_error_codes'
 import { QuestionnaireApplicationServiceError } from '#exceptions/questionnaire_application_service_error'
 import type {
+  CloseQuestionnaireApplicationInput,
   CreateQuestionnaireApplicationInput,
+  QuestionnaireApplicationStateLogItem,
   QuestionnaireApplicationDetailResult,
   QuestionnaireApplicationListFilters,
   QuestionnaireApplicationListItem,
@@ -45,10 +47,18 @@ type QuestionnaireApplicationTargetRow = {
   employeeFullName: string
   departmentName: string | null
   positionName: string | null
-  branchOfficeName: string
   status: 'pendiente' | 'respondido'
   responseStatus: 'borrador' | 'respondido' | null
   respondedAt: string | Date | null
+}
+
+type QuestionnaireApplicationStateLogRow = {
+  questionnaireApplicationStateLogId: number | string
+  fromStatus: 'borrador' | 'en-curso' | 'cerrada'
+  toStatus: 'borrador' | 'en-curso' | 'cerrada'
+  note: string
+  actorUserId: number | string
+  createdAt: string | Date
 }
 
 export default class QuestionnaireApplicationService {
@@ -335,7 +345,6 @@ export default class QuestionnaireApplicationService {
         db.raw(`${employeeFullNameExpression} as employeeFullName`),
         'd.department_name as departmentName',
         'p.position_name as positionName',
-        'bo.branch_office_name as branchOfficeName',
         'qat.questionnaire_application_target_status as status',
         'qar.questionnaire_application_response_status as responseStatus',
         'qat.questionnaire_application_target_responded_at as respondedAt'
@@ -350,10 +359,99 @@ export default class QuestionnaireApplicationService {
       employeeFullName: row.employeeFullName,
       departmentName: row.departmentName,
       positionName: row.positionName,
-      branchOfficeName: row.branchOfficeName,
       status: row.status,
       captureStatus: row.status === 'respondido' ? 'respondido' : row.responseStatus === 'borrador' ? 'borrador' : 'pendiente',
       respondedAt: this.toIsoUtc(row.respondedAt),
+    }))
+  }
+
+  async close(
+    questionnaireApplicationId: number,
+    actorUserId: number,
+    input: CloseQuestionnaireApplicationInput,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<QuestionnaireApplicationDetailResult> {
+    const application = await this.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
+
+    if (application.status === 'cerrada') {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.already_closed',
+          'Esta ronda ya está cerrada'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_CLOSED,
+        409,
+        'ronda-ya-cerrada'
+      )
+    }
+
+    if (application.status !== 'en-curso') {
+      throw new QuestionnaireApplicationServiceError(
+        this.translate(
+          i18n,
+          'nom035.questionnaire_application.not_in_progress',
+          'Solo se puede cerrar una ronda en curso'
+        ),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_IN_PROGRESS,
+        422,
+        'ronda-no-en-curso'
+      )
+    }
+
+    const now = DateTime.utc().toSQL({ includeOffset: false })!
+
+    await db.transaction(async (trx) => {
+      await trx
+        .from('questionnaire_applications')
+        .where('questionnaire_application_id', questionnaireApplicationId)
+        .update({
+          questionnaire_application_status: 'cerrada',
+          questionnaire_application_closed_at: now,
+          questionnaire_application_updated_at: now,
+        })
+
+      await trx.table('questionnaire_application_state_logs').insert({
+        questionnaire_application_id: questionnaireApplicationId,
+        actor_user_id: actorUserId,
+        questionnaire_application_state_log_from_status: 'en-curso',
+        questionnaire_application_state_log_to_status: 'cerrada',
+        questionnaire_application_state_log_note: input.note.trim(),
+        questionnaire_application_state_log_created_at: now,
+      })
+    })
+
+    return this.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
+  }
+
+  async listHistory(
+    questionnaireApplicationId: number,
+    allowedBusinessUnitIds: number[] = [],
+    i18n?: I18n
+  ): Promise<QuestionnaireApplicationStateLogItem[]> {
+    await this.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
+
+    const rows = (await db
+      .from('questionnaire_application_state_logs')
+      .where('questionnaire_application_id', questionnaireApplicationId)
+      .select(
+        'questionnaire_application_state_log_id as questionnaireApplicationStateLogId',
+        'questionnaire_application_state_log_from_status as fromStatus',
+        'questionnaire_application_state_log_to_status as toStatus',
+        'questionnaire_application_state_log_note as note',
+        'actor_user_id as actorUserId',
+        'questionnaire_application_state_log_created_at as createdAt'
+      )
+      .orderBy('questionnaire_application_state_log_created_at', 'asc')) as QuestionnaireApplicationStateLogRow[]
+
+    return rows.map((row) => ({
+      questionnaireApplicationStateLogId: Number(row.questionnaireApplicationStateLogId),
+      fromStatus: row.fromStatus,
+      toStatus: row.toStatus,
+      note: row.note,
+      actorUserId: Number(row.actorUserId),
+      createdAt: this.toIsoUtc(row.createdAt)!,
     }))
   }
 

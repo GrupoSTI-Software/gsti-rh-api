@@ -3,10 +3,10 @@ import QuestionnaireApplicationService from '#services/questionnaire_application
 import RoleService from '#services/role_service'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import {
+  closeQuestionnaireApplicationValidator,
   createQuestionnaireApplicationValidator,
   listQuestionnaireApplicationTargetsValidator,
   listQuestionnaireApplicationsValidator,
-  showQuestionnaireApplicationValidator,
 } from '#validators/questionnaire_application'
 import { QUESTIONNAIRE_APPLICATION_ERROR_CODES } from '#constants/questionnaire_application_error_codes'
 import { resolveQuestionnaireApplicationApiError } from '../helpers/questionnaire_application_api_error.js'
@@ -41,6 +41,23 @@ export default class QuestionnaireApplicationController {
       code: resolved.errorCode,
       data: null,
     }
+  }
+
+  private parseQuestionnaireApplicationId(
+    value: unknown,
+    i18n: HttpContext['i18n']
+  ): number {
+    const questionnaireApplicationId = Number(value)
+    if (!Number.isInteger(questionnaireApplicationId) || questionnaireApplicationId <= 0) {
+      throw new QuestionnaireApplicationServiceError(
+        i18n.formatMessage('nom035.questionnaire_application.val_input'),
+        QUESTIONNAIRE_APPLICATION_ERROR_CODES.VAL_INPUT,
+        400,
+        'datos-invalidos'
+      )
+    }
+
+    return questionnaireApplicationId
   }
 
   /**
@@ -449,12 +466,10 @@ export default class QuestionnaireApplicationController {
         )
       }
 
-      const payload = await showQuestionnaireApplicationValidator.validate({
-        questionnaireApplicationId: Number(params.id),
-      })
+      const questionnaireApplicationId = this.parseQuestionnaireApplicationId(params.id, i18n)
       const service = new QuestionnaireApplicationService()
       const result = await service.getById(
-        payload.questionnaireApplicationId,
+        questionnaireApplicationId,
         businessUnitScope ?? [],
         i18n
       )
@@ -550,7 +565,6 @@ export default class QuestionnaireApplicationController {
    *                           positionName:
    *                             type: string
    *                             nullable: true
-   *                           branchOfficeName: { type: string }
    *                           status:
    *                             type: string
    *                             enum: [pendiente, respondido]
@@ -574,7 +588,6 @@ export default class QuestionnaireApplicationController {
    *                     employeeFullName: Juan Pérez López
    *                     departmentName: Operaciones
    *                     positionName: Supervisor
-   *                     branchOfficeName: Sucursal Centro
    *                     status: pendiente
    *                     captureStatus: borrador
    *                     respondedAt: null
@@ -585,7 +598,6 @@ export default class QuestionnaireApplicationController {
    *                     employeeFullName: María García Soto
    *                     departmentName: Recursos Humanos
    *                     positionName: Analista RH
-   *                     branchOfficeName: Sucursal Centro
    *                     status: respondido
    *                     captureStatus: respondido
    *                     respondedAt: '2026-06-23T17:56:45.793Z'
@@ -638,13 +650,11 @@ export default class QuestionnaireApplicationController {
         )
       }
 
-      const payload = await showQuestionnaireApplicationValidator.validate({
-        questionnaireApplicationId: Number(params.id),
-      })
+      const questionnaireApplicationId = this.parseQuestionnaireApplicationId(params.id, i18n)
       const filters = await request.validateUsing(listQuestionnaireApplicationTargetsValidator)
       const service = new QuestionnaireApplicationService()
       const result = await service.listTargets(
-        payload.questionnaireApplicationId,
+        questionnaireApplicationId,
         filters,
         businessUnitScope ?? [],
         i18n
@@ -655,6 +665,330 @@ export default class QuestionnaireApplicationController {
         result,
         'Objetivos de la ronda',
         i18n.formatMessage('nom035.questionnaire_application.targets_message')
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/nom035/questionnaire-applications/{id}/close:
+   *   patch:
+   *     summary: Cerrar formalmente una ronda de cuestionario NOM-035
+   *     description: >
+   *       Cierra una ronda en curso y registra una entrada inmutable en la bitácora
+   *       de estado con el actor y la nota de cierre.
+   *     tags: [NOM035]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [note]
+   *             properties:
+   *               note:
+   *                 type: string
+   *                 minLength: 1
+   *                 maxLength: 1000
+   *           example:
+   *             note: Cierre formal de la ronda NOM-035 por fin de captura
+   *     responses:
+   *       200:
+   *         description: Ronda cerrada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     questionnaireApplication:
+   *                       type: object
+   *                       properties:
+   *                         questionnaireApplicationId: { type: integer }
+   *                         folio: { type: string }
+   *                         branchOfficeId: { type: integer }
+   *                         branchOfficeName: { type: string }
+   *                         businessUnitId: { type: integer }
+   *                         regulationQuestionnaireId: { type: integer }
+   *                         applicableInstrument:
+   *                           type: string
+   *                           enum: [guide_ii, guide_iii]
+   *                         status:
+   *                           type: string
+   *                           enum: [cerrada]
+   *                         targetCount: { type: integer }
+   *                         respondedCount: { type: integer }
+   *                         launchedAt:
+   *                           type: string
+   *                           format: date-time
+   *                         closedAt:
+   *                           type: string
+   *                           format: date-time
+   *             example:
+   *               type: success
+   *               title: Questionnaire Application
+   *               message: Ronda cerrada correctamente
+   *               data:
+   *                 questionnaireApplication:
+   *                   questionnaireApplicationId: 11
+   *                   folio: NOM035-2026-654321
+   *                   branchOfficeId: 3
+   *                   branchOfficeName: Sucursal Centro
+   *                   businessUnitId: 2
+   *                   regulationQuestionnaireId: 4
+   *                   applicableInstrument: guide_ii
+   *                   status: cerrada
+   *                   targetCount: 30
+   *                   respondedCount: 30
+   *                   launchedAt: '2026-06-22T17:05:00.000Z'
+   *                   closedAt: '2026-06-24T19:30:00.000Z'
+   *       400:
+   *         description: Entrada inválida
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Datos inválidos
+   *               key: datos-invalidos
+   *               detail: Datos inválidos
+   *               code: NOM035.QRUN.VAL_INPUT
+   *               data: null
+   *       403:
+   *         description: Sin permiso para cerrar rondas
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Sin permiso para gestionar aplicaciones de cuestionario
+   *               key: sin-permiso
+   *               detail: Sin permiso para gestionar aplicaciones de cuestionario
+   *               code: NOM035.QRUN.FORBIDDEN
+   *               data: null
+   *       404:
+   *         description: Ronda no encontrada o fuera de alcance
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               key: aplicacion-no-encontrada
+   *               detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               code: NOM035.QRUN.NOT_FOUND
+   *               data: null
+   *       409:
+   *         description: La ronda ya se encuentra cerrada
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Esta ronda ya está cerrada
+   *               key: ronda-ya-cerrada
+   *               detail: Esta ronda ya está cerrada
+   *               code: NOM035.QRUN.ALREADY_CLOSED
+   *               data: null
+   *       422:
+   *         description: La ronda no está en curso y no puede cerrarse
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Solo se puede cerrar una ronda en curso
+   *               key: ronda-no-en-curso
+   *               detail: Solo se puede cerrar una ronda en curso
+   *               code: NOM035.QRUN.NOT_IN_PROGRESS
+   *               data: null
+   */
+  async close(ctx: HttpContext) {
+    const { params, request, response, i18n, businessUnitScope } = ctx
+    try {
+      if (!(await this.checkPermission(ctx, 'write'))) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.forbidden'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN,
+          403,
+          'sin-permiso'
+        )
+      }
+
+      const questionnaireApplicationId = this.parseQuestionnaireApplicationId(params.id, i18n)
+      const payload = await request.validateUsing(closeQuestionnaireApplicationValidator)
+      const service = new QuestionnaireApplicationService()
+      const result = await service.close(
+        questionnaireApplicationId,
+        ctx.auth.user!.userId,
+        payload,
+        businessUnitScope ?? [],
+        i18n
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Questionnaire Application',
+        i18n.formatMessage('nom035.questionnaire_application.close_message')
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/nom035/questionnaire-applications/{id}/history:
+   *   get:
+   *     summary: Obtener historial de cambios de estado de una ronda NOM-035
+   *     tags: [NOM035]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *     responses:
+   *       200:
+   *         description: Historial de estado obtenido correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     stateHistory:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           questionnaireApplicationStateLogId: { type: integer }
+   *                           fromStatus:
+   *                             type: string
+   *                             enum: [borrador, en-curso, cerrada]
+   *                           toStatus:
+   *                             type: string
+   *                             enum: [borrador, en-curso, cerrada]
+   *                           note: { type: string }
+   *                           actorUserId: { type: integer }
+   *                           createdAt:
+   *                             type: string
+   *                             format: date-time
+   *             example:
+   *               type: success
+   *               title: Questionnaire Application State History
+   *               message: Historial de cambios obtenido correctamente
+   *               data:
+   *                 stateHistory:
+   *                   - questionnaireApplicationStateLogId: 7
+   *                     fromStatus: en-curso
+   *                     toStatus: cerrada
+   *                     note: Cierre formal de la ronda NOM-035 por fin de captura
+   *                     actorUserId: 15
+   *                     createdAt: '2026-06-24T19:30:00.000Z'
+   *       400:
+   *         description: Parámetro inválido
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Datos inválidos
+   *               key: datos-invalidos
+   *               detail: Datos inválidos
+   *               code: NOM035.QRUN.VAL_INPUT
+   *               data: null
+   *       403:
+   *         description: Sin permiso para consultar el historial
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Sin permiso para gestionar aplicaciones de cuestionario
+   *               key: sin-permiso
+   *               detail: Sin permiso para gestionar aplicaciones de cuestionario
+   *               code: NOM035.QRUN.FORBIDDEN
+   *               data: null
+   *       404:
+   *         description: Ronda no encontrada o fuera de alcance
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               key: aplicacion-no-encontrada
+   *               detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               code: NOM035.QRUN.NOT_FOUND
+   *               data: null
+   */
+  async history(ctx: HttpContext) {
+    const { params, response, i18n, businessUnitScope } = ctx
+    try {
+      if (!(await this.checkPermission(ctx, 'read'))) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.forbidden'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN,
+          403,
+          'sin-permiso'
+        )
+      }
+
+      const questionnaireApplicationId = this.parseQuestionnaireApplicationId(params.id, i18n)
+      const service = new QuestionnaireApplicationService()
+      const result = await service.listHistory(questionnaireApplicationId, businessUnitScope ?? [], i18n)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Questionnaire Application State History',
+        i18n.formatMessage('nom035.questionnaire_application.history_message')
       )
     } catch (error) {
       return this.respondError(error, response, 400, i18n)
@@ -747,11 +1081,9 @@ export default class QuestionnaireApplicationController {
         )
       }
 
-      const payload = await showQuestionnaireApplicationValidator.validate({
-        questionnaireApplicationId: Number(params.id),
-      })
+      const questionnaireApplicationId = this.parseQuestionnaireApplicationId(params.id, i18n)
       const service = new QuestionnaireApplicationService()
-      await service.softDelete(payload.questionnaireApplicationId, businessUnitScope ?? [], i18n)
+      await service.softDelete(questionnaireApplicationId, businessUnitScope ?? [], i18n)
       return response.status(204).send('')
     } catch (error) {
       return this.respondError(error, response, 400, i18n)

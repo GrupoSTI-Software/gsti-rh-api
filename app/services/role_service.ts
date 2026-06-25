@@ -116,6 +116,9 @@ export default class RoleService {
     if (!role) {
       return false
     }
+    if (role.roleSlug === 'root') {
+      return true
+    }
     const systemModule = await SystemModule.query()
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', systemModuleSlug)

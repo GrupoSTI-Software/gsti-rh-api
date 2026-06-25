@@ -18,6 +18,8 @@ router
         router.post('/', '#controllers/questionnaire_application_controller.store')
         router.get('/:id', '#controllers/questionnaire_application_controller.show')
         router.get('/:id/targets', '#controllers/questionnaire_application_controller.targets')
+        router.patch('/:id/close', '#controllers/questionnaire_application_controller.close')
+        router.get('/:id/history', '#controllers/questionnaire_application_controller.history')
         router.delete('/:id', '#controllers/questionnaire_application_controller.destroy')
         router.get(
           '/:id/targets/:employeeId/instrument',

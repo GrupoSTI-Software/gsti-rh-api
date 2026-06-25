@@ -74,10 +74,22 @@ export interface QuestionnaireApplicationTargetListItem {
   employeeFullName: string
   departmentName: string | null
   positionName: string | null
-  branchOfficeName: string
   status: QuestionnaireApplicationTargetStatus
   captureStatus: QuestionnaireApplicationCaptureStatus
   respondedAt: string | null
+}
+
+export interface CloseQuestionnaireApplicationInput {
+  note: string
+}
+
+export interface QuestionnaireApplicationStateLogItem {
+  questionnaireApplicationStateLogId: number
+  fromStatus: QuestionnaireApplicationStatus
+  toStatus: QuestionnaireApplicationStatus
+  note: string
+  actorUserId: number
+  createdAt: string
 }
 
 export interface AnswerInput {

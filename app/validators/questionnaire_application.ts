@@ -29,3 +29,9 @@ export const listQuestionnaireApplicationTargetsValidator = vine.compile(
     search: vine.string().trim().minLength(1).optional(),
   })
 )
+
+export const closeQuestionnaireApplicationValidator = vine.compile(
+  vine.object({
+    note: vine.string().trim().minLength(1).maxLength(1000),
+  })
+)

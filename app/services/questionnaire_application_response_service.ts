@@ -91,6 +91,7 @@ export default class QuestionnaireApplicationResponseService {
 
     this.ensureApplicationIsInProgress(application.status, i18n)
     const target = await this.findTargetOrFail(questionnaireApplicationId, employeeId, i18n)
+    this.ensureTargetCanSubmit(target.questionnaireApplicationTargetStatus, i18n)
 
     const questionnaire = await this.loadQuestionnaireOrFail(application.regulationQuestionnaireId, i18n)
     const questionDefinitions = this.extractQuestionDefinitions(questionnaire.sections)
@@ -513,5 +514,20 @@ export default class QuestionnaireApplicationResponseService {
     if (!i18n) return fallback
     const translated = i18n.formatMessage(key)
     return translated === key ? fallback : translated
+  }
+
+  private ensureTargetCanSubmit(status: string, i18n?: I18n): void {
+    if (status !== 'respondido') return
+
+    throw new QuestionnaireApplicationServiceError(
+      this.translate(
+        i18n,
+        'nom035.questionnaire_application.already_answered',
+        'Este empleado ya tiene respuestas registradas para esta ronda'
+      ),
+      QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_ANSWERED,
+      409,
+      'captura-duplicada'
+    )
   }
 }
