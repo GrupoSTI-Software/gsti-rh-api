@@ -27,6 +27,8 @@ export default class SimulateAttendanceService {
       throw Object.assign(new Error('SIMULATE.EMPLOYEE_NOT_FOUND'), { code: 'EMPLOYEE_NOT_FOUND' })
     }
 
+    const employeeCode = String(employee.employeeCode ?? '')
+
     const shift = await Shift.query()
       .where('shift_id', shiftId)
       .first()
@@ -49,7 +51,7 @@ export default class SimulateAttendanceService {
 
     for (const punchTime of [checkInUtc, checkOutUtc]) {
       await Assist.create({
-        assistEmpCode: employee.employeeCode ?? '',
+        assistEmpCode: employeeCode,
         assistTerminalSn: '',
         assistTerminalAlias: '',
         assistAreaAlias: 'Onboarding Simulado',
@@ -70,7 +72,7 @@ export default class SimulateAttendanceService {
 
     return {
       date,
-      employeeCode: employee.employeeCode ?? '',
+      employeeCode,
       checkIn: checkInLocal.toFormat('HH:mm'),
       checkOut: checkOutLocal.toFormat('HH:mm'),
       disclaimer: 'Asistencias generadas automáticamente de manera simulada para demostración',
