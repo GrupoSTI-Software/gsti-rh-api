@@ -1543,6 +1543,14 @@
     "trial_access_invalid_params_title": "Parámetros inválidos",
     "trial_access_invalid_params_detail": "El campo userId es requerido y debe ser un número válido.",
     "trial_access_user_not_found_title": "Usuario no encontrado",
-    "trial_access_user_not_found_detail": "El usuario indicado no existe o no está activo."
+    "trial_access_user_not_found_detail": "El usuario indicado no existe o no está activo.",
+    "simulate_success_title": "Asistencias simuladas generadas",
+    "simulate_success_detail": "Se crearon registros de entrada y salida para el día seleccionado.",
+    "simulate_invalid_params_title": "Parámetros inválidos",
+    "simulate_invalid_params_detail": "Se requieren employeeId, shiftId y date (YYYY-MM-DD).",
+    "simulate_employee_not_found_title": "Empleado no encontrado",
+    "simulate_employee_not_found_detail": "El empleado indicado no existe en el sistema.",
+    "simulate_shift_not_found_title": "Turno no encontrado",
+    "simulate_shift_not_found_detail": "El turno indicado no existe en el sistema."
   }
 }

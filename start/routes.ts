@@ -131,6 +131,7 @@ import '#modules/working-time-rules/federal/federal.routes'
 import '#modules/onboarding/catalog/catalog.routes'
 import '#modules/onboarding/state/state.routes'
 import '#modules/onboarding/trial_access/trial_access.routes'
+import '#modules/onboarding/simulate_attendance/simulate_attendance.routes'
 import '#modules/consent/acceptance/acceptance.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {

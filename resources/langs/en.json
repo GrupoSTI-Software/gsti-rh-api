@@ -1540,6 +1540,14 @@
     "trial_access_invalid_params_title": "Invalid parameters",
     "trial_access_invalid_params_detail": "The userId field is required and must be a valid number.",
     "trial_access_user_not_found_title": "User not found",
-    "trial_access_user_not_found_detail": "The specified user does not exist or is not active."
+    "trial_access_user_not_found_detail": "The specified user does not exist or is not active.",
+    "simulate_success_title": "Simulated attendance generated",
+    "simulate_success_detail": "Check-in and check-out records were created for the selected day.",
+    "simulate_invalid_params_title": "Invalid parameters",
+    "simulate_invalid_params_detail": "Fields employeeId, shiftId and date (YYYY-MM-DD) are required.",
+    "simulate_employee_not_found_title": "Employee not found",
+    "simulate_employee_not_found_detail": "The specified employee does not exist in the system.",
+    "simulate_shift_not_found_title": "Shift not found",
+    "simulate_shift_not_found_detail": "The specified shift does not exist in the system."
   }
 }
