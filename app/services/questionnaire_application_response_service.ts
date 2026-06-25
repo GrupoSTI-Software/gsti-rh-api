@@ -46,7 +46,6 @@ export default class QuestionnaireApplicationResponseService {
       i18n
     )
 
-    this.ensureApplicationIsInProgress(application.status, i18n)
     await this.findTargetOrFail(questionnaireApplicationId, employeeId, i18n)
 
     const questionnaire = await this.loadQuestionnaireOrFail(application.regulationQuestionnaireId, i18n)

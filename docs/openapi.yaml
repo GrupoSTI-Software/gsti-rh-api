@@ -248,8 +248,16 @@ components:
           enum: [borrador, en-curso, cerrada]
         note:
           type: string
-        actorUserId:
-          type: integer
+        actorUser:
+          type: object
+          properties:
+            userId:
+              type: integer
+            email:
+              type: string
+            fullName:
+              type: string
+              nullable: true
         createdAt:
           type: string
           format: date-time

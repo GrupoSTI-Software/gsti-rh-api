@@ -88,7 +88,11 @@ export interface QuestionnaireApplicationStateLogItem {
   fromStatus: QuestionnaireApplicationStatus
   toStatus: QuestionnaireApplicationStatus
   note: string
-  actorUserId: number
+  actorUser: {
+    userId: number
+    email: string
+    fullName: string | null
+  }
   createdAt: string
 }
 

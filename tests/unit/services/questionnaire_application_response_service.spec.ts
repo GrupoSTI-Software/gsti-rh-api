@@ -250,6 +250,35 @@ test.group('QuestionnaireApplicationResponseService — HU USRH1782184103374', (
     }
   })
 
+  test('GET instrument permite consulta aunque la ronda esté cerrada', async ({ assert }) => {
+    const fixture = await createScenarioFixture(assert)
+    if (!fixture) return
+
+    try {
+      await db
+        .from('questionnaire_applications')
+        .where('questionnaire_application_id', fixture.questionnaireApplicationId)
+        .update({
+          questionnaire_application_status: 'cerrada',
+          questionnaire_application_closed_at: DateTime.utc().toSQL({ includeOffset: false }),
+        })
+
+      const service = new QuestionnaireApplicationResponseService()
+      const result = await service.getInstrumentForTarget(
+        fixture.questionnaireApplicationId,
+        fixture.employeeId,
+        [fixture.businessUnitId]
+      )
+
+      assert.equal(result.questionnaireApplicationId, fixture.questionnaireApplicationId)
+      assert.equal(result.employeeId, fixture.employeeId)
+      assert.isArray(result.sections)
+      assert.isAtLeast(result.sections.length, 1)
+    } finally {
+      await fixture.cleanup()
+    }
+  })
+
   test('POST answers exitoso persiste respuestas y marca target como respondido', async ({ assert }) => {
     const fixture = await createScenarioFixture(assert)
     if (!fixture) return

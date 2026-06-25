@@ -915,7 +915,14 @@ export default class QuestionnaireApplicationController {
    *                             type: string
    *                             enum: [borrador, en-curso, cerrada]
    *                           note: { type: string }
-   *                           actorUserId: { type: integer }
+   *                           actorUser:
+   *                             type: object
+   *                             properties:
+   *                               userId: { type: integer }
+   *                               email: { type: string }
+   *                               fullName:
+   *                                 type: string
+   *                                 nullable: true
    *                           createdAt:
    *                             type: string
    *                             format: date-time
@@ -929,7 +936,10 @@ export default class QuestionnaireApplicationController {
    *                     fromStatus: en-curso
    *                     toStatus: cerrada
    *                     note: Cierre formal de la ronda NOM-035 por fin de captura
-   *                     actorUserId: 15
+   *                     actorUser:
+   *                       userId: 15
+   *                       email: desarrollo-software@gruposti.com
+   *                       fullName: Juan Pérez López
    *                     createdAt: '2026-06-24T19:30:00.000Z'
    *       400:
    *         description: Parámetro inválido

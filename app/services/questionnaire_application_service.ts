@@ -58,6 +58,8 @@ type QuestionnaireApplicationStateLogRow = {
   toStatus: 'borrador' | 'en-curso' | 'cerrada'
   note: string
   actorUserId: number | string
+  actorUserEmail: string
+  actorUserFullName: string | null
   createdAt: string | Date
 }
 
@@ -433,24 +435,34 @@ export default class QuestionnaireApplicationService {
     await this.getById(questionnaireApplicationId, allowedBusinessUnitIds, i18n)
 
     const rows = (await db
-      .from('questionnaire_application_state_logs')
-      .where('questionnaire_application_id', questionnaireApplicationId)
+      .from('questionnaire_application_state_logs as qasl')
+      .join('users as u', 'u.user_id', 'qasl.actor_user_id')
+      .leftJoin('people as p', 'p.person_id', 'u.person_id')
+      .where('qasl.questionnaire_application_id', questionnaireApplicationId)
       .select(
-        'questionnaire_application_state_log_id as questionnaireApplicationStateLogId',
-        'questionnaire_application_state_log_from_status as fromStatus',
-        'questionnaire_application_state_log_to_status as toStatus',
-        'questionnaire_application_state_log_note as note',
-        'actor_user_id as actorUserId',
-        'questionnaire_application_state_log_created_at as createdAt'
+        'qasl.questionnaire_application_state_log_id as questionnaireApplicationStateLogId',
+        'qasl.questionnaire_application_state_log_from_status as fromStatus',
+        'qasl.questionnaire_application_state_log_to_status as toStatus',
+        'qasl.questionnaire_application_state_log_note as note',
+        'qasl.actor_user_id as actorUserId',
+        'u.user_email as actorUserEmail',
+        db.raw(
+          "NULLIF(TRIM(CONCAT(COALESCE(p.person_firstname, ''), ' ', COALESCE(p.person_lastname, ''), ' ', COALESCE(p.person_second_lastname, ''))), '') as actorUserFullName"
+        ),
+        'qasl.questionnaire_application_state_log_created_at as createdAt'
       )
-      .orderBy('questionnaire_application_state_log_created_at', 'asc')) as QuestionnaireApplicationStateLogRow[]
+      .orderBy('qasl.questionnaire_application_state_log_created_at', 'asc')) as QuestionnaireApplicationStateLogRow[]
 
     return rows.map((row) => ({
       questionnaireApplicationStateLogId: Number(row.questionnaireApplicationStateLogId),
       fromStatus: row.fromStatus,
       toStatus: row.toStatus,
       note: row.note,
-      actorUserId: Number(row.actorUserId),
+      actorUser: {
+        userId: Number(row.actorUserId),
+        email: row.actorUserEmail,
+        fullName: row.actorUserFullName,
+      },
       createdAt: this.toIsoUtc(row.createdAt)!,
     }))
   }

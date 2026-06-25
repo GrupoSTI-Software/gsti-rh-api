@@ -299,8 +299,12 @@ test.group('QuestionnaireApplicationService.close y listHistory', () => {
       assert.lengthOf(history, 2)
       assert.equal(history[0].note, 'Lanzamiento')
       assert.equal(history[0].fromStatus, 'borrador')
+      assert.equal(history[0].actorUser.userId, fixture.actorUserId)
+      assert.isString(history[0].actorUser.email)
       assert.equal(history[1].note, 'Cierre')
       assert.equal(history[1].toStatus, 'cerrada')
+      assert.equal(history[1].actorUser.userId, fixture.actorUserId)
+      assert.isString(history[1].actorUser.email)
       assert.isString(history[0].createdAt)
       assert.isString(history[1].createdAt)
     } finally {
