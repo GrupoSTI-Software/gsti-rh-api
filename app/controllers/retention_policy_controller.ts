@@ -13,7 +13,7 @@ export default class RetentionPolicyController {
     if (user.role?.roleSlug === 'root') return true
 
     const roleService = new RoleService()
-    return roleService.hasAccess(user.roleId, 'compliance', action)
+    return roleService.hasAccess(user.roleId, 'retention-policy', action)
   }
 
   private respondError(
