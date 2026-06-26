@@ -17,6 +17,13 @@ router
       '#controllers/traumatic_event_report_controller.registryExport'
     )
 
+    // Documento imprimible NOM-035 §6.5 — declarar ANTES de /:id para que
+    // el segmento "printable-document" no sea confundido con un ID numérico.
+    router.get(
+      '/traumatic-event-reports/:reportId/printable-document',
+      '#controllers/traumatic_event_report_controller.printableDocument'
+    )
+
     router.get('/traumatic-event-reports/:id', '#controllers/traumatic_event_report_controller.show')
     router.put('/traumatic-event-reports/:id', '#controllers/traumatic_event_report_controller.update')
     router.delete(

@@ -4,6 +4,7 @@ import RoleService from '#services/role_service'
 import TraumaticEventReportService from '#services/traumatic_event_report_service'
 import TraumaticEventRegistryReportService from '#services/traumatic_event_registry_report_service'
 import type { RegistryReportFilters } from '#services/traumatic_event_registry_report_service'
+import TraumaticEventReportDocumentService from '#services/traumatic_event_report_document_service'
 import {
   traumaticEventReportListValidator,
   createTraumaticEventReportValidator,
@@ -425,6 +426,61 @@ export default class TraumaticEventReportController {
       )
     } catch (error) {
       return this.respondError(error, response, 400)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // GET /api/traumatic-event-reports/:reportId/printable-document
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/traumatic-event-reports/{reportId}/printable-document:
+   *   get:
+   *     summary: Genera el PDF del escrito oficial NOM-035 §6.5 de un reporte
+   *     description: |
+   *       Genera en memoria el documento imprimible del escrito de informe de
+   *       acontecimiento traumático severo (NOM-035-STPS-2018, numeral 6.5), con:
+   *       marca Valanserh, datos del trabajador, tipo de evento, fecha de ocurrencia,
+   *       descripción, personas involucradas y espacio de firmas.
+   *       Responde 400 con ETR.VAL.DOC.001 si el reporte no tiene todos los campos
+   *       requeridos para generar el escrito.
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: reportId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: PDF binario (Content-Disposition attachment)
+   *         content:
+   *           application/pdf:
+   *             schema: { type: string, format: binary }
+   *       '400': { description: Reporte incompleto ETR.VAL.DOC.001 (key reporte-incompleto) }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso read ETR.FORBID.001 }
+   *       '404': { description: Reporte fuera del scope ETR.NF.REPORT.001 }
+   */
+  async printableDocument(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const reportId = this.parseId(params.reportId)
+      const service = new TraumaticEventReportDocumentService()
+      const pdfBuffer = await service.buildDocument(reportId, ctx.businessUnitScope)
+
+      response.header('Content-Type', 'application/pdf')
+      response.header(
+        'Content-Disposition',
+        `attachment; filename="escrito-evento-${reportId}.pdf"`
+      )
+      return response.send(pdfBuffer)
+    } catch (error) {
+      return this.respondError(error, response, 404)
     }
   }
 
