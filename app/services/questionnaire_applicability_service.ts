@@ -1,7 +1,6 @@
 import { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
 import BranchOffice from '#models/branch_office'
-// import BranchOfficeService from '#services/branch_office_service'
 import {
   QUESTIONNAIRE_APPLICABILITY_ERROR_CODES,
 } from '#constants/questionnaire_applicability_error_codes'
@@ -77,19 +76,22 @@ export default class QuestionnaireApplicabilityService {
     return countMap
   }
 
+  static async getActiveEmployeeIdsByBranch(branchOfficeId: number): Promise<number[]> {
+    const rows = await db
+      .from('employee_branch_offices as ebo')
+      .innerJoin('employees as e', 'e.employee_id', 'ebo.employee_id')
+      .where('ebo.branch_office_id', branchOfficeId)
+      .where('ebo.employee_branch_office_active', 1)
+      .whereNull('e.employee_deleted_at')
+      .distinct('ebo.employee_id as employeeId')
+
+    return rows.map((row) => Number((row as { employeeId: number | string }).employeeId))
+  }
+
   static async getByBusinessUnit(
     businessUnitId: number,
     i18n: I18n
   ): Promise<QuestionnaireApplicabilityItem[]> {
-    const allowedIds: number[] = [] // await BranchOfficeService.getAllowedBusinessUnitIds()
-    if (!allowedIds.includes(businessUnitId)) {
-      throw new QuestionnaireApplicabilityServiceError(
-        i18n.formatMessage('nom035.questionnaire_applicability.company_not_found'),
-        QUESTIONNAIRE_APPLICABILITY_ERROR_CODES.NOT_FOUND_COMPANY,
-        404
-      )
-    }
-
     const branchOffices = await BranchOffice.query()
       .where('businessUnitId', businessUnitId)
       .whereNull('branch_office_deleted_at')
@@ -114,13 +116,12 @@ export default class QuestionnaireApplicabilityService {
     branchOfficeId: number,
     i18n: I18n
   ): Promise<QuestionnaireApplicabilityItem> {
-    const allowedIds: number[] = [] // await BranchOfficeService.getAllowedBusinessUnitIds()
     const branchOffice = await BranchOffice.query()
       .where('branchOfficeId', branchOfficeId)
       .whereNull('branch_office_deleted_at')
       .first()
 
-    if (!branchOffice || !allowedIds.includes(branchOffice.businessUnitId)) {
+    if (!branchOffice) {
       throw new QuestionnaireApplicabilityServiceError(
         i18n.formatMessage('nom035.questionnaire_applicability.branch_not_found'),
         QUESTIONNAIRE_APPLICABILITY_ERROR_CODES.NOT_FOUND_BRANCH,

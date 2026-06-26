@@ -694,6 +694,12 @@ export default class extends BaseSeeder {
         systemPermissionSlug: 'gestion',
         systemModuleId: 38
       },
+      {
+        systemPermissionId: 173,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 42
+      },
     ]
 
     for (const systemPermission of systemPermissions) {

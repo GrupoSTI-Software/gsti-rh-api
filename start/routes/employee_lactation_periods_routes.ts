@@ -30,6 +30,13 @@ router
       '/employee-lactation-periods/notifications/run-expiring-check',
       '#controllers/employee_lactation_periods_controller.runExpiringCheck'
     )
+    // Listado GLOBAL de conflictos a nivel empresa (vista de RH).
+    // OJO: va ANTES de `/:id` para que `conflicts` no se interprete
+    // como identificador numérico de un periodo.
+    router.get(
+      '/employee-lactation-periods/conflicts',
+      '#controllers/employee_lactation_periods_controller.listAllConflicts'
+    )
     router.put(
       '/employee-lactation-periods/:id',
       '#controllers/employee_lactation_periods_controller.update'
@@ -41,6 +48,32 @@ router
     router.post(
       '/employee-lactation-periods/:id/regenerate-shift-exceptions',
       '#controllers/employee_lactation_periods_controller.regenerateShiftExceptions'
+    )
+
+    // Gestión de conflictos del periodo (revocar / reasignar día de lactancia
+    // que choca con vacación, incapacidad, maternidad, permiso o festivo).
+    // El orden es relevante: la ruta literal `/conflicts` vive bajo `/:id/`
+    // y no compite con `/:id/regenerate-shift-exceptions`. Las rutas de
+    // gestión por `shiftExceptionId` quedan declaradas después de la lista
+    // por consistencia visual, no por requisito de routing.
+    router.get(
+      '/employee-lactation-periods/:id/conflicts',
+      '#controllers/employee_lactation_periods_controller.listConflicts'
+    )
+    // Reasignación BULK del periodo. OJO: va ANTES de
+    // `/:id/conflicts/:shiftExceptionId` para que el segmento literal
+    // `reassign-bulk` no se interprete como un `shiftExceptionId`.
+    router.post(
+      '/employee-lactation-periods/:id/conflicts/reassign-bulk',
+      '#controllers/employee_lactation_periods_controller.reassignConflictsBulk'
+    )
+    router.delete(
+      '/employee-lactation-periods/:id/conflicts/:shiftExceptionId',
+      '#controllers/employee_lactation_periods_controller.revokeConflict'
+    )
+    router.post(
+      '/employee-lactation-periods/:id/conflicts/:shiftExceptionId/reassign',
+      '#controllers/employee_lactation_periods_controller.reassignConflict'
     )
 
     // Evidencias documentales del periodo (PDFs)

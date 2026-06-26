@@ -64,6 +64,16 @@ import EmployeeLactationPeriod from './employee_lactation_period.js'
  *           type: number
  *           description: Referencia al periodo de lactancia origen, cuando la excepción se generó automáticamente desde `employee_lactation_periods`.
  *           nullable: true
+ *         shiftExceptionsLactationReplacedDate:
+ *           type: string
+ *           format: date
+ *           nullable: true
+ *           description: Cuando esta fila es resultado de una REASIGNACIÓN de un día de lactancia por conflicto, conserva la fecha del día revocado original (auditoría STPS).
+ *         shiftExceptionsLactationRevokeReason:
+ *           type: string
+ *           nullable: true
+ *           description: |
+ *             Motivo estable del soft-delete / reasignación cuando aplica. Valores: `vacation_conflict`, `work_disability_conflict`, `maternity_conflict`, `rest_or_permission_conflict`, `holiday_conflict`, `reassigned`, `manual_revoke`.
  *         shiftExceptionCreatedAt:
  *           type: string
  *           format: date-time
@@ -154,6 +164,26 @@ export default class ShiftException extends compose(BaseModel, SoftDeletes) {
    */
   @column()
   declare lactationPeriodId: number | null
+
+  /**
+   * Si la fila es resultado de una REASIGNACIÓN de un día de lactancia
+   * (HU de gestión de conflictos), conserva la fecha del día revocado
+   * original para que el reporte de cumplimiento pueda trazarlo
+   * (auditoría STPS). `null` cuando no aplica.
+   */
+  @column.date({ columnName: 'shift_exceptions_lactation_replaced_date' })
+  declare shiftExceptionsLactationReplacedDate: DateTime | null
+
+  /**
+   * Motivo del soft-delete / reasignación de una fila de lactancia.
+   * Valores estables: 'vacation_conflict', 'work_disability_conflict',
+   * 'maternity_conflict', 'rest_or_permission_conflict',
+   * 'holiday_conflict', 'reassigned', 'manual_revoke'. `null` cuando no
+   * aplica (la fila no ha sido revocada/reasignada por el flujo de
+   * conflictos).
+   */
+  @column({ columnName: 'shift_exceptions_lactation_revoke_reason' })
+  declare shiftExceptionsLactationRevokeReason: string | null
 
   @column.dateTime({ columnName: 'shift_exceptions_deleted_at' })
   declare deletedAt: DateTime | null

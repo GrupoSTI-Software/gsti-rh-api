@@ -66,13 +66,11 @@ export default class ComplaintAttachmentService {
     )
 
     if (typeof url !== 'string') {
-      throw new ComplaintServiceError(
-        'No se pudo generar el enlace de descarga',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_attachment_download_failed',
         COMPLAINT_ERROR_CODES.S3_OPERATION_FAILED,
         500,
-        'complaint-attachment-download-failed',
-        undefined,
-        'complaint_attachment_download_failed'
+        'complaint-attachment-download-failed'
       )
     }
 
@@ -127,13 +125,11 @@ export default class ComplaintAttachmentService {
     )
 
     if (!s3Key) {
-      throw new ComplaintServiceError(
-        'Error al subir el archivo sanitizado a S3',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_attachment_upload_failed',
         COMPLAINT_ERROR_CODES.S3_OPERATION_FAILED,
         500,
-        'complaint-attachment-upload-failed',
-        undefined,
-        'complaint_attachment_upload_failed'
+        'complaint-attachment-upload-failed'
       )
     }
 
@@ -153,13 +149,11 @@ export default class ComplaintAttachmentService {
     await user.load('person')
 
     if (!user.person?.personId) {
-      throw new ComplaintServiceError(
-        'El usuario no tiene una persona asociada',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_person_not_found',
         COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
         403,
-        'AUTH.COMPLAINT.PERSON_NOT_FOUND',
-        undefined,
-        'complaint_person_not_found'
+        'AUTH.COMPLAINT.PERSON_NOT_FOUND'
       )
     }
 
@@ -169,13 +163,11 @@ export default class ComplaintAttachmentService {
       .first()
 
     if (!employee) {
-      throw new ComplaintServiceError(
-        'El usuario no tiene un registro de empleado asociado',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_employee_not_found',
         COMPLAINT_ERROR_CODES.EMPLOYEE_NOT_FOUND,
         403,
-        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND',
-        undefined,
-        'complaint_employee_not_found'
+        'AUTH.COMPLAINT.EMPLOYEE_NOT_FOUND'
       )
     }
 
@@ -186,13 +178,11 @@ export default class ComplaintAttachmentService {
       .first()
 
     if (!complaint) {
-      throw new ComplaintServiceError(
-        'La queja no existe o no pertenece al empleado autenticado',
+      throw ComplaintServiceError.withMessageKey(
+        'complaint_case_not_found_for_employee',
         COMPLAINT_ERROR_CODES.STATUS_NOT_FOUND,
         404,
-        'caso-no-encontrado',
-        undefined,
-        'complaint_case_not_found_for_employee'
+        'case-not-found'
       )
     }
 
@@ -262,35 +252,29 @@ export default class ComplaintAttachmentService {
   }
 
   private invalidFileError(messageKey: string) {
-    return new ComplaintServiceError(
-      'El archivo no cumple con los requisitos permitidos',
+    return ComplaintServiceError.withMessageKey(
+      messageKey,
       COMPLAINT_ERROR_CODES.INVALID_FILE,
       422,
-      'archivo-invalido',
-      undefined,
-      messageKey
+      'invalid-file'
     )
   }
 
   private complaintNotFoundError() {
-    return new ComplaintServiceError(
-      'La queja no existe o está fuera del alcance del usuario autenticado',
+    return ComplaintServiceError.withMessageKey(
+      'complaint_not_found',
       COMPLAINT_ERROR_CODES.STATUS_NOT_FOUND,
       404,
-      'queja-no-encontrada',
-      undefined,
-      'complaint_not_found'
+      'complaint-not-found'
     )
   }
 
   private attachmentNotFoundError() {
-    return new ComplaintServiceError(
-      'El adjunto no existe o está fuera del alcance del usuario autenticado',
+    return ComplaintServiceError.withMessageKey(
+      'complaint_attachment_not_found',
       COMPLAINT_ERROR_CODES.ATTACHMENT_NOT_FOUND,
       404,
-      'adjunto-no-encontrado',
-      undefined,
-      'complaint_attachment_not_found'
+      'attachment-not-found'
     )
   }
 

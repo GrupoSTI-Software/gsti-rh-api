@@ -31,6 +31,29 @@ export const patchComplaintStatusValidator = vine.compile(
   })
 )
 
+export const revealComplaintIdentityValidator = vine.compile(
+  vine.object({
+    justification: vine.string().trim().minLength(1).maxLength(5000),
+  })
+)
+
+const complaintReportIsoDateField = vine.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+export const complaintReportValidator = vine.compile(
+  vine.object({
+    from: complaintReportIsoDateField,
+    to: complaintReportIsoDateField,
+  })
+)
+
+export const complaintReportExportValidator = vine.compile(
+  vine.object({
+    from: complaintReportIsoDateField,
+    to: complaintReportIsoDateField,
+    format: vine.enum(['xlsx', 'pdf']),
+  })
+)
+
 /** @deprecated Usar patchComplaintStatusValidator */
 export const updateComplaintStatusValidator = vine.compile(
   vine.object({
@@ -48,4 +71,14 @@ export type ComplaintListPayload = Awaited<ReturnType<typeof complaintListValida
 
 export type PatchComplaintStatusPayload = Awaited<
   ReturnType<typeof patchComplaintStatusValidator.validate>
+>
+
+export type RevealComplaintIdentityPayload = Awaited<
+  ReturnType<typeof revealComplaintIdentityValidator.validate>
+>
+
+export type ComplaintReportPayload = Awaited<ReturnType<typeof complaintReportValidator.validate>>
+
+export type ComplaintReportExportPayload = Awaited<
+  ReturnType<typeof complaintReportExportValidator.validate>
 >
