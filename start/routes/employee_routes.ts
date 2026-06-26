@@ -45,6 +45,22 @@ router
       '#controllers/employee_temporary_assignment_controller.store'
     )
     router.get(
+      '/:employeeId/temporary-assignments',
+      '#controllers/employee_temporary_assignment_controller.index'
+    )
+    router.put(
+      '/:employeeId/temporary-assignments/:id',
+      '#controllers/employee_temporary_assignment_controller.update'
+    )
+    router.post(
+      '/:employeeId/temporary-assignments/:id/cancel',
+      '#controllers/employee_temporary_assignment_controller.cancel'
+    )
+    router.delete(
+      '/:employeeId/temporary-assignments/:id',
+      '#controllers/employee_temporary_assignment_controller.destroy'
+    )
+    router.get(
       '/:employeeId/temporary-assignments/active',
       '#controllers/employee_temporary_assignment_controller.showActive'
     )

@@ -97,6 +97,9 @@ const EXCLUDED_RELATIVE_PATHS = new Set([
   'database/seeders/0031_nom_037_stps_seeder.ts',
   'resources/langs/es.json',
   'resources/langs/en.json',
+  // Registro auditable NOM-035 §5.8.c: "Psicológico" es la etiqueta oficial del
+  // tipo de examen en el PDF entregable a la STPS (examen médico / psicológico).
+  'app/services/traumatic_event_registry_report_service.ts',
 ])
 
 const SOURCE_EXTENSIONS = new Set([

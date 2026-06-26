@@ -128,6 +128,359 @@ components:
         data:
           nullable: true
 
+    Nom035QrunError:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Aplicación NOM-035
+        message: Sucursal no aplicable para lanzamiento de cuestionario
+        detail: Sucursal no aplicable para lanzamiento de cuestionario
+        key: sucursal-no-aplicable
+        code: NOM035.QRUN.NOT_APPLICABLE
+        data: null
+
+    QuestionnaireApplicationListItem:
+      type: object
+      properties:
+        questionnaireApplicationId:
+          type: integer
+        folio:
+          type: string
+        branchOfficeId:
+          type: integer
+        branchOfficeName:
+          type: string
+        applicableInstrument:
+          type: string
+          enum: [guide_ii, guide_iii]
+        status:
+          type: string
+          enum: [borrador, en-curso, cerrada]
+        targetCount:
+          type: integer
+        respondedCount:
+          type: integer
+        launchedAt:
+          type: string
+          format: date-time
+
+    QuestionnaireApplicationDetail:
+      allOf:
+        - $ref: '#/components/schemas/QuestionnaireApplicationListItem'
+        - type: object
+          properties:
+            businessUnitId:
+              type: integer
+            regulationQuestionnaireId:
+              type: integer
+            closedAt:
+              type: string
+              format: date-time
+              nullable: true
+
+    QuestionnaireApplicationCreate:
+      type: object
+      required: [branchOfficeId]
+      properties:
+        branchOfficeId:
+          type: integer
+          minimum: 1
+
+    QuestionnaireApplicationSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplication:
+              $ref: '#/components/schemas/QuestionnaireApplicationDetail'
+
+    QuestionnaireApplicationListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplications:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/QuestionnaireApplicationListItem'
+
+    QuestionnaireApplicationTargetItem:
+      type: object
+      properties:
+        questionnaireApplicationTargetId:
+          type: integer
+        employeeId:
+          type: integer
+        employeeCode:
+          oneOf:
+            - type: integer
+            - type: string
+        employeePayrollNum:
+          type: string
+        employeeFullName:
+          type: string
+          description: Nombre completo del empleado
+        departmentName:
+          type: string
+          nullable: true
+        positionName:
+          type: string
+          nullable: true
+        branchOfficeName:
+          type: string
+        status:
+          type: string
+          enum: [pendiente, respondido]
+        captureStatus:
+          type: string
+          enum: [pendiente, borrador, respondido]
+          description: Estado de captura derivado de target + response
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    QuestionnaireApplicationTargetsSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            targets:
+              type: array
+              items:
+                $ref: '#/components/schemas/QuestionnaireApplicationTargetItem'
+
+    QuestionnaireCaptureAnswerInput:
+      type: object
+      required: [questionId, optionKey]
+      properties:
+        questionId:
+          type: integer
+          minimum: 1
+        optionKey:
+          type: string
+
+    QuestionnaireCaptureSubmitRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
+
+    QuestionnaireCaptureDraftRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
+
+    QuestionnaireCaptureScaleOption:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: integer
+
+    QuestionnaireCaptureScale:
+      type: object
+      properties:
+        code:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureScaleOption'
+
+    QuestionnaireCaptureQuestion:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        textKey:
+          type: string
+        helpKey:
+          type: string
+          nullable: true
+        answerScale:
+          $ref: '#/components/schemas/QuestionnaireCaptureScale'
+
+    QuestionnaireCaptureSection:
+      type: object
+      properties:
+        titleKey:
+          type: string
+        ord:
+          type: integer
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureQuestion'
+
+    QuestionnaireCaptureInstrument:
+      type: object
+      properties:
+        questionnaireApplicationId:
+          type: integer
+        employeeId:
+          type: integer
+        instrument:
+          type: string
+          enum: [guide_ii, guide_iii]
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureSection'
+
+    QuestionnaireCaptureInstrumentSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            instrument:
+              $ref: '#/components/schemas/QuestionnaireCaptureInstrument'
+
+    QuestionnaireApplicationResponseDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        employeeId:
+          type: integer
+        answeredCount:
+          type: integer
+        targetStatus:
+          type: string
+          enum: [respondido]
+        respondedAt:
+          type: string
+          format: date-time
+
+    QuestionnaireApplicationResponseSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationResponseDetail'
+
+    QuestionnaireApplicationDraftDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        status:
+          type: string
+          enum: [borrador]
+        answeredCount:
+          type: integer
+
+    QuestionnaireApplicationDraftSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationDraftDetail'
+
+    QuestionnaireApplicationSavedResponseAnswer:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        optionKey:
+          type: string
+        value:
+          type: integer
+
+    QuestionnaireApplicationSavedResponseDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        status:
+          type: string
+          enum: [borrador, respondido]
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseAnswer'
+
+    QuestionnaireApplicationSavedResponseSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseDetail'
+
     ServicioRegistradoResumen:
       type: object
       required: [id, name]
@@ -1398,7 +1751,1000 @@ components:
                   items:
                     $ref: '#/components/schemas/DocumentoContratoEspecializado'
 
+    AttendanceCoverageLoanDecision:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [can_create, must_cancel_active, not_applicable]
+          description: Decisión de acción para UI del flujo de préstamo.
+        activeAssignmentId:
+          type: integer
+          nullable: true
+          description: ID del préstamo activo a cancelar primero cuando state=must_cancel_active.
+
+    AttendanceCoverageCandidate:
+      type: object
+      required: [employeeId, name, source, originLeftBelowMin, loanDecision]
+      properties:
+        employeeId:
+          type: integer
+        name:
+          type: string
+        source:
+          type: string
+          enum: [rest_same_site, loan_other_site]
+        originLeftBelowMin:
+          type: boolean
+        originBranchOfficeId:
+          type: integer
+          nullable: true
+        originBranchOfficeName:
+          type: string
+          nullable: true
+          description: Nombre del sitio de origen (sitio efectivo del candidato).
+        loanDecision:
+          $ref: '#/components/schemas/AttendanceCoverageLoanDecision'
+
+    AttendanceCoverageShift:
+      type: object
+      required: [shiftId, label, required, min, assigned, present, missing, status, candidates]
+      properties:
+        shiftId:
+          type: integer
+        label:
+          type: string
+        required:
+          type: integer
+        min:
+          type: integer
+        assigned:
+          type: integer
+        present:
+          type: integer
+        missing:
+          type: integer
+        status:
+          type: string
+          enum: [green, amber, red, no_quota]
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageCandidate'
+
+    AttendanceCoverageSite:
+      type: object
+      required: [branchOfficeId, name, shifts]
+      properties:
+        branchOfficeId:
+          type: integer
+        name:
+          type: string
+        shifts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageShift'
+
+    AttendanceCoverageData:
+      type: object
+      required: [day, sites]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Día consultado (yyyy-MM-dd, huso México).
+        sites:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageSite'
+
+    AttendanceCoverageSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AttendanceCoverageData'
+
+    EmployeeTemporaryAssignmentResource:
+      type: object
+      properties:
+        id:
+          type: integer
+        employeeId:
+          type: integer
+        sourceBranchId:
+          type: integer
+        targetBranchId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        effectiveEndDate:
+          type: string
+          format: date
+        days:
+          type: integer
+        reason:
+          type: string
+          nullable: true
+          enum: [cobertura]
+        destinationShiftId:
+          type: integer
+          nullable: true
+        destinationShift:
+          type: object
+          nullable: true
+          properties:
+            shiftId:
+              type: integer
+            shiftName:
+              type: string
+        status:
+          type: string
+          enum: [borrador, vigente, vencido, cancelado]
+          description: Estado derivado del préstamo para habilitar acciones en UI.
+        cancelledAt:
+          type: string
+          format: date
+          nullable: true
+        shiftOverrideAppliesOnDate:
+          type: string
+          format: date
+          nullable: true
+        shiftOverride:
+          type: object
+          nullable: true
+          properties:
+            startTime:
+              type: string
+              example: '06:00'
+            endTime:
+              type: string
+              example: '14:00'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EmployeeTemporaryAssignmentCreate:
+      type: object
+      required: [targetBranchId, days]
+      properties:
+        targetBranchId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+          nullable: true
+        days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        destinationShiftId:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+          enum: [cobertura]
+        shiftOverride:
+          type: object
+          nullable: true
+          properties:
+            startTime:
+              type: string
+            endTime:
+              type: string
+
+    EmployeeTemporaryAssignmentUpdate:
+      type: object
+      properties:
+        startDate:
+          type: string
+          format: date
+        days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        destinationShiftId:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+          enum: [cobertura]
+
+    EmployeeTemporaryAssignmentCancel:
+      type: object
+      properties:
+        cancelDate:
+          type: string
+          format: date
+          nullable: true
+
+    EmployeeTemporaryAssignmentSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/EmployeeTemporaryAssignmentResource'
+
+    EmployeeTemporaryAssignmentActiveSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            activeAssignment:
+              allOf:
+                - $ref: '#/components/schemas/EmployeeTemporaryAssignmentResource'
+              nullable: true
+
+    EmployeeTemporaryAssignmentListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            assignments:
+              type: array
+              items:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentResource'
+
+    EmployeeTemporaryAssignmentCancelSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: integer
+            cancelledAt:
+              type: string
+              format: date
+            effectiveEndDate:
+              type: string
+              format: date
+
+    EmployeeTemporaryAssignmentDeleteSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            id:
+              type: integer
+            deletedAt:
+              type: string
+              format: date-time
+
+    RepseCoverageReportCompany:
+      type: object
+      required:
+        - companyId
+        - companyName
+        - diasBase
+        - diasPrestados
+        - diasServidos
+        - porcentajeObservado
+      properties:
+        companyId:
+          type: integer
+        companyName:
+          type: string
+        diasBase:
+          type: integer
+        diasPrestados:
+          type: integer
+        diasServidos:
+          type: integer
+        porcentajeObservado:
+          type: number
+          format: float
+          description: Porcentaje observado redondeado a 2 decimales.
+        porcentajeDeclarado:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Porcentaje declarado redondeado a 2 decimales.
+            Null cuando no existe asignación REPSE declarada para empleado-empresa.
+        diferencia:
+          type: number
+          format: float
+          nullable: true
+          description: >
+            Diferencia observada - declarada, redondeada a 2 decimales.
+            Null cuando porcentajeDeclarado es null.
+
+    RepseCoverageReportMovement:
+      type: object
+      required:
+        - assignmentId
+        - startDate
+        - endDate
+        - effectiveEndDate
+        - sourceBranchId
+        - sourceBranchName
+        - targetBranchId
+        - targetBranchName
+      properties:
+        assignmentId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        effectiveEndDate:
+          type: string
+          format: date
+        sourceBranchId:
+          type: integer
+        sourceBranchName:
+          type: string
+        sourceCompanyId:
+          type: integer
+          nullable: true
+        sourceCompanyName:
+          type: string
+          nullable: true
+        targetBranchId:
+          type: integer
+        targetBranchName:
+          type: string
+        targetCompanyId:
+          type: integer
+          nullable: true
+        targetCompanyName:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+
+    RepseCoverageReportEmployee:
+      type: object
+      required: [employeeId, employeeName, diasLaborados, companies, movimientos]
+      properties:
+        employeeId:
+          type: integer
+        employeeName:
+          type: string
+        employeeCode:
+          type: string
+          nullable: true
+        diasLaborados:
+          type: integer
+          description: Días laborados reales del empleado en el periodo.
+        companies:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepseCoverageReportCompany'
+        movimientos:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepseCoverageReportMovement'
+
+    RepseCoverageReportSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [meta, data]
+          properties:
+            meta:
+              type: object
+              required: [total, perPage, currentPage, lastPage]
+              properties:
+                total:
+                  type: integer
+                perPage:
+                  type: integer
+                currentPage:
+                  type: integer
+                lastPage:
+                  type: integer
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/RepseCoverageReportEmployee'
+
 paths:
+  /api/employees/{employeeId}/temporary-assignments:
+    post:
+      summary: Crear préstamo temporal para un empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTemporaryAssignmentCreate'
+      responses:
+        '201':
+          description: Préstamo creado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentSuccess'
+        '400':
+          description: key body-invalido o dias-invalidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key prestamo-solapado, conflicto-vacaciones-incapacidad-permiso o debe-cancelar-prestamo-activo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key sucursal-destino-igual-a-origen o turno-destino-no-configurado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    get:
+      summary: Listar historial de préstamos de un empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Historial del empleado (incluye cancelados, excluye eliminados)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentListSuccess'
+        '400':
+          description: key body-invalido, fecha-cancelacion-invalida o fecha-cancelacion-fuera-vigencia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/employees/{employeeId}/temporary-assignments/active:
+    get:
+      summary: Obtener préstamo temporal activo de un empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Préstamo activo encontrado o null si no existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentActiveSuccess'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/employees/{employeeId}/temporary-assignments/{id}:
+    put:
+      summary: Editar préstamo temporal del empleado
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTemporaryAssignmentUpdate'
+      responses:
+        '200':
+          description: Préstamo actualizado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentSuccess'
+        '400':
+          description: key body-invalido o dias-invalidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado o préstamo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key prestamo-no-editable o prestamo-solapado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: key turno-destino-no-configurado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    delete:
+      summary: Eliminar lógicamente un préstamo temporal
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Préstamo eliminado lógicamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentDeleteSuccess'
+        '404':
+          description: Empleado o préstamo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/employees/{employeeId}/temporary-assignments/{id}/cancel:
+    post:
+      summary: Cancelar anticipadamente un préstamo temporal
+      tags: [Employee Temporary Assignments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeTemporaryAssignmentCancel'
+      responses:
+        '200':
+          description: Préstamo cancelado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTemporaryAssignmentCancelSuccess'
+        '400':
+          description: key body-invalido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empleado o préstamo no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: key prestamo-no-editable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/repse/coverage-report:
+    get:
+      summary: Reporte de cobertura REPSE por empleado y empresa
+      tags: [RepseCoverageReport]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: companyId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: employeeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: perPage
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 20
+      responses:
+        '200':
+          description: Reporte calculado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseCoverageReportSuccess'
+              example:
+                type: success
+                title: Recursos
+                message: Los recursos fueron encontrados correctamente
+                data:
+                  meta:
+                    total: 1
+                    perPage: 20
+                    currentPage: 1
+                    lastPage: 1
+                  data:
+                    - employeeId: 1
+                      employeeName: Empleado Temporal Repse
+                      employeeCode: TRC-E001
+                      diasLaborados: 5
+                      companies:
+                        - companyId: 1
+                          companyName: Empresa temporal REPSE Coverage
+                          diasBase: 0
+                          diasPrestados: 5
+                          diasServidos: 5
+                          porcentajeObservado: 100
+                          porcentajeDeclarado: 100
+                          diferencia: 0
+                      movimientos:
+                        - assignmentId: 1
+                          startDate: '2026-06-10'
+                          endDate: '2026-06-16'
+                          effectiveEndDate: '2026-06-16'
+                          sourceBranchId: 1
+                          sourceBranchName: Sucursal Matriz
+                          sourceCompanyId: null
+                          sourceCompanyName: null
+                          targetBranchId: 2
+                          targetBranchName: Sucursal Cliente Norte
+                          targetCompanyId: 1
+                          targetCompanyName: Empresa temporal REPSE Coverage
+                          reason: cobertura
+        '400':
+          description: Datos inválidos (key query-invalida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error de validación
+                message: El campo from es obligatorio
+                key: query-invalida
+                data:
+                  errors:
+                    - message: El campo from es obligatorio
+                      rule: required
+                      field: from
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: No autenticado
+                message: No autenticado
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No cuentas con permisos para realizar esta acción.
+                key: sin-permiso
+                data: null
+        '422':
+          description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                rangoFechasInvalido:
+                  summary: key rango-fechas-invalido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas es inválido.
+                    key: rango-fechas-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas excede el máximo permitido
+                    key: rango-maximo-excedido
+                    data:
+                      maxDays: 366
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado en el servidor
+                data: null
+
+  /api/repse/coverage-report/export:
+    get:
+      summary: Exportar reporte de cobertura REPSE en Excel
+      tags: [RepseCoverageReport]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: companyId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: employeeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [xlsx]
+      responses:
+        '200':
+          description: Archivo Excel generado correctamente
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Datos inválidos (key query-invalida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error de validación
+                message: El campo from es obligatorio
+                key: query-invalida
+                data:
+                  errors:
+                    - message: El campo from es obligatorio
+                      rule: required
+                      field: from
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: No autenticado
+                message: No autenticado
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No cuentas con permisos para realizar esta acción.
+                key: sin-permiso
+                data: null
+        '422':
+          description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                rangoFechasInvalido:
+                  summary: key rango-fechas-invalido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas es inválido.
+                    key: rango-fechas-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Error de validación
+                    message: El rango de fechas excede el máximo permitido
+                    key: rango-maximo-excedido
+                    data:
+                      maxDays: 366
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado en el servidor
+                data: null
+
   /api/empresas-contratantes:
     get:
       summary: Lista paginada de empresas contratantes
@@ -1900,13 +3246,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-        '404':
-          description: key contrato-no-encontrado
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-
         '404':
           description: key contrato-no-encontrado
           content:
@@ -2861,3 +4200,753 @@ paths:
                 key: cuota-invalida
                 errorCode: BRCH.SQ.VAL.QUOTA.001
                 data: null
+
+  /api/v1/attendance-stats/coverage:
+    get:
+      summary: Cobertura de plantilla por sitio y turno
+      description: |
+        Compara presentes contra cuota (requerida/mínimo) por sitio de servicio REPSE y turno del día.
+        Requiere un único día (`startDay` = `endDay`) y `companyId` (empresa contratante).
+        Incluye candidatos de cobertura para turnos en semáforo amarillo o rojo.
+      tags: [AttendanceStats]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+        - name: startDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-06-15"
+        - name: endDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-06-15"
+        - name: companyId
+          in: query
+          required: true
+          description: ID de empresa contratante (empresaContratanteId).
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: CSV de IDs de sitios a incluir (subset de la empresa contratante).
+          schema:
+            type: string
+            example: "5,7"
+        - name: employeeIds
+          in: query
+          required: false
+          schema:
+            type: string
+            example: "10,11"
+        - name: businessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: payrollBusinessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Cobertura calculada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceCoverageSuccess'
+              example:
+                type: success
+                title: Resources
+                message: Resources were found successfully
+                data:
+                  day: "2026-06-15"
+                  sites:
+                    - branchOfficeId: 5
+                      name: Planta Monterrey
+                      shifts:
+                        - shiftId: 3
+                          label: Nocturno
+                          required: 10
+                          min: 8
+                          assigned: 9
+                          present: 7
+                          missing: 3
+                          status: red
+                          candidates:
+                            - employeeId: 42
+                              name: Juan Pérez
+                              source: rest_same_site
+                              originLeftBelowMin: false
+                              originBranchOfficeId: 5
+                              originBranchOfficeName: Planta Monterrey
+                              loanDecision:
+                                state: not_applicable
+                                activeAssignmentId: null
+                            - employeeId: 88
+                              name: Ana López
+                              source: loan_other_site
+                              originLeftBelowMin: true
+                              originBranchOfficeId: 12
+                              originBranchOfficeName: CEDIS Guadalajara
+                              loanDecision:
+                                state: can_create
+                                activeAssignmentId: null
+        '400':
+          description: Entrada inválida, rango inválido o día único requerido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                entradaInvalida:
+                  summary: key entrada-invalida
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid request parameters
+                    key: entrada-invalida
+                    data: null
+                rangoInvalido:
+                  summary: key rango-invalido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid date range
+                    key: rango-invalido
+                    data: null
+                diaUnicoRequerido:
+                  summary: key dia-unico-requerido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Coverage requires a single day
+                    key: dia-unico-requerido
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '403':
+          description: Scope insuficiente (key scope-insuficiente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Forbidden
+                message: User has no business units assigned
+                key: scope-insuficiente
+                data: null
+        '404':
+          description: Empresa contratante no encontrada (key empresa-contratante-no-encontrada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Validation error
+                message: La empresa contratante no existe o no pertenece al tenant actual.
+                key: empresa-contratante-no-encontrada
+                data: null
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Server error
+                message: An unexpected error has occurred on the server
+                data: null
+
+  /api/nom035/questionnaire-applications:
+    get:
+      summary: Listar aplicaciones de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: branchOfficeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [borrador, en-curso, cerrada]
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Aplicaciones de cuestionario obtenidas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationListSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+    post:
+      summary: Crear y lanzar aplicación de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireApplicationCreate'
+      responses:
+        '201':
+          description: Aplicación de cuestionario lanzada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSuccess'
+        '400':
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para lanzar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Sucursal no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ya existe una aplicación abierta para la sucursal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Sucursal no aplicable para cuestionario NOM-035
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}:
+    get:
+      summary: Obtener detalle de aplicación de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Aplicación de cuestionario obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSuccess'
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+    delete:
+      summary: Eliminar lógicamente aplicación de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Aplicación eliminada correctamente (sin contenido)
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para eliminar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Aplicación con respuestas capturadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets:
+    get:
+      summary: Listar objetivos de una ronda de cuestionario NOM-035
+      description: >
+        Devuelve la lista de empleados objetivo de la ronda con su estado actual
+        de objetivo (pendiente/respondido) y su estado de captura derivado
+        (pendiente/borrador/respondido). Permite filtrar por status y buscar por
+        nombre completo para consumo del selector de captura en BO.
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: ID de la aplicación de cuestionario
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, respondido]
+          description: Filtra objetivos por estado
+        - name: captureStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, borrador, respondido]
+          description: Filtra objetivos por estado de captura derivado
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Búsqueda por nombre completo del empleado
+      responses:
+        '200':
+          description: Objetivos obtenidos correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationTargetsSuccess'
+              examples:
+                lista:
+                  summary: Lista de objetivos con estado
+                  value:
+                    type: success
+                    title: Objetivos de la ronda
+                    message: Objetivos obtenidos correctamente
+                    data:
+                      targets:
+                        - questionnaireApplicationTargetId: 1
+                          employeeId: 42
+                          employeeCode: 10042
+                          employeePayrollNum: A-10042
+                          employeeFullName: Juan Pérez López
+                          departmentName: Operaciones
+                          positionName: Supervisor
+                          branchOfficeName: Sucursal Centro
+                          status: pendiente
+                          captureStatus: borrador
+                          respondedAt: null
+                        - questionnaireApplicationTargetId: 2
+                          employeeId: 43
+                          employeeCode: 10043
+                          employeePayrollNum: A-10043
+                          employeeFullName: María García Soto
+                          departmentName: Recursos Humanos
+                          positionName: Analista RH
+                          branchOfficeName: Sucursal Centro
+                          status: respondido
+                          captureStatus: respondido
+                          respondedAt: '2026-06-23T17:56:45.793Z'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Datos inválidos
+                key: datos-invalidos
+                detail: Datos inválidos
+                code: NOM035.QRUN.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para consultar objetivos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Sin permiso para gestionar aplicaciones de cuestionario
+                key: sin-permiso
+                detail: Sin permiso para gestionar aplicaciones de cuestionario
+                code: NOM035.QRUN.FORBIDDEN
+                data: null
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+                key: aplicacion-no-encontrada
+                detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+                code: NOM035.QRUN.NOT_FOUND
+                data: null
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/instrument:
+    get:
+      summary: Obtener instrumento para captura por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Instrumento obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireCaptureInstrumentSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar instrumento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/answers:
+    post:
+      summary: Capturar y persistir respuestas por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireCaptureSubmitRequest'
+      responses:
+        '201':
+          description: Respuestas guardadas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationResponseSuccess'
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para capturar respuestas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ronda cerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Cuestionario incompleto u opción inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/draft:
+    put:
+      summary: Guardar borrador de respuestas por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireCaptureDraftRequest'
+      responses:
+        '200':
+          description: Borrador guardado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationDraftSuccess'
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para guardar borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ronda cerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Opción inválida para la escala de la pregunta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/response:
+    get:
+      summary: Obtener captura guardada para retomar o editar
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Captura obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar captura
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Captura no encontrada para el objetivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'

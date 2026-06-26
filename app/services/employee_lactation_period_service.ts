@@ -8,6 +8,7 @@ import EmployeeLactationPeriod, {
   type EmployeeLactationPeriodType,
 } from '#models/employee_lactation_period'
 import Employee from '#models/employee'
+import EmployeeChildren from '#models/employee_children'
 // import BusinessUnit from '#models/business_unit'
 import ShiftExceptionService, {
   type LactationShiftExceptionsResult,
@@ -39,6 +40,13 @@ export interface EmployeeLactationPeriodCreatePayload {
   employeeLactationPeriodType: EmployeeLactationPeriodType
   employeeLactationPeriodReductionApplication?: EmployeeLactationPeriodReductionApplication
   employeeLactationPeriodNotes?: string | null
+  /**
+   * Vínculo OPCIONAL al hijo registrado de la empleada que justifica el
+   * derecho. `null` se persiste tal cual. Si llega un id, el service
+   * valida pertenencia al mismo `employeeId` y lanza 422 con key
+   * `hijo-no-pertenece-al-empleado` cuando no aplica.
+   */
+  employeeChildrenId?: number | null
 }
 
 export type EmployeeLactationPeriodUpdatePayload = Partial<EmployeeLactationPeriodCreatePayload>
@@ -85,6 +93,35 @@ function toIsoDateTimeString(value: unknown): string | null {
   return null
 }
 
+/**
+ * Mini-objeto del hijo vinculado para la respuesta del CRUD. Sólo se
+ * exponen los campos necesarios para pintarlo en la card del front
+ * (nombre completo + cumpleaños) — NO se expone el `employeeId` ni
+ * timestamps internos para reducir la superficie de datos sensibles.
+ */
+export interface SerializedLactationChild {
+  employeeChildrenId: number
+  employeeChildrenFirstname: string
+  employeeChildrenLastname: string
+  employeeChildrenSecondLastname: string
+  employeeChildrenBirthday: string | null
+}
+
+function serializeLactationChild(
+  child: EmployeeChildren | null | undefined
+): SerializedLactationChild | null {
+  if (!child) return null
+  return {
+    employeeChildrenId: child.employeeChildrenId,
+    employeeChildrenFirstname: child.employeeChildrenFirstname ?? '',
+    employeeChildrenLastname: child.employeeChildrenLastname ?? '',
+    employeeChildrenSecondLastname: child.employeeChildrenSecondLastname ?? '',
+    employeeChildrenBirthday: child.employeeChildrenBirthday
+      ? toIsoDateString(child.employeeChildrenBirthday)
+      : null,
+  }
+}
+
 /** Estructura final que se entrega al cliente HTTP. */
 function serializeLactationPeriod(period: EmployeeLactationPeriod) {
   return {
@@ -100,6 +137,20 @@ function serializeLactationPeriod(period: EmployeeLactationPeriod) {
     employeeLactationPeriodReductionApplication:
       period.employeeLactationPeriodReductionApplication,
     employeeLactationPeriodNotes: period.employeeLactationPeriodNotes ?? null,
+    /**
+     * Se expone siempre (aun en `null`) para que el cliente pueda
+     * distinguir "sin vínculo" vs "campo nunca consultado". El selector
+     * del drawer se basa en este flag para preseleccionar el hijo.
+     */
+    employeeChildrenId: period.employeeChildrenId ?? null,
+    /**
+     * Objeto resumido del hijo vinculado, listo para renderizarse en la
+     * card del periodo SIN tener que hacer un fetch adicional al
+     * endpoint de hijos. Es `null` cuando no hay vínculo o cuando el
+     * caller no precargó la relación (en cuyo caso el front degrada
+     * mostrando sólo el id, sin nombre).
+     */
+    employeeChild: serializeLactationChild(period.employeeChild),
     employeeLactationPeriodCreatedAt: toIsoDateTimeString(
       period.employeeLactationPeriodCreatedAt
     ),
@@ -161,6 +212,11 @@ export default class EmployeeLactationPeriodService {
           q.whereRaw('1 = 0')
         }
       })
+      // Trae el hijo vinculado para que la card del front pueda mostrar
+      // el chip "Hijo: Nombre (yyyy-mm-dd)" sin un fetch adicional. El
+      // preload es LEFT JOIN: periodos sin vínculo regresan con la
+      // relación en `null` y el serializer la mapea a `employeeChild: null`.
+      .preload('employeeChild')
 
     if (employeeId !== undefined) {
       query.where('employee_id', employeeId)
@@ -199,6 +255,16 @@ export default class EmployeeLactationPeriodService {
     this.assertWithinReasonableRange(startDate, endDate)
     await this.assertNoOverlap(payload.employeeId, startDate, endDate)
 
+    // Validamos pertenencia del hijo ANTES de abrir la transacción para
+    // evitar el costo de un rollback ante un error de validación
+    // trivial. `null`/`undefined` salta el check (vínculo opcional).
+    if (payload.employeeChildrenId !== null && payload.employeeChildrenId !== undefined) {
+      await this.assertChildBelongsToEmployee(
+        payload.employeeChildrenId,
+        payload.employeeId
+      )
+    }
+
     const { period, shiftExceptionsResult } = await db.transaction(async (trx) => {
       const newPeriod = new EmployeeLactationPeriod()
       newPeriod.employeeId = payload.employeeId
@@ -210,8 +276,16 @@ export default class EmployeeLactationPeriodService {
       newPeriod.employeeLactationPeriodNotes = this.normalizeNotes(
         payload.employeeLactationPeriodNotes
       )
+      newPeriod.employeeChildrenId = payload.employeeChildrenId ?? null
       newPeriod.useTransaction(trx)
       await newPeriod.save()
+
+      // Carga la relación dentro de la misma transacción si el periodo
+      // se guardó con vínculo; así la respuesta incluye el mini-objeto
+      // y la card del front pinta el chip sin un round-trip extra.
+      if (newPeriod.employeeChildrenId) {
+        await newPeriod.useTransaction(trx).load('employeeChild')
+      }
 
       const result = await this.buildShiftExceptionService().generateForLactationPeriod(
         newPeriod.employeeLactationPeriodId,
@@ -285,6 +359,22 @@ export default class EmployeeLactationPeriodService {
       )
     }
 
+    // Validamos pertenencia del hijo si el patch lo trae con un id (no
+    // si lo trae como `null`, que es la operación de desvincular). Se
+    // hace ANTES de abrir la transacción por el mismo motivo que en
+    // `create()`. Se valida contra el `nextEmployeeId` por si el patch
+    // también cambia la empleada en la misma operación (caso raro pero
+    // soportado por el endpoint).
+    if (
+      payload.employeeChildrenId !== undefined &&
+      payload.employeeChildrenId !== null
+    ) {
+      await this.assertChildBelongsToEmployee(
+        payload.employeeChildrenId,
+        nextEmployeeId
+      )
+    }
+
     const { period: updatedPeriod, shiftExceptionsResult } = await db.transaction(
       async (trx) => {
         period.useTransaction(trx)
@@ -303,6 +393,11 @@ export default class EmployeeLactationPeriodService {
             payload.employeeLactationPeriodNotes
           )
         }
+        // Distinguir `null` (desvincular) vs `undefined` (no tocar). Si
+        // el patch trae explícitamente `null`, se persiste como tal.
+        if (payload.employeeChildrenId !== undefined) {
+          period.employeeChildrenId = payload.employeeChildrenId
+        }
         await period.save()
 
         let result: LactationShiftExceptionsResult | null = null
@@ -317,6 +412,12 @@ export default class EmployeeLactationPeriodService {
     )
 
     await updatedPeriod.refresh()
+    // Tras `refresh()` se pierde cualquier relación cargada previamente.
+    // Volvemos a cargarla sólo si hay vínculo; periodos sin hijo dejan
+    // `employeeChild` como `null` en la respuesta.
+    if (updatedPeriod.employeeChildrenId) {
+      await updatedPeriod.load('employeeChild')
+    }
 
     return {
       ...serializeLactationPeriod(updatedPeriod),
@@ -332,8 +433,8 @@ export default class EmployeeLactationPeriodService {
    * `lactation_period_id` mediante
    * `ShiftExceptionService.destroyForLactationPeriod(periodId, trx)`.
    */
-  async destroy(periodId: number) {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
+  async destroy(periodId: number, allowedBusinessUnitIds: number[] = []) {
+    const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
     const { deletedCount } = await db.transaction(async (trx) => {
       const result = await this.buildShiftExceptionService().destroyForLactationPeriod(
@@ -365,12 +466,16 @@ export default class EmployeeLactationPeriodService {
    * día. Si la empleada no tiene NINGÚN `EmployeeShift` activo en todo el rango
    * lanza 422 `NO_ACTIVE_SHIFT`.
    */
-  async regenerateShiftExceptions(periodId: number): Promise<{
+  async regenerateShiftExceptions(
+    periodId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<{
     lactationPeriodId: number
     regeneratedExceptionsCount: number
     omittedDaysWithoutShift: string[]
+    skippedDaysWithConflict: string[]
   }> {
-    const period = await this.findPeriodInCompanyOrFail(periodId)
+    const period = await this.findPeriodInCompanyOrFail(periodId, allowedBusinessUnitIds)
 
     const result = await db.transaction(async (trx) => {
       return this.buildShiftExceptionService().regenerateAllForLactationPeriod(
@@ -399,6 +504,7 @@ export default class EmployeeLactationPeriodService {
       lactationPeriodId: period.employeeLactationPeriodId,
       regeneratedExceptionsCount: result.generatedCount,
       omittedDaysWithoutShift: result.omittedDaysWithoutShift,
+      skippedDaysWithConflict: result.skippedDaysWithConflict,
     }
   }
 
@@ -633,6 +739,39 @@ export default class EmployeeLactationPeriodService {
     }
     const trimmed = String(value).trim()
     return trimmed.length === 0 ? null : trimmed
+  }
+
+  /**
+   * Verifica que el `employeeChildrenId` exista, no esté borrado y
+   * pertenezca al `employeeId` del periodo. Lanza 422 con key estable
+   * `hijo-no-pertenece-al-empleado` cuando no aplica.
+   *
+   * Implementación a propósito directa contra `EmployeeChildren` (sin
+   * salto al `EmployeeChildrenService`) para evitar ciclos de imports
+   * con servicios que ya consumen este módulo, y para mantener la
+   * verificación atómica (un sólo query antes de la transacción).
+   *
+   * NO valida BU del empleado: ese check ya lo hicimos antes con
+   * `ensureEmployeeBelongsToCompany`. Aquí sólo aseguramos pertenencia
+   * hijo↔empleada.
+   */
+  private async assertChildBelongsToEmployee(
+    employeeChildrenId: number,
+    employeeId: number
+  ) {
+    const child = await EmployeeChildren.query()
+      .where('employee_children_id', employeeChildrenId)
+      .whereNull('employee_children_deleted_at')
+      .first()
+
+    if (!child || child.employeeId !== employeeId) {
+      throw new EmployeeLactationPeriodError(
+        'El hijo seleccionado no pertenece a la empleada del periodo de lactancia.',
+        ELP_ERROR_CODES.CHILD_NOT_OWNED,
+        422,
+        'hijo-no-pertenece-al-empleado'
+      )
+    }
   }
 
 }
