@@ -49,12 +49,56 @@ const FONTS_DIR_REL = ['..', '..', 'resources', 'fonts'] as const
  * TODO: confirmar con el equipo si deben mantenerse o si el PDF debe
  * generarse siempre con espacios en blanco cuando alguno falta.
  */
-const REQUIRED_FIELDS_FOR_DOC = [
+export const REQUIRED_FIELDS_FOR_DOC = [
   'traumaticEventReportDescription',
   'traumaticEventReportInvolvedPeople',
   'traumaticEventReportOccurredAt',
   'traumaticEventReportElaboratedAt',
 ] as const satisfies ReadonlyArray<keyof TraumaticEventReport>
+
+/**
+ * Valida que el reporte tenga los campos mínimos para generar el escrito §6.5.
+ * Se exporta para facilitar las pruebas unitarias en aislamiento (sin BD).
+ *
+ * @throws TraumaticEventReportError 400 ETR.VAL.DOC.001 si algún campo falta.
+ *
+ * TODO: revisar con el equipo si esta validación debe mantenerse o si se
+ * prefiere siempre generar el PDF con espacios en blanco cuando alguno falta.
+ */
+export function assertDocumentComplete(
+  report: Pick<
+    TraumaticEventReport,
+    | 'traumaticEventReportDescription'
+    | 'traumaticEventReportInvolvedPeople'
+    | 'traumaticEventReportOccurredAt'
+    | 'traumaticEventReportElaboratedAt'
+  >
+): void {
+  const missing: string[] = []
+
+  if (!report.traumaticEventReportDescription?.trim()) {
+    missing.push('traumaticEventReportDescription')
+  }
+  if (!report.traumaticEventReportInvolvedPeople?.trim()) {
+    missing.push('traumaticEventReportInvolvedPeople')
+  }
+  if (!report.traumaticEventReportOccurredAt) {
+    missing.push('traumaticEventReportOccurredAt')
+  }
+  if (!report.traumaticEventReportElaboratedAt) {
+    missing.push('traumaticEventReportElaboratedAt')
+  }
+
+  if (missing.length > 0) {
+    throw new TraumaticEventReportError(
+      'El reporte no tiene todos los campos requeridos para generar el escrito §6.5 ' +
+        `(${REQUIRED_FIELDS_FOR_DOC.join(', ')}). Faltantes: ${missing.join(', ')}.`,
+      ETR_ERROR_CODES.DOC_INCOMPLETE,
+      400,
+      'reporte-incompleto'
+    )
+  }
+}
 
 /**
  * Genera el PDF del escrito de informe de acontecimiento traumático severo
@@ -116,40 +160,8 @@ export default class TraumaticEventReportDocumentService {
     return report
   }
 
-  /**
-   * Valida que el reporte tenga los campos mínimos requeridos para generar
-   * el escrito NOM-035 §6.5. Responde 400 ETR.VAL.DOC.001 con lista de
-   * campos faltantes si alguno está ausente.
-   *
-   * TODO: revisar con el equipo si esta validación debe mantenerse o si se
-   * prefiere siempre generar el PDF con espacios en blanco para los campos
-   * faltantes (decisión pendiente de confirmación).
-   */
   private assertCompleteForDocument(report: TraumaticEventReport): void {
-    const missing: string[] = []
-
-    if (!report.traumaticEventReportDescription?.trim()) {
-      missing.push('traumaticEventReportDescription')
-    }
-    if (!report.traumaticEventReportInvolvedPeople?.trim()) {
-      missing.push('traumaticEventReportInvolvedPeople')
-    }
-    if (!report.traumaticEventReportOccurredAt) {
-      missing.push('traumaticEventReportOccurredAt')
-    }
-    if (!report.traumaticEventReportElaboratedAt) {
-      missing.push('traumaticEventReportElaboratedAt')
-    }
-
-    if (missing.length > 0) {
-      throw new TraumaticEventReportError(
-        'El reporte no tiene todos los campos requeridos para generar el escrito §6.5 ' +
-          `(${REQUIRED_FIELDS_FOR_DOC.join(', ')}). Faltantes: ${missing.join(', ')}.`,
-        ETR_ERROR_CODES.DOC_INCOMPLETE,
-        400,
-        'reporte-incompleto'
-      )
-    }
+    assertDocumentComplete(report)
   }
 
   // ---------------------------------------------------------------------------
