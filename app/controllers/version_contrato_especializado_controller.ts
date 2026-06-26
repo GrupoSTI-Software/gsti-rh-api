@@ -25,7 +25,7 @@ const ADDENDUM_VALIDATION_ERROR_OPTIONS: ResolveVersionContratoApiErrorOptions =
   validationKey: 'addendum-invalido',
 }
 
-const MODULE_SLUG = 'compliance-contratos'
+const MODULE_SLUG = 'repse-registrations'
 const RBAC_FORBIDDEN = {
   errorCode: VERSION_CONTRATO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN,
   i18nPrefix: 'version_contrato_especializado',

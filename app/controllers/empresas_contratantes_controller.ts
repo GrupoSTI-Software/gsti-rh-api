@@ -17,7 +17,7 @@ import {
 } from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
-const MODULE_SLUG = 'compliance-contratantes'
+const MODULE_SLUG = 'repse-registrations'
 const RBAC_FORBIDDEN = {
   errorCode: EMPRESA_CONTRATANTE_ERROR_CODES.FORBIDDEN,
   i18nPrefix: 'empresa_contratante',

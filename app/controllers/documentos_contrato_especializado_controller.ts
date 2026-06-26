@@ -12,7 +12,7 @@ import {
 } from '../helpers/compliance_repse_rbac.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
-const MODULE_SLUG = 'compliance-contratos'
+const MODULE_SLUG = 'repse-registrations'
 const RBAC_FORBIDDEN = {
   errorCode: DOCUMENTO_CONTRATO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN,
   i18nPrefix: 'documento_contrato',

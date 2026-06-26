@@ -21,7 +21,7 @@ import {
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import type { ContratoServicioEspecializadoEstatus } from '#models/contrato_servicio_especializado'
 
-const MODULE_SLUG = 'compliance-contratos'
+const MODULE_SLUG = 'repse-registrations'
 const RBAC_FORBIDDEN = {
   errorCode: CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN,
   i18nPrefix: 'contrato_servicio_especializado',
