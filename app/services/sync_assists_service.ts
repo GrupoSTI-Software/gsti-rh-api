@@ -76,7 +76,10 @@ export default class SyncAssistsService {
    * @private
    * @type {{ delayTolerance: Tolerance | undefined, faultTolerance: Tolerance | undefined } | null}
    */
-  private tolerancesCache: { delayTolerance: Tolerance | undefined, faultTolerance: Tolerance | undefined } | null = null
+  private tolerancesCache: {
+    delayTolerance: Tolerance | null | undefined
+    faultTolerance: Tolerance | null | undefined
+  } | null = null
 
   /**
    * Caché de días festivos (holidays) organizados por fecha (yyyy-MM-dd).
@@ -957,6 +960,15 @@ export default class SyncAssistsService {
     }
 
     const dailyShifts: EmployeeRecordInterface[] = serviceResponse.status === 200 ? ((serviceResponse.data?.data || []) as EmployeeRecordInterface[]) : []
+    if (dailyShifts.length === 0) {
+      return {
+        status: 400,
+        type: 'warning',
+        title: 'no_employee_shifts',
+        message: 'The employe has not shifts',
+        data: null,
+      }
+    }
     const employeeShifts: ShiftRecordInterface[] = dailyShifts[0].employeeShifts as ShiftRecordInterface[]
     const assistList = await query.paginate(paginator?.page || 1, paginator?.limit || 500)
     const assistListFlat  = assistList.toJSON().data as AssistInterface[]
@@ -1076,11 +1088,20 @@ export default class SyncAssistsService {
       const periodEnd = DateTime.fromISO(bodyParams.dateEnd, { zone: 'UTC-6' })
         .startOf('day')
         .toFormat('yyyy-MM-dd')
-      temporaryAssignments = await EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod(
-        bodyParams.employeeID,
-        periodStart,
-        periodEnd
-      )
+      try {
+        temporaryAssignments = await EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod(
+          bodyParams.employeeID,
+          periodStart,
+          periodEnd
+        )
+      } catch (error) {
+        // Esquema desactualizado (p. ej. falta employee_temporary_assignment_deleted_at tras merge):
+        // continuar sin préstamos temporales en lugar de tumbar calendario/asistencias.
+        logger.warn(
+          { err: error, employeeId: bodyParams.employeeID, periodStart, periodEnd },
+          'SyncAssistsService: no se pudieron cargar préstamos temporales; se omite el arreglo'
+        )
+      }
     }
 
     return {
@@ -2279,19 +2300,21 @@ export default class SyncAssistsService {
          data = await new ToleranceService().index(systemSettingActive.systemSettingId)
       }
 
-      const delayTolerance = data.find((t) => t.toleranceName === 'Delay')
-      const faultTolerance = data.find((t) => t.toleranceName === 'Fault')
+      const delayTolerance = data.find((t) => t.toleranceName === 'Delay') ?? null
+      const faultTolerance = data.find((t) => t.toleranceName === 'Fault') ?? null
 
       if (!delayTolerance || !faultTolerance) {
-        throw new Error('No se encontraron tolerancias para Delay o Fault')
+        logger.warn(
+          'SyncAssistsService: tolerancias Delay/Fault no configuradas; se usan valores por defecto (10/30 min)'
+        )
       }
 
-      // Guardar en caché
+      // Guardar en caché (puede incluir nulls; el caller aplica fallback 10/30)
       this.tolerancesCache = { delayTolerance, faultTolerance }
       return this.tolerancesCache
     } catch (error) {
-      console.error('Error al obtener las tolerancias:', error)
-      throw error
+      logger.error({ err: error }, 'SyncAssistsService: error al obtener tolerancias; se usan valores por defecto')
+      return { delayTolerance: null, faultTolerance: null }
     }
   }
 

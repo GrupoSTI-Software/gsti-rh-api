@@ -100,8 +100,8 @@ export default class EmployeeShiftService {
       .whereNull('deletedAt')
 
     if (existingShifts.length > 0) {
-      for await (const employeeShift of existingShifts) {
-        employeeShift.delete()
+      for (const employeeShift of existingShifts) {
+        await employeeShift.delete()
       }
     }
   }
