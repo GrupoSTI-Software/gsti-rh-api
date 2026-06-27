@@ -4,6 +4,7 @@ import type { TraumaticEventReferralInstitutionType } from '#models/traumatic_ev
 import TraumaticEventReportService from '#services/traumatic_event_report_service'
 import { TREF_ERROR_CODES } from '../constants/traumatic_event_referral_error_codes.js'
 import { TraumaticEventReferralError } from '../exceptions/traumatic_event_referral_error.js'
+import RetentionGuardService from '#services/retention_guard_service'
 
 export interface TraumaticEventReferralCreatePayload {
   traumaticEventReferralInstitutionType: TraumaticEventReferralInstitutionType
@@ -192,8 +193,17 @@ export default class TraumaticEventReferralService {
 
   /** Soft delete de una canalización (exige reporte padre vivo y en scope). */
   async destroy(reportId: number, referralId: number, allowedBusinessUnitIds: number[] = []) {
-    await this.reportService.assertReportInScope(reportId, allowedBusinessUnitIds)
+    const report = await this.reportService.assertReportInScope(reportId, allowedBusinessUnitIds)
     const referral = await this.findReferralOrFail(reportId, referralId)
+
+    await report.load('employee')
+    const guard = new RetentionGuardService()
+    await guard.assertCanDelete(
+      report.employee.businessUnitId,
+      'traumatic_event_referral',
+      referral.traumaticEventReferralCreatedAt
+    )
+
     await referral.delete()
   }
 

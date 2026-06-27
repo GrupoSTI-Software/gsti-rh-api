@@ -4,6 +4,8 @@ import {
   type QuestionnaireApplicationErrorCode,
 } from '#constants/questionnaire_application_error_codes'
 import { QuestionnaireApplicationServiceError } from '#exceptions/questionnaire_application_service_error'
+import { RetentionGuardError } from '../exceptions/retention_guard_error.js'
+import { RETENTION_GUARD_ERROR_CODES } from '#constants/retention_guard_error_codes'
 
 export type ResolvedQuestionnaireApplicationError = {
   message: string
@@ -97,6 +99,24 @@ export function resolveQuestionnaireApplicationApiError(
       errorCode: error.errorCode,
       key: error.key,
       detail: error.detail ?? message,
+    }
+  }
+
+  if (error instanceof RetentionGuardError) {
+    const isBulk = error.errorCode === RETENTION_GUARD_ERROR_CODES.BULK_DELETE_BLOCKED
+    const messageKey = isBulk
+      ? 'nom035.retention_guard.bulk_delete_blocked'
+      : 'nom035.retention_guard.delete_blocked'
+    const titleKey = isBulk
+      ? 'nom035.retention_guard.bulk_delete_blocked_title'
+      : 'nom035.retention_guard.delete_blocked_title'
+    return {
+      message: translate(i18n, messageKey, error.message),
+      title: translate(i18n, titleKey, title),
+      status: error.httpStatus,
+      errorCode: error.errorCode,
+      key: error.key,
+      detail: error.detail,
     }
   }
 

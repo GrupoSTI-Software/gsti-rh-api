@@ -48,6 +48,15 @@ export const createEmployeeLactationPeriodValidator = vine.compile(
     employeeLactationPeriodReductionApplication:
       lactationReductionApplicationField.optional(),
     employeeLactationPeriodNotes: lactationPeriodNotesField.optional(),
+    /**
+     * Vínculo OPCIONAL al hijo registrado de la empleada que justifica
+     * el derecho. Aquí Vine sólo valida formato (entero positivo o
+     * `null`). La pertenencia al mismo `employeeId` se valida en el
+     * service (`assertChildBelongsToEmployee`) para devolver 422 con
+     * `key='hijo-no-pertenece-al-empleado'` y mantener el patrón de
+     * errores tipados del módulo.
+     */
+    employeeChildrenId: vine.number().positive().nullable().optional(),
   })
 )
 
@@ -69,6 +78,12 @@ export const updateEmployeeLactationPeriodValidator = vine.compile(
     employeeLactationPeriodReductionApplication:
       lactationReductionApplicationField.optional(),
     employeeLactationPeriodNotes: lactationPeriodNotesField.optional(),
+    /**
+     * Vínculo OPCIONAL al hijo. `null` desvincula explícitamente; campo
+     * ausente significa "no modificar el valor actual". El service
+     * diferencia ambos casos en el patch parcial.
+     */
+    employeeChildrenId: vine.number().positive().nullable().optional(),
   })
 )
 

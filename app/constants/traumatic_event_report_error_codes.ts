@@ -15,6 +15,8 @@ export const ETR_ERROR_CODES = {
   REPORT_NOT_FOUND: 'ETR.NF.REPORT.001',
   /** Rango de fechas invertido (fin menor que inicio) en el registro */
   RANGE_INVALID: 'ETR.VAL.RANGE.001',
+  /** Reporte con campos mínimos faltantes para generar el documento imprimible */
+  DOC_INCOMPLETE: 'ETR.VAL.DOC.001',
   /** Sin permisos sobre el módulo */
   FORBIDDEN: 'ETR.FORBID.001',
   /** Error no clasificado del dominio */

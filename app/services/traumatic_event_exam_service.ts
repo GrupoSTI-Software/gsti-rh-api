@@ -4,6 +4,7 @@ import type { TraumaticEventExamType, TraumaticEventExamOutcome } from '#models/
 import TraumaticEventReportService from '#services/traumatic_event_report_service'
 import { TEX_ERROR_CODES } from '../constants/traumatic_event_exam_error_codes.js'
 import { TraumaticEventExamError } from '../exceptions/traumatic_event_exam_error.js'
+import RetentionGuardService from '#services/retention_guard_service'
 
 export interface TraumaticEventExamCreatePayload {
   traumaticEventExamType: TraumaticEventExamType
@@ -181,9 +182,17 @@ export default class TraumaticEventExamService {
 
   /** Soft delete de un examen (exige reporte padre vivo y en scope). */
   async destroy(reportId: number, examId: number, allowedBusinessUnitIds: number[] = []) {
-    await this.reportService.assertReportInScope(reportId, allowedBusinessUnitIds)
-    await this.findExamOrFail(reportId, examId)
+    const report = await this.reportService.assertReportInScope(reportId, allowedBusinessUnitIds)
     const exam = await this.findExamOrFail(reportId, examId)
+
+    await report.load('employee')
+    const guard = new RetentionGuardService()
+    await guard.assertCanDelete(
+      report.employee.businessUnitId,
+      'traumatic_event_exam',
+      exam.traumaticEventExamCreatedAt
+    )
+
     await exam.delete()
   }
 

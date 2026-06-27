@@ -1,12 +1,14 @@
 import { TREF_ERROR_CODES } from '../constants/traumatic_event_referral_error_codes.js'
 import { TraumaticEventReferralError } from '../exceptions/traumatic_event_referral_error.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import { RetentionGuardError } from '../exceptions/retention_guard_error.js'
 
 export type ResolvedTraumaticEventReferralApiError = {
   message: string
   status: number
   code: string
   key?: string
+  detail?: string
 }
 
 /**
@@ -58,6 +60,16 @@ export function resolveTraumaticEventReferralApiError(
       status: error.httpStatus,
       code: error.errorCode,
       key: error.key,
+    }
+  }
+
+  if (error instanceof RetentionGuardError) {
+    return {
+      message: error.message,
+      status: error.httpStatus,
+      code: error.errorCode,
+      key: error.key,
+      detail: error.detail,
     }
   }
 

@@ -62,6 +62,13 @@ export const ELP_ERROR_CODES = {
    * cubiertos por lactancia del mismo periodo). Genera 422.
    */
   REASSIGN_NO_AVAILABLE_DATE: 'ELP.CONFLICT.REASSIGN_NONE.001',
+  /**
+   * El `employeeChildrenId` enviado en el payload pertenece a otra
+   * empleada o no existe (no vivo) en el catálogo. Genera 422 con key
+   * estable `hijo-no-pertenece-al-empleado` para que el frontend reaccione
+   * y limpie el selector de hijo del drawer.
+   */
+  CHILD_NOT_OWNED: 'ELP.VAL.CHILD.001',
   /** Error no clasificado del dominio */
   SYS_UNHANDLED: 'ELP.SYS.001',
 } as const
