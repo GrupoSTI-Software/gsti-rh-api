@@ -42,13 +42,20 @@ export default class StateService {
     const effectiveFlowSlug =
       effectiveFlowId !== null ? state.onboardingUserStateIntentSlug : null
 
-    const steps = await this.resolveApplicableFlow.resolve(
-      userId,
-      effectiveFlowId,
-      effectiveFlowSlug
-    )
+    // Si el estado es `pending` el usuario no ha iniciado el onboarding:
+    // no hay ramas completadas por definición. Evita consultas innecesarias y
+    // previene inconsistencias si `onboarding_user_step_progress` contiene
+    // registros huérfanos de un reset manual de la tabla de estados.
+    const resolveCompleted = state.onboardingUserStateStatus !== 'pending'
+      ? this.resolveCompletedIntents(userId, flows)
+      : Promise.resolve([])
 
-    return this.buildDto(flows, state, steps)
+    const [steps, completedIntents] = await Promise.all([
+      this.resolveApplicableFlow.resolve(userId, effectiveFlowId, effectiveFlowSlug),
+      resolveCompleted,
+    ])
+
+    return this.buildDto(flows, state, steps, completedIntents)
   }
 
   /** PUT /me/intent — elige o cambia la intención del usuario. */
@@ -162,11 +169,55 @@ export default class StateService {
     return flow ? flow.onboardingFlowId : null
   }
 
+  /**
+   * Determina qué flujos (intenciones) tienen su último paso de rama completado
+   * para este usuario, independientemente del flujo actualmente activo.
+   *
+   * Algoritmo:
+   *  1. Obtiene TODO el progreso del usuario (una sola consulta).
+   *  2. Para cada flujo activo, obtiene sus pasos de rama y busca el de mayor order.
+   *  3. Si ese último paso está en el progreso con status `completed`, el flujo
+   *     se incluye en la lista de intenciones completadas.
+   *
+   * Se ejecuta en paralelo con la resolución del flujo activo en `getOnboardingMe`.
+   */
+  private async resolveCompletedIntents(
+    userId: number,
+    flows: OnboardingFlow[]
+  ): Promise<string[]> {
+    const progressList = await this.stateRepository.listStepProgressForUser(userId)
+
+    const completedStepIds = new Set(
+      progressList
+        .filter((p) => p.status === 'completed')
+        .map((p) => p.onboardingStepId)
+    )
+
+    const results: string[] = []
+
+    for (const flow of flows) {
+      const branchSteps = await this.catalogService.listBranchSteps(flow.onboardingFlowId)
+      if (branchSteps.length === 0) continue
+
+      // Último paso de la rama (mayor order)
+      const lastStep = branchSteps.reduce((prev, curr) =>
+        curr.onboardingStepOrder > prev.onboardingStepOrder ? curr : prev
+      )
+
+      if (completedStepIds.has(lastStep.onboardingStepId)) {
+        results.push(flow.onboardingFlowSlug)
+      }
+    }
+
+    return results
+  }
+
   /** Compone el DTO de panorama a partir de datos ya resueltos. */
   private buildDto(
     flows: OnboardingFlow[],
     state: OnboardingUserState,
-    steps: ResolvedStepInternal[]
+    steps: ResolvedStepInternal[],
+    completedIntents: string[]
   ): OnboardingMeDto {
     const availableIntents: AvailableIntentDto[] = flows.map((f) => ({
       slug: f.onboardingFlowSlug,
@@ -181,6 +232,7 @@ export default class StateService {
       intent: state.onboardingUserStateIntentSlug,
       availableIntents,
       steps: publicSteps,
+      completedIntents,
     }
   }
 }

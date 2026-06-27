@@ -51,6 +51,7 @@ const emptyMeDto: OnboardingMeDto = {
   intent: null,
   availableIntents: [],
   steps: [],
+  completedIntents: [],
 }
 
 function makeSuccessService(): StateService {

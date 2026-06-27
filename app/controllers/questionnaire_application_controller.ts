@@ -4,6 +4,7 @@ import RoleService from '#services/role_service'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import {
   createQuestionnaireApplicationValidator,
+  listQuestionnaireApplicationTargetsValidator,
   listQuestionnaireApplicationsValidator,
   showQuestionnaireApplicationValidator,
 } from '#validators/questionnaire_application'
@@ -462,6 +463,198 @@ export default class QuestionnaireApplicationController {
         result,
         'Questionnaire Application',
         i18n.formatMessage('nom035.questionnaire_application.show_message')
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/nom035/questionnaire-applications/{id}/targets:
+   *   get:
+   *     summary: Listar objetivos de una ronda de cuestionario NOM-035
+   *     description: >
+   *       Devuelve la lista de empleados objetivo de la ronda con su estado
+   *       de objetivo (pendiente/respondido) y el estado de captura derivado
+   *       (pendiente/borrador/respondido). Permite filtrar por status y búsqueda
+   *       por nombre completo para consumo del selector de captura en BO.
+   *     tags: [NOM035]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *       - in: query
+   *         name: status
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [pendiente, respondido]
+   *       - in: query
+   *         name: captureStatus
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [pendiente, borrador, respondido]
+   *       - in: query
+   *         name: search
+   *         required: false
+   *         schema:
+   *           type: string
+   *           minLength: 1
+   *     responses:
+   *       200:
+   *         description: Objetivos obtenidos correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     targets:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           questionnaireApplicationTargetId: { type: integer }
+   *                           employeeId: { type: integer }
+   *                           employeeCode:
+   *                             oneOf:
+   *                               - type: integer
+   *                               - type: string
+   *                           employeePayrollNum: { type: string }
+   *                           employeeFullName: { type: string }
+   *                           departmentName:
+   *                             type: string
+   *                             nullable: true
+   *                           positionName:
+   *                             type: string
+   *                             nullable: true
+   *                           branchOfficeName: { type: string }
+   *                           status:
+   *                             type: string
+   *                             enum: [pendiente, respondido]
+   *                           captureStatus:
+   *                             type: string
+   *                             enum: [pendiente, borrador, respondido]
+   *                           respondedAt:
+   *                             type: string
+   *                             format: date-time
+   *                             nullable: true
+   *             example:
+   *               type: success
+   *               title: Objetivos de la ronda
+   *               message: Objetivos obtenidos correctamente
+   *               data:
+   *                 targets:
+   *                   - questionnaireApplicationTargetId: 1
+   *                     employeeId: 42
+   *                     employeeCode: 10042
+   *                     employeePayrollNum: A-10042
+   *                     employeeFullName: Juan Pérez López
+   *                     departmentName: Operaciones
+   *                     positionName: Supervisor
+   *                     branchOfficeName: Sucursal Centro
+   *                     status: pendiente
+   *                     captureStatus: borrador
+   *                     respondedAt: null
+   *                   - questionnaireApplicationTargetId: 2
+   *                     employeeId: 43
+   *                     employeeCode: 10043
+   *                     employeePayrollNum: A-10043
+   *                     employeeFullName: María García Soto
+   *                     departmentName: Recursos Humanos
+   *                     positionName: Analista RH
+   *                     branchOfficeName: Sucursal Centro
+   *                     status: respondido
+   *                     captureStatus: respondido
+   *                     respondedAt: '2026-06-23T17:56:45.793Z'
+   *       400:
+   *         description: Parámetros inválidos
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Datos inválidos
+   *               key: datos-invalidos
+   *               detail: Datos inválidos
+   *               code: NOM035.QRUN.VAL_INPUT
+   *               data: null
+   *       403:
+   *         description: Sin permiso para consultar objetivos
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Sin permiso para gestionar aplicaciones de cuestionario
+   *               key: sin-permiso
+   *               detail: Sin permiso para gestionar aplicaciones de cuestionario
+   *               code: NOM035.QRUN.FORBIDDEN
+   *               data: null
+   *       404:
+   *         description: Aplicación no encontrada o fuera de alcance
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Aplicación NOM-035
+   *               message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               key: aplicacion-no-encontrada
+   *               detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+   *               code: NOM035.QRUN.NOT_FOUND
+   *               data: null
+   */
+  async targets(ctx: HttpContext) {
+    const { params, request, response, i18n, businessUnitScope } = ctx
+    try {
+      if (!(await this.checkPermission(ctx, 'read'))) {
+        throw new QuestionnaireApplicationServiceError(
+          i18n.formatMessage('nom035.questionnaire_application.forbidden'),
+          QUESTIONNAIRE_APPLICATION_ERROR_CODES.FORBIDDEN,
+          403,
+          'sin-permiso'
+        )
+      }
+
+      const payload = await showQuestionnaireApplicationValidator.validate({
+        questionnaireApplicationId: Number(params.id),
+      })
+      const filters = await request.validateUsing(listQuestionnaireApplicationTargetsValidator)
+      const service = new QuestionnaireApplicationService()
+      const result = await service.listTargets(
+        payload.questionnaireApplicationId,
+        filters,
+        businessUnitScope ?? [],
+        i18n
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Objetivos de la ronda',
+        i18n.formatMessage('nom035.questionnaire_application.targets_message')
       )
     } catch (error) {
       return this.respondError(error, response, 400, i18n)

@@ -134,6 +134,14 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *               employeeChildrenId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: |
+   *                   Vínculo OPCIONAL al hijo registrado de la empleada que
+   *                   justifica el derecho. Si se envía, debe pertenecer al
+   *                   mismo `employeeId` o el endpoint responde 422 con
+   *                   `key='hijo-no-pertenece-al-empleado'`.
    *     responses:
    *       '201': { description: Creado }
    *       '400': { description: Validación VineJS o end <= start }
@@ -144,10 +152,11 @@ export default class EmployeeLactationPeriodsController {
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
    *       '422':
    *         description: |
-   *           Rango inválido contra los extremos legales/operativos.
+   *           Rango inválido o vínculo de hijo inconsistente.
    *           Posibles `key`:
    *           - `lactation-period-below-legal-minimum` (rango < 6 meses, LFT 170 IV)
    *           - `lactation-period-unreasonable-range` (rango > 24 meses, sanity check)
+   *           - `hijo-no-pertenece-al-empleado` (el `employeeChildrenId` pertenece a otra empleada o no existe)
    */
   async store(ctx: HttpContext) {
     const { request, response } = ctx
@@ -204,6 +213,15 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *               employeeChildrenId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: |
+   *                   Vínculo OPCIONAL al hijo. Comportamiento del patch parcial:
+   *                   - Campo ausente: no se modifica el valor actual.
+   *                   - `null`: desvincula explícitamente el hijo del periodo.
+   *                   - Entero: vincula al hijo; debe pertenecer al mismo `employeeId`
+   *                     o el endpoint responde 422 con `key='hijo-no-pertenece-al-empleado'`.
    *     responses:
    *       '200': { description: Actualizado }
    *       '400': { description: Validación VineJS o coherencia de fechas }
@@ -214,10 +232,11 @@ export default class EmployeeLactationPeriodsController {
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
    *       '422':
    *         description: |
-   *           Rango inválido contra los extremos legales/operativos.
+   *           Rango inválido o vínculo de hijo inconsistente.
    *           Posibles `key`:
    *           - `lactation-period-below-legal-minimum` (rango < 6 meses, LFT 170 IV)
    *           - `lactation-period-unreasonable-range` (rango > 24 meses, sanity check)
+   *           - `hijo-no-pertenece-al-empleado` (el `employeeChildrenId` pertenece a otra empleada o no existe)
    */
   async update(ctx: HttpContext) {
     const { params, request, response } = ctx
@@ -1171,6 +1190,12 @@ export default class EmployeeLactationPeriodsController {
         body.employeeLactationPeriodNotes === undefined
           ? null
           : (body.employeeLactationPeriodNotes as string | null),
+      // Acepta `null` (sin vínculo) y números (vínculo al hijo).
+      // `undefined` se traduce a `null` en create porque es alta nueva.
+      employeeChildrenId:
+        body.employeeChildrenId === undefined || body.employeeChildrenId === null
+          ? null
+          : Number(body.employeeChildrenId),
     }
   }
 
@@ -1201,6 +1226,14 @@ export default class EmployeeLactationPeriodsController {
       payload.employeeLactationPeriodNotes = body.employeeLactationPeriodNotes as
         | string
         | null
+    }
+    // Distinguimos los tres casos del patch parcial:
+    //   - ausente (`undefined`) → no se toca.
+    //   - explícito `null`      → se desvincula (persiste null).
+    //   - número                 → se valida pertenencia y se vincula.
+    if (body.employeeChildrenId !== undefined) {
+      payload.employeeChildrenId =
+        body.employeeChildrenId === null ? null : Number(body.employeeChildrenId)
     }
     return payload
   }
@@ -1276,6 +1309,8 @@ export default class EmployeeLactationPeriodsController {
           'La reasignación excede el máximo de 24 meses del periodo',
         [ELP_ERROR_CODES.REASSIGN_NO_AVAILABLE_DATE]:
           'Sin día disponible para reasignar dentro del horizonte de búsqueda',
+        [ELP_ERROR_CODES.CHILD_NOT_OWNED]:
+          'Hijo no pertenece a la empleada del periodo',
       }
       return response.status(resolved.status).json({
         type: 'error',

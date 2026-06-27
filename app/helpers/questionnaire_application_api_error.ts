@@ -39,6 +39,16 @@ function resolveMessageKey(error: QuestionnaireApplicationServiceError): string 
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.NOT_FOUND]: 'nom035.questionnaire_application.not_found',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.HAS_RESPONSES]:
       'nom035.questionnaire_application.has_responses',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.INCOMPLETE_ANSWERS]:
+      'nom035.questionnaire_application.incomplete_answers',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.INVALID_ANSWER_OPTION]:
+      'nom035.questionnaire_application.invalid_answer_option',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.APPLICATION_CLOSED]:
+      'nom035.questionnaire_application.application_closed',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.ALREADY_ANSWERED]:
+      'nom035.questionnaire_application.already_answered',
+    [QUESTIONNAIRE_APPLICATION_ERROR_CODES.TARGET_NOT_FOUND]:
+      'nom035.questionnaire_application.target_not_found',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.FOLIO_GENERATION_FAILED]:
       'nom035.questionnaire_application.folio_generation_failed',
     [QUESTIONNAIRE_APPLICATION_ERROR_CODES.SYS_UNHANDLED]:

@@ -176,7 +176,12 @@ export default class EmployeeShiftController {
 
       const employeeShiftDate = employeeShift.employeShiftsApplySince
       const date = typeof employeeShiftDate === 'string' ? new Date(employeeShiftDate) : employeeShiftDate
-      await employeeShiftService.updateAssistCalendar(employeeShift.employeeId, date)
+      try {
+        await employeeShiftService.updateAssistCalendar(employeeShift.employeeId, date)
+      } catch (calendarError) {
+        // La asignación ya se persistió; no fallar el POST si la sync del calendario falla.
+        console.error('employee_shifts.store: error al sincronizar calendario de asistencias', calendarError)
+      }
 
       const employee = await Employee.query()
         .where('employee_id', employeeId)

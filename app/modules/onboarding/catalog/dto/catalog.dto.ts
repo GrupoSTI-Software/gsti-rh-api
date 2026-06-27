@@ -23,6 +23,14 @@ export interface OnboardingMeDto {
   intent: string | null
   availableIntents: AvailableIntentDto[]
   steps: ApplicableStepDto[]
+  /**
+   * Slugs de intención (flujo) cuyo último paso de rama está marcado como
+   * `completed` en la BD.  Se calcula cruzando el progreso del usuario con el
+   * catálogo de pasos de TODOS los flujos, no solo el flujo activo.
+   * Permite que el selector de intenciones muestre las ramas ya terminadas
+   * independientemente de cuál sea la intención activa en ese momento.
+   */
+  completedIntents: string[]
 }
 
 /**
