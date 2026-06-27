@@ -23,6 +23,12 @@ export const COMPLAINT_ERROR_CODES = {
   S3_OPERATION_FAILED: 'CMPL.S3.001',
   /** Nota obligatoria ausente en transición de estatus */
   NOTE_REQUIRED: 'CMPL.VAL.NOTE.001',
+  /** Justificación obligatoria ausente al revelar identidad */
+  JUSTIFICATION_REQUIRED: 'CMPL.VAL.JUST.001',
+  /** Sin permiso complaint.reveal_identity */
+  REVEAL_FORBIDDEN: 'CMPL.FORB.REVEAL.001',
+  /** Rango de fechas invertido o inválido en reporte */
+  DATE_RANGE_INVALID: 'CMPL.VAL.DATE.001',
 } as const
 
 export type ComplaintErrorCode =

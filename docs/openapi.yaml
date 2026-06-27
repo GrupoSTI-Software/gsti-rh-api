@@ -128,6 +128,359 @@ components:
         data:
           nullable: true
 
+    Nom035QrunError:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Aplicación NOM-035
+        message: Sucursal no aplicable para lanzamiento de cuestionario
+        detail: Sucursal no aplicable para lanzamiento de cuestionario
+        key: sucursal-no-aplicable
+        code: NOM035.QRUN.NOT_APPLICABLE
+        data: null
+
+    QuestionnaireApplicationListItem:
+      type: object
+      properties:
+        questionnaireApplicationId:
+          type: integer
+        folio:
+          type: string
+        branchOfficeId:
+          type: integer
+        branchOfficeName:
+          type: string
+        applicableInstrument:
+          type: string
+          enum: [guide_ii, guide_iii]
+        status:
+          type: string
+          enum: [borrador, en-curso, cerrada]
+        targetCount:
+          type: integer
+        respondedCount:
+          type: integer
+        launchedAt:
+          type: string
+          format: date-time
+
+    QuestionnaireApplicationDetail:
+      allOf:
+        - $ref: '#/components/schemas/QuestionnaireApplicationListItem'
+        - type: object
+          properties:
+            businessUnitId:
+              type: integer
+            regulationQuestionnaireId:
+              type: integer
+            closedAt:
+              type: string
+              format: date-time
+              nullable: true
+
+    QuestionnaireApplicationCreate:
+      type: object
+      required: [branchOfficeId]
+      properties:
+        branchOfficeId:
+          type: integer
+          minimum: 1
+
+    QuestionnaireApplicationSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplication:
+              $ref: '#/components/schemas/QuestionnaireApplicationDetail'
+
+    QuestionnaireApplicationListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplications:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/QuestionnaireApplicationListItem'
+
+    QuestionnaireApplicationTargetItem:
+      type: object
+      properties:
+        questionnaireApplicationTargetId:
+          type: integer
+        employeeId:
+          type: integer
+        employeeCode:
+          oneOf:
+            - type: integer
+            - type: string
+        employeePayrollNum:
+          type: string
+        employeeFullName:
+          type: string
+          description: Nombre completo del empleado
+        departmentName:
+          type: string
+          nullable: true
+        positionName:
+          type: string
+          nullable: true
+        branchOfficeName:
+          type: string
+        status:
+          type: string
+          enum: [pendiente, respondido]
+        captureStatus:
+          type: string
+          enum: [pendiente, borrador, respondido]
+          description: Estado de captura derivado de target + response
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    QuestionnaireApplicationTargetsSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            targets:
+              type: array
+              items:
+                $ref: '#/components/schemas/QuestionnaireApplicationTargetItem'
+
+    QuestionnaireCaptureAnswerInput:
+      type: object
+      required: [questionId, optionKey]
+      properties:
+        questionId:
+          type: integer
+          minimum: 1
+        optionKey:
+          type: string
+
+    QuestionnaireCaptureSubmitRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
+
+    QuestionnaireCaptureDraftRequest:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureAnswerInput'
+
+    QuestionnaireCaptureScaleOption:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: integer
+
+    QuestionnaireCaptureScale:
+      type: object
+      properties:
+        code:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureScaleOption'
+
+    QuestionnaireCaptureQuestion:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        textKey:
+          type: string
+        helpKey:
+          type: string
+          nullable: true
+        answerScale:
+          $ref: '#/components/schemas/QuestionnaireCaptureScale'
+
+    QuestionnaireCaptureSection:
+      type: object
+      properties:
+        titleKey:
+          type: string
+        ord:
+          type: integer
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureQuestion'
+
+    QuestionnaireCaptureInstrument:
+      type: object
+      properties:
+        questionnaireApplicationId:
+          type: integer
+        employeeId:
+          type: integer
+        instrument:
+          type: string
+          enum: [guide_ii, guide_iii]
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireCaptureSection'
+
+    QuestionnaireCaptureInstrumentSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            instrument:
+              $ref: '#/components/schemas/QuestionnaireCaptureInstrument'
+
+    QuestionnaireApplicationResponseDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        employeeId:
+          type: integer
+        answeredCount:
+          type: integer
+        targetStatus:
+          type: string
+          enum: [respondido]
+        respondedAt:
+          type: string
+          format: date-time
+
+    QuestionnaireApplicationResponseSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationResponseDetail'
+
+    QuestionnaireApplicationDraftDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        status:
+          type: string
+          enum: [borrador]
+        answeredCount:
+          type: integer
+
+    QuestionnaireApplicationDraftSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationDraftDetail'
+
+    QuestionnaireApplicationSavedResponseAnswer:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        optionKey:
+          type: string
+        value:
+          type: integer
+
+    QuestionnaireApplicationSavedResponseDetail:
+      type: object
+      properties:
+        questionnaireApplicationResponseId:
+          type: integer
+        status:
+          type: string
+          enum: [borrador, respondido]
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseAnswer'
+
+    QuestionnaireApplicationSavedResponseSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicationResponse:
+              $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseDetail'
+
     ServicioRegistradoResumen:
       type: object
       required: [id, name]
@@ -4030,3 +4383,570 @@ paths:
                 title: Server error
                 message: An unexpected error has occurred on the server
                 data: null
+
+  /api/nom035/questionnaire-applications:
+    get:
+      summary: Listar aplicaciones de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: branchOfficeId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [borrador, en-curso, cerrada]
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Aplicaciones de cuestionario obtenidas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationListSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+    post:
+      summary: Crear y lanzar aplicación de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireApplicationCreate'
+      responses:
+        '201':
+          description: Aplicación de cuestionario lanzada correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSuccess'
+        '400':
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para lanzar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Sucursal no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ya existe una aplicación abierta para la sucursal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Sucursal no aplicable para cuestionario NOM-035
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}:
+    get:
+      summary: Obtener detalle de aplicación de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Aplicación de cuestionario obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSuccess'
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+    delete:
+      summary: Eliminar lógicamente aplicación de cuestionario NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Aplicación eliminada correctamente (sin contenido)
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para eliminar aplicaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Aplicación con respuestas capturadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets:
+    get:
+      summary: Listar objetivos de una ronda de cuestionario NOM-035
+      description: >
+        Devuelve la lista de empleados objetivo de la ronda con su estado actual
+        de objetivo (pendiente/respondido) y su estado de captura derivado
+        (pendiente/borrador/respondido). Permite filtrar por status y buscar por
+        nombre completo para consumo del selector de captura en BO.
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: ID de la aplicación de cuestionario
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, respondido]
+          description: Filtra objetivos por estado
+        - name: captureStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pendiente, borrador, respondido]
+          description: Filtra objetivos por estado de captura derivado
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+          description: Búsqueda por nombre completo del empleado
+      responses:
+        '200':
+          description: Objetivos obtenidos correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationTargetsSuccess'
+              examples:
+                lista:
+                  summary: Lista de objetivos con estado
+                  value:
+                    type: success
+                    title: Objetivos de la ronda
+                    message: Objetivos obtenidos correctamente
+                    data:
+                      targets:
+                        - questionnaireApplicationTargetId: 1
+                          employeeId: 42
+                          employeeCode: 10042
+                          employeePayrollNum: A-10042
+                          employeeFullName: Juan Pérez López
+                          departmentName: Operaciones
+                          positionName: Supervisor
+                          branchOfficeName: Sucursal Centro
+                          status: pendiente
+                          captureStatus: borrador
+                          respondedAt: null
+                        - questionnaireApplicationTargetId: 2
+                          employeeId: 43
+                          employeeCode: 10043
+                          employeePayrollNum: A-10043
+                          employeeFullName: María García Soto
+                          departmentName: Recursos Humanos
+                          positionName: Analista RH
+                          branchOfficeName: Sucursal Centro
+                          status: respondido
+                          captureStatus: respondido
+                          respondedAt: '2026-06-23T17:56:45.793Z'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Datos inválidos
+                key: datos-invalidos
+                detail: Datos inválidos
+                code: NOM035.QRUN.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para consultar objetivos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Sin permiso para gestionar aplicaciones de cuestionario
+                key: sin-permiso
+                detail: Sin permiso para gestionar aplicaciones de cuestionario
+                code: NOM035.QRUN.FORBIDDEN
+                data: null
+        '404':
+          description: Aplicación no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+              example:
+                type: error
+                title: Aplicación NOM-035
+                message: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+                key: aplicacion-no-encontrada
+                detail: Aplicación de cuestionario no encontrada o fuera del alcance del usuario
+                code: NOM035.QRUN.NOT_FOUND
+                data: null
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/instrument:
+    get:
+      summary: Obtener instrumento para captura por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Instrumento obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireCaptureInstrumentSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar instrumento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/answers:
+    post:
+      summary: Capturar y persistir respuestas por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireCaptureSubmitRequest'
+      responses:
+        '201':
+          description: Respuestas guardadas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationResponseSuccess'
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para capturar respuestas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ronda cerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Cuestionario incompleto u opción inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/draft:
+    put:
+      summary: Guardar borrador de respuestas por empleado objetivo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionnaireCaptureDraftRequest'
+      responses:
+        '200':
+          description: Borrador guardado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationDraftSuccess'
+        '400':
+          description: Body inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para guardar borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Empleado no objetivo o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '409':
+          description: Ronda cerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '422':
+          description: Opción inválida para la escala de la pregunta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/questionnaire-applications/{id}/targets/{employeeId}/response:
+    get:
+      summary: Obtener captura guardada para retomar o editar
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Captura obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseSuccess'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '403':
+          description: Sin permiso para consultar captura
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'
+        '404':
+          description: Captura no encontrada para el objetivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035QrunError'

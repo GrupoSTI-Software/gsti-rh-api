@@ -9,9 +9,12 @@ import EmployeeLactationComplianceReportService, {
   type ComplianceReportFilters,
 } from '#services/employee_lactation_compliance_report_service'
 import EmployeeLactationNotificationService from '#services/employee_lactation_notification_service'
+import EmployeeLactationPeriodConflictService from '#services/employee_lactation_period_conflict_service'
 import {
   createEmployeeLactationPeriodValidator,
   employeeLactationComplianceReportValidator,
+  employeeLactationPeriodConflictsListValidator,
+  employeeLactationPeriodConflictsReassignBulkValidator,
   employeeLactationPeriodListValidator,
   updateEmployeeLactationPeriodValidator,
 } from '#validators/employee_lactation_period'
@@ -131,6 +134,14 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *               employeeChildrenId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: |
+   *                   Vínculo OPCIONAL al hijo registrado de la empleada que
+   *                   justifica el derecho. Si se envía, debe pertenecer al
+   *                   mismo `employeeId` o el endpoint responde 422 con
+   *                   `key='hijo-no-pertenece-al-empleado'`.
    *     responses:
    *       '201': { description: Creado }
    *       '400': { description: Validación VineJS o end <= start }
@@ -141,10 +152,11 @@ export default class EmployeeLactationPeriodsController {
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
    *       '422':
    *         description: |
-   *           Rango inválido contra los extremos legales/operativos.
+   *           Rango inválido o vínculo de hijo inconsistente.
    *           Posibles `key`:
    *           - `lactation-period-below-legal-minimum` (rango < 6 meses, LFT 170 IV)
    *           - `lactation-period-unreasonable-range` (rango > 24 meses, sanity check)
+   *           - `hijo-no-pertenece-al-empleado` (el `employeeChildrenId` pertenece a otra empleada o no existe)
    */
   async store(ctx: HttpContext) {
     const { request, response } = ctx
@@ -201,6 +213,15 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *               employeeChildrenId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: |
+   *                   Vínculo OPCIONAL al hijo. Comportamiento del patch parcial:
+   *                   - Campo ausente: no se modifica el valor actual.
+   *                   - `null`: desvincula explícitamente el hijo del periodo.
+   *                   - Entero: vincula al hijo; debe pertenecer al mismo `employeeId`
+   *                     o el endpoint responde 422 con `key='hijo-no-pertenece-al-empleado'`.
    *     responses:
    *       '200': { description: Actualizado }
    *       '400': { description: Validación VineJS o coherencia de fechas }
@@ -211,10 +232,11 @@ export default class EmployeeLactationPeriodsController {
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
    *       '422':
    *         description: |
-   *           Rango inválido contra los extremos legales/operativos.
+   *           Rango inválido o vínculo de hijo inconsistente.
    *           Posibles `key`:
    *           - `lactation-period-below-legal-minimum` (rango < 6 meses, LFT 170 IV)
    *           - `lactation-period-unreasonable-range` (rango > 24 meses, sanity check)
+   *           - `hijo-no-pertenece-al-empleado` (el `employeeChildrenId` pertenece a otra empleada o no existe)
    */
   async update(ctx: HttpContext) {
     const { params, request, response } = ctx
@@ -295,6 +317,12 @@ export default class EmployeeLactationPeriodsController {
    *       - Diferente al hook automático de `update`, que sólo regenera
    *         excepciones futuras (fecha >= hoy) para preservar histórico.
    *       - Los días sin shift activo se reportan en `omittedDaysWithoutShift` (warning).
+   *       - Los días que ya tenían otra excepción con PRECEDENCIA sobre
+   *         la lactancia (incapacidad, vacaciones, permiso de falta,
+   *         descanso como permiso, maternidad) o que son festivo oficial
+   *         de descanso, se reportan en `skippedDaysWithConflict` y NO
+   *         reciben reducción de lactancia (evita dos excepciones
+   *         contradictorias el mismo día — crítico para auditoría STPS).
    *       - Si la empleada no tiene NINGÚN shift activo en todo el rango, responde 422.
    *     tags: [EmployeeLactationPeriods]
    *     security:
@@ -317,6 +345,16 @@ export default class EmployeeLactationPeriodsController {
    *                 omittedDaysWithoutShift:
    *                   type: array
    *                   items: { type: string, format: date }
+   *                   description: Fechas sin EmployeeShift activo, no se generó excepción.
+   *                 skippedDaysWithConflict:
+   *                   type: array
+   *                   items: { type: string, format: date }
+   *                   description: |
+   *                     Fechas omitidas porque ya tenían otra excepción con
+   *                     precedencia (incapacidad, vacaciones, permiso, falta,
+   *                     maternidad) o son festivo oficial de descanso. La
+   *                     reducción de lactancia NO se aplica esos días para
+   *                     evitar dos excepciones contradictorias.
    *       '401': { description: Sin autenticación }
    *       '403': { description: Sin permiso 'update' }
    *       '404': { description: Periodo inexistente o ajeno a la empresa }
@@ -613,6 +651,461 @@ export default class EmployeeLactationPeriodsController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/{id}/conflicts:
+   *   get:
+   *     summary: Lista los días en conflicto del periodo (lactancia vs causa bloqueante)
+   *     description: |
+   *       Devuelve los días dentro del rango del periodo donde coexisten
+   *       una excepción de lactancia (no borrada) Y otra causa bloqueante
+   *       (vacación, incapacidad, maternidad, permiso, falta) o un festivo
+   *       oficial de la BU del empleado. La detección reusa exactamente las
+   *       mismas reglas que la generación inicial de lactancia.
+   *
+   *       Esta lista alimenta el sub-drawer de gestión de conflictos del
+   *       Backoffice, donde el admin puede REVOCAR (perder el día) o
+   *       REASIGNAR (mover la reducción al siguiente día disponible).
+   *
+   *       Sin paginación: el conjunto por periodo está acotado por el
+   *       rango (máx. 24 meses) y en la práctica son pocos días.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Lista de conflictos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 lactationPeriodId: { type: integer }
+   *                 employeeId: { type: integer }
+   *                 conflictsCount: { type: integer }
+   *                 conflicts:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       conflictDate: { type: string, format: date }
+   *                       lactationShiftExceptionId: { type: integer }
+   *                       conflictType:
+   *                         type: string
+   *                         enum: [vacation, work_disability, maternity, rest_or_permission, holiday]
+   *                       conflictSlug: { type: string }
+   *                       conflictShiftExceptionId:
+   *                         type: integer
+   *                         nullable: true
+   *                         description: ID de la fila bloqueante (null cuando el conflicto es un festivo del calendario).
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   *       '404': { description: Periodo inexistente o ajeno a la empresa }
+   */
+  async listConflicts(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const id = this.parseResourceId(params.id)
+      const service = new EmployeeLactationPeriodConflictService(ctx.i18n)
+      const result = await service.list(id, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period Conflicts',
+        'Conflictos del periodo de lactancia obtenidos correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/{id}/conflicts/{shiftExceptionId}:
+   *   delete:
+   *     summary: Revoca (soft-delete) la excepción de lactancia de un día en conflicto
+   *     description: |
+   *       Marca como borrada (soft-delete) la fila de lactancia y persiste
+   *       el motivo en `shift_exceptions_lactation_revoke_reason`. El
+   *       motivo se clasifica automáticamente según el tipo de conflicto
+   *       actual (`vacation_conflict`, `work_disability_conflict`,
+   *       `maternity_conflict`, `rest_or_permission_conflict`,
+   *       `holiday_conflict`).
+   *
+   *       NO modifica el `end_date` del periodo: la empleada pierde ese
+   *       día de reducción sin extender el periodo (decisión consciente
+   *       del admin). Si la intención fuera compensar, debe usar
+   *       reasignar.
+   *
+   *       Idempotente: invocarlo dos veces sobre el mismo
+   *       `shiftExceptionId` da 404 la segunda vez (la fila ya no es un
+   *       conflicto activo).
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *       - in: path
+   *         name: shiftExceptionId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Revocación exitosa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 lactationPeriodId: { type: integer }
+   *                 revokedDate: { type: string, format: date }
+   *                 lactationShiftExceptionId: { type: integer }
+   *                 reason: { type: string }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '404': { description: Periodo o conflicto inexistente / ajeno a la empresa (key `lactation-conflict-not-found`) }
+   */
+  async revokeConflict(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseResourceId(params.id)
+      const shiftExceptionId = this.parseResourceId(params.shiftExceptionId)
+      const service = new EmployeeLactationPeriodConflictService(ctx.i18n)
+      const result = await service.revoke(id, shiftExceptionId, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period Conflicts',
+        'Día de lactancia revocado correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/{id}/conflicts/{shiftExceptionId}/reassign:
+   *   post:
+   *     summary: Reasigna el día de lactancia al siguiente día disponible posterior al fin del periodo
+   *     description: |
+   *       Compensa la reducción perdida moviendo el día de lactancia al
+   *       PRIMER día disponible inmediatamente posterior al `end_date`
+   *       actual del periodo. "Disponible" significa que NO es: descanso
+   *       del turno, festivo oficial de la BU, día con excepción
+   *       bloqueante existente, ni día ya cubierto por lactancia del
+   *       mismo periodo.
+   *
+   *       Pasos atómicos (una sola transacción):
+   *         1. Soft-delete de la fila original con razón `reassigned`.
+   *         2. Alta de la nueva fila de lactancia en la fecha calculada
+   *            (auditoría: `shift_exceptions_lactation_replaced_date`
+   *            apunta al día revocado).
+   *         3. Extensión del `employee_lactation_period_end_date` a la
+   *            nueva fecha.
+   *
+   *       Cap superior: si la extensión cruza el máximo de 24 meses
+   *       respecto al `start_date` original, responde 422 con
+   *       `lactation-reassign-exceeds-max-range`. Si la búsqueda no
+   *       encuentra ningún día disponible en el horizonte (90 días tras
+   *       el `end_date`), responde 422 con
+   *       `lactation-reassign-no-available-date`.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *       - in: path
+   *         name: shiftExceptionId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Reasignación exitosa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 lactationPeriodId: { type: integer }
+   *                 originalDate:
+   *                   type: string
+   *                   format: date
+   *                   description: Fecha del día revocado.
+   *                 reassignedToDate:
+   *                   type: string
+   *                   format: date
+   *                   description: Nueva fecha en la que se aplicará la reducción.
+   *                 newEndDate:
+   *                   type: string
+   *                   format: date
+   *                   description: Nuevo `employee_lactation_period_end_date` del periodo.
+   *                 newLactationShiftExceptionId: { type: integer }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '404': { description: Periodo o conflicto inexistente / ajeno a la empresa (key `lactation-conflict-not-found`) }
+   *       '422':
+   *         description: |
+   *           No fue posible reasignar: cap de 24 meses excedido (`lactation-reassign-exceeds-max-range`),
+   *           sin día disponible en el horizonte (`lactation-reassign-no-available-date`),
+   *           o sin shift activo en la fecha calculada (`lactation-period-no-active-shift`).
+   */
+  async reassignConflict(ctx: HttpContext) {
+    const { params, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseResourceId(params.id)
+      const shiftExceptionId = this.parseResourceId(params.shiftExceptionId)
+      const service = new EmployeeLactationPeriodConflictService(ctx.i18n)
+      const result = await service.reassign(id, shiftExceptionId, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period Conflicts',
+        'Día de lactancia reasignado correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/conflicts:
+   *   get:
+   *     summary: Listado GLOBAL de conflictos de lactancia (vista a nivel empresa)
+   *     description: |
+   *       Devuelve, agrupado por periodo de lactancia, todos los
+   *       conflictos activos de la empresa filtrados por el scope
+   *       multitenant del usuario. Cada grupo incluye los datos
+   *       mínimos de la empleada (nombre, código, BU) y la lista de
+   *       conflictos del periodo. Útil para que RH vea de un vistazo
+   *       todos los choques pendientes sin entrar al perfil de cada
+   *       empleada.
+   *
+   *       Paginación: por GRUPO (periodo), no por día. Si filtras por
+   *       `conflictType` se aplica DENTRO de cada grupo y se omiten
+   *       los grupos que queden con 0 conflictos tras el filtro.
+   *
+   *       Multitenant: `businessUnitId` acota al selector del header
+   *       global y debe pertenecer al scope del usuario (si no, se
+   *       ignora y se usa el scope completo).
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         required: true
+   *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: limit
+   *         required: true
+   *         schema: { type: integer, minimum: 1, maximum: 500 }
+   *       - in: query
+   *         name: businessUnitId
+   *         required: false
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: employeeId
+   *         required: false
+   *         schema: { type: integer }
+   *       - in: query
+   *         name: conflictType
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [vacation, work_disability, maternity, rest_or_permission, holiday]
+   *       - in: query
+   *         name: from
+   *         required: false
+   *         schema: { type: string, format: date }
+   *       - in: query
+   *         name: to
+   *         required: false
+   *         schema: { type: string, format: date }
+   *     responses:
+   *       '200': { description: Listado paginado de grupos de conflictos por periodo }
+   *       '400': { description: Validación inválida }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   */
+  async listAllConflicts(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const filters = await request.validateUsing(
+        employeeLactationPeriodConflictsListValidator
+      )
+
+      const fromDt = filters.from
+        ? DateTime.fromJSDate(filters.from as unknown as Date).toUTC().startOf('day')
+        : null
+      const toDt = filters.to
+        ? DateTime.fromJSDate(filters.to as unknown as Date).toUTC().startOf('day')
+        : null
+
+      const service = new EmployeeLactationPeriodConflictService(ctx.i18n)
+      const result = await service.listGlobal(
+        {
+          page: filters.page,
+          limit: filters.limit,
+          businessUnitId: filters.businessUnitId,
+          employeeId: filters.employeeId,
+          conflictType: filters.conflictType as
+            | 'vacation'
+            | 'work_disability'
+            | 'maternity'
+            | 'rest_or_permission'
+            | 'holiday'
+            | undefined,
+          from: fromDt,
+          to: toDt,
+        },
+        ctx.businessUnitScope
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period Conflicts',
+        'Conflictos de lactancia obtenidos correctamente'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-lactation-periods/{id}/conflicts/reassign-bulk:
+   *   post:
+   *     summary: Reasignación BULK de varios días de un mismo periodo en una sola transacción atómica
+   *     description: |
+   *       Procesa hasta 50 días de lactancia conflictivos en orden,
+   *       cada uno al siguiente día disponible después del end_date
+   *       actual (que se va acumulando paso a paso). Una sola
+   *       transacción: si CUALQUIER reasignación falla (cap de 24
+   *       meses, sin día disponible, conflicto inexistente, etc.) se
+   *       revierte TODO y ninguna fila queda alterada.
+   *
+   *       Pensado para casos donde la empleada tiene varios choques
+   *       seguidos (ej. semana de vacaciones encima del periodo de
+   *       lactancia) y compensar uno a uno por endpoint sería
+   *       tedioso.
+   *     tags: [EmployeeLactationPeriods]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               shiftExceptionIds:
+   *                 type: array
+   *                 minItems: 1
+   *                 maxItems: 50
+   *                 items: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Reasignación bulk exitosa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 lactationPeriodId: { type: integer }
+   *                 totalRequested: { type: integer }
+   *                 successCount: { type: integer }
+   *                 newEndDate: { type: string, format: date }
+   *                 reassignments:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       originalDate: { type: string, format: date }
+   *                       reassignedToDate: { type: string, format: date }
+   *                       newEndDate: { type: string, format: date }
+   *                       newLactationShiftExceptionId: { type: integer }
+   *                 failures:
+   *                   type: array
+   *                   description: |
+   *                     Pre-validaciones que rechazaron la operación SIN iniciar
+   *                     transacción (todo-o-nada). Si está poblado, `successCount`
+   *                     es 0 y no se modificó BD.
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       shiftExceptionId: { type: integer }
+   *                       errorCode: { type: string }
+   *                       errorKey: { type: string, nullable: true }
+   *                       message: { type: string }
+   *       '400': { description: Validación inválida del body }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '404': { description: Periodo inexistente o ajeno a la empresa }
+   *       '422':
+   *         description: |
+   *           Reasignación abortada: cap de 24 meses excedido en algún paso
+   *           (`lactation-reassign-exceeds-max-range`) o sin día disponible
+   *           dentro del horizonte (`lactation-reassign-no-available-date`).
+   */
+  async reassignConflictsBulk(ctx: HttpContext) {
+    const { params, request, response } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseResourceId(params.id)
+      const body = await request.validateUsing(
+        employeeLactationPeriodConflictsReassignBulkValidator
+      )
+
+      const service = new EmployeeLactationPeriodConflictService(ctx.i18n)
+      const result = await service.reassignBulk(id, body.shiftExceptionIds, ctx.businessUnitScope)
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        'Employee Lactation Period Conflicts',
+        'Reasignación bulk procesada'
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -697,6 +1190,12 @@ export default class EmployeeLactationPeriodsController {
         body.employeeLactationPeriodNotes === undefined
           ? null
           : (body.employeeLactationPeriodNotes as string | null),
+      // Acepta `null` (sin vínculo) y números (vínculo al hijo).
+      // `undefined` se traduce a `null` en create porque es alta nueva.
+      employeeChildrenId:
+        body.employeeChildrenId === undefined || body.employeeChildrenId === null
+          ? null
+          : Number(body.employeeChildrenId),
     }
   }
 
@@ -727,6 +1226,14 @@ export default class EmployeeLactationPeriodsController {
       payload.employeeLactationPeriodNotes = body.employeeLactationPeriodNotes as
         | string
         | null
+    }
+    // Distinguimos los tres casos del patch parcial:
+    //   - ausente (`undefined`) → no se toca.
+    //   - explícito `null`      → se desvincula (persiste null).
+    //   - número                 → se valida pertenencia y se vincula.
+    if (body.employeeChildrenId !== undefined) {
+      payload.employeeChildrenId =
+        body.employeeChildrenId === null ? null : Number(body.employeeChildrenId)
     }
     return payload
   }
@@ -796,6 +1303,14 @@ export default class EmployeeLactationPeriodsController {
           'Tipo de excepción de lactancia no configurado',
         [ELP_ERROR_CODES.NO_ACTIVE_SHIFT]:
           'Empleada sin turno activo en el rango del periodo',
+        [ELP_ERROR_CODES.CONFLICT_NOT_FOUND]:
+          'Conflicto de lactancia inexistente o ya resuelto',
+        [ELP_ERROR_CODES.REASSIGN_EXCEEDS_MAX_RANGE]:
+          'La reasignación excede el máximo de 24 meses del periodo',
+        [ELP_ERROR_CODES.REASSIGN_NO_AVAILABLE_DATE]:
+          'Sin día disponible para reasignar dentro del horizonte de búsqueda',
+        [ELP_ERROR_CODES.CHILD_NOT_OWNED]:
+          'Hijo no pertenece a la empleada del periodo',
       }
       return response.status(resolved.status).json({
         type: 'error',

@@ -41,6 +41,34 @@ export const ELP_ERROR_CODES = {
    * la respuesta para que RH pueda reintentar.
    */
   NOTIFICATION_MAIL_FAILED: 'ELP.SYS.NOTIF_MAIL.001',
+  /**
+   * El `shiftExceptionId` del path no existe, ya está borrado, no
+   * pertenece al `periodId` indicado o ya no representa un conflicto
+   * activo (la causa bloqueante fue eliminada entre la lectura y la
+   * acción). Genera 404 para los endpoints de
+   * revocación/reasignación de conflictos.
+   */
+  CONFLICT_NOT_FOUND: 'ELP.NF.CONFLICT.001',
+  /**
+   * La reasignación calculó una nueva fecha que extendería el periodo
+   * más allá del cap de sanity (`MAX_LACTATION_RANGE_MONTHS = 24`).
+   * Genera 422; el admin debe revocar (sin reasignar) o revisar
+   * manualmente el caso.
+   */
+  REASSIGN_EXCEEDS_MAX_RANGE: 'ELP.CONFLICT.REASSIGN_MAX.001',
+  /**
+   * La reasignación no encontró ningún día disponible en el horizonte
+   * de búsqueda (saltando descansos, festivos, conflictos y días ya
+   * cubiertos por lactancia del mismo periodo). Genera 422.
+   */
+  REASSIGN_NO_AVAILABLE_DATE: 'ELP.CONFLICT.REASSIGN_NONE.001',
+  /**
+   * El `employeeChildrenId` enviado en el payload pertenece a otra
+   * empleada o no existe (no vivo) en el catálogo. Genera 422 con key
+   * estable `hijo-no-pertenece-al-empleado` para que el frontend reaccione
+   * y limpie el selector de hijo del drawer.
+   */
+  CHILD_NOT_OWNED: 'ELP.VAL.CHILD.001',
   /** Error no clasificado del dominio */
   SYS_UNHANDLED: 'ELP.SYS.001',
 } as const
