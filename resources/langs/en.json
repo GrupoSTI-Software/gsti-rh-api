@@ -640,6 +640,12 @@
       "invalid_period": "Retention period must be at least 1 year (NOM-035 §10.4 legal minimum)",
       "invalid_evidence_type": "One or more evidence types are not valid for this policy",
       "forbidden_scope": "You do not have access to this company's retention policy"
+    },
+    "retention_guard": {
+      "delete_blocked_title": "Deletion blocked by NOM-035 retention policy",
+      "delete_blocked": "This record cannot be deleted yet. It is protected by the company's retention policy until the date indicated in the detail field.",
+      "bulk_delete_blocked_title": "Bulk deletion blocked by NOM-035 retention policy",
+      "bulk_delete_blocked": "One or more records in the batch are protected by the retention policy and cannot be deleted. The blocked identifiers are indicated in the detail field."
     }
   },
   "employee_lactation_period": "Lactation period",
@@ -901,6 +907,7 @@
   "complaint_report_category_violencia_laboral": "Workplace violence",
   "complaint_report_category_entorno": "Work environment",
   "complaint_report_category_otro": "Other",
+  "complaint_deleted_success": "Complaint deleted successfully",
   "complaint_not_found": "The complaint does not exist or is outside your scope",
   "complaint_forbidden": "You do not have permission for this operation on the complaint mailbox",
   "complaint_unauthorized": "User is not authenticated",
@@ -1844,7 +1851,15 @@
     "trial_access_invalid_params_title": "Invalid parameters",
     "trial_access_invalid_params_detail": "The userId field is required and must be a valid number.",
     "trial_access_user_not_found_title": "User not found",
-    "trial_access_user_not_found_detail": "The specified user does not exist or is not active."
+    "trial_access_user_not_found_detail": "The specified user does not exist or is not active.",
+    "simulate_success_title": "Simulated attendance generated",
+    "simulate_success_detail": "Check-in and check-out records were created for the selected day.",
+    "simulate_invalid_params_title": "Invalid parameters",
+    "simulate_invalid_params_detail": "Fields employeeId, shiftId and date (YYYY-MM-DD) are required.",
+    "simulate_employee_not_found_title": "Employee not found",
+    "simulate_employee_not_found_detail": "The specified employee does not exist in the system.",
+    "simulate_shift_not_found_title": "Shift not found",
+    "simulate_shift_not_found_detail": "The specified shift does not exist in the system."
   },
   "consent": {
     "errors": {

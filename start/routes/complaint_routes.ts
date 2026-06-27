@@ -56,6 +56,11 @@ router
       .use(middleware.businessScopeOptional())
 
     router
+      .delete('/:complaintId', '#controllers/complaint_controller.destroy')
+      .use(middleware.auth())
+      .use(middleware.businessScopeOptional())
+
+    router
       .get('/:complaintId', '#controllers/complaint_controller.show')
       .use(middleware.auth())
       .use(middleware.businessScopeOptional())

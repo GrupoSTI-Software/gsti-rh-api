@@ -1,6 +1,8 @@
 import type { I18n } from '@adonisjs/i18n'
 import { COMPLAINT_ERROR_CODES } from '../constants/complaint_error_codes.js'
 import { ComplaintServiceError } from '../exceptions/complaint_service_error.js'
+import { RetentionGuardError } from '../exceptions/retention_guard_error.js'
+import { RETENTION_GUARD_ERROR_CODES } from '../constants/retention_guard_error_codes.js'
 import type { ComplaintErrorCode } from '../constants/complaint_error_codes.js'
 
 export type ResolvedComplaintError = {
@@ -108,6 +110,24 @@ export function resolveComplaintApiError(
       errorCode: error.errorCode,
       key: error.key,
       detail: error.detail ?? message,
+    }
+  }
+
+  if (error instanceof RetentionGuardError) {
+    const isBulk = error.errorCode === RETENTION_GUARD_ERROR_CODES.BULK_DELETE_BLOCKED
+    const messageKey = isBulk
+      ? 'nom035.retention_guard.bulk_delete_blocked'
+      : 'nom035.retention_guard.delete_blocked'
+    const titleKey = isBulk
+      ? 'nom035.retention_guard.bulk_delete_blocked_title'
+      : 'nom035.retention_guard.delete_blocked_title'
+    return {
+      message: translate(i18n, messageKey, error.message),
+      title: translate(i18n, titleKey, title),
+      status: error.httpStatus,
+      errorCode: error.errorCode,
+      key: error.key,
+      detail: error.detail,
     }
   }
 

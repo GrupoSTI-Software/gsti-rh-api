@@ -1854,6 +1854,7 @@ export default class ComplaintController {
    *                   nullable: true
    *                   description: Error message obtained
    */
+
   async consultStatus({ request, response, i18n }: HttpContext) {
     try {
       const payload = await consultComplaintStatusValidator.validate(request.qs())
@@ -1869,6 +1870,135 @@ export default class ComplaintController {
       }
     } catch (error) {
       return this.complaintApiService.respondError(error, response, 500, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/{complaintId}:
+   *   delete:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Complaints
+   *     summary: Soft-delete a complaint by ID
+   *     description: |
+   *       Logically deletes a complaint record (soft-delete). The complaint must belong
+   *       to a business unit within the authenticated user's scope.
+   *       Tenant isolation is enforced: users can only delete complaints from their own
+   *       business unit.
+   *     parameters:
+   *       - in: path
+   *         name: complaintId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Complaint ID to delete
+   *     responses:
+   *       '200':
+   *         description: Complaint deleted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   description: Deleted complaint record
+   *       '401':
+   *         description: Unauthenticated user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '403':
+   *         description: Forbidden access
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       '404':
+   *         description: Complaint not found or outside business unit scope
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   */
+  async destroy({ params, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const complaintService = new ComplaintService()
+      const deleted = await complaintService.destroy(
+        Number(params.complaintId),
+        businessUnitScope ?? []
+      )
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_deleted_success'),
+        data: deleted,
+      }
+    } catch (error) {
+      return this.complaintApiService.respondError(error, response, 404, i18n)
     }
   }
 }

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import type { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
 import QuestionnaireApplicabilityService from '#services/questionnaire_applicability_service'
+import RetentionGuardService from '#services/retention_guard_service'
 import {
   INSTRUMENT_TO_QUESTIONNAIRE_CODE,
   QUESTIONNAIRE_APPLICATION_FOLIO_PREFIX,
@@ -409,6 +410,17 @@ export default class QuestionnaireApplicationService {
         'aplicacion-con-respuestas'
       )
     }
+
+    const launchedAt = row.questionnaire_application_launched_at
+      ? DateTime.fromJSDate(new Date(row.questionnaire_application_launched_at))
+      : DateTime.fromSQL(row.questionnaire_application_created_at as string)
+
+    const guard = new RetentionGuardService()
+    await guard.assertCanDelete(
+      row.business_unit_id as number,
+      'questionnaire_application',
+      launchedAt
+    )
 
     await db
       .from('questionnaire_applications')
