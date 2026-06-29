@@ -12,9 +12,12 @@ export interface CreateQuestionnaireApplicationInput {
 export interface QuestionnaireApplicationListFilters {
   branchOfficeId?: number
   status?: QuestionnaireApplicationStatus
+  completionStatus?: QuestionnaireApplicationCompletionStatus
   page?: number
   limit?: number
 }
+
+export type QuestionnaireApplicationCompletionStatus = 'none' | 'partial' | 'full'
 
 export interface QuestionnaireApplicationListItem {
   questionnaireApplicationId: number
@@ -25,6 +28,7 @@ export interface QuestionnaireApplicationListItem {
   status: QuestionnaireApplicationStatus
   targetCount: number
   respondedCount: number
+  completionStatus: QuestionnaireApplicationCompletionStatus
   launchedAt: string
 }
 

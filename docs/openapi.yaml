@@ -161,6 +161,9 @@ components:
           type: integer
         respondedCount:
           type: integer
+        completionStatus:
+          type: string
+          enum: [none, partial, full]
         launchedAt:
           type: string
           format: date-time
@@ -4460,6 +4463,12 @@ paths:
           schema:
             type: string
             enum: [borrador, en-curso, cerrada]
+        - name: completionStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [none, partial, full]
         - name: page
           in: query
           required: false
