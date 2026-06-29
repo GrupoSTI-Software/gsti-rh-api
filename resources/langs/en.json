@@ -635,6 +635,20 @@
       "draft_saved": "Draft saved successfully",
       "response_message": "In-progress response fetched successfully"
     },
+    "questionnaire_tabulation": {
+      "title": "NOM-035 Tabulation",
+      "tabulate_message": "Tabulation calculated successfully",
+      "show_message": "Tabulation fetched successfully",
+      "employees_message": "Employee results fetched successfully",
+      "val_input": "Invalid data",
+      "not_closed": "Only closed rounds can be tabulated",
+      "insufficient_responses": "There are not enough responses to tabulate this round",
+      "not_found": "Round not found or outside user scope",
+      "not_tabulated": "The round does not have a calculated tabulation yet",
+      "forbidden": "You do not have permission to query or calculate tabulation",
+      "invalid_answer_option": "An invalid answer option was detected for a question scale",
+      "sys_unhandled": "An unexpected error occurred while tabulating the round"
+    },
     "retention_policy": {
       "title": "NOM-035 Retention Policy",
       "error_title": "NOM-035 Retention Policy Error",

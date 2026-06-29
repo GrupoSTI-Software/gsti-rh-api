@@ -638,6 +638,20 @@
       "draft_saved": "Borrador guardado correctamente",
       "response_message": "Captura en curso obtenida correctamente"
     },
+    "questionnaire_tabulation": {
+      "title": "Tabulación NOM-035",
+      "tabulate_message": "Tabulación calculada correctamente",
+      "show_message": "Tabulación obtenida correctamente",
+      "employees_message": "Resultados por empleado obtenidos correctamente",
+      "val_input": "Datos inválidos",
+      "not_closed": "Solo se puede tabular una ronda cerrada",
+      "insufficient_responses": "No hay suficientes respuestas para tabular la ronda",
+      "not_found": "Ronda no encontrada o fuera del alcance del usuario",
+      "not_tabulated": "La ronda aún no tiene tabulación calculada",
+      "forbidden": "Sin permiso para consultar o calcular la tabulación",
+      "invalid_answer_option": "Se detectó una opción de respuesta inválida para la escala de una pregunta",
+      "sys_unhandled": "Ocurrió un error inesperado al tabular la ronda"
+    },
     "retention_policy": {
       "title": "Política de retención NOM-035",
       "error_title": "Error en política de retención NOM-035",
