@@ -49,6 +49,22 @@ export default class QuestionnaireApplicabilityController {
    *     responses:
    *       200:
    *         description: Aplicabilidad por sucursal obtenida correctamente
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               title: Questionnaire Applicabilities
+   *               message: Aplicabilidad por sucursal obtenida correctamente
+   *               data:
+   *                 questionnaireApplicabilities:
+   *                   - branchOfficeId: 12
+   *                     branchOfficeName: Sucursal Centro
+   *                     activeEmployees: 55
+   *                     applicableInstrument: guide_iii
+   *                     canLaunch: false
+   *                     launchBlockReason: OPEN_ROUND_EXISTS
+   *                     blockingApplicationId: 9981
+   *                     note: null
    *       400:
    *         description: Parámetros inválidos
    *       401:
@@ -121,6 +137,22 @@ export default class QuestionnaireApplicabilityController {
    *     responses:
    *       200:
    *         description: Aplicabilidad de sucursal obtenida correctamente
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               title: Questionnaire Applicability
+   *               message: Aplicabilidad de sucursal obtenida correctamente
+   *               data:
+   *                 questionnaireApplicability:
+   *                   branchOfficeId: 12
+   *                   branchOfficeName: Sucursal Centro
+   *                   activeEmployees: 55
+   *                   applicableInstrument: guide_iii
+   *                   canLaunch: false
+   *                   launchBlockReason: OPEN_ROUND_EXISTS
+   *                   blockingApplicationId: 9981
+   *                   note: null
    *       400:
    *         description: Parámetro inválido
    *       401:
