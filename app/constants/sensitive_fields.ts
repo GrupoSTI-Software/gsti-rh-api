@@ -100,7 +100,7 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // en API_BIOMETRICS_HOST. Cifrar el estado procede: revela presencia de biométricos.
   // No se busca en SQL.
   // Ancla: app/models/employee_biometric.ts
-  { model: 'EmployeeBiometric', column: 'employeeBiometricData', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeBiometric', column: 'employeeBiometricData', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
   // ─── EmployeeBiometricFaceId: biométrico ──────────────────────────────────
   // employeeBiometricFaceIdToken — token de reconocimiento facial. Se compara por igualdad
@@ -114,24 +114,24 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
   // No se buscan en SQL; contienen información clínica individual.
   // Ancla: app/models/employee_medical_condition.ts
-  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', legalCategory: 'salud', treatment: 'cifrar', encrypted: false },
-  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
 
   // ─── WorkDisabilityNote: salud (sensible reforzado) ───────────────────────
   // Nota descriptiva de incapacidad; no se busca en SQL.
   // Ancla: app/models/work_disability_note.ts
-  { model: 'WorkDisabilityNote', column: 'workDisabilityNoteDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: false },
+  { model: 'WorkDisabilityNote', column: 'workDisabilityNoteDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
 
   // ─── TraumaticEventReport: salud (sensible reforzado) ─────────────────────
   // Datos del reporte de acontecimiento traumático severo (ATS NOM-035).
   // Ancla: app/models/traumatic_event_report.ts
-  { model: 'TraumaticEventReport', column: 'traumaticEventReportInvolvedPeople', legalCategory: 'salud', treatment: 'cifrar', encrypted: false },
-  { model: 'TraumaticEventReport', column: 'traumaticEventReportDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: false },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportInvolvedPeople', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
 
   // ─── EmployeeLactationPeriod: salud (sensible reforzado) ──────────────────
   // Notas del período de lactancia; no se buscan en SQL.
   // Ancla: app/models/employee_lactation_period.ts
-  { model: 'EmployeeLactationPeriod', column: 'employeeLactationPeriodNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeLactationPeriod', column: 'employeeLactationPeriodNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
 
   // ─── EmployeeEmergencyContact: contacto ───────────────────────────────────
   // Teléfono del contacto de emergencia del trabajador; no se busca en SQL.
