@@ -109,7 +109,7 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // employeeBiometricFaceIdPhotoUrl — URL de foto en almacenamiento; revela identidad facial.
   // Ancla: app/models/employee_biometric_face_id.ts
   { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdToken', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: false },
-  { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdPhotoUrl', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdPhotoUrl', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
   // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
   // No se buscan en SQL; contienen información clínica individual.
@@ -136,12 +136,12 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ─── EmployeeEmergencyContact: contacto ───────────────────────────────────
   // Teléfono del contacto de emergencia del trabajador; no se busca en SQL.
   // Ancla: app/models/employee_emergency_contact.ts
-  { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
 
   // ─── EmployeeSpouse: contacto ─────────────────────────────────────────────
   // Teléfono del cónyuge; no se busca en SQL.
   // Ancla: app/models/employee_spouse.ts
-  { model: 'EmployeeSpouse', column: 'employeeSpousePhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeSpouse', column: 'employeeSpousePhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
 
   // ─── EmpresaContratante: identificación (deuda clasificada) ───────────────
   // RFC de persona moral con restricción UNIQUE en BD → se busca por igualdad.

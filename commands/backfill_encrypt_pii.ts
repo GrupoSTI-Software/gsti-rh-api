@@ -110,6 +110,39 @@ const TABLES: TableConfig[] = [
       },
     ],
   },
+  {
+    table: 'employee_emergency_contacts',
+    pk: 'employee_emergency_contact_id',
+    columns: ['employee_emergency_contact_phone'],
+    tenantJoins: [
+      {
+        toTable: 'employees',
+        on: ['employee_emergency_contacts.employee_id', 'employees.employee_id'],
+      },
+    ],
+  },
+  {
+    table: 'employee_spouses',
+    pk: 'employee_spouse_id',
+    columns: ['employee_spouse_phone'],
+    tenantJoins: [
+      {
+        toTable: 'employees',
+        on: ['employee_spouses.employee_id', 'employees.employee_id'],
+      },
+    ],
+  },
+  {
+    table: 'employee_biometric_face_ids',
+    pk: 'employee_biometric_face_id_id',
+    columns: ['employee_biometric_face_id_photo_url'],
+    tenantJoins: [
+      {
+        toTable: 'employees',
+        on: ['employee_biometric_face_ids.employee_id', 'employees.employee_id'],
+      },
+    ],
+  },
 ]
 
 /**
