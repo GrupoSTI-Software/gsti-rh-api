@@ -672,6 +672,8 @@ components:
         questionnaireApplicationId:
           type: integer
           nullable: true
+        originApplication:
+          $ref: '#/components/schemas/AttentionProgramOriginApplicationItem'
         year:
           type: integer
         period:
@@ -688,6 +690,26 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    AttentionProgramOriginApplicationItem:
+      type: object
+      nullable: true
+      properties:
+        questionnaireApplicationId:
+          type: integer
+        folio:
+          type: string
+        branchOfficeName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [borrador, en-curso, cerrada]
+        year:
+          type: integer
+        period:
+          type: string
+          nullable: true
 
     AttentionProgramDetail:
       allOf:
@@ -5598,6 +5620,13 @@ paths:
                         businessUnitId: 2
                         regulationId: 1
                         questionnaireApplicationId: 1201
+                        originApplication:
+                          questionnaireApplicationId: 1201
+                          folio: TEST-SCN-CLOSED-FULL
+                          branchOfficeName: Sucursal Test Guia II (16-50)
+                          status: cerrada
+                          year: 2026
+                          period: Eval marzo
                         year: 2026
                         period: Eval marzo
                         status: borrador
@@ -5685,6 +5714,13 @@ paths:
                     businessUnitId: 2
                     regulationId: 1
                     questionnaireApplicationId: 1201
+                    originApplication:
+                      questionnaireApplicationId: 1201
+                      folio: TEST-SCN-CLOSED-FULL
+                      branchOfficeName: Sucursal Test Guia II (16-50)
+                      status: cerrada
+                      year: 2026
+                      period: Eval octubre
                     year: 2026
                     period: Eval octubre
                     status: borrador
@@ -5812,6 +5848,13 @@ paths:
                     businessUnitId: 2
                     regulationId: 1
                     questionnaireApplicationId: 1201
+                    originApplication:
+                      questionnaireApplicationId: 1201
+                      folio: TEST-SCN-CLOSED-FULL
+                      branchOfficeName: Sucursal Test Guia II (16-50)
+                      status: cerrada
+                      year: 2026
+                      period: Eval octubre
                     year: 2026
                     period: Eval octubre
                     status: borrador
@@ -5918,6 +5961,13 @@ paths:
                     businessUnitId: 2
                     regulationId: 1
                     questionnaireApplicationId: 1201
+                    originApplication:
+                      questionnaireApplicationId: 1201
+                      folio: TEST-SCN-CLOSED-FULL
+                      branchOfficeName: Sucursal Test Guia II (16-50)
+                      status: cerrada
+                      year: 2026
+                      period: Eval octubre
                     year: 2026
                     period: Eval octubre
                     status: vigente

@@ -114,6 +114,8 @@ export default class AttentionProgramController {
    *         questionnaireApplicationId:
    *           type: integer
    *           nullable: true
+   *         originApplication:
+   *           $ref: '#/components/schemas/AttentionProgramOriginApplicationItem'
    *         year:
    *           type: integer
    *         period:
@@ -130,6 +132,26 @@ export default class AttentionProgramController {
    *         updatedAt:
    *           type: string
    *           format: date-time
+   *
+   *     AttentionProgramOriginApplicationItem:
+   *       type: object
+   *       nullable: true
+   *       properties:
+   *         questionnaireApplicationId:
+   *           type: integer
+   *         folio:
+   *           type: string
+   *         branchOfficeName:
+   *           type: string
+   *           nullable: true
+   *         status:
+   *           type: string
+   *           enum: [borrador, en-curso, cerrada]
+   *         year:
+   *           type: integer
+   *         period:
+   *           type: string
+   *           nullable: true
    *
    *     AttentionProgramSuccess:
    *       type: object

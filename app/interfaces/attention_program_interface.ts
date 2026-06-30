@@ -43,12 +43,22 @@ export interface AttentionProgramListItem {
   businessUnitId: number
   regulationId: number
   questionnaireApplicationId: number | null
+  originApplication: AttentionProgramOriginApplicationItem | null
   year: number
   period: string | null
   status: AttentionProgramStatus
   actionCount: number
   createdAt: string
   updatedAt: string
+}
+
+export interface AttentionProgramOriginApplicationItem {
+  questionnaireApplicationId: number
+  folio: string
+  branchOfficeName: string | null
+  status: 'borrador' | 'en-curso' | 'cerrada'
+  year: number
+  period: string | null
 }
 
 export interface AttentionProgramListResult {

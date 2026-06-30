@@ -16,6 +16,7 @@ import type {
   AttentionProgramListFilters,
   AttentionProgramListItem,
   AttentionProgramListResult,
+  AttentionProgramOriginApplicationItem,
   AttentionProgramUpdateInput,
 } from '../interfaces/attention_program_interface.js'
 
@@ -24,6 +25,11 @@ type AttentionProgramRow = {
   businessUnitId: number | string
   regulationId: number | string
   questionnaireApplicationId: number | string | null
+  originFolio: string | null
+  originBranchOfficeName: string | null
+  originStatus: 'borrador' | 'en-curso' | 'cerrada' | null
+  originDeletedAt: string | Date | null
+  originBranchDeletedAt: string | Date | null
   year: number | string
   period: string | null
   status: 'borrador' | 'vigente' | 'cerrado'
@@ -224,6 +230,12 @@ export default class AttentionProgramService {
   private baseListQuery(allowedBusinessUnitIds: number[], filters: AttentionProgramListFilters) {
     return db
       .from('attention_programs as ap')
+      .leftJoin(
+        'questionnaire_applications as qa',
+        'qa.questionnaire_application_id',
+        'ap.questionnaire_application_id'
+      )
+      .leftJoin('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
       .whereNull('ap.attention_program_deleted_at')
       .if(allowedBusinessUnitIds.length > 0, (query) => {
         query.whereIn('ap.business_unit_id', allowedBusinessUnitIds)
@@ -239,6 +251,11 @@ export default class AttentionProgramService {
         'ap.business_unit_id as businessUnitId',
         'ap.regulation_id as regulationId',
         'ap.questionnaire_application_id as questionnaireApplicationId',
+        'qa.questionnaire_application_folio as originFolio',
+        'qa.questionnaire_application_status as originStatus',
+        'qa.questionnaire_application_deleted_at as originDeletedAt',
+        'bo.branch_office_name as originBranchOfficeName',
+        'bo.branch_office_deleted_at as originBranchDeletedAt',
         'ap.attention_program_year as year',
         'ap.attention_program_period as period',
         'ap.attention_program_status as status',
@@ -255,12 +272,28 @@ export default class AttentionProgramService {
       questionnaireApplicationId: row.questionnaireApplicationId
         ? Number(row.questionnaireApplicationId)
         : null,
+      originApplication: this.serializeOrigin(row),
       year: Number(row.year),
       period: row.period,
       status: row.status,
       actionCount: 0,
       createdAt: this.toIsoUtc(row.createdAt) ?? DateTime.utc().toISO()!,
       updatedAt: this.toIsoUtc(row.updatedAt) ?? DateTime.utc().toISO()!,
+    }
+  }
+
+  private serializeOrigin(row: AttentionProgramRow): AttentionProgramOriginApplicationItem | null {
+    if (!row.questionnaireApplicationId) return null
+    if (row.originDeletedAt || row.originBranchDeletedAt) return null
+    if (!row.originFolio || !row.originStatus) return null
+
+    return {
+      questionnaireApplicationId: Number(row.questionnaireApplicationId),
+      folio: String(row.originFolio),
+      branchOfficeName: row.originBranchOfficeName ? String(row.originBranchOfficeName) : null,
+      status: row.originStatus,
+      year: Number(row.year),
+      period: row.period,
     }
   }
 
