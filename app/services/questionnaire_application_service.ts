@@ -20,6 +20,7 @@ import type {
   QuestionnaireApplicationListFilters,
   QuestionnaireApplicationListItem,
   QuestionnaireApplicationListResult,
+  QuestionnaireApplicationCompletionStatus,
   QuestionnaireApplicationTargetListFilters,
   QuestionnaireApplicationTargetListItem,
 } from '../interfaces/questionnaire_application_interface.js'
@@ -176,45 +177,13 @@ export default class QuestionnaireApplicationService {
     const safeLimit = Math.min(Math.max(filters.limit ?? 20, 1), 100)
     const offset = (safePage - 1) * safeLimit
 
-    const baseQuery = this.baseListQuery(allowedBusinessUnitIds, filters)
-    const totalRow = await baseQuery
-      .clone()
-      .clearSelect()
-      .countDistinct('qa.questionnaire_application_id as total')
-      .first()
+    const aggregateQuery = this.baseListAggregatedQuery(allowedBusinessUnitIds, filters)
+    const totalRow = await db.from(aggregateQuery.clone().as('qa_aggregate')).count('* as total').first()
     const total = Number((totalRow as { total?: string | number } | undefined)?.total ?? 0)
     const lastPage = Math.max(Math.ceil(total / safeLimit), 1)
 
-    const rows = (await baseQuery
+    const rows = (await aggregateQuery
       .clone()
-      .select(
-        'qa.questionnaire_application_id as questionnaireApplicationId',
-        'qa.questionnaire_application_folio as folio',
-        'qa.branch_office_id as branchOfficeId',
-        'bo.branch_office_name as branchOfficeName',
-        'qa.business_unit_id as businessUnitId',
-        'qa.regulation_questionnaire_id as regulationQuestionnaireId',
-        'qa.questionnaire_application_instrument as applicableInstrument',
-        'qa.questionnaire_application_status as status',
-        'qa.questionnaire_application_launched_at as launchedAt',
-        'qa.questionnaire_application_closed_at as closedAt',
-        db.raw('COUNT(qat.questionnaire_application_target_id) as targetCount'),
-        db.raw(
-          "SUM(CASE WHEN qat.questionnaire_application_target_status = 'respondido' THEN 1 ELSE 0 END) as respondedCount"
-        )
-      )
-      .groupBy(
-        'qa.questionnaire_application_id',
-        'qa.questionnaire_application_folio',
-        'qa.branch_office_id',
-        'bo.branch_office_name',
-        'qa.business_unit_id',
-        'qa.regulation_questionnaire_id',
-        'qa.questionnaire_application_instrument',
-        'qa.questionnaire_application_status',
-        'qa.questionnaire_application_launched_at',
-        'qa.questionnaire_application_closed_at'
-      )
       .orderBy('qa.questionnaire_application_launched_at', 'desc')
       .limit(safeLimit)
       .offset(offset)) as QuestionnaireApplicationRow[]
@@ -566,6 +535,72 @@ export default class QuestionnaireApplicationService {
       })
   }
 
+  private baseListAggregatedQuery(
+    allowedBusinessUnitIds: number[],
+    filters: QuestionnaireApplicationListFilters
+  ) {
+    const respondedCountExpression =
+      "COALESCE(SUM(CASE WHEN qat.questionnaire_application_target_status = 'respondido' THEN 1 ELSE 0 END), 0)"
+    const targetCountExpression = 'COUNT(qat.questionnaire_application_target_id)'
+
+    return this.baseListQuery(allowedBusinessUnitIds, filters)
+      .clone()
+      .select(
+        'qa.questionnaire_application_id as questionnaireApplicationId',
+        'qa.questionnaire_application_folio as folio',
+        'qa.branch_office_id as branchOfficeId',
+        'bo.branch_office_name as branchOfficeName',
+        'qa.business_unit_id as businessUnitId',
+        'qa.regulation_questionnaire_id as regulationQuestionnaireId',
+        'qa.questionnaire_application_instrument as applicableInstrument',
+        'qa.questionnaire_application_status as status',
+        'qa.questionnaire_application_launched_at as launchedAt',
+        'qa.questionnaire_application_closed_at as closedAt',
+        db.raw(`${targetCountExpression} as targetCount`),
+        db.raw(`${respondedCountExpression} as respondedCount`)
+      )
+      .groupBy(
+        'qa.questionnaire_application_id',
+        'qa.questionnaire_application_folio',
+        'qa.branch_office_id',
+        'bo.branch_office_name',
+        'qa.business_unit_id',
+        'qa.regulation_questionnaire_id',
+        'qa.questionnaire_application_instrument',
+        'qa.questionnaire_application_status',
+        'qa.questionnaire_application_launched_at',
+        'qa.questionnaire_application_closed_at'
+      )
+      .if(!!filters.completionStatus, (query) => {
+        this.applyCompletionStatusHaving(query, filters.completionStatus!)
+      })
+  }
+
+  private applyCompletionStatusHaving(
+    query: ReturnType<typeof db.from>,
+    completionStatus: QuestionnaireApplicationCompletionStatus
+  ) {
+    const respondedCountExpression =
+      "COALESCE(SUM(CASE WHEN qat.questionnaire_application_target_status = 'respondido' THEN 1 ELSE 0 END), 0)"
+    const targetCountExpression = 'COUNT(qat.questionnaire_application_target_id)'
+
+    if (completionStatus === 'none') {
+      query.havingRaw(`${respondedCountExpression} = 0`)
+      return
+    }
+
+    if (completionStatus === 'full') {
+      query.havingRaw(
+        `${targetCountExpression} > 0 AND ${respondedCountExpression} = ${targetCountExpression}`
+      )
+      return
+    }
+
+    query.havingRaw(
+      `${respondedCountExpression} > 0 AND ${respondedCountExpression} < ${targetCountExpression}`
+    )
+  }
+
   private async findBranchInScopeOrFail(
     branchOfficeId: number,
     allowedBusinessUnitIds: number[],
@@ -604,6 +639,9 @@ export default class QuestionnaireApplicationService {
   }
 
   private serializeListRow(row: QuestionnaireApplicationRow): QuestionnaireApplicationListItem {
+    const targetCount = Number(row.targetCount)
+    const respondedCount = Number(row.respondedCount)
+
     return {
       questionnaireApplicationId: Number(row.questionnaireApplicationId),
       folio: row.folio,
@@ -611,8 +649,9 @@ export default class QuestionnaireApplicationService {
       branchOfficeName: row.branchOfficeName,
       applicableInstrument: row.applicableInstrument,
       status: row.status,
-      targetCount: Number(row.targetCount),
-      respondedCount: Number(row.respondedCount),
+      targetCount,
+      respondedCount,
+      completionStatus: this.resolveCompletionStatus(targetCount, respondedCount),
       launchedAt: this.toIsoUtc(row.launchedAt)!,
     }
   }
@@ -639,6 +678,15 @@ export default class QuestionnaireApplicationService {
     if (isoDate.isValid) return isoDate.toISO()
 
     return null
+  }
+
+  private resolveCompletionStatus(
+    targetCount: number,
+    respondedCount: number
+  ): QuestionnaireApplicationCompletionStatus {
+    if (respondedCount <= 0) return 'none'
+    if (targetCount > 0 && respondedCount >= targetCount) return 'full'
+    return 'partial'
   }
 
   private translate(i18n: I18n | undefined, key: string, fallback: string): string {

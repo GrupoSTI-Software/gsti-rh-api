@@ -95,6 +95,13 @@ export default class QuestionnaireApplicationController {
    *           enum: [borrador, en-curso, cerrada]
    *         description: Filtra por estatus del ciclo de vida
    *       - in: query
+   *         name: completionStatus
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [none, partial, full]
+   *         description: Filtra por nivel de avance de respuestas
+   *       - in: query
    *         name: page
    *         required: false
    *         schema:
@@ -153,6 +160,9 @@ export default class QuestionnaireApplicationController {
    *                                 enum: [borrador, en-curso, cerrada]
    *                               targetCount: { type: integer }
    *                               respondedCount: { type: integer }
+   *                               completionStatus:
+   *                                 type: string
+   *                                 enum: [none, partial, full]
    *                               launchedAt:
    *                                 type: string
    *                                 format: date-time
@@ -177,6 +187,7 @@ export default class QuestionnaireApplicationController {
    *                       status: en-curso
    *                       targetCount: 30
    *                       respondedCount: 5
+   *                       completionStatus: partial
    *                       launchedAt: '2026-06-22T17:00:00.000Z'
    *       400:
    *         description: Parámetros inválidos

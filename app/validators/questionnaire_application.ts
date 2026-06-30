@@ -11,6 +11,7 @@ export const listQuestionnaireApplicationsValidator = vine.compile(
   vine.object({
     branchOfficeId: vine.number().positive().optional(),
     status: vine.enum([...QUESTIONNAIRE_APPLICATION_STATUSES]).optional(),
+    completionStatus: vine.enum(['none', 'partial', 'full']).optional(),
     page: vine.number().positive().optional(),
     limit: vine.number().positive().max(100).optional(),
   })

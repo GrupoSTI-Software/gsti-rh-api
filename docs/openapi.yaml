@@ -161,6 +161,9 @@ components:
           type: integer
         respondedCount:
           type: integer
+        completionStatus:
+          type: string
+          enum: [none, partial, full]
         launchedAt:
           type: string
           format: date-time
@@ -234,6 +237,65 @@ components:
                   type: array
                   items:
                     $ref: '#/components/schemas/QuestionnaireApplicationListItem'
+
+    QuestionnaireApplicabilityItem:
+      type: object
+      properties:
+        branchOfficeId:
+          type: integer
+        branchOfficeName:
+          type: string
+        activeEmployees:
+          type: integer
+        applicableInstrument:
+          type: string
+          enum: [none, guide_ii, guide_iii]
+        canLaunch:
+          type: boolean
+        launchBlockReason:
+          type: string
+          enum: [NOT_APPLICABLE, OPEN_ROUND_EXISTS]
+          nullable: true
+        blockingApplicationId:
+          type: integer
+          nullable: true
+        note:
+          type: string
+          nullable: true
+
+    QuestionnaireApplicabilityListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicabilities:
+              type: array
+              items:
+                $ref: '#/components/schemas/QuestionnaireApplicabilityItem'
+
+    QuestionnaireApplicabilitySuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            questionnaireApplicability:
+              $ref: '#/components/schemas/QuestionnaireApplicabilityItem'
 
     QuestionnaireApplicationStateLogItem:
       type: object
@@ -4436,6 +4498,142 @@ paths:
                 message: An unexpected error has occurred on the server
                 data: null
 
+  /api/nom035/questionnaire-applicability:
+    get:
+      summary: Obtener aplicabilidad de cuestionarios NOM-035 por empresa
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: businessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: companyId
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Aplicabilidad por sucursal obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicabilityListSuccess'
+              example:
+                type: success
+                title: Questionnaire Applicabilities
+                message: Aplicabilidad por sucursal obtenida correctamente
+                data:
+                  questionnaireApplicabilities:
+                    - branchOfficeId: 12
+                      branchOfficeName: Sucursal Centro
+                      activeEmployees: 55
+                      applicableInstrument: guide_iii
+                      canLaunch: false
+                      launchBlockReason: OPEN_ROUND_EXISTS
+                      blockingApplicationId: 9981
+                      note: null
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permisos (requiere módulo compliance)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Empresa no encontrada o no disponible para esta instancia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/nom035/questionnaire-applicability/{branchOfficeId}:
+    get:
+      summary: Obtener aplicabilidad de cuestionario NOM-035 por sucursal
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: branchOfficeId
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Aplicabilidad de sucursal obtenida correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuestionnaireApplicabilitySuccess'
+              example:
+                type: success
+                title: Questionnaire Applicability
+                message: Aplicabilidad de sucursal obtenida correctamente
+                data:
+                  questionnaireApplicability:
+                    branchOfficeId: 12
+                    branchOfficeName: Sucursal Centro
+                    activeEmployees: 55
+                    applicableInstrument: guide_iii
+                    canLaunch: false
+                    launchBlockReason: OPEN_ROUND_EXISTS
+                    blockingApplicationId: 9981
+                    note: null
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permisos (requiere módulo compliance)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '404':
+          description: Sucursal no encontrada o no disponible para esta instancia
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
   /api/nom035/questionnaire-applications:
     get:
       summary: Listar aplicaciones de cuestionario NOM-035
@@ -4460,6 +4658,12 @@ paths:
           schema:
             type: string
             enum: [borrador, en-curso, cerrada]
+        - name: completionStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [none, partial, full]
         - name: page
           in: query
           required: false

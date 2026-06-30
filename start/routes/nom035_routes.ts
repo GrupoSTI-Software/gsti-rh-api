@@ -48,6 +48,18 @@ router
       })
       .prefix('/nom035/retention-policy')
       .use(middleware.businessScope())
+
+    router
+      .group(() => {
+        router.post('/:applicationId', '#controllers/questionnaire_tabulation_controller.tabulate')
+        router.get('/:applicationId', '#controllers/questionnaire_tabulation_controller.show')
+        router.get(
+          '/:applicationId/employees',
+          '#controllers/questionnaire_tabulation_controller.employees'
+        )
+      })
+      .prefix('/nom035/questionnaire-tabulation')
+      .use(middleware.businessScope())
   })
   .prefix('/api')
   .use(middleware.auth())

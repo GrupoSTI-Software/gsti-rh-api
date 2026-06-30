@@ -96,6 +96,8 @@ export class StandardResponseFormatter {
       'Questionnaire Application': 'questionnaireApplication',
       'Questionnaire Applications': 'questionnaireApplications',
       'Questionnaire Application State History': 'stateHistory',
+      'Tabulación NOM-035': 'tabulacion',
+      'Resultados por empleado': 'employees',
       Instrumento: 'instrument',
       'Captura de respuestas': 'questionnaireApplicationResponse',
       'Objetivos de la ronda': 'targets',
