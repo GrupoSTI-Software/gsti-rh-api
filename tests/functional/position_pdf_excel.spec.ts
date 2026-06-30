@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import Position from '#models/position'
+import User from '#models/user'
 
 /**
  * Tests funcionales — PositionController.getPdf y PositionController.getExcel
@@ -50,9 +51,31 @@ async function findValidPosition(): Promise<Position | null> {
     .first()
 }
 
+async function resolveAuthContext() {
+  const user = await User.query().whereNull('user_deleted_at').firstOrFail()
+  const position = await findValidPosition()
+
+  if (position?.businessUnitId) {
+    return { user, businessUnitId: position.businessUnitId, position }
+  }
+
+  const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+  const businessList = businessConf.split(',')
+  const businessUnit = await BusinessUnit.query()
+    .where('business_unit_active', 1)
+    .whereIn('business_unit_slug', businessList)
+    .first()
+
+  return { user, businessUnitId: businessUnit?.businessUnitId ?? 1, position: null }
+}
+
 test.group('Position PDF - GET /api/positions/get-pdf/:positionId', () => {
   test('devuelve 404 si el puesto no existe', async ({ client }) => {
-    const response = await client.get('/api/positions/get-pdf/999999999')
+    const ctx = await resolveAuthContext()
+    const response = await client
+      .get('/api/positions/get-pdf/999999999')
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(404)
     response.assertBodyContains({ type: 'warning' })
@@ -62,7 +85,8 @@ test.group('Position PDF - GET /api/positions/get-pdf/:positionId', () => {
     client,
     assert,
   }) => {
-    const position = await findValidPosition()
+    const ctx = await resolveAuthContext()
+    const position = ctx.position
 
     if (!position) {
       // Sin datos válidos en BD se omite la verificación 200 (caso ambiental)
@@ -70,7 +94,10 @@ test.group('Position PDF - GET /api/positions/get-pdf/:positionId', () => {
       return
     }
 
-    const response = await client.get(`/api/positions/get-pdf/${position.positionId}`)
+    const response = await client
+      .get(`/api/positions/get-pdf/${position.positionId}`)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(200)
     response.assertHeader('content-type', 'application/pdf')
@@ -87,7 +114,11 @@ test.group('Position PDF - GET /api/positions/get-pdf/:positionId', () => {
 
 test.group('Position Excel - GET /api/positions/get-excel/:positionId', () => {
   test('devuelve 404 si el puesto no existe', async ({ client }) => {
-    const response = await client.get('/api/positions/get-excel/999999999')
+    const ctx = await resolveAuthContext()
+    const response = await client
+      .get('/api/positions/get-excel/999999999')
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(404)
     response.assertBodyContains({ type: 'warning' })
@@ -97,14 +128,18 @@ test.group('Position Excel - GET /api/positions/get-excel/:positionId', () => {
     client,
     assert,
   }) => {
-    const position = await findValidPosition()
+    const ctx = await resolveAuthContext()
+    const position = ctx.position
 
     if (!position) {
       assert.isNull(position)
       return
     }
 
-    const response = await client.get(`/api/positions/get-excel/${position.positionId}`)
+    const response = await client
+      .get(`/api/positions/get-excel/${position.positionId}`)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(200)
     response.assertHeader(

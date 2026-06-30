@@ -224,6 +224,7 @@ test.group('Users (POST /api/users) - userBusinessAccess como arreglo de IDs', (
     preparedPerson = new Person()
     preparedPerson.personFirstname = 'Pivot'
     preparedPerson.personLastname = 'NewUser'
+    preparedPerson.personSecondLastname = 'Prepared'
     preparedPerson.personEmail = `pivot-newuser-${stamp}@gsti-tests.local`
     await preparedPerson.save()
     createdPersonId = preparedPerson.personId
@@ -258,7 +259,7 @@ test.group('Users (POST /api/users) - userBusinessAccess como arreglo de IDs', (
       roleId: actor.user.roleId,
       personId: preparedPerson.personId,
       userEmailType: 'institutional',
-    })
+    }).header('X-Business-Unit-Id', String(businessUnitIds[0]))
 
     response.assertStatus(201)
     const body = response.body()
@@ -285,6 +286,7 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
   let actor: PivotTestUser | null = null
   let createdRoleId: number | null = null
   let businessUnitIds: number[] = []
+  let businessUnitSlugs: string[] = []
 
   group.setup(async () => {
     const stamp = Date.now()
@@ -303,8 +305,10 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
       seed.businessUnitActive = 1
       await seed.save()
       businessUnitIds = [seed.businessUnitId]
+      businessUnitSlugs = [seed.businessUnitSlug]
     } else {
       businessUnitIds = existing.map((unit) => unit.businessUnitId)
+      businessUnitSlugs = existing.map((unit) => unit.businessUnitSlug)
     }
 
     actor = await createPivotUser({
@@ -335,7 +339,7 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
       roleName,
       roleDescription: 'Rol creado por el suite del pivote multi-tenant',
       roleActive: true,
-    })
+    }).header('X-Business-Unit-Id', String(businessUnitIds[0]))
 
     response.assertStatus(201)
     const body = response.body()
@@ -345,17 +349,17 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
 
     const persistedRole = await Role.query().where('role_id', createdRoleId).firstOrFail()
     const persistedAccess = persistedRole.roleBusinessAccess ?? ''
-    const persistedIds = persistedAccess
+    const persistedSlugs = persistedAccess
       .split(',')
-      .map((token) => Number(token.trim()))
-      .filter((value) => Number.isInteger(value) && value > 0)
-      .sort((a, b) => a - b)
+      .map((token) => token.trim())
+      .filter((value) => value.length > 0)
+      .sort()
 
-    const expectedIds = [...businessUnitIds].sort((a, b) => a - b)
+    const expectedSlugs = [...businessUnitSlugs].sort()
     assert.deepEqual(
-      persistedIds,
-      expectedIds,
-      'roleBusinessAccess debe componerse con los IDs leídos desde la pivote, no del CSV legado del usuario'
+      persistedSlugs,
+      expectedSlugs,
+      'roleBusinessAccess debe componerse con los slugs leídos desde la pivote'
     )
   })
 })

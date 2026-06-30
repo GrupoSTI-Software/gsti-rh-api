@@ -4,6 +4,81 @@ import User from '#models/user'
 import Employee from '#models/employee'
 import EmployeeEvaluation from '#models/employee_evaluation'
 
+async function ensureTestBusinessUnitId(): Promise<number> {
+  const existing = await db
+    .from('business_units')
+    .whereNull('business_unit_deleted_at')
+    .select('business_unit_id')
+    .first()
+
+  if (existing?.business_unit_id) {
+    return Number(existing.business_unit_id)
+  }
+
+  const inserted = await db.table('business_units').insert({
+    business_unit_name: 'BU Test EmployeeEvaluation',
+    business_unit_slug: `bu-test-employee-evaluation-${Date.now()}`,
+    business_unit_legal_name: 'BU Test EmployeeEvaluation',
+    business_unit_active: 1,
+    business_unit_created_at: new Date(),
+  })
+
+  return Number(Array.isArray(inserted) ? inserted[0] : inserted)
+}
+
+async function ensureTestEmployee(): Promise<Employee> {
+  const existing = await Employee.query().whereNull('employee_deleted_at').first()
+  if (existing) return existing
+
+  const businessUnitId = await ensureTestBusinessUnitId()
+  const syncSeed = Date.now()
+  const now = new Date()
+
+  const personInsert = await db.table('people').insert({
+    person_firstname: 'Empleado',
+    person_lastname: 'Prueba',
+    person_second_lastname: 'Evaluacion',
+    person_created_at: now,
+  })
+  const personId = Number(Array.isArray(personInsert) ? personInsert[0] : personInsert)
+
+  const departmentInsert = await db.table('departments').insert({
+    department_sync_id: syncSeed,
+    department_code: `DEP-${syncSeed}`,
+    department_name: 'Departamento Test Evaluacion',
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    department_active: 1,
+    department_created_at: now,
+  })
+  const departmentId = Number(Array.isArray(departmentInsert) ? departmentInsert[0] : departmentInsert)
+
+  const positionInsert = await db.table('positions').insert({
+    position_sync_id: syncSeed,
+    position_code: `POS-${syncSeed}`,
+    position_name: 'Puesto Test Evaluacion',
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    position_active: 1,
+    position_created_at: now,
+  })
+  const positionId = Number(Array.isArray(positionInsert) ? positionInsert[0] : positionInsert)
+
+  const employeeInsert = await db.table('employees').insert({
+    employee_sync_id: `EMP-${syncSeed}`,
+    employee_code: `EMP-${syncSeed}`,
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    department_id: departmentId,
+    position_id: positionId,
+    person_id: personId,
+    employee_created_at: now,
+  })
+  const employeeId = Number(Array.isArray(employeeInsert) ? employeeInsert[0] : employeeInsert)
+
+  return (await Employee.findOrFail(employeeId)) as Employee
+}
+
 /**
  * Tests funcionales — EmployeeEvaluationController
  * Rutas: /api/employee-evaluations
@@ -46,7 +121,7 @@ test.group('EmployeeEvaluation - store POST /', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
   })
 
   group.teardown(async () => {
@@ -161,7 +236,7 @@ test.group('EmployeeEvaluation - show GET /:id', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     evaluation = await EmployeeEvaluation.create({
       employeeId: testEmployee.employeeId,
       employeeEvaluationDate: new Date('2025-08-01'),
@@ -209,7 +284,7 @@ test.group('EmployeeEvaluation - update PUT /:id', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     evaluation = await EmployeeEvaluation.create({
       employeeId: testEmployee.employeeId,
       employeeEvaluationDate: new Date('2025-09-01'),
@@ -278,7 +353,7 @@ test.group('EmployeeEvaluation - destroy DELETE /:id', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
   })
 
   test('elimina (soft delete) una evaluación existente', async ({ client }) => {
@@ -324,7 +399,7 @@ test.group('EmployeeEvaluation - getByEmployee GET /by-employee/:employeeId', (g
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
   })
 
   test('devuelve hasta 3 evaluaciones más recientes del empleado', async ({
@@ -351,7 +426,7 @@ test.group('EmployeeEvaluation - updatePotential PUT /update-potential/:id', (gr
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     evaluation = await EmployeeEvaluation.create({
       employeeId: testEmployee.employeeId,
       employeeEvaluationDate: new Date('2025-11-01'),

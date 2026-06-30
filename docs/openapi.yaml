@@ -595,6 +595,168 @@ components:
             questionnaireApplicationResponse:
               $ref: '#/components/schemas/QuestionnaireApplicationSavedResponseDetail'
 
+    Nom035PrgError:
+      allOf:
+        - $ref: '#/components/schemas/ApiError'
+      example:
+        type: error
+        title: Programa de atención NOM-035
+        message: Ya existe un Programa abierto para la empresa
+        detail: Ya existe un Programa abierto para la empresa
+        key: programa-abierto
+        code: NOM035.PRG.ALREADY_OPEN
+        data: null
+
+    AttentionProgramCatalogDimensionItem:
+      type: object
+      properties:
+        psychosocialDimensionId:
+          type: integer
+        code:
+          type: string
+        nameKey:
+          type: string
+        name:
+          type: string
+        ord:
+          type: integer
+
+    AttentionProgramCatalogLevelItem:
+      type: object
+      properties:
+        attentionActionLevelId:
+          type: integer
+        code:
+          type: string
+        nameKey:
+          type: string
+        name:
+          type: string
+        order:
+          type: integer
+
+    AttentionProgramCatalogSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            attentionProgramCatalog:
+              type: object
+              properties:
+                dimensions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AttentionProgramCatalogDimensionItem'
+                actionLevels:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AttentionProgramCatalogLevelItem'
+
+    AttentionProgramListItem:
+      type: object
+      properties:
+        attentionProgramId:
+          type: integer
+        businessUnitId:
+          type: integer
+        regulationId:
+          type: integer
+        questionnaireApplicationId:
+          type: integer
+          nullable: true
+        year:
+          type: integer
+        period:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [borrador, vigente, cerrado]
+        actionCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AttentionProgramDetail:
+      allOf:
+        - $ref: '#/components/schemas/AttentionProgramListItem'
+
+    AttentionProgramCreate:
+      type: object
+      required: [year]
+      properties:
+        year:
+          type: integer
+          minimum: 2000
+          maximum: 2100
+        period:
+          type: string
+          maxLength: 100
+        questionnaireApplicationId:
+          type: integer
+          minimum: 1
+
+    AttentionProgramUpdate:
+      type: object
+      properties:
+        period:
+          type: string
+          maxLength: 100
+        status:
+          type: string
+          enum: [borrador, vigente]
+
+    AttentionProgramSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            attentionProgram:
+              $ref: '#/components/schemas/AttentionProgramDetail'
+
+    AttentionProgramListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            attentionPrograms:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/AttentionProgramListItem'
+
     ServicioRegistradoResumen:
       type: object
       required: [id, name]
@@ -5312,3 +5474,523 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Nom035QrunError'
+
+  /api/nom035/attention-program-catalog:
+    get:
+      summary: Obtener catálogo cerrado del Programa de atención NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Catálogo del Programa de atención obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionProgramCatalogSuccess'
+              example:
+                type: success
+                title: Catálogo Programa de atención
+                message: Catálogo del Programa de atención obtenido correctamente
+                data:
+                  attentionProgramCatalog:
+                    dimensions:
+                      - psychosocialDimensionId: 1
+                        code: LIDERAZGO_RELACIONES
+                        nameKey: regulatory.nom035.dimension.liderazgo_relaciones
+                        name: Liderazgo y relaciones en el trabajo
+                        ord: 1
+                    actionLevels:
+                      - attentionActionLevelId: 1
+                        code: organizacional
+                        nameKey: regulatory.nom035.action_level.organizacional
+                        name: Organizacional (primer nivel)
+                        order: 1
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Autenticación requerida
+                message: Debes iniciar sesión para acceder a este recurso
+                detail: Token de acceso inválido o ausente
+                key: no-autenticado
+                errorCode: AUTH.UNAUTHORIZED
+                data: null
+        '403':
+          description: Sin permiso para consultar Programa de atención
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Sin permiso para gestionar Programa de atención
+                detail: Sin permiso para gestionar Programa de atención
+                key: sin-permiso
+                code: NOM035.PRG.FORBIDDEN
+                data: null
+
+  /api/nom035/attention-programs:
+    get:
+      summary: Listar Programas de atención NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [borrador, vigente, cerrado]
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Programas de atención obtenidos correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionProgramListSuccess'
+              example:
+                type: success
+                title: Attention Programs
+                message: Programas de atención obtenidos correctamente
+                data:
+                  attentionPrograms:
+                    meta:
+                      total: 1
+                      perPage: 20
+                      currentPage: 1
+                      lastPage: 1
+                      firstPage: 1
+                    data:
+                      - attentionProgramId: 15
+                        businessUnitId: 2
+                        regulationId: 1
+                        questionnaireApplicationId: 1201
+                        year: 2026
+                        period: Eval marzo
+                        status: borrador
+                        actionCount: 0
+                        createdAt: '2026-06-30T16:00:00.000Z'
+                        updatedAt: '2026-06-30T16:00:00.000Z'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Autenticación requerida
+                message: Debes iniciar sesión para acceder a este recurso
+                detail: Token de acceso inválido o ausente
+                key: no-autenticado
+                errorCode: AUTH.UNAUTHORIZED
+                data: null
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Datos inválidos
+                detail: Datos inválidos
+                key: datos-invalidos
+                code: NOM035.PRG.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para consultar Programa de atención
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Sin permiso para gestionar Programa de atención
+                detail: Sin permiso para gestionar Programa de atención
+                key: sin-permiso
+                code: NOM035.PRG.FORBIDDEN
+                data: null
+    post:
+      summary: Crear cabecera del Programa de atención NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttentionProgramCreate'
+            example:
+              year: 2026
+              period: Eval marzo
+              questionnaireApplicationId: 1201
+      responses:
+        '201':
+          description: Programa de atención creado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionProgramSuccess'
+              example:
+                type: success
+                title: Attention Program
+                message: Programa de atención creado correctamente
+                data:
+                  attentionProgram:
+                    attentionProgramId: 16
+                    businessUnitId: 2
+                    regulationId: 1
+                    questionnaireApplicationId: 1201
+                    year: 2026
+                    period: Eval octubre
+                    status: borrador
+                    actionCount: 0
+                    createdAt: '2026-10-02T16:00:00.000Z'
+                    updatedAt: '2026-10-02T16:00:00.000Z'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Autenticación requerida
+                message: Debes iniciar sesión para acceder a este recurso
+                detail: Token de acceso inválido o ausente
+                key: no-autenticado
+                errorCode: AUTH.UNAUTHORIZED
+                data: null
+        '400':
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Datos inválidos
+                detail: Datos inválidos
+                key: datos-invalidos
+                code: NOM035.PRG.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para crear Programa de atención
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Sin permiso para gestionar Programa de atención
+                detail: Sin permiso para gestionar Programa de atención
+                key: sin-permiso
+                code: NOM035.PRG.FORBIDDEN
+                data: null
+        '404':
+          description: Evaluación de origen no encontrada o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: La evaluación de origen no existe o está fuera del alcance del usuario
+                detail: La evaluación de origen no existe o está fuera del alcance del usuario
+                key: origen-no-encontrado
+                code: NOM035.PRG.NOT_FOUND_ORIGIN
+                data: null
+        '409':
+          description: Ya existe un Programa abierto para la empresa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Ya existe un Programa abierto para la empresa
+                detail: Ya existe un Programa abierto para la empresa
+                key: programa-abierto
+                code: NOM035.PRG.ALREADY_OPEN
+                data: null
+        '422':
+          description: Error de validación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Datos inválidos
+                detail: El campo year es requerido
+                key: datos-invalidos
+                code: NOM035.PRG.VAL_INPUT
+                data: null
+
+  /api/nom035/attention-programs/{id}:
+    get:
+      summary: Obtener detalle de Programa de atención NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Programa de atención obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionProgramSuccess'
+              example:
+                type: success
+                title: Attention Program
+                message: Programa de atención obtenido correctamente
+                data:
+                  attentionProgram:
+                    attentionProgramId: 16
+                    businessUnitId: 2
+                    regulationId: 1
+                    questionnaireApplicationId: 1201
+                    year: 2026
+                    period: Eval octubre
+                    status: borrador
+                    actionCount: 0
+                    createdAt: '2026-10-02T16:00:00.000Z'
+                    updatedAt: '2026-10-02T16:00:00.000Z'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Autenticación requerida
+                message: Debes iniciar sesión para acceder a este recurso
+                detail: Token de acceso inválido o ausente
+                key: no-autenticado
+                errorCode: AUTH.UNAUTHORIZED
+                data: null
+        '400':
+          description: Parámetro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Datos inválidos
+                detail: Parámetro id inválido
+                key: datos-invalidos
+                code: NOM035.PRG.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para consultar Programa de atención
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Sin permiso para gestionar Programa de atención
+                detail: Sin permiso para gestionar Programa de atención
+                key: sin-permiso
+                code: NOM035.PRG.FORBIDDEN
+                data: null
+        '404':
+          description: Programa no encontrado o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Programa de atención no encontrado o fuera del alcance del usuario
+                detail: Programa de atención no encontrado o fuera del alcance del usuario
+                key: programa-no-encontrado
+                code: NOM035.PRG.NOT_FOUND_PROGRAM
+                data: null
+    patch:
+      summary: Editar cabecera del Programa de atención NOM-035
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttentionProgramUpdate'
+            example:
+              period: Eval octubre
+              status: vigente
+      responses:
+        '200':
+          description: Programa de atención actualizado correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttentionProgramSuccess'
+              example:
+                type: success
+                title: Attention Program
+                message: Programa de atención actualizado correctamente
+                data:
+                  attentionProgram:
+                    attentionProgramId: 16
+                    businessUnitId: 2
+                    regulationId: 1
+                    questionnaireApplicationId: 1201
+                    year: 2026
+                    period: Eval octubre
+                    status: vigente
+                    actionCount: 0
+                    createdAt: '2026-10-02T16:00:00.000Z'
+                    updatedAt: '2026-10-05T12:00:00.000Z'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Autenticación requerida
+                message: Debes iniciar sesión para acceder a este recurso
+                detail: Token de acceso inválido o ausente
+                key: no-autenticado
+                errorCode: AUTH.UNAUTHORIZED
+                data: null
+        '400':
+          description: Datos de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Datos inválidos
+                detail: Datos inválidos
+                key: datos-invalidos
+                code: NOM035.PRG.VAL_INPUT
+                data: null
+        '403':
+          description: Sin permiso para actualizar Programa de atención
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Sin permiso para gestionar Programa de atención
+                detail: Sin permiso para gestionar Programa de atención
+                key: sin-permiso
+                code: NOM035.PRG.FORBIDDEN
+                data: null
+        '404':
+          description: Programa no encontrado o fuera de alcance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Programa de atención no encontrado o fuera del alcance del usuario
+                detail: Programa de atención no encontrado o fuera del alcance del usuario
+                key: programa-no-encontrado
+                code: NOM035.PRG.NOT_FOUND_PROGRAM
+                data: null
+        '422':
+          description: Error de validación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035PrgError'
+              example:
+                type: error
+                title: Programa de atención NOM-035
+                message: Datos inválidos
+                detail: El status no permite transición inválida
+                key: datos-invalidos
+                code: NOM035.PRG.VAL_INPUT
+                data: null

@@ -6,6 +6,81 @@ import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension from '#models/assessment_template_dimension'
 import EmployeeAssessment from '#models/employee_assessment'
 
+async function ensureTestBusinessUnitId(): Promise<number> {
+  const existing = await db
+    .from('business_units')
+    .whereNull('business_unit_deleted_at')
+    .select('business_unit_id')
+    .first()
+
+  if (existing?.business_unit_id) {
+    return Number(existing.business_unit_id)
+  }
+
+  const inserted = await db.table('business_units').insert({
+    business_unit_name: 'BU Test EmployeeAssessment',
+    business_unit_slug: `bu-test-employee-assessment-${Date.now()}`,
+    business_unit_legal_name: 'BU Test EmployeeAssessment',
+    business_unit_active: 1,
+    business_unit_created_at: new Date(),
+  })
+
+  return Number(Array.isArray(inserted) ? inserted[0] : inserted)
+}
+
+async function ensureTestEmployee(): Promise<Employee> {
+  const existing = await Employee.query().whereNull('employee_deleted_at').first()
+  if (existing) return existing
+
+  const businessUnitId = await ensureTestBusinessUnitId()
+  const syncSeed = Date.now()
+  const now = new Date()
+
+  const personInsert = await db.table('people').insert({
+    person_firstname: 'Empleado',
+    person_lastname: 'Prueba',
+    person_second_lastname: 'Assessment',
+    person_created_at: now,
+  })
+  const personId = Number(Array.isArray(personInsert) ? personInsert[0] : personInsert)
+
+  const departmentInsert = await db.table('departments').insert({
+    department_sync_id: syncSeed,
+    department_code: `DEP-${syncSeed}`,
+    department_name: 'Departamento Test Assessment',
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    department_active: 1,
+    department_created_at: now,
+  })
+  const departmentId = Number(Array.isArray(departmentInsert) ? departmentInsert[0] : departmentInsert)
+
+  const positionInsert = await db.table('positions').insert({
+    position_sync_id: syncSeed,
+    position_code: `POS-${syncSeed}`,
+    position_name: 'Puesto Test Assessment',
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    position_active: 1,
+    position_created_at: now,
+  })
+  const positionId = Number(Array.isArray(positionInsert) ? positionInsert[0] : positionInsert)
+
+  const employeeInsert = await db.table('employees').insert({
+    employee_sync_id: `EMP-${syncSeed}`,
+    employee_code: `EMP-${syncSeed}`,
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    department_id: departmentId,
+    position_id: positionId,
+    person_id: personId,
+    employee_created_at: now,
+  })
+  const employeeId = Number(Array.isArray(employeeInsert) ? employeeInsert[0] : employeeInsert)
+
+  return (await Employee.findOrFail(employeeId)) as Employee
+}
+
 /**
  * Tests funcionales — EmployeeAssessmentController
  * Rutas: /api/employee-assessments
@@ -106,7 +181,7 @@ test.group('EmployeeAssessment - index GET /', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     const created = await createTestTemplate('Index')
     testTemplate = created.template
   })
@@ -180,7 +255,7 @@ test.group('EmployeeAssessment - store POST /', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     const created = await createTestTemplate('Store')
     testTemplate = created.template
     testDimension = created.dimension
@@ -336,7 +411,7 @@ test.group('EmployeeAssessment - show GET /:id', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     const created = await createTestTemplate('Show')
     testTemplate = created.template
 
@@ -395,7 +470,7 @@ test.group('EmployeeAssessment - update PUT /:id', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     const created = await createTestTemplate('Update')
     testTemplate = created.template
     testDimension = created.dimension
@@ -485,7 +560,7 @@ test.group('EmployeeAssessment - delete DELETE /:id', (group) => {
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
     const created = await createTestTemplate('Delete')
     testTemplate = created.template
   })
@@ -542,7 +617,7 @@ test.group('EmployeeAssessment - getByEmployee GET /employee/:employeeId', (grou
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    testEmployee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    testEmployee = await ensureTestEmployee()
   })
 
   test('devuelve todas las evaluaciones de un empleado', async ({ client }) => {
@@ -580,7 +655,7 @@ test.group('EmployeeAssessment - coherencia de valores con dataType', (group) =>
 
   group.setup(async () => {
     user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    employee = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+    employee = await ensureTestEmployee()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'EA Plantilla DataType',
       assessmentTemplateDescription: null,
