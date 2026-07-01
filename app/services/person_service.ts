@@ -38,10 +38,7 @@ export default class PersonService {
           'UPPER(CONCAT(person_firstname, " ", person_lastname, " ", person_second_lastname)) LIKE ?',
           [`%${filters.search.toUpperCase()}%`]
         )
-        query.orWhereRaw('UPPER(person_phone) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_curp) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_rfc) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+        // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por phone/curp/rfc/nss cifrados
       })
       .orderBy('person_id')
       .paginate(filters.page, filters.limit)
@@ -168,75 +165,13 @@ export default class PersonService {
   }
 
   async verifyInfo(person: Person) {
-    const action = person.personId > 0 ? 'updated' : 'created'
-    const existCurp = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_curp', person.personCurp)
-      .first()
-
-    if (existCurp && person.personCurp) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person curp already exists for another person',
-        message: `The person resource cannot be ${action} because the curp is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existRfc = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_rfc', person.personRfc)
-      .first()
-
-    if (existRfc && person.personRfc) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person rfc already exists for another person',
-        message: `The person resource cannot be ${action} because the rfc is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existImssNss = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_imss_nss', person.personImssNss)
-      .first()
-
-    if (existImssNss && person.personImssNss) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person imss nss already exists for another person',
-        message: `The person resource cannot be ${action} because the imss nss is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existEmail = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_email', person.personEmail)
-      .first()
-
-    if (existEmail && person.personEmail) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person email already exists for another person',
-        message: `The person resource cannot be ${action} because the email is already assigned to another person`,
-        data: { ...person },
-      }
-    }
+    // PUNTO DE REINTRODUCCIÓN 08-10-04-01:
+    // Las validaciones de unicidad de CURP, RFC, NSS y correo se retiran aquí porque
+    // las columnas person_curp, person_rfc, person_imss_nss y person_email están cifradas
+    // en reposo (USRH1782854997782). Una comparación .where('person_curp', value) contra
+    // ciphertext nunca matchea, lo que equivale a una validación ciega peor que ninguna.
+    // 08-10-04-01 restaura las 4 validaciones comparando por huella (blind-index).
+    // CO-LIBERACIÓN OBLIGATORIA: esta HU no va a producción sin 08-10-04-01.
     return {
       status: 200,
       type: 'success',

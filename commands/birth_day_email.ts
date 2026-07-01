@@ -136,12 +136,14 @@ export default class BirthDayEmail extends BaseCommand {
       systemSetting!.systemSettingLogo!
         )
 
-    await mail.send((message) => {
-      message
-        .to(person.personEmail)
-        .subject(`¡Feliz Cumpleaños! - ${systemSetting!.systemSettingTradeName!}`)
-        .html(emailHtml)
-    })
+    if (person.personEmail) {
+      await mail.send((message) => {
+        message
+          .to(person.personEmail!)
+          .subject(`¡Feliz Cumpleaños! - ${systemSetting!.systemSettingTradeName!}`)
+          .html(emailHtml)
+      })
+    }
   }
 
   private generateBirthdayEmailHtml(

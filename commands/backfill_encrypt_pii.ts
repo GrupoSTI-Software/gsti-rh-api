@@ -143,6 +143,21 @@ const TABLES: TableConfig[] = [
       },
     ],
   },
+  {
+    table: 'people',
+    pk: 'person_id',
+    columns: [
+      'person_curp',
+      'person_rfc',
+      'person_imss_nss',
+      'person_email',
+      'person_phone',
+      'person_phone_secondary',
+    ],
+    tenantJoins: [
+      { toTable: 'employees', on: ['people.person_id', 'employees.person_id'] },
+    ],
+  },
 ]
 
 /**

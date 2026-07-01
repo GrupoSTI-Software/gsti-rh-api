@@ -506,10 +506,9 @@ export default class DemoFactoryService {
     for (const assignment of employeeAssignments) {
       const personData = await PersonFactory.create()
 
+      // Dedup por person_id — person_email está cifrado y no se puede comparar por igualdad
       const existingEmp = await Employee.query()
-        .whereHas('person', (pq) => {
-          pq.where('person_email', personData.personEmail)
-        })
+        .where('person_id', personData.personId)
         .whereNull('employee_deleted_at')
         .first()
 
