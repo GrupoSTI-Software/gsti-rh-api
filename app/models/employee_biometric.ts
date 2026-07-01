@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 
@@ -35,7 +36,23 @@ export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeId: number
 
-  @column()
+  /**
+   * String de estado de enrolamiento biométrico (p.ej. "Finger:1, Face").
+   * Cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI, dato biométrico sensible reforzado).
+   * El template crudo vive en API_BIOMETRICS_HOST; este campo no se usa en WHERE de SQL.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeBiometricData: string
 
   @column()

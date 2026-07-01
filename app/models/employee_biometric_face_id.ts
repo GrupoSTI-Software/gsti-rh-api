@@ -3,6 +3,7 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 
 /**
@@ -42,7 +43,24 @@ export default class EmployeeBiometricFaceId extends compose(BaseModel, SoftDele
   @column()
   declare employeeId: number
 
-  @column()
+  /**
+   * Key S3 de la foto facial de reconocimiento — cifrada AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato biométrico sensible reforzado).
+   * El archivo en S3 ya es `private`; cifrar la key en BD protege también el puntero.
+   * Columna ampliada a TEXT para alojar el ciphertext sin restricción de tamaño.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeBiometricFaceIdPhotoUrl: string
 
   @column()

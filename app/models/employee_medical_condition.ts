@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import encryption from '@adonisjs/core/services/encryption'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
 import MedicalConditionType from './medical_condition_type.js'
@@ -53,10 +54,40 @@ export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDel
   @column()
   declare medicalConditionTypeId: number
 
-  @column()
+  /**
+   * Diagnóstico médico — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de salud sensible reforzado). No se usa en cláusulas WHERE de SQL.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeMedicalConditionDiagnosis: string
 
-  @column()
+  /**
+   * Notas del padecimiento — cifradas AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de salud sensible reforzado). No se usa en cláusulas WHERE de SQL.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeMedicalConditionNotes: string
 
   @column()
