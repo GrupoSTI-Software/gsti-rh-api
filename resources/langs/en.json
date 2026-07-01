@@ -664,6 +664,19 @@
       "delete_blocked": "This record cannot be deleted yet. It is protected by the company's retention policy until the date indicated in the detail field.",
       "bulk_delete_blocked_title": "Bulk deletion blocked by NOM-035 retention policy",
       "bulk_delete_blocked": "One or more records in the batch are protected by the retention policy and cannot be deleted. The blocked identifiers are indicated in the detail field."
+    },
+    "attention_program": {
+      "title": "NOM-035 Attention Program",
+      "catalog_message": "Attention Program catalog fetched successfully",
+      "index_message": "Attention Programs fetched successfully",
+      "show_message": "Attention Program fetched successfully",
+      "store_message": "Attention Program created successfully",
+      "update_message": "Attention Program updated successfully",
+      "val_input": "Invalid data",
+      "already_open": "An open Program already exists for the company",
+      "not_found_origin": "The origin assessment does not exist or is outside user scope",
+      "not_found_program": "Attention Program not found or outside user scope",
+      "forbidden": "You do not have permission to manage Attention Program"
     }
   },
   "employee_lactation_period": "Lactation period",
@@ -1009,6 +1022,24 @@
           "casi_nunca": "Almost never",
           "nunca": "Never"
         }
+      }
+    },
+    "nom035": {
+      "dimension": {
+        "liderazgo_relaciones": "Leadership and workplace relationships",
+        "cargas_trabajo": "Workloads",
+        "control_trabajo": "Control over work",
+        "apoyo_social": "Social support",
+        "trabajo_familia": "Work-family balance",
+        "reconocimiento": "Performance recognition",
+        "prevencion_violencia": "Workplace violence prevention",
+        "comunicacion": "Communication and information dissemination",
+        "capacitacion": "Training"
+      },
+      "action_level": {
+        "organizacional": "Organizational (first level)",
+        "grupal": "Group (second level)",
+        "individual": "Individual (third level)"
       }
     },
     "questionnaires": {

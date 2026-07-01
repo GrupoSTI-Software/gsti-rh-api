@@ -128,7 +128,7 @@ test.group('Cuestionarios regulatorios — migración regulation_questionnaire_q
     assert.include(sql, "decimal('regulation_questionnaire_question_weight', 4, 2)")
     assert.include(sql, '.defaultTo(1.0)')
     assert.include(sql, "'regulation_questionnaire_section_id', 'regulation_questionnaire_question_code'")
-    assert.include(sql, 'indexName: "uq_regulation_questionnaire_questions_section_code"')
+    assert.include(sql, "indexName: 'uq_regulation_questionnaire_questions_section_code'")
 
     assertIdentifierWithinLimit(assert, 'fk_rqq_section_id', 'FK questions → sections')
     assertIdentifierWithinLimit(assert, 'fk_rqq_answer_scale_id', 'FK questions → answer_scales')
@@ -147,7 +147,7 @@ test.group('Cuestionarios regulatorios — migración regulation_clause_question
     assert.include(sql, "onDelete('RESTRICT')")
     assert.include(sql, 'regulation_clause_questionnaire_notes')
     assert.include(sql, "'regulation_clause_id', 'regulation_questionnaire_id'")
-    assert.include(sql, 'indexName: "uq_regulation_clause_questionnaires_clause_questionnaire"')
+    assert.include(sql, "indexName: 'uq_regulation_clause_questionnaires_clause_questionnaire'")
 
     assertIdentifierWithinLimit(assert, 'fk_rcq_questionnaire_id', 'FK pivote → questionnaires')
   })

@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import User from '#models/user'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 
 /**
  * Tests funcionales — AttendanceStatsController
@@ -11,24 +12,42 @@ import User from '#models/user'
  */
 
 test.group('AttendanceStats - validation & auth', () => {
+  async function getScopedUser() {
+    const user = await User.query()
+      .whereNull('user_deleted_at')
+      .whereHas('role', (roleQuery) => {
+        roleQuery.where('role_slug', 'root')
+      })
+      .preload('role')
+      .firstOrFail()
+
+    const scopeIds = await new BusinessAccessScopeService().getAccessibleIds(user)
+    if (scopeIds.length === 0) {
+      throw new Error('Se requiere al menos una business unit accesible para ejecutar attendance_stats.spec')
+    }
+
+    return { user, businessUnitId: scopeIds[0] }
+  }
 
   test('400 cuando falta startDay o endDay', async ({ client }) => {
-    const user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    const ctx = await getScopedUser()
     const response = await client
       .get('/api/v1/attendance-stats/overview')
       .qs({ endDay: '2026-05-17' })
-      .loginAs(user)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(400)
-    response.assertBodyContains({ type: 'error' })
+    response.assertBodyContains({ key: 'entrada-invalida' })
   })
 
   test('400 cuando startDay > endDay', async ({ client }) => {
-    const user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    const ctx = await getScopedUser()
     const response = await client
       .get('/api/v1/attendance-stats/by-department')
       .qs({ startDay: '2026-05-17', endDay: '2026-05-11' })
-      .loginAs(user)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(400)
     response.assertBodyContains({ key: 'rango-invalido' })
@@ -43,16 +62,15 @@ test.group('AttendanceStats - validation & auth', () => {
   })
 
   test('200 overview devuelve la forma esperada', async ({ client, assert }) => {
-    const user = await User.query()
-      .whereNull('user_deleted_at')
-      .firstOrFail()
+    const ctx = await getScopedUser()
     // Limitamos a 1 empleado: la nueva arquitectura llama syncAssistsService.index
     // per-empleado y para todo el scope tomaría >2 min. Para validar la forma del
     // response basta con un empleado.
     const response = await client
       .get('/api/v1/attendance-stats/overview')
       .qs({ startDay: '2026-05-11', endDay: '2026-05-17', employeeIds: '1' })
-      .loginAs(user)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(200)
     const body = response.body()
@@ -82,26 +100,24 @@ test.group('AttendanceStats - validation & auth', () => {
   })
 
   test('200 by-department devuelve array', async ({ client, assert }) => {
-    const user = await User.query()
-      .whereNull('user_deleted_at')
-      .firstOrFail()
+    const ctx = await getScopedUser()
     const response = await client
       .get('/api/v1/attendance-stats/by-department')
       .qs({ startDay: '2026-05-11', endDay: '2026-05-17', employeeIds: '1' })
-      .loginAs(user)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(200)
     assert.isArray(response.body().data)
   })
 
   test('200 by-employee devuelve array y respeta employeeIds', async ({ client, assert }) => {
-    const user = await User.query()
-      .whereNull('user_deleted_at')
-      .firstOrFail()
+    const ctx = await getScopedUser()
     const response = await client
       .get('/api/v1/attendance-stats/by-employee')
       .qs({ startDay: '2026-05-11', endDay: '2026-05-17', employeeIds: '1' })
-      .loginAs(user)
+      .loginAs(ctx.user)
+      .header('X-Business-Unit-Id', String(ctx.businessUnitId))
 
     response.assertStatus(200)
     assert.isArray(response.body().data)

@@ -667,6 +667,19 @@
       "delete_blocked": "Este registro no puede eliminarse aún. Está protegido por la política de retención de la empresa hasta la fecha indicada en el campo detail.",
       "bulk_delete_blocked_title": "Eliminación en lote bloqueada por política de retención NOM-035",
       "bulk_delete_blocked": "Uno o más registros del lote están protegidos por la política de retención y no pueden eliminarse. Los identificadores bloqueados se indican en el campo detail."
+    },
+    "attention_program": {
+      "title": "Programa de atención NOM-035",
+      "catalog_message": "Catálogo del Programa de atención obtenido correctamente",
+      "index_message": "Programas de atención obtenidos correctamente",
+      "show_message": "Programa de atención obtenido correctamente",
+      "store_message": "Programa de atención creado correctamente",
+      "update_message": "Programa de atención actualizado correctamente",
+      "val_input": "Datos inválidos",
+      "already_open": "Ya existe un Programa abierto para la empresa",
+      "not_found_origin": "La evaluación de origen no existe o está fuera del alcance del usuario",
+      "not_found_program": "Programa de atención no encontrado o fuera del alcance del usuario",
+      "forbidden": "Sin permiso para gestionar Programa de atención"
     }
   },
   "employee_lactation_period": "Periodo de lactancia",
@@ -1012,6 +1025,24 @@
           "casi_nunca": "Casi nunca",
           "nunca": "Nunca"
         }
+      }
+    },
+    "nom035": {
+      "dimension": {
+        "liderazgo_relaciones": "Liderazgo y relaciones en el trabajo",
+        "cargas_trabajo": "Cargas de trabajo",
+        "control_trabajo": "Control sobre el trabajo",
+        "apoyo_social": "Apoyo social",
+        "trabajo_familia": "Equilibrio trabajo-familia",
+        "reconocimiento": "Reconocimiento del desempeño",
+        "prevencion_violencia": "Prevención de la violencia laboral",
+        "comunicacion": "Comunicación y difusión de información",
+        "capacitacion": "Capacitación"
+      },
+      "action_level": {
+        "organizacional": "Organizacional (primer nivel)",
+        "grupal": "Grupal (segundo nivel)",
+        "individual": "Individual (tercer nivel)"
       }
     },
     "questionnaires": {

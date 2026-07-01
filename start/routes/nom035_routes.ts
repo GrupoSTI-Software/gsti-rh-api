@@ -11,6 +11,10 @@ router
       '/nom035/questionnaire-applicability/:branchOfficeId',
       '#controllers/questionnaire_applicability_controller.show'
     )
+    router.get(
+      '/nom035/attention-program-catalog',
+      '#controllers/attention_program_controller.catalog'
+    )
 
     router
       .group(() => {
@@ -39,6 +43,16 @@ router
         )
       })
       .prefix('/nom035/questionnaire-applications')
+      .use(middleware.businessScopeOptional())
+
+    router
+      .group(() => {
+        router.get('/', '#controllers/attention_program_controller.index')
+        router.post('/', '#controllers/attention_program_controller.store')
+        router.get('/:id', '#controllers/attention_program_controller.show')
+        router.patch('/:id', '#controllers/attention_program_controller.update')
+      })
+      .prefix('/nom035/attention-programs')
       .use(middleware.businessScopeOptional())
 
     router
