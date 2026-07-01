@@ -680,6 +680,18 @@
       "not_found_origin": "La evaluación de origen no existe o está fuera del alcance del usuario",
       "not_found_program": "Programa de atención no encontrado o fuera del alcance del usuario",
       "forbidden": "Sin permiso para gestionar Programa de atención"
+    },
+    "attention_program_action": {
+      "title": "Acciones del Programa de atención NOM-035",
+      "index_message": "Acciones del Programa de atención obtenidas correctamente",
+      "store_message": "Acción del Programa de atención creada correctamente",
+      "update_message": "Acción del Programa de atención actualizada correctamente",
+      "delete_message": "Acción del Programa de atención eliminada correctamente",
+      "action_incomplete": "Acción de programa incompleta",
+      "invalid_dimension": "La dimensión seleccionada no pertenece al catálogo oficial",
+      "invalid_level": "El nivel seleccionado no pertenece al catálogo oficial",
+      "action_not_found": "Acción de programa no encontrada o fuera del alcance del usuario",
+      "program_closed": "El Programa está cerrado y solo permite lectura"
     }
   },
   "employee_lactation_period": "Periodo de lactancia",
