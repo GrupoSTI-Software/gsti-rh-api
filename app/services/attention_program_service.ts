@@ -22,7 +22,7 @@ import type {
 
 type AttentionProgramRow = {
   attentionProgramId: number | string
-  businessUnitId: number | string
+  businessUnitPublicId: string
   regulationId: number | string
   questionnaireApplicationId: number | string | null
   originFolio: string | null
@@ -236,6 +236,7 @@ export default class AttentionProgramService {
         'ap.questionnaire_application_id'
       )
       .leftJoin('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
+      .leftJoin('business_units as bu', 'bu.business_unit_id', 'ap.business_unit_id')
       .whereNull('ap.attention_program_deleted_at')
       .if(allowedBusinessUnitIds.length > 0, (query) => {
         query.whereIn('ap.business_unit_id', allowedBusinessUnitIds)
@@ -248,7 +249,7 @@ export default class AttentionProgramService {
       })
       .select(
         'ap.attention_program_id as attentionProgramId',
-        'ap.business_unit_id as businessUnitId',
+        'bu.business_unit_public_id as businessUnitPublicId',
         'ap.regulation_id as regulationId',
         'ap.questionnaire_application_id as questionnaireApplicationId',
         'qa.questionnaire_application_folio as originFolio',
@@ -267,7 +268,7 @@ export default class AttentionProgramService {
   private serializeRow(row: AttentionProgramRow): AttentionProgramListItem {
     return {
       attentionProgramId: Number(row.attentionProgramId),
-      businessUnitId: Number(row.businessUnitId),
+      businessUnitPublicId: String(row.businessUnitPublicId),
       regulationId: Number(row.regulationId),
       questionnaireApplicationId: row.questionnaireApplicationId
         ? Number(row.questionnaireApplicationId)

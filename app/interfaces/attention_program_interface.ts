@@ -40,7 +40,8 @@ export interface AttentionProgramCatalogResult {
 
 export interface AttentionProgramListItem {
   attentionProgramId: number
-  businessUnitId: number
+  /** Código público UUID v4 de la unidad de negocio. */
+  businessUnitPublicId: string
   regulationId: number
   questionnaireApplicationId: number | null
   originApplication: AttentionProgramOriginApplicationItem | null

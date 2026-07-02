@@ -1,8 +1,9 @@
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, hasMany, manyToMany } from '@adonisjs/lucid/orm'
 import type { HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
+import { randomUUID } from 'node:crypto'
 import User from './user.js'
 import RepseRegistration from './repse_registration.js'
 
@@ -37,8 +38,20 @@ import RepseRegistration from './repse_registration.js'
  *
  */
 export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
-  @column({ isPrimary: true })
+  /**
+   * Identificador interno secuencial. Solo para FK en tablas internas;
+   * nunca se expone en respuestas de la API (serializeAs: null).
+   */
+  @column({ isPrimary: true, serializeAs: null })
   declare businessUnitId: number
+
+  /**
+   * Código público no adivinable (UUID v4). Es el identificador externo
+   * de la unidad de negocio en toda comunicación con clientes.
+   * Se genera automáticamente al crear el registro (hook beforeCreate).
+   */
+  @column()
+  declare businessUnitPublicId: string
 
   @column()
   declare businessUnitName: string
@@ -60,6 +73,14 @@ export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
 
   @column.dateTime({ columnName: 'business_unit_deleted_at' })
   declare deletedAt: DateTime | null
+
+  /** Genera el código público (UUID v4) automáticamente al crear la unidad. */
+  @beforeCreate()
+  static assignPublicId(businessUnit: BusinessUnit) {
+    if (!businessUnit.businessUnitPublicId) {
+      businessUnit.businessUnitPublicId = randomUUID()
+    }
+  }
 
   /**
    * Usuarios con acceso a esta unidad de negocio (relación inversa de User.businessUnits).
