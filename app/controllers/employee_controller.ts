@@ -3354,13 +3354,7 @@ export default class EmployeeController {
                 `%${search.toUpperCase()}%`,
               ])
               .orWhereRaw('UPPER(employee_code) = ?', [`${search.toUpperCase()}`])
-              .orWhereHas('person', (personQuery) => {
-                personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [`%${search.toUpperCase()}%`])
-                personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [`%${search.toUpperCase()}%`])
-                personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                  `%${search.toUpperCase()}%`,
-                ])
-              })
+              // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss cifrados
           })
         })
         .if(workSchedule, (query) => {

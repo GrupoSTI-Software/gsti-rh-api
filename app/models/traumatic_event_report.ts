@@ -2,6 +2,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from '#models/employee'
 import TraumaticEventType from '#models/traumatic_event_type'
@@ -76,10 +77,40 @@ export default class TraumaticEventReport extends compose(BaseModel, SoftDeletes
   @column.dateTime()
   declare traumaticEventReportElaboratedAt: DateTime
 
-  @column()
+  /**
+   * Personas involucradas en el ATS — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de salud sensible reforzado). No se usa en cláusulas WHERE de SQL.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare traumaticEventReportInvolvedPeople: string
 
-  @column()
+  /**
+   * Descripción del acontecimiento traumático severo — cifrada AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato de salud sensible reforzado). No se usa en WHERE de SQL.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare traumaticEventReportDescription: string
 
   @column()

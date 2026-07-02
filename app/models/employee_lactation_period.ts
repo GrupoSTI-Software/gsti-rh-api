@@ -2,6 +2,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from '#models/employee'
 import EmployeeChildren from '#models/employee_children'
@@ -112,7 +113,22 @@ export default class EmployeeLactationPeriod extends compose(BaseModel, SoftDele
   @column()
   declare employeeLactationPeriodReductionApplication: EmployeeLactationPeriodReductionApplication
 
-  @column()
+  /**
+   * Observaciones del período de lactancia — cifradas AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato de salud sensible reforzado). Nullable; no se usa en WHERE.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeLactationPeriodNotes: string | null
 
   /**
