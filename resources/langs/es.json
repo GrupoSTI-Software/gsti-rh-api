@@ -652,6 +652,17 @@
       "invalid_answer_option": "Se detectó una opción de respuesta inválida para la escala de una pregunta",
       "sys_unhandled": "Ocurrió un error inesperado al tabular la ronda"
     },
+    "disclosure": {
+      "title": "Resultados de evaluación NOM-035",
+      "show_message": "Resultados obtenidos correctamente",
+      "not_available_message": "Aún no hay resultados disponibles para este centro de trabajo",
+      "val_input": "Datos inválidos",
+      "forbidden": "Sin permiso para consultar los resultados anonimizados del centro de trabajo",
+      "no_employee": "El usuario autenticado no tiene un empleado asociado",
+      "no_branch": "El empleado no tiene centro de trabajo activo",
+      "not_found": "Centro de trabajo no encontrado o fuera del alcance del usuario",
+      "sys_unhandled": "Ocurrió un error inesperado al consultar los resultados anonimizados"
+    },
     "retention_policy": {
       "title": "Política de retención NOM-035",
       "error_title": "Error en política de retención NOM-035",
