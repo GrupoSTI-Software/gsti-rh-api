@@ -2,6 +2,7 @@ import { BaseCommand, flags } from '@adonisjs/core/ace'
 import type { CommandOptions } from '@adonisjs/core/types/ace'
 import db from '@adonisjs/lucid/services/db'
 import encryption from '@adonisjs/core/services/encryption'
+import { blindIndex } from '#utils/blind_index'
 
 const PAGE_SIZE = 100
 
@@ -17,6 +18,13 @@ interface JoinConfig {
   on: [string, string]
 }
 
+interface HashPair {
+  /** Columna cifrada de la que se extrae el valor en claro para hashear. */
+  source: string
+  /** Columna donde se guarda la huella HMAC-SHA256 (blind-index). */
+  hashCol: string
+}
+
 interface TableConfig {
   /** Nombre de la tabla en BD (snake_case). */
   table: string
@@ -24,8 +32,20 @@ interface TableConfig {
   pk: string
   /** Columnas PII a cifrar (snake_case). */
   columns: string[]
+  /**
+   * Pares fuente→huella para poblar columnas `*_hash` (blind-index).
+   * El source debe estar en `columns`. La huella se calcula a partir del
+   * valor descifrado; si el hash ya está presente se omite (idempotente).
+   */
+  hashPairs?: HashPair[]
   /** JOINs para filtrar por tenant. Última tabla unida: `employees`. */
   tenantJoins: JoinConfig[]
+  /**
+   * Columna de filtro de tenant cuando la tabla tiene `business_unit_id`
+   * directamente (p. ej. `empresas_contratantes.business_unit_id`).
+   * Por defecto se usa `employees.business_unit_id`.
+   */
+  tenantColumn?: string
 }
 
 /**
@@ -154,9 +174,23 @@ const TABLES: TableConfig[] = [
       'person_phone',
       'person_phone_secondary',
     ],
+    hashPairs: [
+      { source: 'person_curp', hashCol: 'person_curp_hash' },
+      { source: 'person_rfc', hashCol: 'person_rfc_hash' },
+      { source: 'person_imss_nss', hashCol: 'person_imss_nss_hash' },
+      { source: 'person_email', hashCol: 'person_email_hash' },
+    ],
     tenantJoins: [
       { toTable: 'employees', on: ['people.person_id', 'employees.person_id'] },
     ],
+  },
+  {
+    table: 'empresas_contratantes',
+    pk: 'empresa_contratante_id',
+    columns: ['empresa_contratante_rfc'],
+    hashPairs: [{ source: 'empresa_contratante_rfc', hashCol: 'empresa_contratante_rfc_hash' }],
+    tenantJoins: [],
+    tenantColumn: 'empresas_contratantes.business_unit_id',
   },
 ]
 
@@ -249,9 +283,12 @@ export default class BackfillEncryptPii extends BaseCommand {
 
   private async processTable(config: TableConfig) {
     const counters = { processed: 0, changed: 0, skipped: 0, errors: 0 }
+    const hashPairs = config.hashPairs ?? []
+
     const selectCols = [
       `${config.table}.${config.pk}`,
       ...config.columns.map((c) => `${config.table}.${c}`),
+      ...hashPairs.map((h) => `${config.table}.${h.hashCol}`),
     ]
 
     let page = 1
@@ -270,11 +307,14 @@ export default class BackfillEncryptPii extends BaseCommand {
         const pkValue = row[config.pk] as number
 
         const updates: Record<string, string | null> = {}
+        // Caché de valores descifrados para reutilizarlos al computar hashes.
+        const decryptedCache: Record<string, string | null> = {}
 
         for (const col of config.columns) {
           const raw = row[col] as string | null
 
           if (raw === null || raw === undefined) {
+            decryptedCache[col] = null
             continue
           }
 
@@ -282,26 +322,49 @@ export default class BackfillEncryptPii extends BaseCommand {
             if (this.decrypt) {
               const plain = this.tryDecrypt(raw)
               if (plain === null) {
-                // Ya está en claro o no se puede descifrar → omitir
                 counters.skipped++
                 continue
               }
               updates[col] = plain
+              decryptedCache[col] = plain
             } else {
               const alreadyDecrypted = this.tryDecrypt(raw)
               if (alreadyDecrypted !== null) {
-                // El decrypt tuvo éxito → ya estaba cifrado → omitir (idempotencia)
+                // Ya cifrado → cachear el valor en claro para el cálculo de hash
+                decryptedCache[col] = alreadyDecrypted
                 counters.skipped++
                 continue
               }
               updates[col] = encryption.encrypt(raw)
+              decryptedCache[col] = raw
             }
           } catch {
             counters.errors++
             this.logger.error(
               `[${config.table}] [ID ${pkValue}] [col ${col}] Error inesperado — omitido`
             )
+            decryptedCache[col] = null
             continue
+          }
+        }
+
+        // Calcular huellas blind-index (solo en modo cifrar, no en --decrypt)
+        if (!this.decrypt && hashPairs.length > 0) {
+          for (const { source, hashCol } of hashPairs) {
+            const currentHash = row[hashCol] as string | null
+            if (currentHash) continue // ya computado → idempotente
+            const plainValue = decryptedCache[source]
+            if (plainValue) {
+              updates[hashCol] = blindIndex(plainValue)
+            }
+          }
+        }
+
+        // En modo --decrypt, borrar también las huellas
+        if (this.decrypt && hashPairs.length > 0) {
+          for (const { hashCol } of hashPairs) {
+            const currentHash = row[hashCol] as string | null
+            if (currentHash) updates[hashCol] = null
           }
         }
 
@@ -310,14 +373,14 @@ export default class BackfillEncryptPii extends BaseCommand {
         }
 
         if (this.dryRun) {
-          const action = this.decrypt ? 'descifraría' : 'cifraría'
+          const action = this.decrypt ? 'descifraría/limpiaría-hash' : 'cifraría/hashearía'
           this.logger.info(
             `[DRY-RUN] [${config.table}] [ID ${pkValue}] Se ${action}: ${Object.keys(updates).join(', ')}`
           )
           counters.changed++
         } else {
           await db.from(config.table).where(config.pk, pkValue).update(updates)
-          const action = this.decrypt ? 'descifrado' : 'cifrado'
+          const action = this.decrypt ? 'descifrado/hash-limpiado' : 'cifrado/hasheado'
           this.logger.info(
             `[${config.table}] [ID ${pkValue}] ${action}: ${Object.keys(updates).join(', ')}`
           )
@@ -350,7 +413,8 @@ export default class BackfillEncryptPii extends BaseCommand {
       for (const join of config.tenantJoins) {
         query = query.join(join.toTable, join.on[0], join.on[1])
       }
-      query = query.where('employees.business_unit_id', this.tenant)
+      const tenantCol = config.tenantColumn ?? 'employees.business_unit_id'
+      query = query.where(tenantCol, this.tenant)
     }
 
     query = query

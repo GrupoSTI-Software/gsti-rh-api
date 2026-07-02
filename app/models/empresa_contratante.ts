@@ -2,6 +2,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import BusinessUnit from '#models/business_unit'
@@ -52,8 +53,30 @@ export default class EmpresaContratante extends compose(BaseModel, SoftDeletes) 
   @column({ columnName: 'empresa_contratante_razon_social' })
   declare razonSocial: string
 
-  @column({ columnName: 'empresa_contratante_rfc' })
-  declare rfc: string
+  /**
+   * RFC de la empresa contratante — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de identificación fiscal). Columna ampliada a VARCHAR(191).
+   * La unicidad fiscal se impone sobre `empresa_contratante_rfc_hash`
+   * (UNIQUE: business_unit_id + rfc_hash + is_active) desde USRH1782854998788.
+   */
+  @column({
+    columnName: 'empresa_contratante_rfc',
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
+  declare rfc: string | null
+
+  /** Huella HMAC-SHA256 del RFC normalizado. Uso interno; no se serializa en respuestas. */
+  @column({ columnName: 'empresa_contratante_rfc_hash', serializeAs: null })
+  declare rfcHash: string | null
 
   @column({ columnName: 'empresa_contratante_domicilio_fiscal' })
   declare domicilioFiscal: string

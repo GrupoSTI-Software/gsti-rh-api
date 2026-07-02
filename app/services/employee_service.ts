@@ -17,6 +17,7 @@ import VacationSetting from '#models/vacation_setting'
 import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
+import { blindIndex } from '#utils/blind_index'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
 import axios from 'axios'
@@ -2825,13 +2826,15 @@ export default class EmployeeService {
 
   /**
    * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
+   * Compara por huella HMAC-SHA256 (blind-index) porque person_curp está cifrado en reposo.
    */
-  private async personWithCurpExists(_curp: string): Promise<boolean> {
-    // STUB: PUNTO DE REINTRODUCCIÓN 08-10-04-01 — person_curp está cifrado en reposo.
-    // La comparación exacta por CURP se restaurará por huella (blind-index) en 08-10-04-01.
-    // Mientras esta historia no esté desplegada, devuelve false: no detecta duplicados de CURP.
-    // CO-LIBERACIÓN OBLIGATORIA con 08-10-04-01 para cerrar la ventana de duplicados.
-    return false
+  private async personWithCurpExists(curp: string): Promise<boolean> {
+    if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
+    const found = await Person.query()
+      .whereNull('person_deleted_at')
+      .where('person_curp_hash', blindIndex(curp))
+      .first()
+    return !!found
   }
 
   /**

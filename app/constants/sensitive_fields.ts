@@ -147,7 +147,7 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // RFC de persona moral con restricción UNIQUE en BD → se busca por igualdad.
   // Cifrar requiere blind-index; es el caso de mayor complejidad de migración.
   // Ancla: app/models/empresa_contratante.ts (columna `rfc`)
-  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: false },
+  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
 
   // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
   // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.

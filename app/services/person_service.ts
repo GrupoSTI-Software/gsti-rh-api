@@ -1,5 +1,6 @@
 import Employee from '#models/employee'
 import Person from '#models/person'
+import { blindIndex } from '#utils/blind_index'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
@@ -165,13 +166,54 @@ export default class PersonService {
   }
 
   async verifyInfo(person: Person) {
-    // PUNTO DE REINTRODUCCIÓN 08-10-04-01:
-    // Las validaciones de unicidad de CURP, RFC, NSS y correo se retiran aquí porque
-    // las columnas person_curp, person_rfc, person_imss_nss y person_email están cifradas
-    // en reposo (USRH1782854997782). Una comparación .where('person_curp', value) contra
-    // ciphertext nunca matchea, lo que equivale a una validación ciega peor que ninguna.
-    // 08-10-04-01 restaura las 4 validaciones comparando por huella (blind-index).
-    // CO-LIBERACIÓN OBLIGATORIA: esta HU no va a producción sin 08-10-04-01.
+    const duplicates: string[] = []
+
+    if (person.personCurp) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_curp_hash', blindIndex(person.personCurp))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('CURP')
+    }
+
+    if (person.personRfc) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_rfc_hash', blindIndex(person.personRfc))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('RFC')
+    }
+
+    if (person.personImssNss) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_imss_nss_hash', blindIndex(person.personImssNss))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('NSS')
+    }
+
+    if (person.personEmail) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_email_hash', blindIndex(person.personEmail))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('correo electrónico')
+    }
+
+    if (duplicates.length > 0) {
+      return {
+        status: 422,
+        type: 'warning',
+        title: 'Dato duplicado',
+        message: `Ya existe un trabajador con el mismo valor en: ${duplicates.join(', ')}`,
+        data: { ...person },
+      }
+    }
+
     return {
       status: 200,
       type: 'success',
