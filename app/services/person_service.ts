@@ -1,5 +1,6 @@
 import Employee from '#models/employee'
 import Person from '#models/person'
+import { blindIndex } from '#utils/blind_index'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
@@ -38,10 +39,7 @@ export default class PersonService {
           'UPPER(CONCAT(person_firstname, " ", person_lastname, " ", person_second_lastname)) LIKE ?',
           [`%${filters.search.toUpperCase()}%`]
         )
-        query.orWhereRaw('UPPER(person_phone) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_curp) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_rfc) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+        // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por phone/curp/rfc/nss cifrados
       })
       .orderBy('person_id')
       .paginate(filters.page, filters.limit)
@@ -168,75 +166,54 @@ export default class PersonService {
   }
 
   async verifyInfo(person: Person) {
-    const action = person.personId > 0 ? 'updated' : 'created'
-    const existCurp = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_curp', person.personCurp)
-      .first()
+    const duplicates: string[] = []
 
-    if (existCurp && person.personCurp) {
+    if (person.personCurp) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_curp_hash', blindIndex(person.personCurp))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('CURP')
+    }
+
+    if (person.personRfc) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_rfc_hash', blindIndex(person.personRfc))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('RFC')
+    }
+
+    if (person.personImssNss) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_imss_nss_hash', blindIndex(person.personImssNss))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('NSS')
+    }
+
+    if (person.personEmail) {
+      const existing = await Person.query()
+        .whereNull('person_deleted_at')
+        .where('person_email_hash', blindIndex(person.personEmail))
+        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
+        .first()
+      if (existing) duplicates.push('correo electrónico')
+    }
+
+    if (duplicates.length > 0) {
       return {
-        status: 400,
+        status: 422,
         type: 'warning',
-        title: 'The person curp already exists for another person',
-        message: `The person resource cannot be ${action} because the curp is already assigned to another person`,
+        title: 'Dato duplicado',
+        message: `Ya existe un trabajador con el mismo valor en: ${duplicates.join(', ')}`,
         data: { ...person },
       }
     }
-    const existRfc = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_rfc', person.personRfc)
-      .first()
 
-    if (existRfc && person.personRfc) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person rfc already exists for another person',
-        message: `The person resource cannot be ${action} because the rfc is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existImssNss = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_imss_nss', person.personImssNss)
-      .first()
-
-    if (existImssNss && person.personImssNss) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person imss nss already exists for another person',
-        message: `The person resource cannot be ${action} because the imss nss is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existEmail = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_email', person.personEmail)
-      .first()
-
-    if (existEmail && person.personEmail) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person email already exists for another person',
-        message: `The person resource cannot be ${action} because the email is already assigned to another person`,
-        data: { ...person },
-      }
-    }
     return {
       status: 200,
       type: 'success',

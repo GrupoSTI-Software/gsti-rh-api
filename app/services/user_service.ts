@@ -471,20 +471,7 @@ export default class UserService {
                 `%${filters.search.toUpperCase()}%`,
               ])
               .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-              .orWhereHas('person', (personQuery) => {
-                personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-                personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-                personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-                personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-              })
+              // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
           })
         })
         employeeQuery.if(filters.departmentId, (query) => {

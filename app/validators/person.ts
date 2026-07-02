@@ -1,5 +1,6 @@
-import Person from '#models/person'
 import vine from '@vinejs/vine'
+import Person from '#models/person'
+import { blindIndex } from '#utils/blind_index'
 
 export const createPersonValidator = vine.compile(
   vine.object({
@@ -13,11 +14,12 @@ export const createPersonValidator = vine.compile(
       .minLength(0)
       .maxLength(200)
       .unique(async (_db, value) => {
-        const existingEmail = await Person.query()
+        if (!value || value.trim() === '') return true
+        const existing = await Person.query()
           .whereNull('person_deleted_at')
-          .where('person_email', value)
+          .where('person_email_hash', blindIndex(value))
           .first()
-        return !existingEmail
+        return !existing
       })
       .optional(),
     personGender: vine.string().trim().minLength(0).maxLength(10).optional(),
@@ -27,13 +29,12 @@ export const createPersonValidator = vine.compile(
       .minLength(0)
       .maxLength(45)
       .unique(async (_db, value) => {
-        const existingCurp = await Person.query()
-          .where('person_curp', value)
-          .whereNotNull('person_curp')
+        if (!value || value.trim() === '') return true
+        const existing = await Person.query()
           .whereNull('person_deleted_at')
-          .whereNot('person_curp', '')
+          .where('person_curp_hash', blindIndex(value))
           .first()
-        return !existingCurp
+        return !existing
       })
       .optional(),
     personRfc: vine
@@ -42,13 +43,12 @@ export const createPersonValidator = vine.compile(
       .minLength(0)
       .maxLength(45)
       .unique(async (_db, value) => {
-        const existingRfc = await Person.query()
-          .where('person_rfc', value)
-          .whereNotNull('person_rfc')
-          .whereNot('person_rfc', '')
+        if (!value || value.trim() === '') return true
+        const existing = await Person.query()
           .whereNull('person_deleted_at')
+          .where('person_rfc_hash', blindIndex(value))
           .first()
-        return !existingRfc
+        return !existing
       })
       .optional(),
     personImssNss: vine
@@ -57,13 +57,12 @@ export const createPersonValidator = vine.compile(
       .minLength(0)
       .maxLength(45)
       .unique(async (_db, value) => {
-        const existingImssNss = await Person.query()
-          .where('person_imss_nss', value)
-          .whereNotNull('person_imss_nss')
-          .whereNot('person_imss_nss', '')
+        if (!value || value.trim() === '') return true
+        const existing = await Person.query()
           .whereNull('person_deleted_at')
+          .where('person_imss_nss_hash', blindIndex(value))
           .first()
-        return !existingImssNss
+        return !existing
       })
       .optional(),
   })

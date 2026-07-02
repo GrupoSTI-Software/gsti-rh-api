@@ -6,6 +6,8 @@ export interface AttentionProgramListFilters {
   limit?: number
 }
 
+export type AttentionProgramActionStatus = 'pendiente' | 'en-curso' | 'cumplida'
+
 export interface AttentionProgramCreateInput {
   year: number
   period?: string
@@ -65,4 +67,51 @@ export interface AttentionProgramOriginApplicationItem {
 export interface AttentionProgramListResult {
   meta: Record<string, unknown>
   data: AttentionProgramListItem[]
+}
+
+export interface AttentionProgramActionCreateInput {
+  psychosocialDimensionId?: number
+  attentionActionLevelId?: number
+  target?: string
+  description?: string
+  startDate?: string | Date
+  endDate?: string | Date
+  progress?: string
+  evaluation?: string
+  responsible?: string
+  status?: AttentionProgramActionStatus
+}
+
+export interface AttentionProgramActionUpdateInput {
+  psychosocialDimensionId?: number
+  attentionActionLevelId?: number
+  target?: string
+  description?: string
+  startDate?: string | Date
+  endDate?: string | Date
+  progress?: string
+  evaluation?: string
+  responsible?: string
+  status?: AttentionProgramActionStatus
+}
+
+export interface AttentionProgramActionItem {
+  attentionProgramActionId: number
+  attentionProgramId: number
+  psychosocialDimensionId: number
+  psychosocialDimensionCode: string
+  psychosocialDimensionNameKey: string
+  attentionActionLevelId: number
+  attentionActionLevelCode: string
+  attentionActionLevelNameKey: string
+  target: string
+  description: string
+  startDate: string
+  endDate: string
+  progress: string
+  evaluation: string
+  responsible: string
+  status: AttentionProgramActionStatus
+  createdAt: string
+  updatedAt: string
 }

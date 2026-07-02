@@ -49,6 +49,13 @@ router
       .group(() => {
         router.get('/', '#controllers/attention_program_controller.index')
         router.post('/', '#controllers/attention_program_controller.store')
+        router.get('/:id/actions', '#controllers/attention_program_action_controller.index')
+        router.post('/:id/actions', '#controllers/attention_program_action_controller.store')
+        router.patch('/:id/actions/:actionId', '#controllers/attention_program_action_controller.update')
+        router.delete(
+          '/:id/actions/:actionId',
+          '#controllers/attention_program_action_controller.destroy'
+        )
         router.get('/:id', '#controllers/attention_program_controller.show')
         router.patch('/:id', '#controllers/attention_program_controller.update')
       })
