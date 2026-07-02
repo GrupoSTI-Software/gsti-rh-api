@@ -4,13 +4,13 @@ export default class extends BaseSchema {
   protected tableName = 'people'
 
   async up() {
-    await this.schema.alterTable(this.tableName, (table) => {
+    this.schema.alterTable(this.tableName, (table) => {
       table.string('person_phone_secondary', 191).nullable().alter()
     })
   }
 
   async down() {
-    await this.schema.alterTable(this.tableName, (table) => {
+    this.schema.alterTable(this.tableName, (table) => {
       table.string('person_phone_secondary', 45).nullable().alter()
     })
   }

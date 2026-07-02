@@ -10,19 +10,18 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  */
 export default class extends BaseSchema {
   protected tableName = 'empresas_contratantes'
-  protected wrapInTransaction = false
 
   async up() {
-    await this.schema.alterTable(this.tableName, (table) => {
+    this.schema.alterTable(this.tableName, (table) => {
       table.string('empresa_contratante_rfc_hash', 64).nullable().after('empresa_contratante_rfc')
     })
 
-    await this.schema.raw(`
+    this.schema.raw(`
       ALTER TABLE \`empresas_contratantes\`
       DROP INDEX \`empresas_contratantes_business_unit_rfc_active_unique\`
     `)
 
-    await this.schema.raw(`
+    this.schema.raw(`
       ALTER TABLE \`empresas_contratantes\`
       ADD UNIQUE KEY \`empresas_contratantes_business_unit_rfc_hash_active_unique\`
         (\`business_unit_id\`, \`empresa_contratante_rfc_hash\`, \`empresa_contratante_is_active\`)
@@ -30,18 +29,18 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    await this.schema.raw(`
+    this.schema.raw(`
       ALTER TABLE \`empresas_contratantes\`
       DROP INDEX \`empresas_contratantes_business_unit_rfc_hash_active_unique\`
     `)
 
-    await this.schema.raw(`
+    this.schema.raw(`
       ALTER TABLE \`empresas_contratantes\`
       ADD UNIQUE KEY \`empresas_contratantes_business_unit_rfc_active_unique\`
         (\`business_unit_id\`, \`empresa_contratante_rfc\`, \`empresa_contratante_is_active\`)
     `)
 
-    await this.schema.alterTable(this.tableName, (table) => {
+    this.schema.alterTable(this.tableName, (table) => {
       table.dropColumn('empresa_contratante_rfc_hash')
     })
   }
