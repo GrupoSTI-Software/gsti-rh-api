@@ -33,6 +33,7 @@ type AttentionProgramRow = {
   year: number | string
   period: string | null
   status: 'borrador' | 'vigente' | 'cerrado'
+  actionCount: number | string
   createdAt: string | Date | null
   updatedAt: string | Date | null
 }
@@ -259,6 +260,12 @@ export default class AttentionProgramService {
         'ap.attention_program_year as year',
         'ap.attention_program_period as period',
         'ap.attention_program_status as status',
+        db.raw(`(
+          SELECT COUNT(*)
+          FROM attention_program_actions AS apa
+          WHERE apa.attention_program_id = ap.attention_program_id
+            AND apa.attention_program_action_deleted_at IS NULL
+        ) as actionCount`),
         'ap.attention_program_created_at as createdAt',
         'ap.attention_program_updated_at as updatedAt'
       )
@@ -276,7 +283,7 @@ export default class AttentionProgramService {
       year: Number(row.year),
       period: row.period,
       status: row.status,
-      actionCount: 0,
+      actionCount: Number(row.actionCount ?? 0),
       createdAt: this.toIsoUtc(row.createdAt) ?? DateTime.utc().toISO()!,
       updatedAt: this.toIsoUtc(row.updatedAt) ?? DateTime.utc().toISO()!,
     }

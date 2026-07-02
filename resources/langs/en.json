@@ -677,6 +677,18 @@
       "not_found_origin": "The origin assessment does not exist or is outside user scope",
       "not_found_program": "Attention Program not found or outside user scope",
       "forbidden": "You do not have permission to manage Attention Program"
+    },
+    "attention_program_action": {
+      "title": "NOM-035 Attention Program actions",
+      "index_message": "Attention Program actions fetched successfully",
+      "store_message": "Attention Program action created successfully",
+      "update_message": "Attention Program action updated successfully",
+      "delete_message": "Attention Program action deleted successfully",
+      "action_incomplete": "Incomplete program action",
+      "invalid_dimension": "The selected dimension does not belong to the official catalog",
+      "invalid_level": "The selected level does not belong to the official catalog",
+      "action_not_found": "Program action not found or outside user scope",
+      "program_closed": "The Program is closed and read-only"
     }
   },
   "employee_lactation_period": "Lactation period",
