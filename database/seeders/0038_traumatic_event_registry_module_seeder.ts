@@ -40,7 +40,7 @@ export default class extends BaseSeeder {
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
-        systemModuleName: 'Registro auditable NOM-035',
+        systemModuleName: 'Registro auditable',
         systemModuleSlug: 'traumatic-event-reports-registry',
         systemModuleDescription:
           'Registro consolidado de eventos traumáticos con canalizaciones y exámenes, para inspección STPS (NOM-035-STPS-2018 §5.8.c)',

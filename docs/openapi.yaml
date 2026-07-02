@@ -162,6 +162,8 @@ components:
                       enum: [false]
                     branchOfficeId:
                       type: integer
+                    branchOfficeName:
+                      type: string
                 - type: object
                   properties:
                     available:
@@ -169,6 +171,8 @@ components:
                       enum: [true]
                     branchOfficeId:
                       type: integer
+                    branchOfficeName:
+                      type: string
                     applicationId:
                       type: integer
                     instrumentCode:
@@ -4953,6 +4957,7 @@ paths:
                       disclosure:
                         available: true
                         branchOfficeId: 12
+                        branchOfficeName: Sucursal Centro
                         applicationId: 1289
                         instrumentCode: GUIA-III-NOM035
                         respondersCount: 48
@@ -4987,6 +4992,7 @@ paths:
                       disclosure:
                         available: false
                         branchOfficeId: 12
+                        branchOfficeName: Sucursal Norte
         '400':
           description: Parámetros inválidos
           content:

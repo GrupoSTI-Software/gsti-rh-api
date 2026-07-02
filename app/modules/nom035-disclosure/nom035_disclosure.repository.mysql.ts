@@ -47,7 +47,11 @@ export default class Nom035DisclosureRepositoryMysql implements Nom035Disclosure
       .where('bo.branch_office_id', branchOfficeId)
       .whereNull('bo.branch_office_deleted_at')
       .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
-      .select('bo.branch_office_id as branchOfficeId', 'bo.business_unit_id as businessUnitId')
+      .select(
+        'bo.branch_office_id as branchOfficeId',
+        'bo.business_unit_id as businessUnitId',
+        'bo.branch_office_name as branchOfficeName'
+      )
       .first()
 
     if (!row) {
@@ -57,6 +61,7 @@ export default class Nom035DisclosureRepositoryMysql implements Nom035Disclosure
     return {
       branchOfficeId: Number(row.branchOfficeId),
       businessUnitId: Number(row.businessUnitId),
+      branchOfficeName: String(row.branchOfficeName),
     }
   }
 

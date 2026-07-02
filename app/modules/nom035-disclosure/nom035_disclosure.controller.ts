@@ -61,6 +61,7 @@ export default class Nom035DisclosureController {
    *                 disclosure:
    *                   available: true
    *                   branchOfficeId: 12
+   *                   branchOfficeName: Sucursal Centro
    *                   applicationId: 1289
    *                   instrumentCode: GUIA-III-NOM035
    *                   respondersCount: 48

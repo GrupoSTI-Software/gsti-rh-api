@@ -13,7 +13,7 @@ function makeI18nStub(): I18n {
 
 type RepoState = {
   employeeContext: { employeeId: number; branchOfficeId: number | null } | null
-  branchInScope: { branchOfficeId: number; businessUnitId: number } | null
+  branchInScope: { branchOfficeId: number; businessUnitId: number; branchOfficeName: string } | null
   latestRound: { applicationId: number } | null
 }
 
@@ -57,7 +57,7 @@ test.group('Nom035DisclosureService', () => {
     let selectedBranch: number | null = null
     const repo = makeRepo({
       employeeContext: { employeeId: 1, branchOfficeId: 77 },
-      branchInScope: { branchOfficeId: 77, businessUnitId: 2 },
+      branchInScope: { branchOfficeId: 77, businessUnitId: 2, branchOfficeName: 'Sucursal Centro' },
       latestRound: { applicationId: 99 },
     })
     const trackedRepo: Nom035DisclosureRepository = {
@@ -93,6 +93,7 @@ test.group('Nom035DisclosureService', () => {
     assert.equal(result.available, true)
     if (result.available) {
       assert.equal(result.branchOfficeId, 77)
+      assert.equal(result.branchOfficeName, 'Sucursal Centro')
     }
   })
 
@@ -100,7 +101,7 @@ test.group('Nom035DisclosureService', () => {
     const service = new Nom035DisclosureService({
       repository: makeRepo({
         employeeContext: { employeeId: 1, branchOfficeId: 77 },
-        branchInScope: { branchOfficeId: 15, businessUnitId: 2 },
+        branchInScope: { branchOfficeId: 15, businessUnitId: 2, branchOfficeName: 'Sucursal Norte' },
         latestRound: { applicationId: 99 },
       }),
       roleService: {
@@ -125,6 +126,7 @@ test.group('Nom035DisclosureService', () => {
     assert.equal(result.available, true)
     if (result.available) {
       assert.equal(result.branchOfficeId, 15)
+      assert.equal(result.branchOfficeName, 'Sucursal Norte')
     }
   })
 
@@ -132,7 +134,7 @@ test.group('Nom035DisclosureService', () => {
     const service = new Nom035DisclosureService({
       repository: makeRepo({
         employeeContext: { employeeId: 1, branchOfficeId: 77 },
-        branchInScope: { branchOfficeId: 77, businessUnitId: 2 },
+        branchInScope: { branchOfficeId: 77, businessUnitId: 2, branchOfficeName: 'Sucursal Centro' },
         latestRound: null,
       }),
       roleService: {
@@ -152,6 +154,7 @@ test.group('Nom035DisclosureService', () => {
     assert.deepEqual(result, {
       available: false,
       branchOfficeId: 77,
+      branchOfficeName: 'Sucursal Centro',
     })
   })
 
@@ -159,7 +162,7 @@ test.group('Nom035DisclosureService', () => {
     const service = new Nom035DisclosureService({
       repository: makeRepo({
         employeeContext: { employeeId: 1, branchOfficeId: 77 },
-        branchInScope: { branchOfficeId: 77, businessUnitId: 2 },
+        branchInScope: { branchOfficeId: 77, businessUnitId: 2, branchOfficeName: 'Sucursal Centro' },
         latestRound: { applicationId: 99 },
       }),
       roleService: {

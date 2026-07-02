@@ -39,7 +39,7 @@ export default class extends BaseSeeder {
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
-        systemModuleName: 'Política de retención NOM-035',
+        systemModuleName: 'Política de retención',
         systemModuleSlug: 'retention-policy',
         systemModuleDescription:
           'Configura el período de conservación de evidencia NOM-035-STPS-2018 por empresa (piso legal 1 año, default 4 años)',

@@ -24,6 +24,7 @@ export interface Nom035DisclosureDomainDto {
 export interface Nom035DisclosureAvailableDto {
   available: true
   branchOfficeId: number
+  branchOfficeName: string
   applicationId: number
   instrumentCode: string
   respondersCount: number
@@ -38,6 +39,7 @@ export interface Nom035DisclosureAvailableDto {
 export interface Nom035DisclosureUnavailableDto {
   available: false
   branchOfficeId: number
+  branchOfficeName: string
 }
 
 export type Nom035DisclosureDto = Nom035DisclosureAvailableDto | Nom035DisclosureUnavailableDto
@@ -50,6 +52,7 @@ export interface EmployeeContextDto {
 export interface BranchOfficeScopeDto {
   branchOfficeId: number
   businessUnitId: number
+  branchOfficeName: string
 }
 
 export interface BranchOfficeOptionDto extends BranchOfficeScopeDto {

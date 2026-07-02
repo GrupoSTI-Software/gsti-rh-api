@@ -33,7 +33,7 @@ export default class extends BaseSeeder {
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
-        systemModuleName: 'Resultados NOM-035 por centro de trabajo',
+        systemModuleName: 'Resultados por centro de trabajo',
         systemModuleSlug: 'nom035-disclosure',
         systemModuleDescription:
           'Difusión 5.7.e de resultados agregados y anonimizados por centro de trabajo conforme a NOM-035-STPS-2018',

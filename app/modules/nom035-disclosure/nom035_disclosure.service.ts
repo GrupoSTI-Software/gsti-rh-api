@@ -108,6 +108,7 @@ export default class Nom035DisclosureService {
       return {
         available: false,
         branchOfficeId: branchOffice.branchOfficeId,
+        branchOfficeName: branchOffice.branchOfficeName,
       }
     }
 
@@ -117,16 +118,18 @@ export default class Nom035DisclosureService {
       i18n
     )
 
-    return this.applyKAnonymity(branchOffice.branchOfficeId, aggregates)
+    return this.applyKAnonymity(branchOffice.branchOfficeId, branchOffice.branchOfficeName, aggregates)
   }
 
   private applyKAnonymity(
     branchOfficeId: number,
+    branchOfficeName: string,
     tabulation: TabulationResult
   ): Nom035DisclosureAvailableDto {
     return {
       available: true,
       branchOfficeId,
+      branchOfficeName,
       applicationId: tabulation.applicationId,
       instrumentCode: tabulation.instrumentCode,
       respondersCount: tabulation.respondersCount,
