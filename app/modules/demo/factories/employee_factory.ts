@@ -1,6 +1,7 @@
 import factory from '@adonisjs/lucid/factories'
 import { DateTime } from 'luxon'
 import Employee from '#models/employee'
+import { EMPLOYEE_WORK_SCHEDULE } from '#constants/employee_work_schedule'
 
 /**
  * Distribución de empleados por posición — misma que usa createEmployeeDemo()
@@ -87,7 +88,10 @@ export const EmployeeFactory = factory
       dailySalary:                      1000,
       payrollBusinessUnitId:            0,
       employeeAssistDiscriminator:      0,
-      employeeWorkSchedule:             'Onsite',
+      employeeWorkSchedule:             EMPLOYEE_WORK_SCHEDULE.ONSITE,
+      employeeWorkScheduleHybridMode:   null,
+      employeeWorkScheduleHybridConfig: null,
+      employeeTeleworkPercentage:       0,
       employeeIgnoreConsecutiveAbsences: 0,
       employeeAuthorizeAnyZones:        0,
       employeeLastSynchronizationAt:    DateTime.now().toJSDate(),

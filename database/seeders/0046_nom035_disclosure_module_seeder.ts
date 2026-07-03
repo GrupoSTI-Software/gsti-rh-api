@@ -6,26 +6,20 @@ import SystemSettingSystemModule from '../../app/models/system_setting_system_mo
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
 
 /**
- * Registra en el sistema el módulo de "Política de retención NOM-035" (ESB-08-06-03-03).
- *
- * Siembra únicamente configuración de sistema (no datos de negocio):
- *  1. El módulo en `system_modules` (id 43) para que aparezca en el menú del Backoffice.
- *  2. Los permisos read (id 175) y write (id 176) ligados al módulo.
- *  3. El vínculo del módulo con el system_setting activo (id 1).
- *  4. La asignación de ambos permisos a los roles super-administrador (1) y rh-manager (2).
- *
- * El API de retención (GET/PUT /api/nom035/retention-policy) guarda su guard de permisos
- * en el módulo `compliance` (id 42); este módulo 43 es exclusivo para visibilidad de menú.
- * Idempotente: usa updateOrCreate/firstOrCreate; se puede re-ejecutar sin duplicar.
+ * Registra el módulo de difusión NOM-035 (5.7.e) para consulta de resultados
+ * agregados y anonimizados por centro de trabajo.
  */
 export default class extends BaseSeeder {
-  private readonly moduleId = 43
+  private readonly moduleId = 45
   private readonly activeSettingId = 1
   private readonly roleIds = [1, 2]
-
   private readonly permissions = [
-    { systemPermissionId: 175, systemPermissionName: 'Read', systemPermissionSlug: 'read' },
-    { systemPermissionId: 176, systemPermissionName: 'Update', systemPermissionSlug: 'write' },
+    { systemPermissionId: 183, systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+    {
+      systemPermissionId: 184,
+      systemPermissionName: 'Read all',
+      systemPermissionSlug: 'read-all',
+    },
   ]
 
   async run() {
@@ -39,27 +33,16 @@ export default class extends BaseSeeder {
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
-        systemModuleName: 'Política de retención',
-        systemModuleSlug: 'retention-policy',
+        systemModuleName: 'Resultados por centro de trabajo',
+        systemModuleSlug: 'nom035-disclosure',
         systemModuleDescription:
-          'Configura el período de conservación de evidencia NOM-035-STPS-2018 por empresa (piso legal 1 año, default 4 años)',
+          'Difusión 5.7.e de resultados agregados y anonimizados por centro de trabajo conforme a NOM-035-STPS-2018',
         systemModules: '1',
-        systemModulePath: '/retention-policy',
+        systemModulePath: '/disclosure',
         systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
-        systemModuleIcon: `<svg
-          xmlns='http://www.w3.org/2000/svg'
-          width='48'
-          height='48'
-          viewBox='0 0 24 24'
-          fill='none'
-          stroke='currentColor'
-          stroke-width='2'
-          stroke-linecap='round'
-          stroke-linejoin='round'
-        >
-          <path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/>
-        </svg>`,
+        systemModuleIcon:
+          '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18" /><path d="M7 16V9" /><path d="M12 16V6" /><path d="M17 16v-4" /></svg>',
         systemModuleUpdatedAt: DateTime.now(),
       }
     )

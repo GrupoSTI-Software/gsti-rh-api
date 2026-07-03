@@ -781,7 +781,7 @@ export default class extends BaseSeeder {
       },
       {
         systemModuleId: 42,
-        systemModuleName: 'Aplicabilidad NOM-035',
+        systemModuleName: 'Aplicabilidad',
         systemModuleSlug: 'compliance',
         systemModuleDescription:
           'Calcula el instrumento aplicable (Guía II / Guía III / ninguno) por sucursal según los umbrales de la NOM-035-STPS-2018',

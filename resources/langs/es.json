@@ -652,6 +652,17 @@
       "invalid_answer_option": "Se detectó una opción de respuesta inválida para la escala de una pregunta",
       "sys_unhandled": "Ocurrió un error inesperado al tabular la ronda"
     },
+    "disclosure": {
+      "title": "Resultados de evaluación NOM-035",
+      "show_message": "Resultados obtenidos correctamente",
+      "not_available_message": "Aún no hay resultados disponibles para este centro de trabajo",
+      "val_input": "Datos inválidos",
+      "forbidden": "Sin permiso para consultar los resultados anonimizados del centro de trabajo",
+      "no_employee": "El usuario autenticado no tiene un empleado asociado",
+      "no_branch": "El empleado no tiene centro de trabajo activo",
+      "not_found": "Centro de trabajo no encontrado o fuera del alcance del usuario",
+      "sys_unhandled": "Ocurrió un error inesperado al consultar los resultados anonimizados"
+    },
     "retention_policy": {
       "title": "Política de retención NOM-035",
       "error_title": "Error en política de retención NOM-035",
@@ -1988,5 +1999,14 @@
   "pii_reveal_not_found": "El campo solicitado no existe o no pertenece al alcance del usuario.",
   "pii_reveal_invalid_params": "Los parámetros de la solicitud son inválidos.",
   "pii_reveal_error": "Ocurrió un error al procesar la solicitud.",
-  "pii_access_logs_list_success": "Historial de accesos obtenido correctamente."
+  "pii_access_logs_list_success": "Historial de accesos obtenido correctamente.",
+  "employee_work_schedule_error_title": "Modalidad de trabajo",
+  "employee_work_schedule_hybrid_requires_active_shift": "Para marcar al empleado como Híbrido primero debe tener un turno activo asignado.",
+  "employee_work_schedule_hybrid_days_intersect_rest_days": "Los días seleccionados incluyen un día de descanso del turno del empleado.",
+  "employee_work_schedule_hybrid_zero_equals_onsite": "Con cero días de teletrabajo, la modalidad debe ser Presencial.",
+  "employee_work_schedule_hybrid_full_equals_remote": "Con la jornada completa remota, la modalidad debe ser Home Office.",
+  "employee_work_schedule_hybrid_config_out_of_range": "El valor de días excede la jornada laboral del empleado.",
+  "employee_work_schedule_hybrid_mode_required": "Debe indicar cómo se otorga el home office para la modalidad Híbrido.",
+  "employee_work_schedule_hybrid_config_required": "Debe indicar los días u ocurrencias que aplican al modo híbrido elegido.",
+  "employee_work_schedule_hybrid_config_invalid_shape": "La configuración híbrida no tiene un formato válido."
 }

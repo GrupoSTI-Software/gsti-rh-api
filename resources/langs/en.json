@@ -649,6 +649,17 @@
       "invalid_answer_option": "An invalid answer option was detected for a question scale",
       "sys_unhandled": "An unexpected error occurred while tabulating the round"
     },
+    "disclosure": {
+      "title": "NOM-035 evaluation results",
+      "show_message": "Results fetched successfully",
+      "not_available_message": "Results are not available for this workplace yet",
+      "val_input": "Invalid data",
+      "forbidden": "You do not have permission to view anonymized workplace results",
+      "no_employee": "The authenticated user has no associated employee record",
+      "no_branch": "The employee has no active workplace",
+      "not_found": "Workplace not found or outside user scope",
+      "sys_unhandled": "An unexpected error occurred while fetching anonymized results"
+    },
     "retention_policy": {
       "title": "NOM-035 Retention Policy",
       "error_title": "NOM-035 Retention Policy Error",
@@ -1985,5 +1996,14 @@
   "pii_reveal_not_found": "The requested field does not exist or does not belong to the user's scope.",
   "pii_reveal_invalid_params": "The request parameters are invalid.",
   "pii_reveal_error": "An error occurred while processing the request.",
-  "pii_access_logs_list_success": "Access log retrieved successfully."
+  "pii_access_logs_list_success": "Access log retrieved successfully.",
+  "employee_work_schedule_error_title": "Work modality",
+  "employee_work_schedule_hybrid_requires_active_shift": "To mark this employee as Hybrid, first assign an active shift.",
+  "employee_work_schedule_hybrid_days_intersect_rest_days": "The selected days include a rest day from the employee shift.",
+  "employee_work_schedule_hybrid_zero_equals_onsite": "With zero remote days, the modality must be Onsite.",
+  "employee_work_schedule_hybrid_full_equals_remote": "With every working day remote, the modality must be Home Office.",
+  "employee_work_schedule_hybrid_config_out_of_range": "The days value exceeds the employee working days.",
+  "employee_work_schedule_hybrid_mode_required": "You must indicate how the home office is granted for the Hybrid modality.",
+  "employee_work_schedule_hybrid_config_required": "You must indicate the days or occurrences that apply to the chosen hybrid mode.",
+  "employee_work_schedule_hybrid_config_invalid_shape": "The hybrid configuration has an invalid shape."
 }

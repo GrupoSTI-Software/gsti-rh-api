@@ -24,6 +24,11 @@ import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
 import AsignacionContratoEspecializado from './asignacion_contrato_especializado.js'
 import EmployeeSalaryHistory from './employee_salary_history.js'
 import EmployeeCertification from './employee_certification.js'
+import type {
+  EmployeeHybridConfig,
+  EmployeeHybridMode,
+  EmployeeWorkSchedule,
+} from '#constants/employee_work_schedule'
 
 /**
  * @swagger
@@ -113,6 +118,23 @@ import EmployeeCertification from './employee_certification.js'
  *          employeeTerminationType:
  *            type: string
  *            description: Tipo de baja (catálogo, debe ser coherente con la modalidad)
+ *          employeeWorkSchedule:
+ *            type: string
+ *            enum: [Onsite, Remote, Hybrid]
+ *            description: Modalidad de trabajo del empleado
+ *          employeeWorkScheduleHybridMode:
+ *            type: string
+ *            enum: [SpecificDays, DaysPerWeek, DaysPerMonth]
+ *            nullable: true
+ *            description: Modo de configuración híbrida (solo cuando la modalidad es Hybrid)
+ *          employeeWorkScheduleHybridConfig:
+ *            type: object
+ *            nullable: true
+ *            description: Configuración híbrida según el modo. Objeto con days number[] o count number.
+ *          employeeTeleworkPercentage:
+ *            type: number
+ *            format: float
+ *            description: Porcentaje de teletrabajo derivado (0.00–100.00). Nunca capturado a mano.
  *          employeeIgnoreConsecutiveAbsences:
  *            type: number
  *            description: Employee ignore consecutive absences
@@ -156,7 +178,32 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
   declare employeeSlug: string | null
 
   @column()
-  declare employeeWorkSchedule: string
+  declare employeeWorkSchedule: EmployeeWorkSchedule
+
+  @column()
+  declare employeeWorkScheduleHybridMode: EmployeeHybridMode | null
+
+  @column({
+    prepare: (value: EmployeeHybridConfig | null) =>
+      value ? JSON.stringify(value) : null,
+    consume: (value: string | EmployeeHybridConfig | null) => {
+      if (value === null || value === undefined) {
+        return null
+      }
+      return typeof value === 'string' ? (JSON.parse(value) as EmployeeHybridConfig) : value
+    },
+  })
+  declare employeeWorkScheduleHybridConfig: EmployeeHybridConfig | null
+
+  @column({
+    consume: (value: string | number | null) => {
+      if (value === null || value === undefined) {
+        return 0
+      }
+      return typeof value === 'string' ? Number.parseFloat(value) : value
+    },
+  })
+  declare employeeTeleworkPercentage: number
 
   @column()
   declare employeePhoto: string | null

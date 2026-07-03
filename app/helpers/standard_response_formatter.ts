@@ -103,6 +103,7 @@ export class StandardResponseFormatter {
       'Catálogo Programa de atención': 'attentionProgramCatalog',
       'Tabulación NOM-035': 'tabulacion',
       'Resultados por empleado': 'employees',
+      'Resultados de evaluación NOM-035': 'disclosure',
       Instrumento: 'instrument',
       'Captura de respuestas': 'questionnaireApplicationResponse',
       'Objetivos de la ronda': 'targets',
