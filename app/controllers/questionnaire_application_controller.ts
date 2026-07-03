@@ -287,7 +287,7 @@ export default class QuestionnaireApplicationController {
    *                   folio: NOM035-2026-654321
    *                   branchOfficeId: 3
    *                   branchOfficeName: Sucursal Centro
-   *                   businessUnitId: 2
+   *                   businessUnitPublicId: "550e8400-e29b-41d4-a716-446655440000"
    *                   regulationQuestionnaireId: 4
    *                   applicableInstrument: guide_ii
    *                   status: en-curso
@@ -420,7 +420,7 @@ export default class QuestionnaireApplicationController {
    *                   folio: NOM035-2026-654321
    *                   branchOfficeId: 3
    *                   branchOfficeName: Sucursal Centro
-   *                   businessUnitId: 2
+   *                   businessUnitPublicId: "550e8400-e29b-41d4-a716-446655440000"
    *                   regulationQuestionnaireId: 4
    *                   applicableInstrument: guide_ii
    *                   status: en-curso
@@ -745,7 +745,7 @@ export default class QuestionnaireApplicationController {
    *                         folio: { type: string }
    *                         branchOfficeId: { type: integer }
    *                         branchOfficeName: { type: string }
-   *                         businessUnitId: { type: integer }
+   *                         businessUnitPublicId: { type: string, format: uuid }
    *                         regulationQuestionnaireId: { type: integer }
    *                         applicableInstrument:
    *                           type: string
@@ -771,7 +771,7 @@ export default class QuestionnaireApplicationController {
    *                   folio: NOM035-2026-654321
    *                   branchOfficeId: 3
    *                   branchOfficeName: Sucursal Centro
-   *                   businessUnitId: 2
+   *                   businessUnitPublicId: "550e8400-e29b-41d4-a716-446655440000"
    *                   regulationQuestionnaireId: 4
    *                   applicableInstrument: guide_ii
    *                   status: cerrada

@@ -107,8 +107,9 @@ export default class AttentionProgramController {
    *       properties:
    *         attentionProgramId:
    *           type: integer
-   *         businessUnitId:
-   *           type: integer
+   *         businessUnitPublicId:
+   *           type: string
+   *           format: uuid
    *         regulationId:
    *           type: integer
    *         questionnaireApplicationId:

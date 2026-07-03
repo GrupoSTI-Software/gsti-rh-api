@@ -17,6 +17,7 @@ import VacationSetting from '#models/vacation_setting'
 import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
+import { blindIndex } from '#utils/blind_index'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
 import axios from 'axios'
@@ -350,20 +351,7 @@ export default class EmployeeService {
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(filters.employeeWorkSchedule, (query) => {
@@ -1985,20 +1973,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2050,20 +2025,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2120,20 +2082,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2199,20 +2148,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -3056,12 +2992,13 @@ export default class EmployeeService {
 
   /**
    * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
+   * Compara por huella HMAC-SHA256 (blind-index) porque person_curp está cifrado en reposo.
    */
   private async personWithCurpExists(curp: string): Promise<boolean> {
     if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
     const found = await Person.query()
-      .whereRaw('LOWER(TRIM(person_curp)) = ?', [curp.trim().toLowerCase()])
-      .whereNull('deletedAt')
+      .whereNull('person_deleted_at')
+      .where('person_curp_hash', blindIndex(curp))
       .first()
     return !!found
   }
@@ -7919,20 +7856,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(filters.employeeWorkSchedule, (query) => {

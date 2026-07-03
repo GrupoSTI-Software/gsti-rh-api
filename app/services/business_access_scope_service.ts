@@ -1,6 +1,10 @@
 import BusinessUnit from '#models/business_unit'
 import User from '#models/user'
 
+/** Regex de validación para UUID v4. */
+const UUID_V4_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 /**
  * Resolvedor central del alcance de unidades de negocio accesibles para un usuario.
  *
@@ -34,6 +38,34 @@ export default class BusinessAccessScopeService {
     }
 
     return this.getUserAssignedIds(user.userId)
+  }
+
+  /**
+   * Resuelve un código público (UUID v4) al ID interno de la unidad de negocio,
+   * validando que pertenezca al scope accesible del usuario.
+   *
+   * Devuelve `null` en los siguientes casos — intencionalmente indistinguibles
+   * para el cliente (regla de negocio: no filtrar existencia):
+   *  - El valor no tiene formato UUID v4 válido.
+   *  - El UUID existe pero la unidad está fuera del scope del usuario.
+   *  - El UUID no existe en la base de datos.
+   *
+   * @param publicId    - Código público recibido del cliente.
+   * @param scopeIds    - IDs internos accesibles para el usuario (de getAccessibleIds).
+   * @returns ID interno o `null`.
+   */
+  async resolveInternalId(publicId: string, scopeIds: number[]): Promise<number | null> {
+    if (!UUID_V4_RE.test(publicId)) return null
+    if (scopeIds.length === 0) return null
+
+    const unit = await BusinessUnit.query()
+      .where('business_unit_public_id', publicId)
+      .whereIn('business_unit_id', scopeIds)
+      .whereNull('business_unit_deleted_at')
+      .select('business_unit_id')
+      .first()
+
+    return unit?.businessUnitId ?? null
   }
 
   /**

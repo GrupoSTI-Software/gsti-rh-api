@@ -98,6 +98,8 @@ export class StandardResponseFormatter {
       'Questionnaire Application State History': 'stateHistory',
       'Attention Program': 'attentionProgram',
       'Attention Programs': 'attentionPrograms',
+      'Attention Program Action': 'attentionProgramAction',
+      'Attention Program Actions': 'attentionProgramActions',
       'Catálogo Programa de atención': 'attentionProgramCatalog',
       'Tabulación NOM-035': 'tabulacion',
       'Resultados por empleado': 'employees',

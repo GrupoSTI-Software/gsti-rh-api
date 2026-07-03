@@ -582,14 +582,16 @@ export default class PersonController {
       }
       const updatePerson = await personService.update(currentPerson, person)
       if (updatePerson) {
-        const user = await User.query()
-          .where('person_id', currentPerson.personId)
-          .where('user_email', previousEmail)
-          .whereNull('user_deleted_at')
-          .first()
-        if (user) {
-          user.userEmail = person.personEmail
-          await user.save()
+        if (previousEmail && person.personEmail) {
+          const user = await User.query()
+            .where('person_id', currentPerson.personId)
+            .where('user_email', previousEmail)
+            .whereNull('user_deleted_at')
+            .first()
+          if (user) {
+            user.userEmail = person.personEmail
+            await user.save()
+          }
         }
         response.status(201)
         return {

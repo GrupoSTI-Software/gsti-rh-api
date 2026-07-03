@@ -74,18 +74,18 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Se buscan por igualdad en SQL (validators/person.ts, employee_controller.ts).
   // Requieren cifrado con blind-index para mantener la búsqueda tras cifrar.
   // Ancla: app/models/person.ts
-  { model: 'Person', column: 'personCurp', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: false },
-  { model: 'Person', column: 'personRfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: false },
-  { model: 'Person', column: 'personImssNss', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: false },
+  { model: 'Person', column: 'personCurp', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
+  { model: 'Person', column: 'personRfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
+  { model: 'Person', column: 'personImssNss', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
 
   // ─── Person: contacto ──────────────────────────────────────────────────────
   // Ancla: app/models/person.ts
-  // personEmail — validado por igualdad (unique); necesita blind-index.
-  { model: 'Person', column: 'personEmail', legalCategory: 'contacto', treatment: 'cifrar-buscable', encrypted: false },
-  // personPhone — solo búsqueda LIKE en algunos listados; no igualdad exacta → cifrar sin blind-index.
-  { model: 'Person', column: 'personPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: false },
+  // personEmail — validado por igualdad (unique); necesita blind-index (08-10-04-01).
+  { model: 'Person', column: 'personEmail', legalCategory: 'contacto', treatment: 'cifrar-buscable', encrypted: true },
+  // personPhone — LIKE retirado en USRH1782854997782; no se restaura (no es clave de búsqueda).
+  { model: 'Person', column: 'personPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
   // personPhoneSecondary — sin búsquedas en SQL.
-  { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: false },
+  { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
 
   // ─── EmployeeBank: financiero ──────────────────────────────────────────────
   // Cifrados hoy vía employeeBankService.encrypt en employee_bank_controller.ts:165-176.
@@ -147,7 +147,7 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // RFC de persona moral con restricción UNIQUE en BD → se busca por igualdad.
   // Cifrar requiere blind-index; es el caso de mayor complejidad de migración.
   // Ancla: app/models/empresa_contratante.ts (columna `rfc`)
-  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: false },
+  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
 
   // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
   // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.

@@ -11,6 +11,7 @@ import {
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
 import { normalizeRfc } from '../shared/validators/rfc.validator.js'
+import { blindIndex } from '#utils/blind_index'
 
 export interface EmpresaContratanteCreatePayload {
   businessUnitId: number
@@ -79,6 +80,7 @@ export default class EmpresaContratanteService {
       created.businessUnitId = payload.businessUnitId
       created.razonSocial = payload.razonSocial.trim()
       created.rfc = normalizedRfc
+      created.rfcHash = blindIndex(normalizedRfc)
       created.domicilioFiscal = payload.domicilioFiscal.trim()
       created.representanteLegal = payload.representanteLegal?.trim() ?? null
       created.correo = payload.correo?.trim() ?? null
@@ -134,9 +136,8 @@ export default class EmpresaContratanteService {
     if (search && search.length > 0) {
       const term = `%${search}%`
       query = query.where((builder) => {
-        builder
-          .whereILike('empresa_contratante_razon_social', term)
-          .orWhereILike('empresa_contratante_rfc', term)
+        // PUNTO DE REINTRODUCCIÓN 08-10-04-02: búsqueda parcial por RFC cifrado
+        builder.whereILike('empresa_contratante_razon_social', term)
       })
     }
 
@@ -171,7 +172,7 @@ export default class EmpresaContratanteService {
     const targetRfc =
       payload.rfc !== undefined ? normalizeRfc(payload.rfc) : current.rfc
 
-    if (targetRfc !== current.rfc) {
+    if (targetRfc !== null && targetRfc !== current.rfc) {
       await this.assertRfcUniqueInTenant(targetRfc, empresaContratanteId)
     }
 
@@ -181,6 +182,9 @@ export default class EmpresaContratanteService {
       }
       if (payload.rfc !== undefined) {
         current.rfc = targetRfc
+      }
+      if (current.rfc) {
+        current.rfcHash = blindIndex(current.rfc)
       }
       if (payload.domicilioFiscal !== undefined) {
         current.domicilioFiscal = payload.domicilioFiscal.trim()
@@ -262,7 +266,7 @@ export default class EmpresaContratanteService {
     let query = EmpresaContratante.query()
       .whereNull('empresa_contratante_deleted_at')
       .whereIn('business_unit_id', allowed)
-      .where('empresa_contratante_rfc', rfc)
+      .where('empresa_contratante_rfc_hash', blindIndex(rfc))
 
     if (excludeId !== undefined) {
       query = query.whereNot('empresa_contratante_id', excludeId)

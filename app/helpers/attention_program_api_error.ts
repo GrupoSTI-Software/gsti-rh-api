@@ -28,6 +28,15 @@ function resolveMessageKey(error: AttentionProgramServiceError): string | undefi
     [ATTENTION_PROGRAM_ERROR_CODES.ALREADY_OPEN]: 'nom035.attention_program.already_open',
     [ATTENTION_PROGRAM_ERROR_CODES.NOT_FOUND_ORIGIN]: 'nom035.attention_program.not_found_origin',
     [ATTENTION_PROGRAM_ERROR_CODES.NOT_FOUND_PROGRAM]: 'nom035.attention_program.not_found_program',
+    [ATTENTION_PROGRAM_ERROR_CODES.ACTION_INCOMPLETE]:
+      'nom035.attention_program_action.action_incomplete',
+    [ATTENTION_PROGRAM_ERROR_CODES.INVALID_DIMENSION]:
+      'nom035.attention_program_action.invalid_dimension',
+    [ATTENTION_PROGRAM_ERROR_CODES.INVALID_LEVEL]: 'nom035.attention_program_action.invalid_level',
+    [ATTENTION_PROGRAM_ERROR_CODES.ACTION_NOT_FOUND]:
+      'nom035.attention_program_action.action_not_found',
+    [ATTENTION_PROGRAM_ERROR_CODES.PROGRAM_CLOSED]:
+      'nom035.attention_program_action.program_closed',
     [ATTENTION_PROGRAM_ERROR_CODES.FORBIDDEN]: 'nom035.attention_program.forbidden',
     [ATTENTION_PROGRAM_ERROR_CODES.SYS_UNHANDLED]: 'an_unexpected_error_has_occurred_on_the_server',
   }

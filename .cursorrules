@@ -1,5 +1,14 @@
 # Reglas de Cursor para este proyecto
 
+# Reglas de Cursor para este proyecto
+
+## Migraciones (AdonisJS Lucid)
+
+- NUNCA usar `await` con `this.schema` dentro de `up()`/`down()`: el getter `schema` registra cada builder y Lucid los ejecuta de forma diferida al terminar el método; como los builders de Knex son thenables, el `await` manual provoca que el SQL se ejecute DOS VECES.
+- Síntoma de la doble ejecución: los `ALTER MODIFY` pasan en silencio (idempotentes), pero los `ADD COLUMN` fallan con "Duplicate column name" y dejan columnas huérfanas (creadas en BD pero sin registro en `adonis_schema`).
+- Correcto: `this.schema.alterTable(...)` / `this.schema.raw(...)` sin `await`. El orden entre varias llamadas se respeta (se ejecutan en secuencia al terminar `up()`).
+- Incorrecto: `await this.schema.alterTable(...)` ❌
+
 ## Idioma
 - Todo el código, comentarios y documentación deben estar en español, excepto:
   - Nombres de variables, funciones, clases y métodos (en inglés siguiendo convenciones de código)

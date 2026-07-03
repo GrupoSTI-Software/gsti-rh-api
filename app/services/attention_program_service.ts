@@ -22,7 +22,7 @@ import type {
 
 type AttentionProgramRow = {
   attentionProgramId: number | string
-  businessUnitId: number | string
+  businessUnitPublicId: string
   regulationId: number | string
   questionnaireApplicationId: number | string | null
   originFolio: string | null
@@ -33,6 +33,7 @@ type AttentionProgramRow = {
   year: number | string
   period: string | null
   status: 'borrador' | 'vigente' | 'cerrado'
+  actionCount: number | string
   createdAt: string | Date | null
   updatedAt: string | Date | null
 }
@@ -236,6 +237,7 @@ export default class AttentionProgramService {
         'ap.questionnaire_application_id'
       )
       .leftJoin('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
+      .leftJoin('business_units as bu', 'bu.business_unit_id', 'ap.business_unit_id')
       .whereNull('ap.attention_program_deleted_at')
       .if(allowedBusinessUnitIds.length > 0, (query) => {
         query.whereIn('ap.business_unit_id', allowedBusinessUnitIds)
@@ -248,7 +250,7 @@ export default class AttentionProgramService {
       })
       .select(
         'ap.attention_program_id as attentionProgramId',
-        'ap.business_unit_id as businessUnitId',
+        'bu.business_unit_public_id as businessUnitPublicId',
         'ap.regulation_id as regulationId',
         'ap.questionnaire_application_id as questionnaireApplicationId',
         'qa.questionnaire_application_folio as originFolio',
@@ -259,6 +261,12 @@ export default class AttentionProgramService {
         'ap.attention_program_year as year',
         'ap.attention_program_period as period',
         'ap.attention_program_status as status',
+        db.raw(`(
+          SELECT COUNT(*)
+          FROM attention_program_actions AS apa
+          WHERE apa.attention_program_id = ap.attention_program_id
+            AND apa.attention_program_action_deleted_at IS NULL
+        ) as actionCount`),
         'ap.attention_program_created_at as createdAt',
         'ap.attention_program_updated_at as updatedAt'
       )
@@ -267,7 +275,7 @@ export default class AttentionProgramService {
   private serializeRow(row: AttentionProgramRow): AttentionProgramListItem {
     return {
       attentionProgramId: Number(row.attentionProgramId),
-      businessUnitId: Number(row.businessUnitId),
+      businessUnitPublicId: String(row.businessUnitPublicId),
       regulationId: Number(row.regulationId),
       questionnaireApplicationId: row.questionnaireApplicationId
         ? Number(row.questionnaireApplicationId)
@@ -276,7 +284,7 @@ export default class AttentionProgramService {
       year: Number(row.year),
       period: row.period,
       status: row.status,
-      actionCount: 0,
+      actionCount: Number(row.actionCount ?? 0),
       createdAt: this.toIsoUtc(row.createdAt) ?? DateTime.utc().toISO()!,
       updatedAt: this.toIsoUtc(row.updatedAt) ?? DateTime.utc().toISO()!,
     }
