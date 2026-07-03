@@ -1,6 +1,7 @@
 import vine from '@vinejs/vine'
 import Employee from '#models/employee'
 import MedicalConditionType from '#models/medical_condition_type'
+import { noMaskCharRule } from './no_mask_char_rule.js'
 
 export const createEmployeeMedicalConditionValidator = vine.compile(
   vine.object({
@@ -18,8 +19,8 @@ export const createEmployeeMedicalConditionValidator = vine.compile(
         .first()
       return !!medicalConditionType
     }),
-    employeeMedicalConditionDiagnosis: vine.string().trim().minLength(1).maxLength(500),
-    employeeMedicalConditionNotes: vine.string().trim().minLength(0).maxLength(1000).optional(),
+    employeeMedicalConditionDiagnosis: vine.string().trim().minLength(1).maxLength(500).use(noMaskCharRule()),
+    employeeMedicalConditionNotes: vine.string().trim().minLength(0).maxLength(1000).use(noMaskCharRule()).optional(),
     employeeMedicalConditionActive: vine.number().in([0, 1]).optional(),
     propertyValues: vine.array(
       vine.object({
@@ -47,8 +48,8 @@ export const updateEmployeeMedicalConditionValidator = vine.compile(
         .first()
       return !!medicalConditionType
     }).optional(),
-    employeeMedicalConditionDiagnosis: vine.string().trim().minLength(1).maxLength(500).optional(),
-    employeeMedicalConditionNotes: vine.string().trim().minLength(0).maxLength(1000).optional(),
+    employeeMedicalConditionDiagnosis: vine.string().trim().minLength(1).maxLength(500).use(noMaskCharRule()).optional(),
+    employeeMedicalConditionNotes: vine.string().trim().minLength(0).maxLength(1000).use(noMaskCharRule()).optional(),
     employeeMedicalConditionActive: vine.number().in([0, 1]).optional(),
     propertyValues: vine.array(
       vine.object({

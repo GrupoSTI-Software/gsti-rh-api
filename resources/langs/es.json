@@ -1982,5 +1982,11 @@
   "employee_temporary_assignment_without_active_title": "Sin préstamo activo",
   "employee_temporary_assignment_without_active_message": "El empleado no tiene un préstamo temporal activo en este momento.",
   "employee_temporary_assignment_active_title": "Préstamo temporal activo",
-  "employee_temporary_assignment_active_message": "Se encontró un préstamo temporal activo para el empleado."
+  "employee_temporary_assignment_active_message": "Se encontró un préstamo temporal activo para el empleado.",
+  "pii_reveal_title": "Datos sensibles",
+  "pii_reveal_success": "Dato revelado correctamente.",
+  "pii_reveal_not_found": "El campo solicitado no existe o no pertenece al alcance del usuario.",
+  "pii_reveal_invalid_params": "Los parámetros de la solicitud son inválidos.",
+  "pii_reveal_error": "Ocurrió un error al procesar la solicitud.",
+  "pii_access_logs_list_success": "Historial de accesos obtenido correctamente."
 }

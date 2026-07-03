@@ -1979,5 +1979,11 @@
   "employee_temporary_assignment_without_active_title": "No active assignment",
   "employee_temporary_assignment_without_active_message": "The employee has no active temporary assignment at this time.",
   "employee_temporary_assignment_active_title": "Active temporary assignment",
-  "employee_temporary_assignment_active_message": "An active temporary assignment was found for the employee."
+  "employee_temporary_assignment_active_message": "An active temporary assignment was found for the employee.",
+  "pii_reveal_title": "Sensitive data",
+  "pii_reveal_success": "Data revealed successfully.",
+  "pii_reveal_not_found": "The requested field does not exist or does not belong to the user's scope.",
+  "pii_reveal_invalid_params": "The request parameters are invalid.",
+  "pii_reveal_error": "An error occurred while processing the request.",
+  "pii_access_logs_list_success": "Access log retrieved successfully."
 }

@@ -185,6 +185,7 @@ import './routes/competency_descriptor_routes.js'
 import './routes/competency_bracket_routes.js'
 import './routes/auth_signup_routes.js'
 import './routes/complaint_routes.js'
+import './routes/pii_reveal_routes.js'
 
 router
   .get('/', async ({ view }) => {

@@ -35,6 +35,7 @@
     "#tests/*": "./tests/*.js",
     "#config/*": "./config/*.js",
     "#constants/*": "./app/constants/*.js",
+    "#helpers/*": "./app/helpers/*.js",
     "#utils/*": "./app/utils/*.js",
     "#mixins/*": "./app/mixins/*.js",
     "#modules/*": "./app/modules/*.js"
