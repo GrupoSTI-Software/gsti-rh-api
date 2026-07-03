@@ -3,6 +3,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 import Bank from './bank.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 /**
@@ -58,19 +59,63 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
   @column({ isPrimary: true })
   declare employeeBankId: number
 
-  @column()
+  /**
+   * CLABE interbancaria — cifrada AES-256-CBC en reposo (LFPDPPP, dato financiero).
+   * El ciphertext no se usa en cláusulas WHERE; los últimos números se conservan en
+   * `employeeBankAccountClabeLastNumbers` para presentación parcial.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeBankAccountClabe: string
 
   @column()
   declare employeeBankAccountClabeLastNumbers: string
 
-  @column()
+  /**
+   * Número de cuenta bancaria — cifrado AES-256-CBC en reposo (LFPDPPP, dato financiero).
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeBankAccountNumber: string
 
   @column()
   declare employeeBankAccountNumberLastNumbers: string
 
-  @column()
+  /**
+   * Número de tarjeta — cifrado AES-256-CBC en reposo (LFPDPPP, dato financiero).
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeBankAccountCardNumber: string
 
   @column()

@@ -37,7 +37,8 @@ export interface QuestionnaireApplicationDetailResult {
   folio: string
   branchOfficeId: number
   branchOfficeName: string
-  businessUnitId: number
+  /** Código público UUID v4 de la unidad de negocio. */
+  businessUnitPublicId: string
   regulationQuestionnaireId: number
   applicableInstrument: QuestionnaireApplicationInstrument
   status: QuestionnaireApplicationStatus

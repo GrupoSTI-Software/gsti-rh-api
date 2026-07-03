@@ -8,9 +8,11 @@ const BUSINESS_UNIT_HEADER = 'x-business-unit-id'
 
 /** Códigos de error del middleware de scope (contrato GSTI). */
 const ERR = {
-  /** Header o campo businessUnitId con valor no entero-positivo. */
-  INVALID_ID: { key: 'BU.VAL.001', title: 'Parámetro inválido' },
-  /** ID enviado no pertenece al scope accesible del usuario. */
+  /**
+   * El código público es inexistente o fuera del alcance del usuario.
+   * No se distingue entre "formato inválido" y "no en scope" para evitar
+   * filtrar información sobre la existencia de unidades.
+   */
   NOT_IN_SCOPE: { key: 'BU.NOT.001', title: 'Unidad de negocio no encontrada' },
 } as const
 
@@ -24,11 +26,9 @@ const ERR = {
  * Comportamiento:
  *  - Sin header → `ctx.businessUnitScope` = conjunto completo accesible del usuario;
  *                 `TenantContext.run(fullScope)` (sin narrowing).
- *  - Con header → idéntico a `BusinessUnitScopeMiddleware`: valida y estrecha
- *                 el scope a `[selectedId]`.
- *
- * ## root
- * Omite toda validación y continúa con `TenantContext.runUnscoped`.
+ *  - Con header → UUID v4 del código público de la unidad; se resuelve al ID
+ *                 interno y se estrecha el scope a `[internalId]`.
+ *                 UUID inválido o fuera de scope → 404 `BU.NOT.001`.
  *
  * Debe colocarse después del middleware `auth` (requiere usuario autenticado).
  */
@@ -40,18 +40,10 @@ export default class BusinessUnitScopeOptionalMiddleware {
       await user.load('role')
     }
 
-    // const isRoot = user.role?.roleSlug === 'root'
-
-    // // Root omite toda validación de scope y continúa sin filtro de tenant.
-    // if (isRoot) {
-    //   ctx.businessUnitScope = []
-    //   return TenantContext.runUnscoped(() => next(), 'usuario con rol root')
-    // }
-
     const scopeService = new BusinessAccessScopeService()
     const fullScope = await scopeService.getAccessibleIds(user)
 
-    // ── Header X-Business-Unit-Id (opcional) ─────────────────────────────────
+    // ── Header X-Business-Unit-Id (opcional) — ahora debe ser UUID v4 ────────
     const headerValue = ctx.request.header(BUSINESS_UNIT_HEADER)
 
     if (headerValue === undefined) {
@@ -60,17 +52,9 @@ export default class BusinessUnitScopeOptionalMiddleware {
       return TenantContext.run(fullScope, () => next())
     }
 
-    const requestedId = Number(headerValue)
+    const requestedId = await scopeService.resolveInternalId(headerValue, fullScope)
 
-    if (!Number.isInteger(requestedId) || requestedId <= 0) {
-      return ctx.response.status(400).json({
-        title: ERR.INVALID_ID.title,
-        detail: `El header ${BUSINESS_UNIT_HEADER} debe ser un entero positivo.`,
-        key: ERR.INVALID_ID.key,
-      })
-    }
-
-    if (!fullScope.includes(requestedId)) {
+    if (requestedId === null) {
       return ctx.response.status(404).json({
         title: ERR.NOT_IN_SCOPE.title,
         detail: 'El recurso solicitado no existe o no tienes acceso a él.',
@@ -79,31 +63,40 @@ export default class BusinessUnitScopeOptionalMiddleware {
     }
 
     // ── Query param / body businessUnitId ────────────────────────────────────
+    // Acepta dos formatos para compatibilidad progresiva:
+    //  a) UUID v4 → se resuelve al ID interno y se inyecta.
+    //  b) Entero positivo (legacy) → se valida en scope y se deja intacto.
+    // Si está ausente, se inyecta el ID resuelto desde el header.
     const rawQueryId = ctx.request.qs().businessUnitId
     const rawBodyId = ctx.request.body().businessUnitId
-    const candidateId = rawQueryId ?? rawBodyId
-    const candidateNumber = candidateId ? Number(candidateId) : 0
+    const candidateRaw = rawQueryId ?? rawBodyId
 
-    if (candidateNumber > 0) {
-      // Viene con un valor: validar que sea entero positivo y que esté en scope.
-      if (!Number.isInteger(candidateNumber)) {
-        return ctx.response.status(400).json({
-          title: ERR.INVALID_ID.title,
-          detail: 'El campo businessUnitId debe ser un entero positivo.',
-          key: ERR.INVALID_ID.key,
-        })
-      }
+    if (candidateRaw) {
+      const candidateStr = String(candidateRaw)
+      const resolvedFromParam = await scopeService.resolveInternalId(candidateStr, fullScope)
 
-      if (!fullScope.includes(candidateNumber)) {
-        return ctx.response.status(404).json({
-          title: ERR.NOT_IN_SCOPE.title,
-          detail: 'El recurso solicitado no existe o no tienes acceso a él.',
-          key: ERR.NOT_IN_SCOPE.key,
-        })
+      if (resolvedFromParam !== null) {
+        ctx.request.updateQs({ ...ctx.request.qs(), businessUnitId: resolvedFromParam })
+        ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: resolvedFromParam })
+      } else {
+        const candidateNumber = Number(candidateRaw)
+        if (!Number.isInteger(candidateNumber) || candidateNumber <= 0) {
+          return ctx.response.status(404).json({
+            title: ERR.NOT_IN_SCOPE.title,
+            detail: 'El recurso solicitado no existe o no tienes acceso a él.',
+            key: ERR.NOT_IN_SCOPE.key,
+          })
+        }
+        if (!fullScope.includes(candidateNumber)) {
+          return ctx.response.status(404).json({
+            title: ERR.NOT_IN_SCOPE.title,
+            detail: 'El recurso solicitado no existe o no tienes acceso a él.',
+            key: ERR.NOT_IN_SCOPE.key,
+          })
+        }
       }
     } else {
-      // Ausente, nulo o 0 → sustituir por el ID que viene en el header,
-      // tanto en query string como en body para que request.input() lo devuelva.
+      // Ausente, nulo o vacío → inyectar el ID interno resuelto desde el header
       ctx.request.updateQs({ ...ctx.request.qs(), businessUnitId: requestedId })
       ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: requestedId })
     }

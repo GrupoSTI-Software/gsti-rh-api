@@ -31,7 +31,7 @@ type QuestionnaireApplicationRow = {
   folio: string
   branchOfficeId: number | string
   branchOfficeName: string
-  businessUnitId: number | string
+  businessUnitPublicId: string
   regulationQuestionnaireId: number | string
   applicableInstrument: QuestionnaireApplicationInstrument
   status: 'borrador' | 'en-curso' | 'cerrada'
@@ -213,7 +213,7 @@ export default class QuestionnaireApplicationService {
         'qa.questionnaire_application_folio as folio',
         'qa.branch_office_id as branchOfficeId',
         'bo.branch_office_name as branchOfficeName',
-        'qa.business_unit_id as businessUnitId',
+        'bu.business_unit_public_id as businessUnitPublicId',
         'qa.regulation_questionnaire_id as regulationQuestionnaireId',
         'qa.questionnaire_application_instrument as applicableInstrument',
         'qa.questionnaire_application_status as status',
@@ -229,7 +229,7 @@ export default class QuestionnaireApplicationService {
         'qa.questionnaire_application_folio',
         'qa.branch_office_id',
         'bo.branch_office_name',
-        'qa.business_unit_id',
+        'bu.business_unit_public_id',
         'qa.regulation_questionnaire_id',
         'qa.questionnaire_application_instrument',
         'qa.questionnaire_application_status',
@@ -514,6 +514,7 @@ export default class QuestionnaireApplicationService {
     return db
       .from('questionnaire_applications as qa')
       .leftJoin('branch_offices as bo', 'bo.branch_office_id', 'qa.branch_office_id')
+      .leftJoin('business_units as bu', 'bu.business_unit_id', 'qa.business_unit_id')
       .leftJoin(
         'questionnaire_application_targets as qat',
         'qat.questionnaire_application_id',
@@ -550,7 +551,7 @@ export default class QuestionnaireApplicationService {
         'qa.questionnaire_application_folio as folio',
         'qa.branch_office_id as branchOfficeId',
         'bo.branch_office_name as branchOfficeName',
-        'qa.business_unit_id as businessUnitId',
+        'bu.business_unit_public_id as businessUnitPublicId',
         'qa.regulation_questionnaire_id as regulationQuestionnaireId',
         'qa.questionnaire_application_instrument as applicableInstrument',
         'qa.questionnaire_application_status as status',
@@ -564,7 +565,7 @@ export default class QuestionnaireApplicationService {
         'qa.questionnaire_application_folio',
         'qa.branch_office_id',
         'bo.branch_office_name',
-        'qa.business_unit_id',
+        'bu.business_unit_public_id',
         'qa.regulation_questionnaire_id',
         'qa.questionnaire_application_instrument',
         'qa.questionnaire_application_status',
@@ -659,7 +660,7 @@ export default class QuestionnaireApplicationService {
   private serializeDetailRow(row: QuestionnaireApplicationRow): QuestionnaireApplicationDetailResult {
     return {
       ...this.serializeListRow(row),
-      businessUnitId: Number(row.businessUnitId),
+      businessUnitPublicId: String(row.businessUnitPublicId),
       regulationQuestionnaireId: Number(row.regulationQuestionnaireId),
       closedAt: this.toIsoUtc(row.closedAt),
     }

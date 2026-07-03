@@ -13,16 +13,8 @@ export default class FlightAttendantService {
         query.where((subQuery) => {
           subQuery.whereHas('employee', (employeeQuery) => {
             employeeQuery.whereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw(
+              // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss cifrados
+              personQuery.whereRaw(
                 'UPPER(CONCAT(person_firstname, " ", person_lastname, " ", person_second_lastname)) LIKE ?',
                 [`%${filters.search.toUpperCase()}%`]
               )

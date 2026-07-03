@@ -3,6 +3,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 /**
  * @swagger
  * components:
@@ -62,7 +63,23 @@ export default class EmployeeSpouse extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeSpouseBirthday: string
 
-  @column()
+  /**
+   * Teléfono del cónyuge — cifrado AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato de contacto). No se usa en cláusulas WHERE de SQL.
+   * Columna ampliada a VARCHAR(191) para alojar el ciphertext.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+  })
   declare employeeSpousePhone: string
 
   @column()

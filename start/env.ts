@@ -15,6 +15,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   NODE_ENV: Env.schema.enum(['development', 'production', 'test'] as const),
   PORT: Env.schema.number(),
   APP_KEY: Env.schema.string(),
+  /**
+   * Secreto exclusivo para el cálculo del índice ciego (blind-index HMAC-SHA256).
+   * DISTINTO de APP_KEY (que cifra). NUNCA comprometer en el repo.
+   * Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   */
+  BLIND_INDEX_KEY: Env.schema.string(),
   HOST: Env.schema.string({ format: 'host' }),
   LOG_LEVEL: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */

@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
 interface BusinessUnitInterface {
-  business_unit_id: number
+  /** Código público UUID v4 — identificador externo de la unidad de negocio. */
+  business_unit_public_id: string
   business_unit_name: string
   business_unit_slug: string
   business_unit_legal_name: string
