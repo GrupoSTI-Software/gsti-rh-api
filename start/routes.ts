@@ -137,6 +137,7 @@ import '#modules/onboarding/state/state.routes'
 import '#modules/onboarding/trial_access/trial_access.routes'
 import '#modules/onboarding/simulate_attendance/simulate_attendance.routes'
 import '#modules/consent/acceptance/acceptance.routes'
+import '#modules/nom035-disclosure/nom035_disclosure.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')

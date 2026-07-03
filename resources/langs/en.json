@@ -649,6 +649,17 @@
       "invalid_answer_option": "An invalid answer option was detected for a question scale",
       "sys_unhandled": "An unexpected error occurred while tabulating the round"
     },
+    "disclosure": {
+      "title": "NOM-035 evaluation results",
+      "show_message": "Results fetched successfully",
+      "not_available_message": "Results are not available for this workplace yet",
+      "val_input": "Invalid data",
+      "forbidden": "You do not have permission to view anonymized workplace results",
+      "no_employee": "The authenticated user has no associated employee record",
+      "no_branch": "The employee has no active workplace",
+      "not_found": "Workplace not found or outside user scope",
+      "sys_unhandled": "An unexpected error occurred while fetching anonymized results"
+    },
     "retention_policy": {
       "title": "NOM-035 Retention Policy",
       "error_title": "NOM-035 Retention Policy Error",

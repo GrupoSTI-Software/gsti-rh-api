@@ -140,6 +140,93 @@ components:
         code: NOM035.QRUN.NOT_APPLICABLE
         data: null
 
+    Nom035DisclosureSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            disclosure:
+              oneOf:
+                - type: object
+                  properties:
+                    available:
+                      type: boolean
+                      enum: [false]
+                    branchOfficeId:
+                      type: integer
+                    branchOfficeName:
+                      type: string
+                - type: object
+                  properties:
+                    available:
+                      type: boolean
+                      enum: [true]
+                    branchOfficeId:
+                      type: integer
+                    branchOfficeName:
+                      type: string
+                    applicationId:
+                      type: integer
+                    instrumentCode:
+                      type: string
+                    respondersCount:
+                      type: integer
+                    overall:
+                      type: object
+                      properties:
+                        score:
+                          type: number
+                        riskLevel:
+                          type: string
+                          nullable: true
+                          enum: [nulo, bajo, medio, alto, muy_alto, null]
+                    categories:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          code:
+                            type: string
+                          score:
+                            type: number
+                            nullable: true
+                          riskLevel:
+                            type: string
+                            nullable: true
+                            enum: [nulo, bajo, medio, alto, muy_alto, null]
+                          respondersCount:
+                            type: integer
+                          suppressed:
+                            type: boolean
+                    domains:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          code:
+                            type: string
+                          categoryCode:
+                            type: string
+                          score:
+                            type: number
+                            nullable: true
+                          riskLevel:
+                            type: string
+                            nullable: true
+                            enum: [nulo, bajo, medio, alto, muy_alto, null]
+                          respondersCount:
+                            type: integer
+                          suppressed:
+                            type: boolean
+
     QuestionnaireApplicationListItem:
       type: object
       properties:
@@ -4817,6 +4904,190 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+
+  /api/nom035/disclosure/results:
+    get:
+      summary: Consultar resultados agregados y anonimizados NOM-035 del centro de trabajo
+      tags: [NOM035]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+        - name: branchOfficeId
+          in: query
+          required: false
+          description: >
+            Requiere permiso read-all. Sin ese permiso el API ignora este parámetro
+            y devuelve siempre el centro de trabajo del usuario autenticado.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Resultado anonimizado obtenido correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Nom035DisclosureSuccess'
+              examples:
+                available:
+                  summary: Centro de trabajo con ronda tabulada
+                  value:
+                    type: success
+                    title: Resultados de evaluación NOM-035
+                    message: Resultados obtenidos correctamente
+                    data:
+                      disclosure:
+                        available: true
+                        branchOfficeId: 12
+                        branchOfficeName: Sucursal Centro
+                        applicationId: 1289
+                        instrumentCode: GUIA-III-NOM035
+                        respondersCount: 48
+                        overall:
+                          score: 312
+                          riskLevel: alto
+                        categories:
+                          - code: CAT-I
+                            score: 40
+                            riskLevel: bajo
+                            respondersCount: 48
+                            suppressed: false
+                          - code: CAT-IV
+                            score: null
+                            riskLevel: muy_alto
+                            respondersCount: 3
+                            suppressed: true
+                        domains:
+                          - code: VIOLENCIA_LABORAL
+                            categoryCode: CAT-IV
+                            score: null
+                            riskLevel: muy_alto
+                            respondersCount: 3
+                            suppressed: true
+                notAvailable:
+                  summary: Centro de trabajo sin ronda tabulada
+                  value:
+                    type: success
+                    title: Resultados de evaluación NOM-035
+                    message: Aún no hay resultados disponibles para este centro de trabajo
+                    data:
+                      disclosure:
+                        available: false
+                        branchOfficeId: 12
+                        branchOfficeName: Sucursal Norte
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Datos inválidos
+                detail: El parámetro branchOfficeId debe ser un entero positivo.
+                key: entrada-invalida
+                errorCode: NOM035.DISC.VAL_INPUT
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: Sin permiso base para consultar difusión NOM-035
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Sin permiso para consultar los resultados anonimizados del centro de trabajo
+                detail: El rol no tiene permiso read del módulo nom035-disclosure.
+                key: sin-permiso
+                errorCode: NOM035.DISC.FORBIDDEN
+                data: null
+        '404':
+          description: Sucursal no encontrada o fuera del alcance tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Centro de trabajo no encontrado o fuera del alcance del usuario
+                detail: El centro de trabajo solicitado no existe en el alcance disponible.
+                key: centro-no-encontrado
+                errorCode: NOM035.DISC.NOT_FOUND
+                data: null
+        '422':
+          description: Usuario sin empleado asociado o sin centro de trabajo activo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                noEmployee:
+                  value:
+                    type: error
+                    title: Error
+                    message: El usuario autenticado no tiene un empleado asociado
+                    detail: No se encontró relación usuario-persona-empleado.
+                    key: usuario-sin-empleado
+                    errorCode: NOM035.DISC.NO_EMPLOYEE
+                    data: null
+                noBranch:
+                  value:
+                    type: error
+                    title: Error
+                    message: El empleado no tiene centro de trabajo activo
+                    detail: Asigna un centro de trabajo activo para poder consultar resultados.
+                    key: empleado-sin-centro
+                    errorCode: NOM035.DISC.NO_BRANCH
+                    data: null
+        '500':
+          description: Error no controlado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Ocurrió un error inesperado al consultar los resultados anonimizados
+                detail: Error interno no clasificado.
+                key: error-interno
+                errorCode: NOM035.DISC.SYS_UNHANDLED
+                data: null
 
   /api/nom035/questionnaire-applications:
     get:
