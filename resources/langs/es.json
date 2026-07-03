@@ -1970,5 +1970,14 @@
   "employee_temporary_assignment_without_active_title": "Sin préstamo activo",
   "employee_temporary_assignment_without_active_message": "El empleado no tiene un préstamo temporal activo en este momento.",
   "employee_temporary_assignment_active_title": "Préstamo temporal activo",
-  "employee_temporary_assignment_active_message": "Se encontró un préstamo temporal activo para el empleado."
+  "employee_temporary_assignment_active_message": "Se encontró un préstamo temporal activo para el empleado.",
+  "employee_work_schedule_error_title": "Modalidad de trabajo",
+  "employee_work_schedule_hybrid_requires_active_shift": "Para marcar al empleado como Híbrido primero debe tener un turno activo asignado.",
+  "employee_work_schedule_hybrid_days_intersect_rest_days": "Los días seleccionados incluyen un día de descanso del turno del empleado.",
+  "employee_work_schedule_hybrid_zero_equals_onsite": "Con cero días de teletrabajo, la modalidad debe ser Presencial.",
+  "employee_work_schedule_hybrid_full_equals_remote": "Con la jornada completa remota, la modalidad debe ser Home Office.",
+  "employee_work_schedule_hybrid_config_out_of_range": "El valor de días excede la jornada laboral del empleado.",
+  "employee_work_schedule_hybrid_mode_required": "Debe indicar cómo se otorga el home office para la modalidad Híbrido.",
+  "employee_work_schedule_hybrid_config_required": "Debe indicar los días u ocurrencias que aplican al modo híbrido elegido.",
+  "employee_work_schedule_hybrid_config_invalid_shape": "La configuración híbrida no tiene un formato válido."
 }

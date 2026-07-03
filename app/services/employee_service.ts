@@ -69,6 +69,25 @@ import Ws from '#services/ws'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
+import EmployeeTeleworkCalculator from './employee_telework_calculator.js'
+import {
+  EMPLOYEE_WORK_SCHEDULE,
+  EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
+  EmployeeWorkScheduleErrorCode,
+} from '#constants/employee_work_schedule'
+
+/**
+ * Resultado de `EmployeeService.applyWorkScheduleAndTeleworkPercentage`:
+ * indica si la modalidad + config híbrida es válida para el turno actual del
+ * empleado. Los consumidores (controlador, import Excel) usan `code` para
+ * mapear a mensajes traducidos.
+ */
+export interface ApplyWorkScheduleResult {
+  ok: boolean
+  code?: EmployeeWorkScheduleErrorCode
+  percentage?: number
+}
+
 export default class EmployeeService {
 
   private i18n: I18n
@@ -475,6 +494,122 @@ export default class EmployeeService {
     return employees
   }
 
+  /**
+   * Aplica la modalidad de trabajo al empleado y calcula el porcentaje de
+   * teletrabajo derivado. Valida la configuración híbrida contra el turno
+   * activo (RN-06 a RN-09) sin persistir.
+   *
+   * - Onsite  → porcentaje 0,00; modo y config a `null`.
+   * - Remote  → porcentaje 100,00; modo y config a `null`.
+   * - Hybrid  → porcentaje derivado del calculador; requiere turno activo.
+   *
+   * El porcentaje jamás se toma del `source`: el servidor es la única fuente
+   * de verdad (RN-04 y RN-12).
+   *
+   * @param target - Instancia de Employee sobre la que se van a asignar los campos.
+   * @param source - Objeto con los datos entrantes del request/import.
+   * @param employeeId - Id del empleado para resolver el turno activo (opcional en alta).
+   * @returns `{ ok, code?, percentage? }` con el porcentaje calculado.
+   */
+  async applyWorkScheduleAndTeleworkPercentage(
+    target: Employee,
+    source: Partial<Employee>,
+    employeeId?: number
+  ): Promise<ApplyWorkScheduleResult> {
+    const modality = source.employeeWorkSchedule ?? EMPLOYEE_WORK_SCHEDULE.ONSITE
+
+    if (modality === EMPLOYEE_WORK_SCHEDULE.ONSITE) {
+      target.employeeWorkSchedule = EMPLOYEE_WORK_SCHEDULE.ONSITE
+      target.employeeWorkScheduleHybridMode = null
+      target.employeeWorkScheduleHybridConfig = null
+      target.employeeTeleworkPercentage = 0.0
+      return { ok: true, percentage: 0.0 }
+    }
+
+    if (modality === EMPLOYEE_WORK_SCHEDULE.REMOTE) {
+      target.employeeWorkSchedule = EMPLOYEE_WORK_SCHEDULE.REMOTE
+      target.employeeWorkScheduleHybridMode = null
+      target.employeeWorkScheduleHybridConfig = null
+      target.employeeTeleworkPercentage = 100.0
+      return { ok: true, percentage: 100.0 }
+    }
+
+    // Modalidad Hybrid: se requiere turno activo y config válida.
+    let shift: Shift | null = null
+    if (employeeId && employeeId > 0) {
+      const shiftService = new EmployeeShiftService(this.i18n)
+      const activeShift = await shiftService.getShiftActiveByEmployee(employeeId)
+      shift = activeShift?.shift ?? null
+    }
+
+    if (!shift) {
+      return {
+        ok: false,
+        code: EMPLOYEE_WORK_SCHEDULE_ERROR_CODES.HYBRID_REQUIRES_ACTIVE_SHIFT,
+      }
+    }
+
+    const restDays = EmployeeTeleworkCalculator.parseRestDays(shift.shiftRestDays) ?? []
+    const workingDaysPerWeek = EmployeeTeleworkCalculator.resolveWorkingDaysPerWeek(shift)
+
+    const validation = EmployeeTeleworkCalculator.validateHybridConfig({
+      modality: EMPLOYEE_WORK_SCHEDULE.HYBRID,
+      hybridMode: source.employeeWorkScheduleHybridMode ?? null,
+      hybridConfig: source.employeeWorkScheduleHybridConfig ?? null,
+      workingDaysPerWeek,
+      restDays,
+    })
+
+    if (!validation.ok) {
+      return { ok: false, code: validation.code }
+    }
+
+    const percentage = EmployeeTeleworkCalculator.calculateTeleworkPercentage({
+      modality: EMPLOYEE_WORK_SCHEDULE.HYBRID,
+      hybridMode: source.employeeWorkScheduleHybridMode ?? null,
+      hybridConfig: source.employeeWorkScheduleHybridConfig ?? null,
+      workingDaysPerWeek,
+    })
+
+    target.employeeWorkSchedule = EMPLOYEE_WORK_SCHEDULE.HYBRID
+    target.employeeWorkScheduleHybridMode = source.employeeWorkScheduleHybridMode ?? null
+    target.employeeWorkScheduleHybridConfig = source.employeeWorkScheduleHybridConfig ?? null
+    target.employeeTeleworkPercentage = percentage
+    return { ok: true, percentage }
+  }
+
+  /**
+   * Construye la advertencia bilingüe (ES/EN) que se agrega al reporte del
+   * importador cuando una fila de Excel intenta setear la modalidad Híbrido.
+   *
+   * La modalidad Híbrido no se procesa desde Excel porque requiere validar la
+   * configuración contra el turno activo del empleado (RN-06 a RN-09) y
+   * ofrecer al usuario un selector de modo/días con feedback en tiempo real;
+   * esos criterios existen solo en la UI del backoffice
+   * (`components/employeeInfoForm`). El sentido inverso sí se soporta desde
+   * Excel: cambiar de Híbrido a Onsite (0%) o Remote (100%) es trivial.
+   *
+   * @param rowNumber - Número de fila del Excel (1-based) donde se detectó el intento.
+   * @param mode - `'update'` cuando el empleado ya existía; `'create'` cuando es alta nueva.
+   * @returns Cadena bilingüe formateada para el listado `results.errors[]` del importador.
+   */
+  private buildHybridFromExcelWarning(rowNumber: number, mode: 'update' | 'create'): string {
+    if (mode === 'update') {
+      return (
+        `Fila ${rowNumber} · La modalidad Híbrido debe configurarse desde el sistema del backoffice, no desde Excel: `
+        + 'requiere validar la configuración contra el turno del empleado. Se conservó la modalidad actual del empleado. '
+        + `· Row ${rowNumber} · Hybrid work modality must be configured from the backoffice system, not from Excel: `
+        + 'it requires validating the configuration against the employee\'s shift. The employee\'s current modality was preserved.'
+      )
+    }
+    return (
+      `Fila ${rowNumber} · El empleado se creó como Presencial (0%). La modalidad Híbrido debe configurarse desde el sistema `
+      + 'del backoffice tras asignar un turno activo: requiere criterios que no se validan por Excel. '
+      + `· Row ${rowNumber} · The employee was created as Onsite (0%). Hybrid work modality must be configured from the `
+      + 'backoffice system after an active shift is assigned: it requires criteria that Excel cannot validate.'
+    )
+  }
+
   async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
     // Guardar el personId que viene del frontend
     const personIdToDelete = employee.personId || null
@@ -516,7 +651,17 @@ export default class EmployeeService {
       newEmployee.businessUnitId = employee.businessUnitId
       newEmployee.dailySalary = employee.dailySalary || 0
       newEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
-      newEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
+      // Modalidad y porcentaje se aplican via helper para respetar RN-02..RN-05.
+      // En alta el empleado aún no tiene id, así que solo pasa cuando la
+      // modalidad es Onsite/Remote (Hybrid requiere turno activo previo).
+      const workScheduleResult = await this.applyWorkScheduleAndTeleworkPercentage(
+        newEmployee,
+        employee,
+        undefined
+      )
+      if (!workScheduleResult.ok) {
+        throw new Error(workScheduleResult.code)
+      }
       newEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
       newEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
       newEmployee.employeeTypeId = employee.employeeTypeId
@@ -599,7 +744,17 @@ export default class EmployeeService {
     currentEmployee.businessUnitId = employee.businessUnitId
     currentEmployee.dailySalary = salarioNuevo
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
-    currentEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
+    // Modalidad y porcentaje se aplican via helper: valida contra el turno
+    // activo y calcula el % de teletrabajo. Si el helper reporta un error de
+    // negocio, se lanza para que el controlador traduzca a 400 con `code`.
+    const workScheduleResult = await this.applyWorkScheduleAndTeleworkPercentage(
+      currentEmployee,
+      employee,
+      currentEmployee.employeeId
+    )
+    if (!workScheduleResult.ok) {
+      throw new Error(workScheduleResult.code)
+    }
     currentEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
     currentEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
     currentEmployee.employeeTypeId = employee.employeeTypeId
@@ -2771,6 +2926,9 @@ export default class EmployeeService {
           if (!existingEmployee) continue
           try {
             await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+            if (employeeData.employeeWorkScheduleHybridAttempt) {
+              results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+            }
             results.updated++
             results.processed++
           } catch (error: any) {
@@ -2787,6 +2945,9 @@ export default class EmployeeService {
               const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
               if (existingEmployee) {
                 await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+                if (employeeData.employeeWorkScheduleHybridAttempt) {
+                  results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+                }
                 results.updated++
                 results.processed++
               }
@@ -2814,6 +2975,11 @@ export default class EmployeeService {
 
             const person = await this.createPerson(employeeData)
             const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+            if (employeeData.employeeWorkScheduleHybridAttempt) {
+              // El empleado nuevo queda con Onsite (default de `createEmployee`).
+              // Se avisa a RH para que ajuste la modalidad desde el sistema.
+              results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+            }
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
             await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
 
@@ -2933,6 +3099,8 @@ export default class EmployeeService {
       'Correo personal',
       'Teléfono Empresa',
       'Teléfono Personal',
+      'Modalidad de trabajo',
+      '% Teletrabajo',
       'Nombre contacto emergencia',
       'Apellido paterno contacto emergencia',
       'Apellido materno contacto emergencia',
@@ -3211,7 +3379,24 @@ export default class EmployeeService {
         data.personalPhone = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('modalidad de trabajo')) {
         const v = (value || '').toString().trim()
-        data.employeeWorkSchedule = v.toLowerCase() === 'presencial' ? 'Onsite' : (v.toLowerCase() === 'home office' || v.toLowerCase() === 'remoto' ? 'Remote' : (v === 'Onsite' || v === 'Remote' ? v : ''))
+        const lower = v.toLowerCase()
+        // La modalidad Híbrido se configura desde el sistema (requiere validar
+        // contra el turno activo, RN-06). Si el usuario captura "Híbrido" en
+        // Excel se ignora silenciosamente y el importador emite una advertencia
+        // en el reporte para que RH la ajuste desde el formulario del empleado.
+        if (lower === 'híbrido' || lower === 'hibrido' || v === 'Hybrid') {
+          data.employeeWorkSchedule = ''
+          data.employeeWorkScheduleHybridAttempt = true
+        } else {
+          data.employeeWorkSchedule = lower === 'presencial'
+            ? 'Onsite'
+            : (lower === 'home office' || lower === 'remoto')
+              ? 'Remote'
+              : (v === 'Onsite' || v === 'Remote' ? v : '')
+        }
+      } else if (header.includes('% teletrabajo') || header.includes('porcentaje de teletrabajo')) {
+        // Columna informativa: el porcentaje lo deriva el servidor
+        // (`applyWorkScheduleAndTeleworkPercentage`). Se ignora al importar.
       } else if (header.includes('discriminar asistencia')) {
         data.employeeAssistDiscriminator = parseYesNo(value)
       } else if (header.includes('ignorar ausencias consecutivas')) {
@@ -3425,7 +3610,20 @@ export default class EmployeeService {
     if (employeeData.employeeAssistDiscriminator !== undefined) existingEmployee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator
     if (employeeData.employeeIgnoreConsecutiveAbsences !== undefined) existingEmployee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences
     if (employeeData.employeeAuthorizeAnyZones !== undefined) existingEmployee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones
-    if (employeeData.employeeWorkSchedule === 'Onsite' || employeeData.employeeWorkSchedule === 'Remote') existingEmployee.employeeWorkSchedule = employeeData.employeeWorkSchedule
+    // Modalidad desde Excel: solo se permite Onsite/Remote. El intento de
+    // Híbrido ya fue neutralizado por `extractEmployeeDataFromRow` (queda como
+    // '' y se levanta el flag `employeeWorkScheduleHybridAttempt` para reportar
+    // la advertencia). Cuando el empleado era Híbrido y se lo pasa a Onsite/
+    // Remote, delegamos a `applyWorkScheduleAndTeleworkPercentage` para que
+    // limpie `hybridMode`/`hybridConfig` y recalcule `employeeTeleworkPercentage`
+    // (0 para Onsite, 100 para Remote). RN-04 y RN-12.
+    if (employeeData.employeeWorkSchedule === 'Onsite' || employeeData.employeeWorkSchedule === 'Remote') {
+      await this.applyWorkScheduleAndTeleworkPercentage(
+        existingEmployee,
+        { employeeWorkSchedule: employeeData.employeeWorkSchedule },
+        existingEmployee.employeeId
+      )
+    }
     const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
     if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
@@ -3685,7 +3883,16 @@ export default class EmployeeService {
     employee.payrollBusinessUnitId = payrollBusinessUnitId
     employee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator !== undefined ? employeeData.employeeAssistDiscriminator : 0
     employee.employeeTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes) ?? 1
-    employee.employeeWorkSchedule = (employeeData.employeeWorkSchedule === 'Remote' || employeeData.employeeWorkSchedule === 'Onsite') ? employeeData.employeeWorkSchedule : 'Onsite'
+    // Modalidad desde Excel: solo Onsite/Remote. Cualquier otro valor (incluido
+    // el intento de Híbrido) cae al default Onsite. Delegamos a
+    // `applyWorkScheduleAndTeleworkPercentage` para dejar consistente el trío
+    // modalidad/hybridMode/hybridConfig + `employeeTeleworkPercentage`. El
+    // empleado aún no tiene turno activo al momento del alta, pero para Onsite
+    // y Remote la rama no lo consulta (RN-04 y RN-12).
+    const importedWorkSchedule = (employeeData.employeeWorkSchedule === 'Remote' || employeeData.employeeWorkSchedule === 'Onsite')
+      ? employeeData.employeeWorkSchedule
+      : 'Onsite'
+    await this.applyWorkScheduleAndTeleworkPercentage(employee, { employeeWorkSchedule: importedWorkSchedule })
     employee.employeeBusinessEmail = employeeData.businessEmail || ''
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
@@ -4562,6 +4769,7 @@ export default class EmployeeService {
       'Teléfono Empresa',
       'Teléfono Personal',
       'Modalidad de trabajo',
+      '% Teletrabajo',
       'Discriminar asistencia',
       'Ignorar ausencias consecutivas',
       'Autorizar cualquier zona',
@@ -4600,7 +4808,7 @@ export default class EmployeeService {
     worksheet.getRow(1).height = 60
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
-    worksheet.mergeCells(2, 1, 2, 45)
+    worksheet.mergeCells(2, 1, 2, headers.length)
     titleRow.getCell(1).value = 'Plantilla de importación de empleados'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
     titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
@@ -4638,13 +4846,51 @@ export default class EmployeeService {
 
     worksheet.getColumn(1).hidden = true
 
+    // Comentarios bilingües en los headers de la sección de modalidad para
+    // documentar la regla operativa: Híbrido solo desde el backoffice; % es
+    // calculado por el servidor y aquí es informativo.
+    worksheet.getCell(1, 20).note = {
+      texts: [
+        { text: 'Modalidad de trabajo · Work modality\n\n', font: { bold: true, size: 10 } },
+        {
+          text:
+            '[ES] Valores válidos desde Excel: "Presencial" y "Home office". '
+            + 'La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado. '
+            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
+            + '[EN] Valid values from Excel: "Presencial" (Onsite) and "Home office" (Remote). '
+            + 'Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift. '
+            + 'From Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).',
+          font: { size: 10 }
+        }
+      ],
+      margins: { insetmode: 'auto' }
+    } as any
+    worksheet.getCell(1, 21).note = {
+      texts: [
+        { text: '% Teletrabajo · Telework %\n\n', font: { bold: true, size: 10 } },
+        {
+          text:
+            '[ES] Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.\n\n'
+            + '[EN] Read-only column. The percentage is calculated automatically by the system: 0% for Onsite, 100% for Remote, and the value derived from the shift and hybrid configuration for Hybrid employees. Any value entered here is ignored on import.',
+          font: { size: 10 }
+        }
+      ],
+      margins: { insetmode: 'auto' }
+    } as any
+
     const columnWidths = [
       10, 25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20, 20,
-      22, 20, 28, 24, 12, 18, 18, 18, 14, 25, 25, 25, 20, 20, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
+      22, 16, 20, 28, 24, 12, 18, 18, 18, 14, 25, 25, 25, 20, 20, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
     ]
     columnWidths.forEach((w, i) => {
       worksheet.getColumn(i + 1).width = w
     })
+
+    // Columna 21 "% Teletrabajo" es informativa: el porcentaje lo deriva el
+    // servidor (RN-04). Se marca con fondo gris claro en cada fila del
+    // rango imprimible para señalar al usuario que no debe editarla; el
+    // importador ignora silenciosamente cualquier valor que traiga.
+    const teleworkInformativeFill = 'FFF3F3F3'
 
     for (let row = 4; row <= 1001; row++) {
       worksheet.getCell(row, 3).dataValidation = {
@@ -4666,11 +4912,22 @@ export default class EmployeeService {
       }
       worksheet.getCell(row, 20).dataValidation = {
         type: 'list', allowBlank: true, formulae: [workScheduleRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Presencial o Home office'
+        errorStyle: 'warning', showErrorMessage: true,
+        errorTitle: 'Modalidad no válida desde Excel / Modality not valid from Excel',
+        error:
+          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
+          + 'Choose Onsite or Remote. Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift; from Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).'
       }
-      worksheet.getCell(row, 21).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [yesNoRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      const teleworkCell = worksheet.getCell(row, 21)
+      teleworkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teleworkInformativeFill } }
+      teleworkCell.numFmt = '0.00'
+      teleworkCell.dataValidation = {
+        type: 'custom', allowBlank: true, formulae: ['FALSE'],
+        errorStyle: 'warning', showErrorMessage: true,
+        errorTitle: 'Columna informativa / Read-only column',
+        error:
+          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.\n\n'
+          + 'The telework percentage is calculated automatically by the system from the employee\'s modality and shift. Any value entered here will be ignored on import.'
       }
       worksheet.getCell(row, 22).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -4681,11 +4938,15 @@ export default class EmployeeService {
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
       }
       worksheet.getCell(row, 24).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 25).dataValidation = {
         type: 'list', allowBlank: true, formulae: [genderRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un género válido'
       }
-      // Columnas 25-27 (país, estado, ciudad de nacimiento): sin dropdown, texto libre
-      worksheet.getCell(row, 28).dataValidation = {
+      // Columnas 26-28 (país, estado, ciudad de nacimiento): sin dropdown, texto libre
+      worksheet.getCell(row, 29).dataValidation = {
         type: 'list', allowBlank: true, formulae: [maritalRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
       }
@@ -4792,32 +5053,45 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
         worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
         worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
-        worksheet.getCell(rowNum, 20).value = emp.employeeWorkSchedule === 'Remote' ? 'Home office' : (emp.employeeWorkSchedule === 'Onsite' ? 'Presencial' : (emp.employeeWorkSchedule || ''))
-        worksheet.getCell(rowNum, 21).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
-        worksheet.getCell(rowNum, 22).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
-        worksheet.getCell(rowNum, 23).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
-        worksheet.getCell(rowNum, 24).value = person?.personGender ?? ''
-        worksheet.getCell(rowNum, 25).value = person?.personPlaceOfBirthCountry ?? ''
-        worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
-        worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
-        worksheet.getCell(rowNum, 28).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
-        worksheet.getCell(rowNum, 29).value = primaryContact?.employeeEmergencyContactFirstname ?? ''
-        worksheet.getCell(rowNum, 30).value = primaryContact?.employeeEmergencyContactLastname ?? ''
-        worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
-        worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
-        worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactPhone ?? ''
-        worksheet.getCell(rowNum, 34).value = resAddress?.addressCountry ?? ''
-        worksheet.getCell(rowNum, 35).value = resAddress?.addressState ?? ''
-        worksheet.getCell(rowNum, 36).value = resAddress?.addressTownship ?? ''
-        worksheet.getCell(rowNum, 37).value = resAddress?.addressCity ?? ''
-        worksheet.getCell(rowNum, 38).value = resAddress?.addressSettlement ?? ''
-        worksheet.getCell(rowNum, 39).value = resAddress?.addressSettlementType ?? ''
-        worksheet.getCell(rowNum, 40).value = resAddress?.addressStreet ?? ''
-        worksheet.getCell(rowNum, 41).value = resAddress?.addressInternalNumber ?? ''
-        worksheet.getCell(rowNum, 42).value = resAddress?.addressExternalNumber ?? ''
-        worksheet.getCell(rowNum, 43).value = resAddress?.addressBetweenStreet1 ?? ''
-        worksheet.getCell(rowNum, 44).value = resAddress?.addressBetweenStreet2 ?? ''
-        worksheet.getCell(rowNum, 45).value = resAddress?.addressZipcode ?? ''
+        // Modalidad (col 20) + % Teletrabajo (col 21, informativa/derivada por el servidor).
+        // Los tres casos usan el valor persistido en `employee_telework_percentage`:
+        // Onsite = 0, Remote = 100, Hybrid = el % calculado con base en su turno y config.
+        const modalityLabel = emp.employeeWorkSchedule === 'Remote'
+          ? 'Home office'
+          : emp.employeeWorkSchedule === 'Onsite'
+            ? 'Presencial'
+            : emp.employeeWorkSchedule === 'Hybrid'
+              ? 'Híbrido'
+              : (emp.employeeWorkSchedule || '')
+        worksheet.getCell(rowNum, 20).value = modalityLabel
+        worksheet.getCell(rowNum, 21).value = typeof emp.employeeTeleworkPercentage === 'number'
+          ? emp.employeeTeleworkPercentage
+          : 0
+        worksheet.getCell(rowNum, 22).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 23).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 24).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 25).value = person?.personGender ?? ''
+        worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthCountry ?? ''
+        worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthState ?? ''
+        worksheet.getCell(rowNum, 28).value = person?.personPlaceOfBirthCity ?? ''
+        worksheet.getCell(rowNum, 29).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
+        worksheet.getCell(rowNum, 30).value = primaryContact?.employeeEmergencyContactFirstname ?? ''
+        worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactLastname ?? ''
+        worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
+        worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
+        worksheet.getCell(rowNum, 34).value = primaryContact?.employeeEmergencyContactPhone ?? ''
+        worksheet.getCell(rowNum, 35).value = resAddress?.addressCountry ?? ''
+        worksheet.getCell(rowNum, 36).value = resAddress?.addressState ?? ''
+        worksheet.getCell(rowNum, 37).value = resAddress?.addressTownship ?? ''
+        worksheet.getCell(rowNum, 38).value = resAddress?.addressCity ?? ''
+        worksheet.getCell(rowNum, 39).value = resAddress?.addressSettlement ?? ''
+        worksheet.getCell(rowNum, 40).value = resAddress?.addressSettlementType ?? ''
+        worksheet.getCell(rowNum, 41).value = resAddress?.addressStreet ?? ''
+        worksheet.getCell(rowNum, 42).value = resAddress?.addressInternalNumber ?? ''
+        worksheet.getCell(rowNum, 43).value = resAddress?.addressExternalNumber ?? ''
+        worksheet.getCell(rowNum, 44).value = resAddress?.addressBetweenStreet1 ?? ''
+        worksheet.getCell(rowNum, 45).value = resAddress?.addressBetweenStreet2 ?? ''
+        worksheet.getCell(rowNum, 46).value = resAddress?.addressZipcode ?? ''
       })
     }
 

@@ -38,6 +38,11 @@ import {
 } from '../constants/employee_termination.js'
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import {
+  EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
+  EmployeeWorkScheduleErrorCode,
+} from '#constants/employee_work_schedule'
+import { I18n } from '@adonisjs/i18n'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -46,6 +51,47 @@ import BusinessAccessScopeService from '#services/business_access_scope_service'
 // const client = wrapper(axios.create({ jar }))
 
 export default class EmployeeController {
+  /**
+   * Set inmutable con los códigos de error de la modalidad híbrida. Se usa
+   * para reconocer errores de negocio arrojados por `EmployeeService` y
+   * traducirlos a respuesta 400 con clave i18n.
+   *
+   * Ver `docs/spec-USRH1782788926678.md` §7.3 y §9.3.
+   */
+  private static readonly WORK_SCHEDULE_ERROR_CODES: ReadonlySet<string> = new Set(
+    Object.values(EMPLOYEE_WORK_SCHEDULE_ERROR_CODES)
+  )
+
+  /**
+   * Traduce un `error.message` que sea un código conocido de la modalidad
+   * híbrida a una respuesta 400 estructurada. Devuelve `null` si el mensaje
+   * no es uno de los códigos (el catch general se encarga).
+   */
+  private mapWorkScheduleErrorMessage(
+    message: string | undefined,
+    i18n: I18n
+  ): {
+    type: 'warning'
+    title: string
+    code: EmployeeWorkScheduleErrorCode
+    message: string
+  } | null {
+    if (!message || !EmployeeController.WORK_SCHEDULE_ERROR_CODES.has(message)) {
+      return null
+    }
+    const code = message as EmployeeWorkScheduleErrorCode
+    const translationKey = `employee_work_schedule_${code}`
+    const titleKey = 'employee_work_schedule_error_title'
+    const translated = i18n.t(translationKey)
+    const title = i18n.t(titleKey)
+    return {
+      type: 'warning',
+      title: title === titleKey ? 'Modalidad de trabajo' : title,
+      code,
+      message: translated === translationKey ? code : translated,
+    }
+  }
+
   /**
    * Parsea un valor de query param que puede ser un número único o una lista separada por comas.
    * Retorna un número si es un solo valor, un array de números si son varios, o null si no hay valor.
@@ -790,9 +836,21 @@ export default class EmployeeController {
    *                 default: 0
    *               employeeWorkSchedule:
    *                 type: string
-   *                 description: Work Schedule Onsite or Remote
+   *                 enum: [Onsite, Remote, Hybrid]
+   *                 description: Modalidad de trabajo del empleado
    *                 required: true
    *                 default: 'Onsite'
+   *               employeeWorkScheduleHybridMode:
+   *                 type: string
+   *                 enum: [SpecificDays, DaysPerWeek, DaysPerMonth]
+   *                 nullable: true
+   *                 description: Modo de la modalidad híbrida. Solo cuando `employeeWorkSchedule` es `Hybrid`.
+   *                 required: false
+   *               employeeWorkScheduleHybridConfig:
+   *                 type: object
+   *                 nullable: true
+   *                 description: Configuración híbrida. Objeto con days number[] para SpecificDays, o count number para DaysPerWeek y DaysPerMonth.
+   *                 required: false
    *               employeeTypeId:
    *                 type: integer
    *                 description: Employee type id
@@ -858,7 +916,7 @@ export default class EmployeeController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Errores de negocio de modalidad híbrida se retornan con `code` (ej. `hybrid_requires_active_shift`).
    *         content:
    *           application/json:
    *             schema:
@@ -870,6 +928,9 @@ export default class EmployeeController {
    *                 title:
    *                   type: string
    *                   description: Title of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Código de negocio (solo cuando la modalidad híbrida falla)
    *                 message:
    *                   type: string
    *                   description: Message of response
@@ -925,6 +986,8 @@ export default class EmployeeController {
       const departmentId = request.input('departmentId', null)
       const positionId = request.input('positionId', null)
       const workSchedule = request.input('employeeWorkSchedule')
+      const workScheduleHybridMode = request.input('employeeWorkScheduleHybridMode') ?? null
+      const workScheduleHybridConfig = request.input('employeeWorkScheduleHybridConfig') ?? null
       const employeeTypeId = request.input('employeeTypeId')
       const employeeBusinessEmail = request.input('employeeBusinessEmail')
       const employeeTypeOfContract = request.input('employeeTypeOfContract')
@@ -950,6 +1013,8 @@ export default class EmployeeController {
         dailySalary: dailySalary,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeWorkSchedule: workSchedule,
+        employeeWorkScheduleHybridMode: workScheduleHybridMode,
+        employeeWorkScheduleHybridConfig: workScheduleHybridConfig,
         employeeTypeId: employeeTypeId,
         employeeBusinessEmail: employeeBusinessEmail,
         employeeAssistDiscriminator: employeeAssistDiscriminator,
@@ -1028,6 +1093,13 @@ export default class EmployeeController {
         }
       }
     } catch (error) {
+      // Errores de negocio de la modalidad híbrida se traducen a 400 con el
+      // código para que el cliente muestre el mensaje correcto (i18n).
+      const workScheduleError = this.mapWorkScheduleErrorMessage(error?.message, i18n)
+      if (workScheduleError) {
+        response.status(400)
+        return workScheduleError
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1132,9 +1204,21 @@ export default class EmployeeController {
    *                 default: 0
    *               employeeWorkSchedule:
    *                 type: string
-   *                 description: Work Schedule Onsite or Remote
+   *                 enum: [Onsite, Remote, Hybrid]
+   *                 description: Modalidad de trabajo del empleado
    *                 required: true
    *                 default: 'Onsite'
+   *               employeeWorkScheduleHybridMode:
+   *                 type: string
+   *                 enum: [SpecificDays, DaysPerWeek, DaysPerMonth]
+   *                 nullable: true
+   *                 description: Modo de la modalidad híbrida. Solo cuando `employeeWorkSchedule` es `Hybrid`.
+   *                 required: false
+   *               employeeWorkScheduleHybridConfig:
+   *                 type: object
+   *                 nullable: true
+   *                 description: Configuración híbrida. Objeto con days number[] para SpecificDays, o count number para DaysPerWeek y DaysPerMonth.
+   *                 required: false
    *               employeeTypeId:
    *                 type: integer
    *                 description: Employee type id
@@ -1272,6 +1356,10 @@ export default class EmployeeController {
       const departmentId = request.input('departmentId')
       const positionId = request.input('positionId')
       const employeeWorkSchedule = request.input('employeeWorkSchedule')
+      const employeeWorkScheduleHybridMode =
+        request.input('employeeWorkScheduleHybridMode') ?? null
+      const employeeWorkScheduleHybridConfig =
+        request.input('employeeWorkScheduleHybridConfig') ?? null
       const employeeTypeId = request.input('employeeTypeId')
       const employeeBusinessEmail = request.input('employeeBusinessEmail')
       const employeeTypeOfContract = request.input('employeeTypeOfContract')
@@ -1301,6 +1389,8 @@ export default class EmployeeController {
         dailySalary: dailySalary,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeWorkSchedule: employeeWorkSchedule,
+        employeeWorkScheduleHybridMode: employeeWorkScheduleHybridMode,
+        employeeWorkScheduleHybridConfig: employeeWorkScheduleHybridConfig,
         employeeTypeId: employeeTypeId,
         employeeBusinessEmail: employeeBusinessEmail,
         employeeAssistDiscriminator: employeeAssistDiscriminator,
@@ -1429,6 +1519,11 @@ export default class EmployeeController {
         }
       }
     } catch (error) {
+      const workScheduleError = this.mapWorkScheduleErrorMessage(error?.message, i18n)
+      if (workScheduleError) {
+        response.status(400)
+        return workScheduleError
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

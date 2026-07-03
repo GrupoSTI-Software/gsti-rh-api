@@ -1967,5 +1967,14 @@
   "employee_temporary_assignment_without_active_title": "No active assignment",
   "employee_temporary_assignment_without_active_message": "The employee has no active temporary assignment at this time.",
   "employee_temporary_assignment_active_title": "Active temporary assignment",
-  "employee_temporary_assignment_active_message": "An active temporary assignment was found for the employee."
+  "employee_temporary_assignment_active_message": "An active temporary assignment was found for the employee.",
+  "employee_work_schedule_error_title": "Work modality",
+  "employee_work_schedule_hybrid_requires_active_shift": "To mark this employee as Hybrid, first assign an active shift.",
+  "employee_work_schedule_hybrid_days_intersect_rest_days": "The selected days include a rest day from the employee shift.",
+  "employee_work_schedule_hybrid_zero_equals_onsite": "With zero remote days, the modality must be Onsite.",
+  "employee_work_schedule_hybrid_full_equals_remote": "With every working day remote, the modality must be Home Office.",
+  "employee_work_schedule_hybrid_config_out_of_range": "The days value exceeds the employee working days.",
+  "employee_work_schedule_hybrid_mode_required": "You must indicate how the home office is granted for the Hybrid modality.",
+  "employee_work_schedule_hybrid_config_required": "You must indicate the days or occurrences that apply to the chosen hybrid mode.",
+  "employee_work_schedule_hybrid_config_invalid_shape": "The hybrid configuration has an invalid shape."
 }
