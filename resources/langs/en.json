@@ -1943,6 +1943,21 @@
     "status_success": "Consent status retrieved successfully.",
     "record_success": "Consent recorded successfully."
   },
+  "legalDocuments": {
+    "title": "Legal document",
+    "current_success": "Current legal document retrieved successfully.",
+    "errors": {
+      "documento-legal-sin-version-vigente": {
+        "title": "Legal document",
+        "detail": "There is no published current version for this document type yet."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Legal document",
+        "detail": "The provided legal document type is not valid.",
+        "detail_missing": "You must provide the 'type' parameter with one of these values: privacy_notice, terms_conditions, biometric_consent."
+      }
+    }
+  },
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
