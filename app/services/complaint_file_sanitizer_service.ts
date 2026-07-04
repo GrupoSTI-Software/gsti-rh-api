@@ -2,7 +2,10 @@ import fs from 'node:fs/promises'
 import sharp from 'sharp'
 import { PDFDocument } from 'pdf-lib'
 import nodeId3 from 'node-id3'
-import { fromBuffer as detectFileTypeFromBuffer } from 'file-type'
+// file-type@16 es CommonJS (module.exports = {...}); Node no expone sus
+// miembros como named exports en ESM. Se importa el default y se accede a
+// fromBuffer por propiedad.
+import fileType from 'file-type'
 import {
   COMPLAINT_ATTACHMENT_ALLOWED_AUDIO_MIMES,
   COMPLAINT_ATTACHMENT_ALLOWED_IMAGE_MIMES,
@@ -32,7 +35,7 @@ export default class ComplaintFileSanitizerService {
   }
 
   async sanitizeBuffer(inputBuffer: Buffer): Promise<SanitizedFileResult> {
-    const detected = await detectFileTypeFromBuffer(inputBuffer)
+    const detected = await fileType.fromBuffer(inputBuffer)
     const mimeType = detected?.mime as ComplaintAttachmentAllowedMime | undefined
 
     if (!mimeType || !this.isAllowedMime(mimeType)) {
