@@ -34,8 +34,16 @@ export default class EmployeeMedicalConditionService {
   async update(currentEmployeeMedicalCondition: EmployeeMedicalCondition, employeeMedicalCondition: EmployeeMedicalCondition, propertyValues?: any[]) {
     currentEmployeeMedicalCondition.employeeId = employeeMedicalCondition.employeeId
     currentEmployeeMedicalCondition.medicalConditionTypeId = employeeMedicalCondition.medicalConditionTypeId
-    currentEmployeeMedicalCondition.employeeMedicalConditionDiagnosis = employeeMedicalCondition.employeeMedicalConditionDiagnosis
-    currentEmployeeMedicalCondition.employeeMedicalConditionNotes = employeeMedicalCondition.employeeMedicalConditionNotes
+    // Campos sensibles cifrados: null = "no actualizar" — el BO los envía como null
+    // cuando el usuario no los modificó en esa sesión (se mostraban enmascarados).
+    if (employeeMedicalCondition.employeeMedicalConditionDiagnosis !== null &&
+        employeeMedicalCondition.employeeMedicalConditionDiagnosis !== undefined) {
+      currentEmployeeMedicalCondition.employeeMedicalConditionDiagnosis = employeeMedicalCondition.employeeMedicalConditionDiagnosis
+    }
+    if (employeeMedicalCondition.employeeMedicalConditionNotes !== null &&
+        employeeMedicalCondition.employeeMedicalConditionNotes !== undefined) {
+      currentEmployeeMedicalCondition.employeeMedicalConditionNotes = employeeMedicalCondition.employeeMedicalConditionNotes
+    }
     currentEmployeeMedicalCondition.employeeMedicalConditionActive = employeeMedicalCondition.employeeMedicalConditionActive
     await currentEmployeeMedicalCondition.save()
 
