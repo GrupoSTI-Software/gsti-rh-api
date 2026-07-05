@@ -11,6 +11,7 @@ import {
   COMPLAINT_ATTACHMENT_ALLOWED_IMAGE_MIMES,
   COMPLAINT_ATTACHMENT_ALLOWED_MIMES,
   COMPLAINT_ATTACHMENT_ALLOWED_PDF_MIMES,
+  COMPLAINT_ATTACHMENT_MP3_MIMES,
   type ComplaintAttachmentAllowedMime,
 } from '#constants/complaint_attachment'
 
@@ -98,6 +99,21 @@ export default class ComplaintFileSanitizerService {
   ): Promise<SanitizedFileResult> {
     if (!COMPLAINT_ATTACHMENT_ALLOWED_AUDIO_MIMES.includes(mimeType as (typeof COMPLAINT_ATTACHMENT_ALLOWED_AUDIO_MIMES)[number])) {
       throw new Error('INVALID_FILE_TYPE')
+    }
+
+    // node-id3 solo entiende MP3 (tags ID3). El audio grabado desde la app
+    // (AAC/m4a) es una grabación fresca sin tags ID3 ni metadatos
+    // identificantes, así que se persiste tal cual sin pasar por el stripper
+    // MP3 (que devolvería el buffer intacto o false y lo rechazaría de más).
+    const isMp3 = COMPLAINT_ATTACHMENT_MP3_MIMES.includes(
+      mimeType as (typeof COMPLAINT_ATTACHMENT_MP3_MIMES)[number]
+    )
+    if (!isMp3) {
+      return Promise.resolve({
+        buffer: inputBuffer,
+        mimeType,
+        fileSize: inputBuffer.length,
+      })
     }
 
     const stripped = (

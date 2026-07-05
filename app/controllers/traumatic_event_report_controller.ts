@@ -8,10 +8,12 @@ import TraumaticEventReportDocumentService from '#services/traumatic_event_repor
 import {
   traumaticEventReportListValidator,
   createTraumaticEventReportValidator,
+  createEmployeeTraumaticEventReportValidator,
   updateTraumaticEventReportValidator,
   traumaticEventRegistryFiltersValidator,
 } from '#validators/traumatic_event_report'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
+import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 import { resolveTraumaticEventReportApiError } from '../helpers/traumatic_event_report_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 
@@ -159,6 +161,104 @@ export default class TraumaticEventReportController {
           traumaticEventReportInvolvedPeople: body.traumaticEventReportInvolvedPeople,
           traumaticEventReportDescription: body.traumaticEventReportDescription,
           capturedByUserId: ctx.auth.user!.userId,
+        },
+        ctx.businessUnitScope
+      )
+
+      return StandardResponseFormatter.success(
+        response,
+        created,
+        'Traumatic Event Report',
+        'Reporte de evento traumático creado correctamente',
+        201
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/v1/traumatic-event-reports  (canal app del empleado)
+  // ---------------------------------------------------------------------------
+  /**
+   * @swagger
+   * /api/v1/traumatic-event-reports:
+   *   post:
+   *     summary: Registrar reporte de evento traumático desde la app del empleado (NOM-035 §6.5)
+   *     description: |
+   *       Canal de captura del propio trabajador afectado desde la app (Flutter).
+   *       El servidor resuelve el empleado desde el token (nunca del body), fija
+   *       `origin='employee'`, y asigna `elaboratedAt` y `capturedByUserId` en el
+   *       servidor. Reutiliza la misma tabla, servicio y catálogo que el flujo de RH.
+   *     tags: [TraumaticEventReports]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - traumaticEventTypeId
+   *               - traumaticEventReportOccurredAt
+   *               - traumaticEventReportInvolvedPeople
+   *               - traumaticEventReportDescription
+   *             properties:
+   *               traumaticEventTypeId: { type: integer }
+   *               traumaticEventReportOccurredAt:
+   *                 type: string
+   *                 format: date
+   *                 description: Fecha de ocurrencia (no puede ser futura).
+   *               traumaticEventReportInvolvedPeople:
+   *                 type: string
+   *                 description: Personas involucradas en el evento.
+   *               traumaticEventReportDescription:
+   *                 type: string
+   *                 description: Descripción del evento.
+   *     responses:
+   *       '201': { description: Reporte creado con origin=employee, elaboratedAt y capturedByUserId asignados por el servidor }
+   *       '400':
+   *         description: |
+   *           Validación inválida. Posibles `key`:
+   *           - `fecha-ocurrencia-futura` (fecha futura)
+   *           - `tipo-evento-invalido` (tipo inexistente o inactivo)
+   *           - `empleado-no-asociado` (el usuario autenticado no tiene empleado)
+   *       '401': { description: Sin autenticación (guard auth) }
+   */
+  async storeFromEmployee(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      // El guard `auth()` de la ruta ya garantizó la autenticación (401 antes de entrar).
+      const user = ctx.auth.user!
+
+      // Regla 1: el empleado es el del token, nunca el del body. La cadena
+      // person->employee puede no venir precargada con la auth por token opaco.
+      await user.load('person', (personQuery) => personQuery.preload('employee'))
+      const employee = user.person?.employee
+
+      if (!employee) {
+        // Regla 6: sin empleado asociado no se crea nada. Paridad con el login,
+        // que responde 400 cuando el User no tiene empleado.
+        throw new TraumaticEventReportError(
+          'El usuario autenticado no tiene un empleado asociado.',
+          ETR_ERROR_CODES.FORBIDDEN,
+          400,
+          'empleado-no-asociado'
+        )
+      }
+
+      const body = await request.validateUsing(createEmployeeTraumaticEventReportValidator)
+      const service = new TraumaticEventReportService()
+      const created = await service.create(
+        {
+          traumaticEventReportEmployeeId: employee.employeeId,
+          traumaticEventTypeId: body.traumaticEventTypeId,
+          traumaticEventReportOccurredAt: body.traumaticEventReportOccurredAt,
+          traumaticEventReportInvolvedPeople: body.traumaticEventReportInvolvedPeople,
+          traumaticEventReportDescription: body.traumaticEventReportDescription,
+          capturedByUserId: user.userId,
+          traumaticEventReportOrigin: 'employee',
         },
         ctx.businessUnitScope
       )
