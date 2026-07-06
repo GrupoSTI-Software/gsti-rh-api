@@ -1968,6 +1968,21 @@
     "status_success": "Estado de consentimiento obtenido correctamente.",
     "record_success": "Consentimiento registrado correctamente."
   },
+  "legalDocuments": {
+    "title": "Documento legal",
+    "current_success": "Documento legal vigente obtenido correctamente.",
+    "errors": {
+      "documento-legal-sin-version-vigente": {
+        "title": "Documento legal",
+        "detail": "Aún no hay una versión vigente publicada para este tipo de documento."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Documento legal",
+        "detail": "El tipo de documento legal indicado no es válido.",
+        "detail_missing": "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+      }
+    }
+  },
   "employee_temporary_assignment_unauthorized_title": "No autorizado",
   "employee_temporary_assignment_unauthorized_message": "El usuario debe estar autenticado.",
   "employee_temporary_assignment_resource_not_found_title": "Recurso no encontrado",

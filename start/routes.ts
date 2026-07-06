@@ -73,6 +73,7 @@ import './routes/aircraft_operator_routes.js'
 import './routes/work_disability_type_routes.js'
 import './routes/traumatic_event_type_routes.js'
 import './routes/traumatic_event_report_routes.js'
+import './routes/traumatic_event_report_v1_routes.js'
 import './routes/traumatic_event_referral_routes.js'
 import './routes/traumatic_event_exam_routes.js'
 import './routes/traumatic_event_report_evidences_routes.js'
@@ -139,6 +140,7 @@ import '#modules/onboarding/trial_access/trial_access.routes'
 import '#modules/onboarding/simulate_attendance/simulate_attendance.routes'
 import '#modules/consent/acceptance/acceptance.routes'
 import '#modules/nom035-disclosure/nom035_disclosure.routes'
+import '#modules/legal-documents/legal_document.routes'
 if (env.get('APP_MODE') === 'demo') {
   try {
     await import('#modules/demo/routes')
