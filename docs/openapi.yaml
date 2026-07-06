@@ -254,6 +254,69 @@ components:
               format: date-time
               nullable: true
 
+    LegalDocumentAdmin:
+      type: object
+      description: Forma administrativa de una versión (gestión reservada al rol root).
+      properties:
+        id:
+          type: integer
+          example: 6
+        type:
+          type: string
+          enum: [privacy_notice, terms_conditions, biometric_consent]
+        version:
+          type: string
+          example: '1.0'
+        content:
+          type: object
+          description: Contenido HTML saneado por idioma.
+          properties:
+            es:
+              type: string
+            en:
+              type: string
+        status:
+          type: string
+          enum: [draft, published]
+        isCurrent:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishedBy:
+          type: integer
+          nullable: true
+          description: userId de quien publicó la versión.
+
+    LegalDocumentAdminSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/LegalDocumentAdmin'
+
+    LegalDocumentAdminListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LegalDocumentAdmin'
+
     ConsentStatusSuccess:
       type: object
       properties:
@@ -5251,6 +5314,536 @@ paths:
                     detail: El tipo de documento legal indicado no es válido.
                     key: tipo-de-documento-invalido
                     code: LGDOC.VAL.001
+
+  /api/legal-documents:
+    get:
+      summary: "[Gestión GSTI] Histórico de versiones de un tipo de documento legal"
+      description: |
+        Devuelve todas las versiones (borrador y publicadas) de un tipo de documento
+        legal, con cuál está vigente. Reservado al rol `root`; cualquier otro rol
+        recibe 403, incluida esta consulta de solo lectura. Sin `X-Business-Unit-Id`:
+        documento global de plataforma.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [privacy_notice, terms_conditions, biometric_consent]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, published]
+      responses:
+        '200':
+          description: Histórico de versiones del tipo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminListSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Histórico de documento legal obtenido correctamente.
+                data:
+                  - id: 5
+                    type: terms_conditions
+                    version: '2.0'
+                    content: { es: '<h1>Términos v2</h1>', en: '<h1>Terms v2</h1>' }
+                    status: published
+                    isCurrent: true
+                    publishedAt: '2026-07-05T10:00:00.000-06:00'
+                    publishedBy: 12
+                  - id: 1
+                    type: terms_conditions
+                    version: '1.0'
+                    content: { es: '<h1>Términos v1</h1>', en: '<h1>Terms v1</h1>' }
+                    status: published
+                    isCurrent: false
+                    publishedAt: '2026-07-02T00:00:00.000-06:00'
+                    publishedBy: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '422':
+          description: El parámetro `type` es inválido o falta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+                key: tipo-de-documento-invalido
+                code: LGDOC.VAL.001
+    post:
+      summary: "[Gestión GSTI] Crear una versión en borrador"
+      description: |
+        Crea una versión nueva en `status='draft'` (nunca vigente). El contenido
+        puede llegar con un solo idioma completo (regla de negocio 8): la
+        obligatoriedad de ambos idiomas se valida al publicar, no al crear el
+        borrador. El contenido se sanea por idioma en el servidor antes de
+        persistir. Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, version, content]
+              properties:
+                type:
+                  type: string
+                  enum: [privacy_notice, terms_conditions, biometric_consent]
+                version:
+                  type: string
+                  maxLength: 20
+                  example: '2.0'
+                content:
+                  type: object
+                  properties:
+                    es:
+                      type: string
+                      example: '<h1>Términos v2</h1>'
+                    en:
+                      type: string
+                      example: '<h1>Terms v2</h1>'
+      responses:
+        '201':
+          description: Borrador creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Borrador de documento legal creado correctamente.
+                data:
+                  id: 6
+                  type: biometric_consent
+                  version: '1.0'
+                  content: { es: '<p>Texto biométrico</p>', en: '' }
+                  status: draft
+                  isCurrent: false
+                  publishedAt: null
+                  publishedBy: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '409':
+          description: La combinación tipo + versión ya existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: Ya existe una versión con ese identificador para este tipo de documento.
+                key: version-duplicada
+                code: LGDOC.CONF.002
+        '422':
+          description: Body malformado (tipo/versión/contenido inválidos)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                message: Entrada inválida
+                detail: The version field must be defined
+                key: entrada-invalida
+                data: null
+
+  /api/legal-documents/{id}:
+    get:
+      summary: "[Gestión GSTI] Detalle administrativo de una versión"
+      description: |
+        Devuelve una versión puntual con su contenido completo en ambos idiomas y
+        metadatos de auditoría. Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 5
+      responses:
+        '200':
+          description: Detalle de la versión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal obtenido correctamente.
+                data:
+                  id: 5
+                  type: terms_conditions
+                  version: '2.0'
+                  content: { es: '<h1>Términos v2</h1>', en: '<h1>Terms v2</h1>' }
+                  status: published
+                  isCurrent: true
+                  publishedAt: '2026-07-05T10:00:00.000-06:00'
+                  publishedBy: 12
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '404':
+          description: No existe ninguna versión con ese id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No existe una versión de documento legal con ese identificador.
+                key: documento-legal-inexistente
+                code: LGDOC.NF.002
+    put:
+      summary: "[Gestión GSTI] Editar un borrador"
+      description: |
+        Actualiza el contenido y/o la versión de una versión en `status='draft'`.
+        Sobre una versión ya publicada responde 409 (regla de negocio 3: el
+        contenido publicado es inmutable — corregir significa publicar una
+        versión nueva). Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                version:
+                  type: string
+                  maxLength: 20
+                  example: '1.0'
+                content:
+                  type: object
+                  properties:
+                    es:
+                      type: string
+                    en:
+                      type: string
+      responses:
+        '200':
+          description: Borrador actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Borrador de documento legal actualizado correctamente.
+                data:
+                  id: 6
+                  type: biometric_consent
+                  version: '1.0'
+                  content: { es: '<p>Texto biométrico</p>', en: '<p>Biometric text</p>' }
+                  status: draft
+                  isCurrent: false
+                  publishedAt: null
+                  publishedBy: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '404':
+          description: No existe ninguna versión con ese id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No existe una versión de documento legal con ese identificador.
+                key: documento-legal-inexistente
+                code: LGDOC.NF.002
+        '409':
+          description: La versión ya está publicada (inmutable) o la nueva versión choca con otra existente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                publicadaInmutable:
+                  summary: La versión ya está publicada
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: El contenido de una versión publicada no se puede editar.
+                    key: version-publicada-inmutable
+                    code: LGDOC.CONF.001
+                versionDuplicada:
+                  summary: El nuevo identificador de versión ya existe
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: Ya existe una versión con ese identificador para este tipo de documento.
+                    key: version-duplicada
+                    code: LGDOC.CONF.002
+
+  /api/legal-documents/{id}/publish:
+    post:
+      summary: "[Gestión GSTI] Publicar un borrador (transaccional)"
+      description: |
+        Publica un borrador existente: lo marca `published` + vigente y apaga la
+        versión vigente anterior del mismo tipo en una sola transacción (regla de
+        negocio 4). Si el tipo no tenía ninguna vigente (el biométrico al inicio),
+        esta operación crea su primera versión vigente (regla de negocio 2).
+        Requiere contenido en español e inglés (regla de negocio 8); si falta
+        alguno, 422 y el borrador permanece sin publicar. Habilita la
+        re-aceptación de los usuarios (la aplican las historias hermanas).
+        Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 6
+      responses:
+        '200':
+          description: Versión publicada y vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal publicado correctamente.
+                data:
+                  id: 6
+                  type: biometric_consent
+                  version: '1.0'
+                  content: { es: '<p>Texto biométrico</p>', en: '<p>Biometric text</p>' }
+                  status: published
+                  isCurrent: true
+                  publishedAt: '2026-07-06T12:00:00.000-06:00'
+                  publishedBy: 12
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '404':
+          description: No existe ninguna versión con ese id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No existe una versión de documento legal con ese identificador.
+                key: documento-legal-inexistente
+                code: LGDOC.NF.002
+        '409':
+          description: El id no corresponde a un borrador (ya está publicado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: El contenido de una versión publicada no se puede editar.
+                key: version-publicada-inmutable
+                code: LGDOC.CONF.001
+        '422':
+          description: Falta contenido en español o en inglés
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No puedes publicar una versión sin contenido en español e inglés.
+                key: contenido-idioma-incompleto
+                code: LGDOC.VAL.002
 
   /api/consent/me:
     get:
