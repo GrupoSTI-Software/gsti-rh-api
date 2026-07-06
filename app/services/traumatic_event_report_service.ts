@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import TraumaticEventReport from '#models/traumatic_event_report'
+import type { TraumaticEventReportOrigin } from '#models/traumatic_event_report'
 import TraumaticEventType from '#models/traumatic_event_type'
 import Employee from '#models/employee'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
@@ -13,6 +14,11 @@ export interface TraumaticEventReportCreatePayload {
   traumaticEventReportInvolvedPeople: string
   traumaticEventReportDescription: string
   capturedByUserId: number
+  /**
+   * Canal de captura. Default `'rh'` para no alterar el flujo de backoffice
+   * ya en producción; el canal de la app del empleado envía `'employee'`.
+   */
+  traumaticEventReportOrigin?: TraumaticEventReportOrigin
 }
 
 export type TraumaticEventReportUpdatePayload = Partial<
@@ -170,7 +176,7 @@ export default class TraumaticEventReportService {
   }
 
   /**
-   * Crea el reporte asignando elaboratedAt, origin=rh y capturedByUserId.
+   * Crea el reporte asignando elaboratedAt, origin (default 'rh') y capturedByUserId.
    * Valida que la fecha de ocurrencia no sea futura y que el tipo exista y esté activo.
    */
   async create(
@@ -192,7 +198,7 @@ export default class TraumaticEventReportService {
     report.traumaticEventReportElaboratedAt = DateTime.now()
     report.traumaticEventReportInvolvedPeople = payload.traumaticEventReportInvolvedPeople.trim()
     report.traumaticEventReportDescription = payload.traumaticEventReportDescription.trim()
-    report.traumaticEventReportOrigin = 'rh'
+    report.traumaticEventReportOrigin = payload.traumaticEventReportOrigin ?? 'rh'
     report.traumaticEventReportCapturedByUserId = payload.capturedByUserId
     await report.save()
 
