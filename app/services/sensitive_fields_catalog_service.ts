@@ -77,4 +77,25 @@ export default class SensitiveFieldsCatalogService {
   pendingEncryption(): readonly SensitiveField[] {
     return SENSITIVE_FIELDS.filter((f) => f.treatment !== 'enmascarar' && !f.encrypted)
   }
+
+  /**
+   * Devuelve los campos que deben entregarse enmascarados en la serialización
+   * JSON del API (USRH1783019898097).
+   *
+   * Filtra por `maskedInApi === true`. El BO puede solicitar el valor completo
+   * vía `GET /reveal/:token` que registra el acceso antes de revelar.
+   */
+  maskedFields(): readonly SensitiveField[] {
+    return SENSITIVE_FIELDS.filter((f) => f.maskedInApi === true)
+  }
+
+  /**
+   * Indica si un campo específico debe entregarse enmascarado al serializar.
+   *
+   * @param model  — nombre de la clase Lucid, p.ej. `'Person'`
+   * @param column — propiedad camelCase del modelo, p.ej. `'personCurp'`
+   */
+  isMaskedInApi(model: string, column: string): boolean {
+    return SENSITIVE_FIELDS.some((f) => f.model === model && f.column === column && f.maskedInApi === true)
+  }
 }

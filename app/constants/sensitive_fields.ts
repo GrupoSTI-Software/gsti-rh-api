@@ -54,6 +54,14 @@ export interface SensitiveField {
    * Fuente: anclas validadas contra código en rama `multitenant` al 2026-06-29.
    */
   readonly encrypted: boolean
+  /**
+   * `true` = el campo debe entregarse enmascarado en la serialización JSON del API
+   * (USRH1783019898097). El BO puede solicitar el valor completo vía el endpoint
+   * `GET /reveal/:token` que registra el acceso antes de revelar.
+   *
+   * Ausencia (o `false`) = el campo se serializa sin modificar (comportamiento previo).
+   */
+  readonly maskedInApi?: true
 }
 
 /**
@@ -74,26 +82,26 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Se buscan por igualdad en SQL (validators/person.ts, employee_controller.ts).
   // Requieren cifrado con blind-index para mantener la búsqueda tras cifrar.
   // Ancla: app/models/person.ts
-  { model: 'Person', column: 'personCurp', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
-  { model: 'Person', column: 'personRfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
-  { model: 'Person', column: 'personImssNss', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
+  { model: 'Person', column: 'personCurp', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+  { model: 'Person', column: 'personRfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+  { model: 'Person', column: 'personImssNss', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
 
   // ─── Person: contacto ──────────────────────────────────────────────────────
   // Ancla: app/models/person.ts
   // personEmail — validado por igualdad (unique); necesita blind-index (08-10-04-01).
-  { model: 'Person', column: 'personEmail', legalCategory: 'contacto', treatment: 'cifrar-buscable', encrypted: true },
+  { model: 'Person', column: 'personEmail', legalCategory: 'contacto', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
   // personPhone — LIKE retirado en USRH1782854997782; no se restaura (no es clave de búsqueda).
-  { model: 'Person', column: 'personPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+  { model: 'Person', column: 'personPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
   // personPhoneSecondary — sin búsquedas en SQL.
-  { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+  { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeBank: financiero ──────────────────────────────────────────────
   // Cifrados hoy vía employeeBankService.encrypt en employee_bank_controller.ts:165-176.
   // No se usan en WHERE de SQL. Se muestran con últimos 4 dígitos (*LastNumbers) en la UI.
   // Ancla: app/models/employee_bank.ts
-  { model: 'EmployeeBank', column: 'employeeBankAccountClabe', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'EmployeeBank', column: 'employeeBankAccountNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'EmployeeBank', column: 'employeeBankAccountCardNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'EmployeeBank', column: 'employeeBankAccountClabe', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'EmployeeBank', column: 'employeeBankAccountNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'EmployeeBank', column: 'employeeBankAccountCardNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeBiometric: biométrico ────────────────────────────────────────
   // employeeBiometricData — string de estado ("Finger:1, Face"); el template crudo vive
@@ -114,8 +122,8 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
   // No se buscan en SQL; contienen información clínica individual.
   // Ancla: app/models/employee_medical_condition.ts
-  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
-  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── WorkDisabilityNote: salud (sensible reforzado) ───────────────────────
   // Nota descriptiva de incapacidad; no se busca en SQL.

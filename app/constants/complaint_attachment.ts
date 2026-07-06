@@ -7,7 +7,26 @@ export const COMPLAINT_ATTACHMENT_ALLOWED_IMAGE_MIMES = [
 
 export const COMPLAINT_ATTACHMENT_ALLOWED_PDF_MIMES = ['application/pdf'] as const
 
-export const COMPLAINT_ATTACHMENT_ALLOWED_AUDIO_MIMES = ['audio/mpeg', 'audio/mp3'] as const
+/** MIME de audio MP3 (se sanitizan con node-id3). */
+export const COMPLAINT_ATTACHMENT_MP3_MIMES = ['audio/mpeg', 'audio/mp3'] as const
+
+/**
+ * MIME del audio grabado desde la app (AAC en contenedor m4a). file-type puede
+ * reportarlo como audio/x-m4a o audio/mp4; audio/aac cubre el stream ADTS.
+ * OJO: verificar en dispositivo real qué MIME reporta file-type@16 para lo que
+ * produce el grabador (paquete `record`) y ajustar esta lista si hace falta.
+ * Se excluye adrede `video/mp4` para no abrir la puerta a video.
+ */
+export const COMPLAINT_ATTACHMENT_RECORDED_AUDIO_MIMES = [
+  'audio/x-m4a',
+  'audio/mp4',
+  'audio/aac',
+] as const
+
+export const COMPLAINT_ATTACHMENT_ALLOWED_AUDIO_MIMES = [
+  ...COMPLAINT_ATTACHMENT_MP3_MIMES,
+  ...COMPLAINT_ATTACHMENT_RECORDED_AUDIO_MIMES,
+] as const
 
 export const COMPLAINT_ATTACHMENT_ALLOWED_MIMES = [
   ...COMPLAINT_ATTACHMENT_ALLOWED_IMAGE_MIMES,
@@ -29,6 +48,8 @@ export const COMPLAINT_ATTACHMENT_ALLOWED_CLIENT_EXTENSIONS = [
   'pdf',
   'mp3',
   'mpeg',
+  'm4a',
+  'aac',
 ] as const
 
 /**
@@ -151,6 +172,9 @@ export const COMPLAINT_ATTACHMENT_STORAGE_EXTENSION_BY_MIME: Record<
   'application/pdf': 'pdf',
   'audio/mpeg': 'mp3',
   'audio/mp3': 'mp3',
+  'audio/x-m4a': 'm4a',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
 }
 
 /** Tamaño máximo por archivo: 10 MB. */

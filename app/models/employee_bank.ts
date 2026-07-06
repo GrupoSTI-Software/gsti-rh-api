@@ -4,6 +4,7 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import Bank from './bank.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 /**
@@ -75,6 +76,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
+    serialize: (value: string | null) => maskSensitiveValue(value, 'financiero'),
   })
   declare employeeBankAccountClabe: string
 
@@ -95,6 +97,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
+    serialize: (value: string | null) => maskSensitiveValue(value, 'financiero'),
   })
   declare employeeBankAccountNumber: string
 
@@ -115,6 +118,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
+    serialize: (value: string | null) => maskSensitiveValue(value, 'financiero'),
   })
   declare employeeBankAccountCardNumber: string
 

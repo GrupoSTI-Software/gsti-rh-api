@@ -2,7 +2,6 @@ import EmployeeBank from '#models/employee_bank'
 import EmployeeBankService from '#services/employee_bank_service'
 import { createEmployeeBankValidator, updateEmployeeBankValidator } from '#validators/employee_bank'
 import { HttpContext } from '@adonisjs/core/http'
-import env from '#start/env'
 
 export default class EmployeeBankController {
   /**
@@ -160,19 +159,12 @@ export default class EmployeeBankController {
       const employeeBankAccountCurrencyType = request.input('employeeBankAccountCurrencyType')
       const employeeId = request.input('employeeId')
       const bankId = request.input('bankId')
-      const secretKey = env.get('APP_ENCRYPT_KEY') as string
       const employeeBank = {
-        employeeBankAccountClabe: employeeBankService.encrypt(employeeBankAccountClabe, secretKey),
+        employeeBankAccountClabe: employeeBankAccountClabe,
         employeeBankAccountClabeLastNumbers: employeeBankAccountClabeLastNumbers,
-        employeeBankAccountNumber: employeeBankService.encrypt(
-          employeeBankAccountNumber,
-          secretKey
-        ),
+        employeeBankAccountNumber: employeeBankAccountNumber,
         employeeBankAccountNumberLastNumbers: employeeBankAccountNumberLastNumbers,
-        employeeBankAccountCardNumber: employeeBankService.encrypt(
-          employeeBankAccountCardNumber,
-          secretKey
-        ),
+        employeeBankAccountCardNumber: employeeBankAccountCardNumber,
         employeeBankAccountCardNumberLastNumbers: employeeBankAccountCardNumberLastNumbers,
         employeeBankAccountType: employeeBankAccountType,
         employeeBankAccountCurrencyType: employeeBankAccountCurrencyType,
@@ -357,32 +349,27 @@ export default class EmployeeBankController {
       const employeeBankService = new EmployeeBankService(i18n)
       const employeeBankId = request.param('employeeBankId')
       const employeeBankAccountClabe = request.input('employeeBankAccountClabe')
-      const employeeBankAccountClabeLastNumbers = employeeBankAccountClabe.slice(-4)
+      const employeeBankAccountClabeLastNumbers = employeeBankAccountClabe
+        ? employeeBankAccountClabe.slice(-4)
+        : null
       const employeeBankAccountNumber = request.input('employeeBankAccountNumber')
       const employeeBankAccountNumberLastNumbers = employeeBankAccountNumber
         ? employeeBankAccountNumber.slice(-4)
-        : ''
+        : null
       const employeeBankAccountCardNumber = request.input('employeeBankAccountCardNumber')
       const employeeBankAccountCardNumberLastNumbers = employeeBankAccountCardNumber
         ? employeeBankAccountCardNumber.slice(-4)
-        : ''
+        : null
       const employeeBankAccountType = request.input('employeeBankAccountType')
       const employeeBankAccountCurrencyType = request.input('employeeBankAccountCurrencyType')
       const bankId = request.input('bankId')
-      const secretKey = env.get('APP_ENCRYPT_KEY') as string
       const employeeBank = {
         employeeBankId: employeeBankId,
-        employeeBankAccountClabe: employeeBankService.encrypt(employeeBankAccountClabe, secretKey),
+        employeeBankAccountClabe: employeeBankAccountClabe,
         employeeBankAccountClabeLastNumbers: employeeBankAccountClabeLastNumbers,
-        employeeBankAccountNumber: employeeBankService.encrypt(
-          employeeBankAccountNumber,
-          secretKey
-        ),
+        employeeBankAccountNumber: employeeBankAccountNumber,
         employeeBankAccountNumberLastNumbers: employeeBankAccountNumberLastNumbers,
-        employeeBankAccountCardNumber: employeeBankService.encrypt(
-          employeeBankAccountCardNumber,
-          secretKey
-        ),
+        employeeBankAccountCardNumber: employeeBankAccountCardNumber,
         employeeBankAccountCardNumberLastNumbers: employeeBankAccountCardNumberLastNumbers,
         employeeBankAccountType: employeeBankAccountType,
         employeeBankAccountCurrencyType: employeeBankAccountCurrencyType,
