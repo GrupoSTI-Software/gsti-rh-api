@@ -1937,10 +1937,15 @@
     "simulate_shift_not_found_detail": "El turno indicado no existe en el sistema."
   },
   "consent": {
+    "title": "Consentimiento",
     "errors": {
       "version-de-consentimiento-invalida": {
         "title": "Versión de consentimiento inválida",
         "detail": "La versión enviada no coincide con la versión vigente de los documentos legales."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Tipo de documento inválido",
+        "detail": "El tipo de documento indicado no es válido."
       }
     },
     "status_success": "Estado de consentimiento obtenido correctamente.",

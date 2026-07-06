@@ -1934,10 +1934,15 @@
     "simulate_shift_not_found_detail": "The specified shift does not exist in the system."
   },
   "consent": {
+    "title": "Consent",
     "errors": {
       "version-de-consentimiento-invalida": {
         "title": "Invalid consent version",
         "detail": "The version sent does not match the current version of the legal documents."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Invalid document type",
+        "detail": "The document type provided is not valid."
       }
     },
     "status_success": "Consent status retrieved successfully.",

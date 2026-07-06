@@ -159,4 +159,12 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Ancla: app/models/position_salary_range.ts
   { model: 'PositionSalaryRange', column: 'minSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
   { model: 'PositionSalaryRange', column: 'maxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+
+  // ─── UserConsent: contacto (evidencia de aceptación, USRH1783101935670) ───
+  // "Desde dónde se aceptó" un documento legal: refuerzo probatorio, nunca en WHERE,
+  // nunca usado para buscar/filtrar/segmentar usuarios. Fallo-CERRADO al descifrar
+  // (mismo patrón que EmployeeEmergencyContact): si falla, responde null, no el
+  // ciphertext crudo. Ancla: app/models/user_consent.ts
+  { model: 'UserConsent', column: 'userConsentIp', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+  { model: 'UserConsent', column: 'userConsentUserAgent', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
 ] as const
