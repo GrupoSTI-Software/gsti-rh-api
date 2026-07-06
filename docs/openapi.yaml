@@ -227,6 +227,33 @@ components:
                           suppressed:
                             type: boolean
 
+    LegalDocumentCurrentSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [privacy_notice, terms_conditions, biometric_consent]
+            version:
+              type: string
+              example: '1.0'
+            content:
+              type: string
+              description: Contenido HTML saneado de la versión vigente.
+            publishedAt:
+              type: string
+              format: date-time
+              nullable: true
+
     QuestionnaireApplicationListItem:
       type: object
       properties:
@@ -5088,6 +5115,97 @@ paths:
                 key: error-interno
                 errorCode: NOM035.DISC.SYS_UNHANDLED
                 data: null
+
+  /api/legal-documents/current:
+    get:
+      summary: Consultar el documento legal vigente de un tipo
+      description: |
+        Devuelve la versión actualmente vigente (`is_current = true`) de un tipo de
+        documento legal de plataforma (aviso de privacidad, términos y condiciones o
+        consentimiento biométrico). Documento global de GSTI: no aplica `X-Business-Unit-Id`.
+        Responde 404 contractual cuando el tipo aún no tiene ninguna versión publicada
+        (caso de `biometric_consent` recién declarado, sin seed).
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [privacy_notice, terms_conditions, biometric_consent]
+      responses:
+        '200':
+          description: Documento legal vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentCurrentSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal vigente obtenido correctamente.
+                data:
+                  type: privacy_notice
+                  version: '1.0'
+                  content: '<h1>Aviso de privacidad</h1><p>...</p>'
+                  publishedAt: '2026-07-02T00:00:00.000-06:00'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '404':
+          description: El tipo no tiene versión vigente publicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: Aún no hay una versión vigente publicada para este tipo de documento.
+                key: documento-legal-sin-version-vigente
+                code: LGDOC.NF.001
+        '422':
+          description: El parámetro `type` es inválido o falta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                missingType:
+                  summary: No se envió el parámetro type
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+                    key: tipo-de-documento-invalido
+                    code: LGDOC.VAL.001
+                invalidType:
+                  summary: type fuera del enum permitido
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: El tipo de documento legal indicado no es válido.
+                    key: tipo-de-documento-invalido
+                    code: LGDOC.VAL.001
 
   /api/nom035/questionnaire-applications:
     get:

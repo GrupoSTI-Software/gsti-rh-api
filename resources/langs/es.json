@@ -225,6 +225,28 @@
   "version_contrato_especializado_forbidden_write_title": "Sin permiso",
   "version_contrato_especializado_forbidden_write_message": "No tienes permiso para renovar contratos o registrar addendums.",
   "version_contrato_especializado_unexpected_error_message": "Ocurrió un error inesperado al procesar la versión del contrato.",
+  "work_journal_seal_title": "Registro electrónico de jornada",
+  "work_journal_seal_success_message": "Periodo sellado correctamente.",
+  "work_journal_verify_title": "Verificación de jornada",
+  "work_journal_verify_success_message": "Verificación completada.",
+  "work_journal_list_title": "Registro electrónico de jornada",
+  "work_journal_list_success_message": "Registros encontrados correctamente.",
+  "work_journal_val_input_title": "Parámetros inválidos",
+  "work_journal_val_input_message": "El rango del periodo es inválido.",
+  "work_journal_not_found_title": "Registro no encontrado",
+  "work_journal_not_found_message": "El registro de jornada no existe o no pertenece al tenant actual.",
+  "work_journal_immutable_title": "Registro inmutable",
+  "work_journal_immutable_message": "Los registros de jornada cerrados son inmutables.",
+  "work_journal_period_without_data_title": "Periodo sin datos",
+  "work_journal_period_without_data_message": "El periodo indicado no tiene jornada materializable para sellar.",
+  "work_journal_integrity_invalid_title": "Integridad inválida",
+  "work_journal_integrity_invalid_message": "El sello no coincide: el registro pudo haber sido alterado.",
+  "work_journal_forbidden_title": "Sin permiso",
+  "work_journal_forbidden_message": "No hay una empresa activa en el scope del usuario.",
+  "work_journal_seal_secret_missing_title": "Secreto no configurado",
+  "work_journal_seal_secret_missing_message": "Falta configurar WORK_JOURNAL_HMAC_SECRET en el servidor.",
+  "work_journal_unexpected_error_title": "Error",
+  "work_journal_unexpected_error_message": "Ocurrió un error inesperado en el servidor.",
   "address": "Dirección",
   "the_address": "La dirección",
   "address_type": "Tipo de dirección",
@@ -1945,6 +1967,21 @@
     },
     "status_success": "Estado de consentimiento obtenido correctamente.",
     "record_success": "Consentimiento registrado correctamente."
+  },
+  "legalDocuments": {
+    "title": "Documento legal",
+    "current_success": "Documento legal vigente obtenido correctamente.",
+    "errors": {
+      "documento-legal-sin-version-vigente": {
+        "title": "Documento legal",
+        "detail": "Aún no hay una versión vigente publicada para este tipo de documento."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Documento legal",
+        "detail": "El tipo de documento legal indicado no es válido.",
+        "detail_missing": "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+      }
+    }
   },
   "employee_temporary_assignment_unauthorized_title": "No autorizado",
   "employee_temporary_assignment_unauthorized_message": "El usuario debe estar autenticado.",
