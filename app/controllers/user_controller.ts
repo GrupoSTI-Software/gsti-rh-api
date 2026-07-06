@@ -184,11 +184,15 @@ export default class UserController {
         .where('user_email', userEmail)
         .where('user_active', 1)
         .preload('person', (personQuery) =>
-          personQuery.preload('employee', (employeeQuery) =>
+          personQuery.preload('employee', (employeeQuery) => {
             employeeQuery.preload('position', (positionQuery) =>
               positionQuery.whereNull('position_deleted_at')
             )
-          )
+            // La app cliente necesita el UUID público de la unidad de negocio
+            // para enviarlo en el header x-business-unit-id de las siguientes
+            // solicitudes; el login es el único punto sin ese header.
+            employeeQuery.preload('businessUnit')
+          })
         )
         .first()
 
@@ -532,11 +536,14 @@ export default class UserController {
     const user = await User.query()
       .where('user_id', userData.userId)
       .preload('person', (query) => {
-        query.preload('employee', (employeeQuery) =>
+        query.preload('employee', (employeeQuery) => {
           employeeQuery.preload('position', (positionQuery) =>
             positionQuery.whereNull('position_deleted_at')
           )
-        )
+          // La app cliente lee businessUnitPublicId de aquí para el header
+          // x-business-unit-id; /auth/session no exige ese header.
+          employeeQuery.preload('businessUnit')
+        })
       })
       .preload('role')
       .first()
