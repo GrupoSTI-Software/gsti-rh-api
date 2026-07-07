@@ -4,6 +4,8 @@ import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import TraumaticEventReport from '#models/traumatic_event_report'
 import SystemSettingService from '#services/system_setting_service'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 
@@ -192,10 +194,36 @@ export default class TraumaticEventRegistryReportService {
    */
   async buildRegistryPdf(
     filters: RegistryReportFilters,
-    allowedBusinessUnitIds: number[]
+    allowedBusinessUnitIds: number[],
+    options?: { maskSensitive?: boolean }
   ): Promise<Buffer> {
     const items = await this.getRegistryAll(filters, allowedBusinessUnitIds)
-    return this.renderPdf(items, filters)
+    return this.renderRegistryPdf(items, filters, options)
+  }
+
+  async renderRegistryPdf(
+    items: RegistryReportItem[],
+    filters: RegistryReportFilters,
+    options?: { maskSensitive?: boolean }
+  ): Promise<Buffer> {
+    return this.renderPdf(items, filters, options)
+  }
+
+  private maskExportField(
+    model: string,
+    column: string,
+    value: string | null | undefined
+  ): string | null {
+    if (value === null || value === undefined || value === '') {
+      return value ?? null
+    }
+
+    const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
+    if (!field) {
+      return value
+    }
+
+    return maskSensitiveValue(value, field.legalCategory)
   }
 
   // ---------------------------------------------------------------------------
@@ -320,7 +348,8 @@ export default class TraumaticEventRegistryReportService {
 
   private async renderPdf(
     items: RegistryReportItem[],
-    filters: RegistryReportFilters
+    filters: RegistryReportFilters,
+    options?: { maskSensitive?: boolean }
   ): Promise<Buffer> {
     const tradeName = await this.fetchTradeName()
     const folio = this.generateFolio()
@@ -364,7 +393,7 @@ export default class TraumaticEventRegistryReportService {
         this.renderEmptyState(doc)
       } else {
         for (const item of items) {
-          this.renderEmployeeCard(doc, item)
+          this.renderEmployeeCard(doc, item, options)
         }
         this.renderSummaryTable(doc, items)
       }
@@ -535,7 +564,11 @@ export default class TraumaticEventRegistryReportService {
     doc.y = startY + 56
   }
 
-  private renderEmployeeCard(doc: PDFKit.PDFDocument, item: RegistryReportItem) {
+  private renderEmployeeCard(
+    doc: PDFKit.PDFDocument,
+    item: RegistryReportItem,
+    options?: { maskSensitive?: boolean }
+  ) {
     const margin = doc.page.margins.left
     const pageW = doc.page.width - margin * 2
     const innerPad = 12
@@ -589,12 +622,15 @@ export default class TraumaticEventRegistryReportService {
 
     // Meta: CURP | Código | Fecha de ocurrencia
     const metaY = y + innerPad + 22
+    const curpValue = options?.maskSensitive
+      ? this.maskExportField('Person', 'personCurp', item.employee.personCurp)
+      : item.employee.personCurp
     doc
       .font('Mulish')
       .fontSize(9.5)
       .fillColor(BRAND_COLORS.textMuted)
       .text(
-        item.employee.personCurp ? `CURP: ${item.employee.personCurp}` : 'CURP: no registrado',
+        curpValue ? `CURP: ${curpValue}` : 'CURP: no registrado',
         innerX,
         metaY,
         { width: innerW / 2, lineBreak: false, ellipsis: true }

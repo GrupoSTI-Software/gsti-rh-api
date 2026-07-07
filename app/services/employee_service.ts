@@ -1,3 +1,5 @@
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
@@ -4592,6 +4594,107 @@ export default class EmployeeService {
    * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
    * @param options.branchNameIds - IDs de sucursal (branch_office_id); solo empleados con asignación activa a alguna de ellas
    */
+  async listImportTemplateEmployeeIds(options: {
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    orderBy?: string
+    orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+  }): Promise<number[]> {
+    const businessUnitsQuery = BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereNull('business_unit_deleted_at')
+      .select('businessUnitId')
+    if (options.allowedBusinessUnitIds && options.allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', options.allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
+
+    const employees = await this.buildImportTemplateEmployeeQuery({
+      ...options,
+      allowedBusinessUnitIds: businessUnits.map((businessUnit) => businessUnit.businessUnitId),
+    }).select('employee_id')
+
+    return employees.map((employee) => employee.employeeId)
+  }
+
+  private maskExportField(
+    model: string,
+    column: string,
+    value: string | null | undefined
+  ): string | null {
+    if (value === null || value === undefined || value === '') {
+      return value ?? null
+    }
+
+    const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
+    if (!field) {
+      return value
+    }
+
+    return maskSensitiveValue(value, field.legalCategory)
+  }
+
+  private buildImportTemplateEmployeeQuery(options: {
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    orderBy?: string
+    orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+  }) {
+    let employeesQuery = Employee.query().whereNull('deletedAt')
+
+    if (options.departmentId !== undefined) {
+      employeesQuery = employeesQuery.where('departmentId', options.departmentId)
+    }
+    if (options.positionId !== undefined) {
+      employeesQuery = employeesQuery.where('positionId', options.positionId)
+    }
+    if (options.businessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
+    }
+    if (options.payrollBusinessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+    }
+    if (options.branchNameIds && options.branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', options.branchNameIds!)
+      })
+    }
+
+    const allowedBusinessUnitIds = options.allowedBusinessUnitIds ?? []
+    if (allowedBusinessUnitIds.length > 0) {
+      employeesQuery = employeesQuery.where((q) => {
+        q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn(
+          'payrollBusinessUnitId',
+          allowedBusinessUnitIds
+        )
+      })
+    }
+
+    if (options.orderBy === 'number') {
+      const direction = this.getOrderDirection(options.orderDirection)
+      employeesQuery = employeesQuery.orderByRaw(
+        `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
+      )
+    } else if (options.orderBy === 'name') {
+      const direction = this.getOrderDirection(options.orderDirection)
+      employeesQuery = employeesQuery.orderByRaw(
+        `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
+      )
+    } else {
+      employeesQuery = employeesQuery.orderBy('employee_id')
+    }
+
+    return employeesQuery
+  }
+
   async generateEmployeeImportTemplate(options?: {
     fillWithExisting?: boolean
     departmentId?: number
@@ -4603,6 +4706,8 @@ export default class EmployeeService {
     orderBy?: string
     orderDirection?: string
     allowedBusinessUnitIds?: number[]
+    /** Enmascara columnas del catálogo sensibles (exports sin permiso). */
+    maskSensitive?: boolean
   }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
@@ -4900,8 +5005,16 @@ export default class EmployeeService {
     ]
 
     if (options?.fillWithExisting) {
-      let employeesQuery = Employee.query()
-        .whereNull('deletedAt')
+      let employeesQuery = this.buildImportTemplateEmployeeQuery({
+        departmentId: options.departmentId,
+        positionId: options.positionId,
+        businessUnitId: options.businessUnitId,
+        payrollBusinessUnitId: options.payrollBusinessUnitId,
+        branchNameIds: options.branchNameIds,
+        orderBy: options.orderBy,
+        orderDirection: options.orderDirection,
+        allowedBusinessUnitIds: businessUnits.map((bu) => bu.businessUnitId),
+      })
         .preload('person')
         .preload('address', (q) => q.preload('address'))
         .preload('businessUnit')
@@ -4909,45 +5022,6 @@ export default class EmployeeService {
         .preload('position')
         .preload('employeeType')
         .preload('emergencyContacts')
-
-      if (options.departmentId !== undefined) {
-        employeesQuery = employeesQuery.where('departmentId', options.departmentId)
-      }
-      if (options.positionId !== undefined) {
-        employeesQuery = employeesQuery.where('positionId', options.positionId)
-      }
-      if (options.businessUnitId !== undefined) {
-        employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
-      }
-      if (options.payrollBusinessUnitId !== undefined) {
-        employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
-      }
-      if (options.branchNameIds && options.branchNameIds.length > 0) {
-        employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
-          sub.whereIn('branchOfficeId', options.branchNameIds!)
-        })
-      }
-
-      const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
-      if (allowedBusinessUnitIds.length > 0) {
-        employeesQuery = employeesQuery.where((q) => {
-          q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn('payrollBusinessUnitId', allowedBusinessUnitIds)
-        })
-      }
-
-      if (options?.orderBy === 'number') {
-        const direction = this.getOrderDirection(options.orderDirection)
-        employeesQuery = employeesQuery.orderByRaw(
-          `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
-        )
-      } else if (options?.orderBy === 'name') {
-        const direction = this.getOrderDirection(options.orderDirection)
-        employeesQuery = employeesQuery.orderByRaw(
-          `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
-        )
-      } else {
-        employeesQuery = employeesQuery.orderBy('employee_id')
-      }
 
       const employees = await employeesQuery
 
@@ -4983,13 +5057,23 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
         worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
         worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
-        worksheet.getCell(rowNum, 13).value = person?.personCurp ?? ''
-        worksheet.getCell(rowNum, 14).value = person?.personRfc ?? ''
-        worksheet.getCell(rowNum, 15).value = person?.personImssNss ?? ''
+        worksheet.getCell(rowNum, 13).value = options?.maskSensitive
+          ? this.maskExportField('Person', 'personCurp', person?.personCurp ?? '') ?? ''
+          : person?.personCurp ?? ''
+        worksheet.getCell(rowNum, 14).value = options?.maskSensitive
+          ? this.maskExportField('Person', 'personRfc', person?.personRfc ?? '') ?? ''
+          : person?.personRfc ?? ''
+        worksheet.getCell(rowNum, 15).value = options?.maskSensitive
+          ? this.maskExportField('Person', 'personImssNss', person?.personImssNss ?? '') ?? ''
+          : person?.personImssNss ?? ''
         worksheet.getCell(rowNum, 16).value = emp.employeeBusinessEmail ?? ''
-        worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
+        worksheet.getCell(rowNum, 17).value = options?.maskSensitive
+          ? this.maskExportField('Person', 'personEmail', person?.personEmail ?? '') ?? ''
+          : person?.personEmail ?? ''
         worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
-        worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
+        worksheet.getCell(rowNum, 19).value = options?.maskSensitive
+          ? this.maskExportField('Person', 'personPhone', person?.personPhone ?? '') ?? ''
+          : person?.personPhone ?? ''
         // Modalidad (col 20) + % Teletrabajo (col 21, informativa/derivada por el servidor).
         // Los tres casos usan el valor persistido en `employee_telework_percentage`:
         // Onsite = 0, Remote = 100, Hybrid = el % calculado con base en su turno y config.
@@ -5016,7 +5100,13 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactLastname ?? ''
         worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
         worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
-        worksheet.getCell(rowNum, 34).value = primaryContact?.employeeEmergencyContactPhone ?? ''
+        worksheet.getCell(rowNum, 34).value = options?.maskSensitive
+          ? this.maskExportField(
+              'EmployeeEmergencyContact',
+              'employeeEmergencyContactPhone',
+              primaryContact?.employeeEmergencyContactPhone ?? ''
+            ) ?? ''
+          : primaryContact?.employeeEmergencyContactPhone ?? ''
         worksheet.getCell(rowNum, 35).value = resAddress?.addressCountry ?? ''
         worksheet.getCell(rowNum, 36).value = resAddress?.addressState ?? ''
         worksheet.getCell(rowNum, 37).value = resAddress?.addressTownship ?? ''

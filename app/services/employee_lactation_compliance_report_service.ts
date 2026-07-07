@@ -5,6 +5,8 @@ import PDFDocument from 'pdfkit'
 import db from '@adonisjs/lucid/services/db'
 import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import SystemSettingService from '#services/system_setting_service'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import {
   LACTATION_COMPLIANCE_STATUS,
@@ -291,10 +293,36 @@ export default class EmployeeLactationComplianceReportService {
    */
   async buildCompliancePdf(
     filters: ComplianceReportFilters,
-    allowedBusinessUnitIds: number[]
+    allowedBusinessUnitIds: number[],
+    options?: { maskSensitive?: boolean }
   ): Promise<Buffer> {
     const items = await this.getComplianceAll(filters, allowedBusinessUnitIds)
-    return this.renderPdf(items, filters)
+    return this.renderCompliancePdf(items, filters, options)
+  }
+
+  async renderCompliancePdf(
+    items: ComplianceReportItem[],
+    filters: ComplianceReportFilters,
+    options?: { maskSensitive?: boolean }
+  ): Promise<Buffer> {
+    return this.renderPdf(items, filters, options)
+  }
+
+  private maskExportField(
+    model: string,
+    column: string,
+    value: string | null | undefined
+  ): string | null {
+    if (value === null || value === undefined || value === '') {
+      return value ?? null
+    }
+
+    const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
+    if (!field) {
+      return value
+    }
+
+    return maskSensitiveValue(value, field.legalCategory)
   }
 
   // ---------------------------------------------------------------------------
@@ -603,7 +631,8 @@ export default class EmployeeLactationComplianceReportService {
    */
   private async renderPdf(
     items: ComplianceReportItem[],
-    filters: ComplianceReportFilters
+    filters: ComplianceReportFilters,
+    options?: { maskSensitive?: boolean }
   ): Promise<Buffer> {
     const tradeName = await this.fetchTradeName()
     const folio = this.generateFolio()
@@ -650,7 +679,7 @@ export default class EmployeeLactationComplianceReportService {
         this.renderEmptyState(doc)
       } else {
         for (const item of items) {
-          this.renderEmployeeCard(doc, item)
+          this.renderEmployeeCard(doc, item, options)
         }
         this.renderSummaryTable(doc, items)
       }
@@ -873,7 +902,11 @@ export default class EmployeeLactationComplianceReportService {
    * duración del periodo supera 6 meses, agrega la nota ámbar de política
    * voluntaria (LFT 170 IV).
    */
-  private renderEmployeeCard(doc: PDFKit.PDFDocument, item: ComplianceReportItem) {
+  private renderEmployeeCard(
+    doc: PDFKit.PDFDocument,
+    item: ComplianceReportItem,
+    options?: { maskSensitive?: boolean }
+  ) {
     const margin = doc.page.margins.left
     const pageW = doc.page.width - margin * 2
     const innerPad = 12
@@ -925,14 +958,15 @@ export default class EmployeeLactationComplianceReportService {
         `${this.formatDateDmy(item.lactationPeriodEndDate)} ` +
         `(${item.rangeTotalMonths} meses)`
       : 'Periodo no definido'
+    const curpValue = options?.maskSensitive
+      ? this.maskExportField('Person', 'personCurp', item.employee.personCurp)
+      : item.employee.personCurp
     doc
       .font('Mulish')
       .fontSize(9.5)
       .fillColor(BRAND_COLORS.textMuted)
       .text(
-        item.employee.personCurp
-          ? `CURP ${item.employee.personCurp}`
-          : 'CURP no registrado',
+        curpValue ? `CURP ${curpValue}` : 'CURP no registrado',
         innerX,
         metaY,
         { width: innerW / 2, lineBreak: false, ellipsis: true }

@@ -38,6 +38,8 @@ import {
 } from '../constants/employee_termination.js'
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import PiiExportService from '#services/pii_export_service'
+import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 import {
   EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
   EmployeeWorkScheduleErrorCode,
@@ -3419,7 +3421,8 @@ export default class EmployeeController {
    *       500:
    *         description: Error generating Excel file
    */
-  async getExcel({ auth, request, response }: HttpContext) {
+  async getExcel(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       await auth.check()
       const user = auth.user
@@ -3523,67 +3526,82 @@ export default class EmployeeController {
           message: 'No employees found',
         })
       }
-      // Crear un nuevo libro de Excel
-      const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Employee Report')
-      const imageLogo = await this.getLogo()
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-      worksheet.addImage(imageId, {
-        tl: { col: 0, row: 0 },
-        ext: { width: 139, height: 49 },
-      })
-      worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:F1')
 
-      // Agregar título
-      const titleRow = worksheet.addRow(['Employee Report'])
-      let titleColor = '244062'
-      let titleFgColor = 'FFFFFFFF'
-      titleRow.font = { bold: true, size: 24, color: { argb: titleFgColor } }
-      titleRow.height = 42
-      titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:K2')
-      worksheet.getCell('A2').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: titleColor },
-      }
-      // Agregar fila de periodos
-      const periodRow = worksheet.addRow([''])
-      periodRow.font = { size: 15, color: { argb: titleFgColor } }
-      periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A3:K3')
-      let periodColor = '366092'
-      worksheet.getCell('A3').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: periodColor },
-      }
-      this.addHeadRow(worksheet, employees)
+      const piiExportService = new PiiExportService()
+      const exportDef = SENSITIVE_EXPORT_INVENTORY.find((item) => item.exportKey === 'employees-list-xlsx')!
+      const buId = Number(businessUnitId)
 
-      for (const employee of employees) {
-        const department = await Department.find(employee.departmentId)
-        const departmentName = department?.departmentName || 'N/A'
-        const hireDate = employee.employeeHireDate
-          ? employee.employeeHireDate.toFormat('yyyy-MM-dd')
-          : ''
-        worksheet.addRow({
-          employeeId: employee.employeeId,
-          employeeFirstName: `${employee.person?.personFirstname}`,
-          employeeLastName: `${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-          departmentName,
-          positionName: employee.positionId,
-          employeeHireDate: hireDate,
-        })
-      }
-      this.addRowExcelEmpty(worksheet)
+      const buffer = await piiExportService.deliverSensitiveExport(
+        ctx,
+        {
+          exportKey: exportDef.exportKey,
+          sensitiveColumns: [...exportDef.sensitiveColumns],
+          employeeIds: employees.map((employee) => employee.employeeId),
+          filters: { ...request.qs() },
+          businessUnitId: piiExportService.resolveAuditBusinessUnitId(businessUnitScope ?? [], buId),
+          originModule: 'employees',
+        },
+        async (maskSensitive) => {
+          const workbook = new ExcelJS.Workbook()
+          const worksheet = workbook.addWorksheet('Employee Report')
+          const imageLogo = await this.getLogo()
+          const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
+          const imageBuffer = imageResponse.data
+          const imageId = workbook.addImage({
+            buffer: imageBuffer,
+            extension: 'png',
+          })
+          worksheet.addImage(imageId, {
+            tl: { col: 0, row: 0 },
+            ext: { width: 139, height: 49 },
+          })
+          worksheet.getRow(1).height = 60
+          worksheet.mergeCells('A1:F1')
 
-      const buffer = await workbook.xlsx.writeBuffer()
+          const titleRow = worksheet.addRow(['Employee Report'])
+          let titleColor = '244062'
+          let titleFgColor = 'FFFFFFFF'
+          titleRow.font = { bold: true, size: 24, color: { argb: titleFgColor } }
+          titleRow.height = 42
+          titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+          worksheet.mergeCells('A2:K2')
+          worksheet.getCell('A2').fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: titleColor },
+          }
+          const periodRow = worksheet.addRow([''])
+          periodRow.font = { size: 15, color: { argb: titleFgColor } }
+          periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
+          worksheet.mergeCells('A3:K3')
+          let periodColor = '366092'
+          worksheet.getCell('A3').fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: periodColor },
+          }
+          this.addHeadRow(worksheet, employees, maskSensitive)
+
+          for (const employee of employees) {
+            const department = await Department.find(employee.departmentId)
+            const departmentName = department?.departmentName || 'N/A'
+            const hireDate = employee.employeeHireDate
+              ? employee.employeeHireDate.toFormat('yyyy-MM-dd')
+              : ''
+            worksheet.addRow({
+              employeeId: employee.employeeId,
+              employeeFirstName: `${employee.person?.personFirstname}`,
+              employeeLastName: `${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
+              departmentName,
+              positionName: employee.positionId,
+              employeeHireDate: hireDate,
+            })
+          }
+          this.addRowExcelEmpty(worksheet)
+
+          return workbook.xlsx.writeBuffer()
+        }
+      )
 
       response.header(
         'Content-Type',
@@ -3592,6 +3610,10 @@ export default class EmployeeController {
       response.header('Content-Disposition', 'attachment; filename=employees.xlsx')
       response.status(201).send(buffer)
     } catch (error) {
+      const auditError = PiiExportService.formatAuditError(error, i18n)
+      if (auditError) {
+        return response.status(auditError.status).json(auditError.body)
+      }
       response.status(500).send({
         message: 'Error generating Excel file',
         error: error.message,
@@ -3672,7 +3694,8 @@ export default class EmployeeController {
    *       500:
    *         description: Error al generar la plantilla
    */
-  async getTemplateExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async getTemplateExcel(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const fillWithExisting = request.input('fillWithExisting') === true ||
         request.input('fillWithExisting') === '1' ||
@@ -3718,7 +3741,7 @@ export default class EmployeeController {
       const orderDirection = request.input('orderDirection')
       const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
 
-      const buffer = await employeeService.generateEmployeeImportTemplate({
+      const templateOptions = {
         fillWithExisting,
         departmentId: departmentId !== undefined && !Number.isNaN(departmentId) ? departmentId : undefined,
         positionId: positionId !== undefined && !Number.isNaN(positionId) ? positionId : undefined,
@@ -3728,7 +3751,39 @@ export default class EmployeeController {
         orderBy,
         orderDirection: orderDirection !== undefined && orderDirection !== '' ? String(orderDirection) : undefined,
         allowedBusinessUnitIds: businessUnitScope,
-      })
+      }
+
+      let buffer: Buffer | ArrayBuffer
+
+      if (fillWithExisting) {
+        const piiExportService = new PiiExportService()
+        const exportDef = SENSITIVE_EXPORT_INVENTORY.find(
+          (item) => item.exportKey === 'employees-import-template-xlsx'
+        )!
+        const employeeIds = await employeeService.listImportTemplateEmployeeIds(templateOptions)
+
+        buffer = await piiExportService.deliverSensitiveExport(
+          ctx,
+          {
+            exportKey: exportDef.exportKey,
+            sensitiveColumns: [...exportDef.sensitiveColumns],
+            employeeIds,
+            filters: { ...request.qs(), ...request.all() },
+            businessUnitId: piiExportService.resolveAuditBusinessUnitId(
+              businessUnitScope ?? [],
+              templateOptions.businessUnitId
+            ),
+            originModule: 'employees',
+          },
+          async (maskSensitive) =>
+            employeeService.generateEmployeeImportTemplate({
+              ...templateOptions,
+              maskSensitive,
+            })
+        )
+      } else {
+        buffer = await employeeService.generateEmployeeImportTemplate(templateOptions)
+      }
 
       response.header(
         'Content-Type',
@@ -3739,6 +3794,10 @@ export default class EmployeeController {
       response.status(200)
       response.send(buffer)
     } catch (error: any) {
+      const auditError = PiiExportService.formatAuditError(error, i18n)
+      if (auditError) {
+        return response.status(auditError.status).json(auditError.body)
+      }
       response.status(500)
       return {
         type: 'error',
@@ -4105,7 +4164,8 @@ export default class EmployeeController {
   }
 
   // Método para agregar fila de encabezado
-  addHeadRow(worksheet: ExcelJS.Worksheet, employees: any[]) {
+  addHeadRow(worksheet: ExcelJS.Worksheet, employees: any[], maskSensitive = false) {
+    const piiExportService = new PiiExportService()
     const headerRow = worksheet.addRow([
       'Employee Code',
       'Employee Name',
@@ -4162,6 +4222,19 @@ export default class EmployeeController {
       { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
     ]
     employees.forEach((employee) => {
+      const phone = maskSensitive
+        ? piiExportService.maskField('Person', 'personPhone', employee.person?.personPhone ?? '') ?? ''
+        : employee.person?.personPhone || ''
+      const curp = maskSensitive
+        ? piiExportService.maskField('Person', 'personCurp', employee.person?.personCurp ?? '') ?? ''
+        : employee.person?.personCurp || ''
+      const rfc = maskSensitive
+        ? piiExportService.maskField('Person', 'personRfc', employee.person?.personRfc ?? '') ?? ''
+        : employee.person?.personRfc || ''
+      const nss = maskSensitive
+        ? piiExportService.maskField('Person', 'personImssNss', employee.person?.personImssNss ?? '') ?? ''
+        : employee.person?.personImssNss || ''
+
       worksheet.addRow([
         employee.employeeCode,
         `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
@@ -4169,11 +4242,11 @@ export default class EmployeeController {
         employee.position?.positionName || '',
         employee.employeeHireDate ? employee.employeeHireDate.toISODate() : '',
         employee.employeeWorkSchedule || '',
-        employee.person?.personPhone || '',
+        phone,
         employee.person?.personGender || '',
-        employee.person?.personCurp || '',
-        employee.person?.personRfc || '',
-        employee.person?.personImssNss || '',
+        curp,
+        rfc,
+        nss,
       ])
     })
   }
