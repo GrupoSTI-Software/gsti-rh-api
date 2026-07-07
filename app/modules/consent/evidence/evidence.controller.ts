@@ -27,7 +27,7 @@ const DOCUMENT_TYPE_LABELS: Record<LegalDocumentType, string> = {
  * `assertConsentEvidenceAccess`, que responde 403 `CEVI.FORB.001` a cualquier rol
  * distinto de `root` (incluido `super-administrador`, rol de empresa cliente — ver
  * nota en `app/helpers/consent_evidence_rbac.ts`). Sin `middleware.businessScope()`:
- * la evidencia es global, filtrable por `businessUnitId` (nunca aislada por defecto).
+ * la evidencia es global, filtrable por `businessUnitPublicId` (nunca aislada por defecto).
  */
 export default class EvidenceController {
   /**
