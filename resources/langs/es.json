@@ -1988,6 +1988,12 @@
       }
     }
   },
+  "consent_evidence_title": "Evidencia de aceptaciones",
+  "consent_evidence_list_success": "Evidencia de aceptaciones obtenida correctamente.",
+  "consent_evidence_invalid_filters_title": "Filtros de consulta inválidos",
+  "consent_evidence_invalid_filters_detail": "Los filtros enviados no son válidos.",
+  "consent_evidence_forbidden_read_title": "Sin permiso",
+  "consent_evidence_forbidden_read_message": "No tienes permiso para consultar este módulo.",
   "employee_temporary_assignment_unauthorized_title": "No autorizado",
   "employee_temporary_assignment_unauthorized_message": "El usuario debe estar autenticado.",
   "employee_temporary_assignment_resource_not_found_title": "Recurso no encontrado",
