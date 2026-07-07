@@ -227,6 +227,78 @@ components:
                           suppressed:
                             type: boolean
 
+    LegalDocumentCurrentSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [privacy_notice, terms_conditions, biometric_consent]
+            version:
+              type: string
+              example: '1.0'
+            content:
+              type: string
+              description: Contenido HTML saneado de la versión vigente.
+            publishedAt:
+              type: string
+              format: date-time
+              nullable: true
+
+    ConsentStatusSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            accepted:
+              type: boolean
+              description: "RETROCOMPAT: true ⟺ pendingDocuments.length === 0 para la audiencia de la sesión."
+            pendingDocuments:
+              type: array
+              description: Documentos vigentes que al usuario le falta aceptar, filtrados por audiencia (web o app).
+              items:
+                type: object
+                properties:
+                  legalDocumentId:
+                    type: number
+                    example: 2
+                  type:
+                    type: string
+                    enum: [privacy_notice, terms_conditions, biometric_consent]
+                  version:
+                    type: string
+                    example: '1.0'
+            currentVersion:
+              type: string
+              nullable: true
+              description: "DEPRECATED conservado: versión vigente del privacy_notice (compat)."
+              example: '1.0'
+            acceptedVersion:
+              type: string
+              nullable: true
+              description: "DEPRECATED conservado: última versión de privacy_notice aceptada por el usuario (compat)."
+            acceptedAt:
+              type: string
+              format: date-time
+              nullable: true
+
     QuestionnaireApplicationListItem:
       type: object
       properties:
@@ -5088,6 +5160,294 @@ paths:
                 key: error-interno
                 errorCode: NOM035.DISC.SYS_UNHANDLED
                 data: null
+
+  /api/legal-documents/current:
+    get:
+      summary: Consultar el documento legal vigente de un tipo
+      description: |
+        Devuelve la versión actualmente vigente (`is_current = true`) de un tipo de
+        documento legal de plataforma (aviso de privacidad, términos y condiciones o
+        consentimiento biométrico). Documento global de GSTI: no aplica `X-Business-Unit-Id`.
+        Responde 404 contractual cuando el tipo aún no tiene ninguna versión publicada
+        (caso de `biometric_consent` recién declarado, sin seed).
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [privacy_notice, terms_conditions, biometric_consent]
+      responses:
+        '200':
+          description: Documento legal vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentCurrentSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal vigente obtenido correctamente.
+                data:
+                  type: privacy_notice
+                  version: '1.0'
+                  content: '<h1>Aviso de privacidad</h1><p>...</p>'
+                  publishedAt: '2026-07-02T00:00:00.000-06:00'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '404':
+          description: El tipo no tiene versión vigente publicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: Aún no hay una versión vigente publicada para este tipo de documento.
+                key: documento-legal-sin-version-vigente
+                code: LGDOC.NF.001
+        '422':
+          description: El parámetro `type` es inválido o falta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                missingType:
+                  summary: No se envió el parámetro type
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+                    key: tipo-de-documento-invalido
+                    code: LGDOC.VAL.001
+                invalidType:
+                  summary: type fuera del enum permitido
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: El tipo de documento legal indicado no es válido.
+                    key: tipo-de-documento-invalido
+                    code: LGDOC.VAL.001
+
+  /api/consent/me:
+    get:
+      summary: Estado de consentimiento del usuario autenticado, por documento
+      description: |
+        Devuelve la lista de documentos legales vigentes que al usuario le falta
+        aceptar (`pendingDocuments`), filtrada por la audiencia de su sesión: la
+        audiencia (web/app) se deriva del canal con el que se emitió el access token
+        actual (`api_tokens.origin`), nunca de un parámetro que el cliente controle.
+        Una sesión web exige aviso de privacidad + términos y condiciones; una sesión
+        de la app del empleado exige además el consentimiento biométrico. Un tipo sin
+        versión vigente publicada nunca aparece como pendiente. `accepted` se preserva
+        por retrocompatibilidad: `true` cuando `pendingDocuments` está vacío.
+      tags: [Consent]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+          description: Idioma de los mensajes traducidos. Default `es`.
+      responses:
+        '200':
+          description: Estado de consentimiento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentStatusSuccess'
+              examples:
+                conPendientes:
+                  summary: Usuario web con el aviso de privacidad pendiente
+                  value:
+                    type: success
+                    title: Consentimiento
+                    message: Estado de consentimiento obtenido correctamente.
+                    data:
+                      accepted: false
+                      pendingDocuments:
+                        - legalDocumentId: 2
+                          type: privacy_notice
+                          version: '1.0'
+                      currentVersion: '1.0'
+                      acceptedVersion: null
+                      acceptedAt: null
+                sinPendientes:
+                  summary: Usuario al día (ambos documentos aceptados)
+                  value:
+                    type: success
+                    title: Consentimiento
+                    message: Estado de consentimiento obtenido correctamente.
+                    data:
+                      accepted: true
+                      pendingDocuments: []
+                      currentVersion: '1.0'
+                      acceptedVersion: '1.0'
+                      acceptedAt: '2026-07-02T10:00:00.000-06:00'
+        '401':
+          description: Access token ausente, inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: No autorizado.
+                detail: El access token es inválido o ha expirado.
+                key: token_invalid
+                data:
+                  refreshable: false
+    post:
+      summary: Registra la aceptación de uno o más documentos legales vigentes
+      description: |
+        Crea uno o más asientos inmutables de aceptación (uno por documento). Sin
+        `type`, registra el "paquete web" (aviso de privacidad + términos y
+        condiciones) en una sola operación atómica — retrocompatible con el contrato
+        de un solo click. Con `type`, registra solo ese documento (lo usa la app para
+        el consentimiento biométrico). Idempotente: si el usuario ya aceptó ese
+        documento-versión, devuelve el estado existente sin duplicar ni re-fechar la
+        evidencia. La versión enviada se valida contra la vigente derivada de
+        `legal_documents.is_current`, nunca de una constante fija; el cliente nunca
+        envía `legal_document_id` directo (anti-tampering). Captura la IP y el
+        user-agent de la petición como evidencia, cifrados en reposo (nunca expuestos
+        en ninguna respuesta).
+      tags: [Consent]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+          description: Idioma de los mensajes traducidos. Default `es`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentVersion]
+              properties:
+                documentVersion:
+                  type: string
+                  example: '1.0'
+                type:
+                  type: string
+                  enum: [privacy_notice, terms_conditions, biometric_consent]
+                  description: Opcional. Sin él, registra el paquete web (aviso + términos).
+            examples:
+              paqueteWeb:
+                summary: Retrocompat — sin type, registra aviso + términos
+                value:
+                  documentVersion: '1.0'
+              documentoPuntual:
+                summary: App — biométrico puntual
+                value:
+                  documentVersion: '1.0'
+                  type: biometric_consent
+      responses:
+        '200':
+          description: Aceptación registrada (o ya existente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentStatusSuccess'
+              example:
+                type: success
+                title: Consentimiento
+                message: Consentimiento registrado correctamente.
+                data:
+                  accepted: true
+                  pendingDocuments: []
+                  currentVersion: '1.0'
+                  acceptedVersion: '1.0'
+                  acceptedAt: '2026-07-06T10:00:00.000-06:00'
+        '401':
+          description: Access token ausente, inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: No autorizado.
+                detail: El access token es inválido o ha expirado.
+                key: token_invalid
+                data:
+                  refreshable: false
+        '422':
+          description: Versión inválida, tipo inválido o body malformado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                versionInvalida:
+                  summary: documentVersion no coincide con la vigente (error de dominio)
+                  value:
+                    type: error
+                    title: Consentimiento
+                    message: Versión de consentimiento inválida
+                    detail: La versión enviada no coincide con la versión vigente de los documentos legales.
+                    key: version-de-consentimiento-invalida
+                    code: CSNT.VAL.001
+                    data: null
+                tipoInvalido:
+                  summary: type fuera del enum, o body malformado (validación genérica)
+                  value:
+                    type: error
+                    title: Consentimiento
+                    message: Tipo de documento inválido
+                    detail: The type field must be one of privacy_notice, terms_conditions, biometric_consent
+                    key: tipo-de-documento-invalido
+                    code: CSNT.VAL.002
+                    data:
+                      errors:
+                        - field: type
+                          message: The type field must be one of privacy_notice, terms_conditions, biometric_consent
+                          rule: enum
 
   /api/nom035/questionnaire-applications:
     get:

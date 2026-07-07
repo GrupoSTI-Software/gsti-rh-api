@@ -21,6 +21,20 @@ export default await Env.create(new URL('../', import.meta.url), {
    * Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
    */
   BLIND_INDEX_KEY: Env.schema.string(),
+  /**
+   * Secreto del servidor para el sello HMAC-SHA-256 del registro electrónico de
+   * jornada (reforma LFT). DISTINTO de APP_KEY y de BLIND_INDEX_KEY. NUNCA vive
+   * en el repo.
+   * NOTA (spec USRH1782264503158 §12): el spec pide `Env.schema.string()`
+   * (obligatoria, sin fallback). Se deja `optional()` a propósito para no
+   * romper instalaciones/entornos que aún no sellan jornada; el servicio
+   * (`work_journal.hash.ts`) lanza `WJE.SYS.002` en tiempo de sellado si falta.
+   * Si Wilvardo confirma que debe ser obligatoria desde el arranque, cambiar a
+   * `Env.schema.string()` aquí (una línea) y asegurar que TODOS los .env la
+   * definan antes de desplegar.
+   * Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   */
+  WORK_JOURNAL_HMAC_SECRET: Env.schema.string.optional(),
   HOST: Env.schema.string({ format: 'host' }),
   LOG_LEVEL: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
