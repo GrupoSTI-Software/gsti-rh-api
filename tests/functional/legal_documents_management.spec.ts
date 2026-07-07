@@ -260,7 +260,9 @@ test.group('Legal Documents Management - flujo de gestión (root)', (group) => {
     assert.equal(body.data.status, 'published')
     assert.isTrue(body.data.isCurrent)
     assert.exists(body.data.publishedAt)
-    assert.equal(body.data.publishedBy, root!.user.userId)
+    assert.equal(body.data.publishedBy.userId, root!.user.userId)
+    assert.equal(body.data.publishedBy.email, root!.user.userEmail)
+    assert.exists(body.data.publishedBy.name)
 
     const currentResponse = await client
       .get('/api/legal-documents/current')

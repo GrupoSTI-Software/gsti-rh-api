@@ -5,7 +5,11 @@ import type LegalDocument from '#models/legal_document'
 import type { LegalDocumentType, LegalDocumentContent, LegalDocumentStatus } from '#models/legal_document'
 import LegalDocumentRepositoryMysql from './legal_document.repository.mysql.js'
 import type { LegalDocumentRepository } from './legal_document.repository.js'
-import type { LegalDocumentAdminDto, LegalDocumentDto } from './dto/legal_document.dto.js'
+import type {
+  LegalDocumentAdminDto,
+  LegalDocumentDto,
+  LegalDocumentPublishedByDto,
+} from './dto/legal_document.dto.js'
 
 export type PublishVersionInput = {
   type: LegalDocumentType
@@ -203,7 +207,34 @@ export default class LegalDocumentService {
       status: record.legalDocumentStatus,
       isCurrent: record.legalDocumentIsCurrent,
       publishedAt: record.legalDocumentPublishedAt ? record.legalDocumentPublishedAt.toISO() : null,
-      publishedBy: record.legalDocumentPublishedByUserId,
+      publishedBy: this.buildPublishedByDto(record),
+    }
+  }
+
+  /**
+   * Resuelve quién publicó a un nombre visible en UI (regla de negocio 6,
+   * trazabilidad). Requiere que el repositorio haya precargado
+   * `publishedByUser.person`; si no está precargada o el usuario fue
+   * eliminado, cae de forma segura a `null` en vez de lanzar.
+   */
+  private buildPublishedByDto(record: LegalDocument): LegalDocumentPublishedByDto | null {
+    const user = record.publishedByUser
+    if (!user) {
+      return null
+    }
+
+    const person = user.person
+    const fullName = person
+      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
+          .filter(Boolean)
+          .join(' ')
+          .trim()
+      : ''
+
+    return {
+      userId: user.userId,
+      name: fullName || user.userEmail,
+      email: user.userEmail,
     }
   }
 

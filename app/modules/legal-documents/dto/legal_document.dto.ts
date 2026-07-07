@@ -13,6 +13,13 @@ export interface LegalDocumentDto {
   publishedAt: string | null
 }
 
+/** Quien publicó la versión, resuelto a un nombre visible en UI (no solo el id crudo). */
+export interface LegalDocumentPublishedByDto {
+  userId: number
+  name: string
+  email: string
+}
+
 /**
  * Forma administrativa de una versión (gestión reservada a `root`).
  *
@@ -29,5 +36,5 @@ export interface LegalDocumentAdminDto {
   status: LegalDocumentStatus
   isCurrent: boolean
   publishedAt: string | null
-  publishedBy: number | null
+  publishedBy: LegalDocumentPublishedByDto | null
 }

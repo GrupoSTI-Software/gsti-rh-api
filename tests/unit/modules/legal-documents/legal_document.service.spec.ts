@@ -19,6 +19,21 @@ import type { LegalDocumentContent, LegalDocumentStatus, LegalDocumentType } fro
 // negocio 3 ("una sola vigente por tipo") sin depender de infraestructura.
 // ---------------------------------------------------------------------------
 
+/** Simula la relación `publishedByUser.person` que el repo real precarga. */
+type FakePublishedByUser = {
+  userId: number
+  userEmail: string
+  person: { personFirstname: string; personLastname: string; personSecondLastname: string }
+}
+
+const FAKE_USERS: Record<number, FakePublishedByUser> = {
+  7: {
+    userId: 7,
+    userEmail: 'root7@gsti-tests.local',
+    person: { personFirstname: 'Root', personLastname: 'Siete', personSecondLastname: '' },
+  },
+}
+
 type FakeRow = {
   legalDocumentId: number
   legalDocumentType: LegalDocumentType
@@ -28,6 +43,7 @@ type FakeRow = {
   legalDocumentStatus: 'draft' | 'published'
   legalDocumentPublishedAt: DateTime | null
   legalDocumentPublishedByUserId: number | null
+  publishedByUser?: FakePublishedByUser | null
 }
 
 function makeRow(overrides: Partial<FakeRow> = {}): FakeRow {
@@ -128,6 +144,7 @@ function makeInMemoryRepo(seed: FakeRow[] = []) {
       row.legalDocumentIsCurrent = true
       row.legalDocumentPublishedAt = DateTime.now()
       row.legalDocumentPublishedByUserId = publishedByUserId
+      row.publishedByUser = publishedByUserId !== null ? FAKE_USERS[publishedByUserId] ?? null : null
       return row as unknown as LegalDocument
     },
   }
@@ -470,7 +487,8 @@ test.group('LegalDocumentService.publishDraft', () => {
 
     assert.equal(result.status, 'published')
     assert.isTrue(result.isCurrent)
-    assert.equal(result.publishedBy, 7)
+    assert.equal(result.publishedBy?.userId, 7)
+    assert.equal(result.publishedBy?.name, 'Root Siete')
 
     const rows = getRows()
     const previous = rows.find((r) => r.legalDocumentId === 1)!

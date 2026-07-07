@@ -180,7 +180,7 @@ export default class LegalDocumentController {
    *                   status: published
    *                   isCurrent: true
    *                   publishedAt: "2026-07-05T10:00:00.000-06:00"
-   *                   publishedBy: 12
+   *                   publishedBy: { userId: 12, name: "Ana Root", email: "ana.root@gsti.mx" }
    *                 - id: 1
    *                   type: terms_conditions
    *                   version: "1.0"
@@ -274,7 +274,7 @@ export default class LegalDocumentController {
    *                 status: published
    *                 isCurrent: true
    *                 publishedAt: "2026-07-05T10:00:00.000-06:00"
-   *                 publishedBy: 12
+   *                 publishedBy: { userId: 12, name: "Ana Root", email: "ana.root@gsti.mx" }
    *       403:
    *         description: El usuario autenticado no tiene rol `root`
    *         content:
@@ -595,7 +595,7 @@ export default class LegalDocumentController {
    *                 status: published
    *                 isCurrent: true
    *                 publishedAt: "2026-07-06T12:00:00.000-06:00"
-   *                 publishedBy: 12
+   *                 publishedBy: { userId: 12, name: "Ana Root", email: "ana.root@gsti.mx" }
    *       403:
    *         description: El usuario autenticado no tiene rol `root`
    *         content:

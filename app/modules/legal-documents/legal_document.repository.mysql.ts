@@ -57,7 +57,10 @@ export default class LegalDocumentRepositoryMysql implements LegalDocumentReposi
   }
 
   async findById(legalDocumentId: number): Promise<LegalDocument | null> {
-    return LegalDocument.query().where('legal_document_id', legalDocumentId).first()
+    return LegalDocument.query()
+      .where('legal_document_id', legalDocumentId)
+      .preload('publishedByUser', (userQuery) => userQuery.preload('person'))
+      .first()
   }
 
   async findByIdForUpdate(
@@ -74,7 +77,9 @@ export default class LegalDocumentRepositoryMysql implements LegalDocumentReposi
     type: LegalDocumentType,
     status?: LegalDocumentStatus
   ): Promise<LegalDocument[]> {
-    const query = LegalDocument.query().where('legal_document_type', type)
+    const query = LegalDocument.query()
+      .where('legal_document_type', type)
+      .preload('publishedByUser', (userQuery) => userQuery.preload('person'))
     if (status) {
       query.where('legal_document_status', status)
     }
@@ -124,6 +129,7 @@ export default class LegalDocumentRepositoryMysql implements LegalDocumentReposi
     record.legalDocumentPublishedByUserId = publishedByUserId
     record.useTransaction(trx)
     await record.save()
+    await record.load('publishedByUser', (userQuery) => userQuery.preload('person'))
 
     return record
   }
