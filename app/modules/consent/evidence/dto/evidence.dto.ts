@@ -5,14 +5,19 @@ import type { LegalDocumentType } from '#models/legal_document'
  *
  * `ip`/`userAgent` llegan enmascarados por default (`maskSensitiveValue`, categoría
  * `contacto`) y solo en claro si el caller tiene el permiso dedicado de revelado
- * (`consent-evidence:reveal`) Y pidió `reveal=true`. `businessUnitIds`/`businessUnitNames`
- * son arreglos porque un usuario puede pertenecer a varias empresas (pivot
- * `business_unit_users`); listar un único id sería ambiguo.
+ * (`consent-evidence:reveal`) Y pidió `reveal=true`. `businessUnitPublicIds`/
+ * `businessUnitNames` son arreglos porque un usuario puede pertenecer a varias
+ * empresas (pivot `business_unit_users`); listar un único id sería ambiguo.
+ *
+ * Se expone `businessUnitPublicId` (UUID), NUNCA el id numérico interno
+ * (`business_unit.ts`: `businessUnitId` es `serializeAs: null` — invariante del
+ * modelo, "nunca se expone en respuestas de la API"). El mismo id público es el
+ * que el filtro `businessUnitPublicId` de este endpoint acepta de vuelta.
  */
 export interface EvidenceRowDto {
   userId: number
   userName: string
-  businessUnitIds: number[]
+  businessUnitPublicIds: string[]
   businessUnitNames: string[]
   /** Id interno de `legal_documents` — permite re-filtrar por este documento exacto (`?legalDocumentId=`). */
   legalDocumentId: number

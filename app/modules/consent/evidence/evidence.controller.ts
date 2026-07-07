@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs'
 import { assertConsentEvidenceAccess } from '#helpers/consent_evidence_rbac'
 import { CONSENT_EVIDENCE_ERROR_CODES } from '#constants/consent_evidence_error_codes'
 import type { LegalDocumentType } from '#models/legal_document'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 import EvidenceService from './evidence.service.js'
 import { getEvidenceExportValidator, getEvidenceValidator } from './validators/get_evidence.validator.js'
 import type { EvidenceFilters } from './evidence.repository.js'
@@ -72,9 +73,15 @@ export default class EvidenceController {
    *         required: false
    *         schema: { type: integer }
    *       - in: query
+   *         name: businessUnitPublicId
+   *         required: false
+   *         description: "Código público (UUID v4) de la empresa. Ausente = evidencia global (todas las empresas); presente = solo esa empresa. Forma canónica del filtro por tenant."
+   *         schema: { type: string, format: uuid }
+   *       - in: query
    *         name: businessUnitId
    *         required: false
-   *         description: "Ausente = evidencia global (todas las empresas); presente = solo esa empresa."
+   *         description: "Id interno de la empresa. Legacy — usar businessUnitPublicId."
+   *         deprecated: true
    *         schema: { type: integer }
    *       - in: query
    *         name: page
@@ -102,7 +109,7 @@ export default class EvidenceController {
    *                 data:
    *                   - userId: 10
    *                     userName: Ana Torres
-   *                     businessUnitIds: [1]
+   *                     businessUnitPublicIds: ["550e8400-e29b-41d4-a716-446655440000"]
    *                     businessUnitNames: ["Empresa Demo"]
    *                     legalDocumentId: 3
    *                     documentType: biometric_consent
@@ -161,9 +168,12 @@ export default class EvidenceController {
       return this.validationError(ctx, error)
     }
 
+    const businessUnitFilter = await this.resolveBusinessUnitId(ctx, payload)
+    if (businessUnitFilter === null) return
+
     const revealAllowed = await this.resolveRevealAllowed(payload.reveal, auth.user!.roleId, service)
     const data = await service.getEvidence(
-      this.toFilters(payload),
+      this.toFilters(payload, businessUnitFilter),
       { page: payload.page ?? 1, perPage: payload.perPage ?? 20 },
       revealAllowed
     )
@@ -187,10 +197,11 @@ export default class EvidenceController {
    *     summary: Exporta a Excel la evidencia de aceptaciones consultada (solo rol root)
    *     description: |
    *       Genera un `.xlsx` con la evidencia filtrada (mismos filtros que la lista, sin
-   *       paginación). Sin `businessUnitId` exporta TODAS las empresas; con `businessUnitId`
-   *       exporta solo esa empresa, para entregarle a un cliente corporativo su propia
-   *       evidencia. Respeta el mismo gate de revelado que la lista: las columnas de
-   *       IP/user-agent salen en claro solo si el caller tiene el permiso dedicado.
+   *       paginación). Sin `businessUnitPublicId` exporta TODAS las empresas; con
+   *       `businessUnitPublicId` exporta solo esa empresa, para entregarle a un cliente
+   *       corporativo su propia evidencia. Respeta el mismo gate de revelado que la lista:
+   *       las columnas de IP/user-agent salen en claro solo si el caller tiene el permiso
+   *       dedicado.
    *     security:
    *       - bearerAuth: []
    *     tags: [ConsentEvidence]
@@ -222,9 +233,15 @@ export default class EvidenceController {
    *         required: false
    *         schema: { type: integer }
    *       - in: query
+   *         name: businessUnitPublicId
+   *         required: false
+   *         description: "Código público (UUID v4) de la empresa. Ausente = TODO (todas las empresas); presente = solo esa empresa. Forma canónica del filtro por tenant."
+   *         schema: { type: string, format: uuid }
+   *       - in: query
    *         name: businessUnitId
    *         required: false
-   *         description: "Ausente = TODO (todas las empresas); presente = solo esa empresa."
+   *         description: "Id interno de la empresa. Legacy — usar businessUnitPublicId."
+   *         deprecated: true
    *         schema: { type: integer }
    *       - in: query
    *         name: reveal
@@ -285,8 +302,11 @@ export default class EvidenceController {
       return this.validationError(ctx, error)
     }
 
+    const businessUnitFilter = await this.resolveBusinessUnitId(ctx, payload)
+    if (businessUnitFilter === null) return
+
     const revealAllowed = await this.resolveRevealAllowed(payload.reveal, auth.user!.roleId, service)
-    const rows = await service.getExportRows(this.toFilters(payload), revealAllowed)
+    const rows = await service.getExportRows(this.toFilters(payload, businessUnitFilter), revealAllowed)
 
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Evidencia de aceptaciones')
@@ -337,20 +357,74 @@ export default class EvidenceController {
     return service.canReveal(roleId)
   }
 
-  private toFilters(payload: {
-    type?: LegalDocumentType
-    version?: string
-    legalDocumentId?: number
-    userId?: number
-    businessUnitId?: number
-  }): EvidenceFilters {
+  /**
+   * Resuelve el filtro de empresa a partir de `businessUnitPublicId` (UUID, forma canónica)
+   * o `businessUnitId` (legacy). El id numérico interno nunca se expone a clientes
+   * (`business_unit.ts`: `serializeAs: null`); por eso el endpoint recibe el código público
+   * y lo traduce aquí con `BusinessAccessScopeService` — el mismo mecanismo que ya usa
+   * `business_unit_scope_middleware` para el header `X-Business-Unit-Id`.
+   *
+   * Devuelve `undefined` si no hay filtro de empresa. Devuelve `null` si `businessUnitPublicId`
+   * no resuelve (UUID válido pero inexistente/inactivo) — en ese caso ya respondió 422 y el
+   * caller debe retornar sin continuar.
+   */
+  private async resolveBusinessUnitId(
+    ctx: HttpContext,
+    payload: { businessUnitPublicId?: string; businessUnitId?: number }
+  ): Promise<number | undefined | null> {
+    if (!payload.businessUnitPublicId) {
+      return payload.businessUnitId
+    }
+
+    const scopeService = new BusinessAccessScopeService()
+    const scopeIds = await scopeService.getAccessibleIds(ctx.auth.user!)
+    const resolvedId = await scopeService.resolveInternalId(payload.businessUnitPublicId, scopeIds)
+
+    if (resolvedId === null) {
+      this.businessUnitError(ctx)
+      return null
+    }
+
+    return resolvedId
+  }
+
+  private toFilters(
+    payload: {
+      type?: LegalDocumentType
+      version?: string
+      legalDocumentId?: number
+      userId?: number
+    },
+    businessUnitId: number | undefined
+  ): EvidenceFilters {
     return {
       type: payload.type,
       version: payload.version,
       legalDocumentId: payload.legalDocumentId,
       userId: payload.userId,
-      businessUnitId: payload.businessUnitId,
+      businessUnitId,
     }
+  }
+
+  private businessUnitError(ctx: HttpContext) {
+    const { i18n } = ctx
+    ctx.response.status(422).json({
+      type: 'error',
+      title: i18n.t('consent_evidence_title', undefined, 'Evidencia de aceptaciones'),
+      message: i18n.t(
+        'consent_evidence_invalid_filters_title',
+        undefined,
+        'Filtros de consulta inválidos'
+      ),
+      detail: i18n.t(
+        'consent_evidence_invalid_business_unit_detail',
+        undefined,
+        'El businessUnitPublicId indicado no existe o no es válido.'
+      ),
+      key: 'filtros-invalidos',
+      errorCode: CONSENT_EVIDENCE_ERROR_CODES.VALIDATION,
+      data: null,
+    })
   }
 
   private validationError(ctx: HttpContext, error: unknown) {

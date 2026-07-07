@@ -75,7 +75,7 @@ export default class EvidenceService {
     return {
       userId: row.userId,
       userName: this.buildUserName(row),
-      businessUnitIds: businessUnits.map((bu) => bu.businessUnitId),
+      businessUnitPublicIds: businessUnits.map((bu) => bu.businessUnitPublicId),
       businessUnitNames: businessUnits.map((bu) => bu.businessUnitName),
       legalDocumentId: row.legalDocumentId,
       documentType: row.legalDocument.legalDocumentType,
