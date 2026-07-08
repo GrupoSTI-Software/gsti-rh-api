@@ -2050,5 +2050,16 @@
   "employee_work_schedule_hybrid_config_out_of_range": "El valor de días excede la jornada laboral del empleado.",
   "employee_work_schedule_hybrid_mode_required": "Debe indicar cómo se otorga el home office para la modalidad Híbrido.",
   "employee_work_schedule_hybrid_config_required": "Debe indicar los días u ocurrencias que aplican al modo híbrido elegido.",
-  "employee_work_schedule_hybrid_config_invalid_shape": "La configuración híbrida no tiene un formato válido."
+  "employee_work_schedule_hybrid_config_invalid_shape": "La configuración híbrida no tiene un formato válido.",
+  "telework_location_title": "Lugar de teletrabajo",
+  "telework_location_list_success": "Lugares de teletrabajo obtenidos correctamente.",
+  "telework_location_created": "El lugar de teletrabajo se registró correctamente.",
+  "telework_location_updated": "El lugar de teletrabajo se actualizó correctamente.",
+  "telework_location_deleted": "El lugar de teletrabajo se dio de baja correctamente.",
+  "telework_location_only_teleworkers": "Solo los empleados con modalidad Home Office o Híbrido pueden tener lugares de teletrabajo.",
+  "telework_location_employee_not_found": "El empleado no existe o no pertenece a la empresa seleccionada.",
+  "telework_location_not_found": "El lugar de teletrabajo no existe o no pertenece a la empresa seleccionada.",
+  "telework_location_employee_id_required": "Debe indicar el empleado (employeeId) para consultar sus lugares de teletrabajo.",
+  "telework_location_invalid_input": "Los datos del lugar de teletrabajo no son válidos.",
+  "telework_location_unexpected_error": "Ocurrió un error inesperado al procesar el lugar de teletrabajo."
 }

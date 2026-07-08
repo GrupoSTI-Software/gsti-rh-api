@@ -2047,5 +2047,16 @@
   "employee_work_schedule_hybrid_config_out_of_range": "The days value exceeds the employee working days.",
   "employee_work_schedule_hybrid_mode_required": "You must indicate how the home office is granted for the Hybrid modality.",
   "employee_work_schedule_hybrid_config_required": "You must indicate the days or occurrences that apply to the chosen hybrid mode.",
-  "employee_work_schedule_hybrid_config_invalid_shape": "The hybrid configuration has an invalid shape."
+  "employee_work_schedule_hybrid_config_invalid_shape": "The hybrid configuration has an invalid shape.",
+  "telework_location_title": "Telework location",
+  "telework_location_list_success": "Telework locations retrieved successfully.",
+  "telework_location_created": "The telework location was registered successfully.",
+  "telework_location_updated": "The telework location was updated successfully.",
+  "telework_location_deleted": "The telework location was deactivated successfully.",
+  "telework_location_only_teleworkers": "Only employees with Remote or Hybrid work modality can have telework locations.",
+  "telework_location_employee_not_found": "The employee does not exist or does not belong to the selected company.",
+  "telework_location_not_found": "The telework location does not exist or does not belong to the selected company.",
+  "telework_location_employee_id_required": "You must provide the employee (employeeId) to query their telework locations.",
+  "telework_location_invalid_input": "The telework location data is not valid.",
+  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location."
 }

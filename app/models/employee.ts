@@ -11,6 +11,7 @@ import ShiftException from './shift_exception.js'
 import BusinessUnit from './business_unit.js'
 import EmployeeType from './employee_type.js'
 import EmployeeAddress from './employee_address.js'
+import EmployeeTeleworkLocation from './employee_telework_location.js'
 import EmployeeSpouse from './employee_spouse.js'
 import EmployeeChildren from './employee_children.js'
 import EmployeeEmergencyContact from './employee_emergency_contact.js'
@@ -336,6 +337,14 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
     },
   })
   declare address: HasMany<typeof EmployeeAddress>
+
+  @hasMany(() => EmployeeTeleworkLocation, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_telework_location_deleted_at')
+    },
+  })
+  declare teleworkLocations: HasMany<typeof EmployeeTeleworkLocation>
 
   @hasOne(() => EmployeeSpouse, {
     foreignKey: 'employeeId',
