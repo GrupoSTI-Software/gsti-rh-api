@@ -39,6 +39,7 @@ import {
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PiiExportService from '#services/pii_export_service'
+import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 import {
   EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
@@ -4165,7 +4166,6 @@ export default class EmployeeController {
 
   // Método para agregar fila de encabezado
   addHeadRow(worksheet: ExcelJS.Worksheet, employees: any[], maskSensitive = false) {
-    const piiExportService = new PiiExportService()
     const headerRow = worksheet.addRow([
       'Employee Code',
       'Employee Name',
@@ -4222,18 +4222,11 @@ export default class EmployeeController {
       { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
     ]
     employees.forEach((employee) => {
-      const phone = maskSensitive
-        ? piiExportService.maskField('Person', 'personPhone', employee.person?.personPhone ?? '') ?? ''
-        : employee.person?.personPhone || ''
-      const curp = maskSensitive
-        ? piiExportService.maskField('Person', 'personCurp', employee.person?.personCurp ?? '') ?? ''
-        : employee.person?.personCurp || ''
-      const rfc = maskSensitive
-        ? piiExportService.maskField('Person', 'personRfc', employee.person?.personRfc ?? '') ?? ''
-        : employee.person?.personRfc || ''
-      const nss = maskSensitive
-        ? piiExportService.maskField('Person', 'personImssNss', employee.person?.personImssNss ?? '') ?? ''
-        : employee.person?.personImssNss || ''
+      const masked = SENSITIVE_EXPORT_PLACEHOLDER
+      const phone = maskSensitive ? masked : employee.person?.personPhone || ''
+      const curp = maskSensitive ? masked : employee.person?.personCurp || ''
+      const rfc = maskSensitive ? masked : employee.person?.personRfc || ''
+      const nss = maskSensitive ? masked : employee.person?.personImssNss || ''
 
       worksheet.addRow([
         employee.employeeCode,

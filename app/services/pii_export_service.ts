@@ -1,7 +1,7 @@
 import db from '@adonisjs/lucid/services/db'
 import type { HttpContext } from '@adonisjs/core/http'
 import User from '#models/user'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { SENSITIVE_EXPORT_PLACEHOLDER, isSensitiveExportPlaceholder } from '#constants/sensitive_export_placeholder'
 import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
 import { PII_EXPORT_ERROR_CODES } from '#constants/pii_export_error_codes'
 import PiiAccessLogService from '#services/pii_access_log_service'
@@ -38,19 +38,19 @@ export default class PiiExportService {
   }
 
   /**
-   * Enmascara un valor del catálogo `SENSITIVE_FIELDS` para exports sin permiso.
+   * Enmascara un valor del catálogo para exports sin permiso (marcador `*****`).
    */
   maskField(model: string, column: string, value: string | null | undefined): string | null {
-    if (value === null || value === undefined || value === '') {
-      return value ?? null
+    if (isSensitiveExportPlaceholder(value)) {
+      return null
     }
 
     const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
     if (!field) {
-      return value
+      return value ?? null
     }
 
-    return maskSensitiveValue(value, field.legalCategory)
+    return SENSITIVE_EXPORT_PLACEHOLDER
   }
 
   /**

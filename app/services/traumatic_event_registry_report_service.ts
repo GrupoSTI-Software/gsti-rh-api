@@ -4,8 +4,7 @@ import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import TraumaticEventReport from '#models/traumatic_event_report'
 import SystemSettingService from '#services/system_setting_service'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
-import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
+import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 
@@ -207,23 +206,6 @@ export default class TraumaticEventRegistryReportService {
     options?: { maskSensitive?: boolean }
   ): Promise<Buffer> {
     return this.renderPdf(items, filters, options)
-  }
-
-  private maskExportField(
-    model: string,
-    column: string,
-    value: string | null | undefined
-  ): string | null {
-    if (value === null || value === undefined || value === '') {
-      return value ?? null
-    }
-
-    const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
-    if (!field) {
-      return value
-    }
-
-    return maskSensitiveValue(value, field.legalCategory)
   }
 
   // ---------------------------------------------------------------------------
@@ -623,7 +605,7 @@ export default class TraumaticEventRegistryReportService {
     // Meta: CURP | Código | Fecha de ocurrencia
     const metaY = y + innerPad + 22
     const curpValue = options?.maskSensitive
-      ? this.maskExportField('Person', 'personCurp', item.employee.personCurp)
+      ? SENSITIVE_EXPORT_PLACEHOLDER
       : item.employee.personCurp
     doc
       .font('Mulish')

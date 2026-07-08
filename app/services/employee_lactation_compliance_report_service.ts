@@ -5,8 +5,7 @@ import PDFDocument from 'pdfkit'
 import db from '@adonisjs/lucid/services/db'
 import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import SystemSettingService from '#services/system_setting_service'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
-import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
+import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import {
   LACTATION_COMPLIANCE_STATUS,
@@ -306,23 +305,6 @@ export default class EmployeeLactationComplianceReportService {
     options?: { maskSensitive?: boolean }
   ): Promise<Buffer> {
     return this.renderPdf(items, filters, options)
-  }
-
-  private maskExportField(
-    model: string,
-    column: string,
-    value: string | null | undefined
-  ): string | null {
-    if (value === null || value === undefined || value === '') {
-      return value ?? null
-    }
-
-    const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
-    if (!field) {
-      return value
-    }
-
-    return maskSensitiveValue(value, field.legalCategory)
   }
 
   // ---------------------------------------------------------------------------
@@ -959,7 +941,7 @@ export default class EmployeeLactationComplianceReportService {
         `(${item.rangeTotalMonths} meses)`
       : 'Periodo no definido'
     const curpValue = options?.maskSensitive
-      ? this.maskExportField('Person', 'personCurp', item.employee.personCurp)
+      ? SENSITIVE_EXPORT_PLACEHOLDER
       : item.employee.personCurp
     doc
       .font('Mulish')

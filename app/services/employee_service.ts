@@ -1,6 +1,8 @@
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
-import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
 import Department from '#models/department'
+import {
+  isSensitiveExportPlaceholder,
+  SENSITIVE_EXPORT_PLACEHOLDER,
+} from '#constants/sensitive_export_placeholder'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -2893,7 +2895,7 @@ export default class EmployeeService {
             }
 
             // Crear nuevo empleado: verificar CURP duplicado antes de crear
-            if (employeeData.curp && String(employeeData.curp).trim() !== '') {
+            if (this.hasImportCellValue(employeeData.curp)) {
               const curpExists = await this.personWithCurpExists(employeeData.curp)
               if (curpExists) {
                 results.skipped++
@@ -3473,7 +3475,9 @@ export default class EmployeeService {
     const lastname = (employeeData.emergencyContactLastname ?? '').toString().trim()
     const secondLastname = (employeeData.emergencyContactSecondLastname ?? '').toString().trim()
     const relationship = (employeeData.emergencyContactRelationship ?? '').toString().trim()
-    const phone = (employeeData.emergencyContactPhone ?? '').toString().trim()
+    const phone = this.hasImportCellValue(employeeData.emergencyContactPhone)
+      ? String(employeeData.emergencyContactPhone).trim()
+      : ''
     const hasAny = firstname !== '' || lastname !== '' || secondLastname !== '' || relationship !== '' || phone !== ''
     if (!hasAny) return
 
@@ -3491,7 +3495,9 @@ export default class EmployeeService {
       primaryContact.employeeEmergencyContactLastname = lastname || primaryContact.employeeEmergencyContactLastname
       primaryContact.employeeEmergencyContactSecondLastname = secondLastname || primaryContact.employeeEmergencyContactSecondLastname
       primaryContact.employeeEmergencyContactRelationship = relationship || primaryContact.employeeEmergencyContactRelationship
-      primaryContact.employeeEmergencyContactPhone = phone || primaryContact.employeeEmergencyContactPhone
+      if (phone) {
+        primaryContact.employeeEmergencyContactPhone = phone
+      }
       primaryContact.employeeEmergencyContactIsPrimary = true
       await primaryContact.save()
       for (const other of existingContacts) {
@@ -3578,9 +3584,15 @@ export default class EmployeeService {
       person.personFirstname = employeeData.firstName || person.personFirstname
       person.personLastname = employeeData.lastName || person.personLastname
       person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
-      person.personCurp = employeeData.curp ?? person.personCurp
-      person.personRfc = employeeData.rfc ?? person.personRfc
-      person.personImssNss = employeeData.nss ?? person.personImssNss
+      if (this.hasImportCellValue(employeeData.curp)) {
+        person.personCurp = String(employeeData.curp).trim()
+      }
+      if (this.hasImportCellValue(employeeData.rfc)) {
+        person.personRfc = String(employeeData.rfc).trim()
+      }
+      if (this.hasImportCellValue(employeeData.nss)) {
+        person.personImssNss = String(employeeData.nss).trim()
+      }
       if (employeeData.personGender !== undefined) person.personGender = employeeData.personGender || ''
       if (employeeData.personPlaceOfBirthCountry !== undefined) person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
       if (employeeData.personPlaceOfBirthState !== undefined) person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
@@ -3588,8 +3600,12 @@ export default class EmployeeService {
       if (employeeData.personMaritalStatus !== undefined) person.personMaritalStatus = employeeData.personMaritalStatus || ''
       const parsedBirthday = this.parseDate(employeeData.birthDate)
       if (parsedBirthday) person.personBirthday = parsedBirthday
-      if (employeeData.personalEmail !== undefined) person.personEmail = employeeData.personalEmail || ''
-      if (employeeData.personalPhone !== undefined) person.personPhone = employeeData.personalPhone || ''
+      if (this.hasImportCellValue(employeeData.personalEmail)) {
+        person.personEmail = String(employeeData.personalEmail).trim()
+      }
+      if (this.hasImportCellValue(employeeData.personalPhone)) {
+        person.personPhone = String(employeeData.personalPhone).trim()
+      }
       await person.save()
     }
 
@@ -3778,13 +3794,13 @@ export default class EmployeeService {
     person.personFirstname = employeeData.firstName || ''
     person.personLastname = employeeData.lastName || ''
     person.personSecondLastname = employeeData.secondLastName || ''
-    person.personCurp = employeeData.curp || ''
-    person.personRfc = employeeData.rfc || ''
-    person.personImssNss = employeeData.nss || ''
+    person.personCurp = this.importSensitiveValueOrDefault(employeeData.curp)
+    person.personRfc = this.importSensitiveValueOrDefault(employeeData.rfc)
+    person.personImssNss = this.importSensitiveValueOrDefault(employeeData.nss)
     person.personBirthday = this.parseDate(employeeData.birthDate)
     person.personGender = employeeData.personGender || ''
-    person.personPhone = employeeData.personalPhone || ''
-    person.personEmail = employeeData.personalEmail || ''
+    person.personPhone = this.importSensitiveValueOrDefault(employeeData.personalPhone)
+    person.personEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)
     person.personPhoneSecondary = ''
     person.personMaritalStatus = employeeData.personMaritalStatus || ''
     person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
@@ -4621,21 +4637,36 @@ export default class EmployeeService {
     return employees.map((employee) => employee.employeeId)
   }
 
-  private maskExportField(
-    model: string,
-    column: string,
+  /**
+   * Valor de celda sensible en la plantilla de importación.
+   * Sin permiso de export completo se escribe el marcador `*****`.
+   */
+  private templateSensitiveCellValue(
+    maskSensitive: boolean | undefined,
     value: string | null | undefined
-  ): string | null {
-    if (value === null || value === undefined || value === '') {
-      return value ?? null
+  ): string {
+    if (maskSensitive) {
+      return SENSITIVE_EXPORT_PLACEHOLDER
     }
+    return value ?? ''
+  }
 
-    const field = SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)
-    if (!field) {
-      return value
+  /**
+   * Indica si una celda del Excel trae un valor real para persistir.
+   * Vacío o `*****` (marcador de export sin permiso) no actualizan datos existentes.
+   */
+  private hasImportCellValue(value: unknown): boolean {
+    return !isSensitiveExportPlaceholder(value)
+  }
+
+  /**
+   * Normaliza un campo sensible al crear empleado desde importación.
+   */
+  private importSensitiveValueOrDefault(value: unknown, defaultValue: string = ''): string {
+    if (!this.hasImportCellValue(value)) {
+      return defaultValue
     }
-
-    return maskSensitiveValue(value, field.legalCategory)
+    return String(value).trim()
   }
 
   private buildImportTemplateEmployeeQuery(options: {
@@ -5057,23 +5088,28 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
         worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
         worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
-        worksheet.getCell(rowNum, 13).value = options?.maskSensitive
-          ? this.maskExportField('Person', 'personCurp', person?.personCurp ?? '') ?? ''
-          : person?.personCurp ?? ''
-        worksheet.getCell(rowNum, 14).value = options?.maskSensitive
-          ? this.maskExportField('Person', 'personRfc', person?.personRfc ?? '') ?? ''
-          : person?.personRfc ?? ''
-        worksheet.getCell(rowNum, 15).value = options?.maskSensitive
-          ? this.maskExportField('Person', 'personImssNss', person?.personImssNss ?? '') ?? ''
-          : person?.personImssNss ?? ''
+        worksheet.getCell(rowNum, 13).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personCurp
+        )
+        worksheet.getCell(rowNum, 14).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personRfc
+        )
+        worksheet.getCell(rowNum, 15).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personImssNss
+        )
         worksheet.getCell(rowNum, 16).value = emp.employeeBusinessEmail ?? ''
-        worksheet.getCell(rowNum, 17).value = options?.maskSensitive
-          ? this.maskExportField('Person', 'personEmail', person?.personEmail ?? '') ?? ''
-          : person?.personEmail ?? ''
+        worksheet.getCell(rowNum, 17).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personEmail
+        )
         worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
-        worksheet.getCell(rowNum, 19).value = options?.maskSensitive
-          ? this.maskExportField('Person', 'personPhone', person?.personPhone ?? '') ?? ''
-          : person?.personPhone ?? ''
+        worksheet.getCell(rowNum, 19).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personPhone
+        )
         // Modalidad (col 20) + % Teletrabajo (col 21, informativa/derivada por el servidor).
         // Los tres casos usan el valor persistido en `employee_telework_percentage`:
         // Onsite = 0, Remote = 100, Hybrid = el % calculado con base en su turno y config.
@@ -5100,13 +5136,10 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactLastname ?? ''
         worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
         worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
-        worksheet.getCell(rowNum, 34).value = options?.maskSensitive
-          ? this.maskExportField(
-              'EmployeeEmergencyContact',
-              'employeeEmergencyContactPhone',
-              primaryContact?.employeeEmergencyContactPhone ?? ''
-            ) ?? ''
-          : primaryContact?.employeeEmergencyContactPhone ?? ''
+        worksheet.getCell(rowNum, 34).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          primaryContact?.employeeEmergencyContactPhone
+        )
         worksheet.getCell(rowNum, 35).value = resAddress?.addressCountry ?? ''
         worksheet.getCell(rowNum, 36).value = resAddress?.addressState ?? ''
         worksheet.getCell(rowNum, 37).value = resAddress?.addressTownship ?? ''
