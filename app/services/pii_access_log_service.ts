@@ -1,17 +1,32 @@
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { DateTime } from 'luxon'
 import PiiAccessLog from '#models/pii_access_log'
 import PiiAccessLogSubject from '#models/pii_access_log_subject'
+import Employee from '#models/employee'
 import {
   isSensitiveExportMotive,
   SENSITIVE_EXPORT_MOTIVE_REQUIRES_NOTE,
 } from '#constants/sensitive_export_motives'
 import { PII_EXPORT_ERROR_CODES } from '#constants/pii_export_error_codes'
+import {
+  PII_ACCESS_LOG_DEFAULT_RANGE_DAYS,
+  PII_AUDIT_ERROR_CODES,
+} from '#constants/pii_audit_error_codes'
+import { SENSITIVE_FIELDS } from '#constants/sensitive_fields'
 import { PiiExportAuditError } from '../exceptions/pii_export_audit_error.js'
+import { PiiAuditError } from '../exceptions/pii_audit_error.js'
 import type { PiiAccessInputInterface } from '../interfaces/pii_access_input_interface.js'
 import type { PiiAccessLogsFiltersInterface } from '../interfaces/pii_access_logs_filters_interface.js'
 import type { PiiExportAuditInputInterface } from '../interfaces/pii_export_audit_input_interface.js'
 import type { SensitiveExportMotive } from '../constants/sensitive_export_motives.js'
+import type {
+  PiiAccessLogExportDetailInterface,
+  PiiAccessLogFieldRefInterface,
+  PiiAccessLogListResultInterface,
+  PiiAccessLogListRowInterface,
+  PiiAccessLogSubjectRefInterface,
+} from '../interfaces/pii_access_log_list_row_interface.js'
 
 /**
  * Servicio de auditoría de accesos a datos personales sensibles.
@@ -268,23 +283,61 @@ export default class PiiAccessLogService {
    * Devuelve el historial paginado de accesos a datos sensibles filtrado por
    * el scope de unidades de negocio del usuario solicitante.
    *
+   * Incluye revelados individuales y exportaciones masivas. Si no se envían
+   * fechas, aplica un rango por defecto de los últimos 30 días.
+   *
    * @param filters  — filtros opcionales de búsqueda.
    * @param buScope  — lista de `businessUnitId` accesibles por el usuario.
+   * @throws PiiAuditError — rango de fechas inválido (`SEC.AUD.VAL.DATE.001`).
    */
-  async list(filters: PiiAccessLogsFiltersInterface, buScope: number[]) {
+  async list(filters: PiiAccessLogsFiltersInterface, buScope: number[]): Promise<PiiAccessLogListResultInterface> {
     const page = filters.page ?? 1
     const limit = filters.limit ?? 25
+    const { dateFrom, dateTo, dateFromIso, dateToIso } = this.resolveDateRange(filters)
 
     if (buScope.length === 0) {
       return {
-        meta: { total: 0, perPage: limit, currentPage: page, lastPage: 0, firstPage: 1 },
+        meta: {
+          total: 0,
+          perPage: limit,
+          currentPage: page,
+          lastPage: 0,
+          firstPage: 1,
+          page,
+          dateFrom: dateFromIso,
+          dateTo: dateToIso,
+        },
         data: [],
       }
     }
 
     let query = PiiAccessLog.query()
       .whereIn('business_unit_id', buScope)
-      .preload('accessorUser', (q) => q.select('user_id', 'user_email'))
+      .whereNull('pii_access_log_deleted_at')
+      .preload('accessorUser', (q) => {
+        q.select('user_id', 'user_email', 'person_id').preload('person', (personQuery) => {
+          personQuery.select(
+            'person_id',
+            'person_firstname',
+            'person_lastname',
+            'person_second_lastname'
+          )
+        })
+      })
+      .preload('subjects', (subjectsQuery) => {
+        subjectsQuery
+          .whereNull('pii_access_log_subject_deleted_at')
+          .preload('employee', (employeeQuery) => {
+            employeeQuery.select(
+              'employee_id',
+              'employee_first_name',
+              'employee_last_name',
+              'employee_second_last_name'
+            )
+          })
+      })
+      .where('pii_access_log_created_at', '>=', dateFrom)
+      .where('pii_access_log_created_at', '<=', dateTo)
       .orderBy('pii_access_log_created_at', 'desc')
 
     if (filters.model) {
@@ -299,19 +352,350 @@ export default class PiiAccessLogService {
     if (filters.accessorUserId) {
       query = query.where('user_id', filters.accessorUserId)
     }
-    if (filters.dateFrom) {
-      query = query.where('pii_access_log_created_at', '>=', filters.dateFrom)
-    }
-    if (filters.dateTo) {
-      query = query.where('pii_access_log_created_at', '<=', filters.dateTo)
+    if (filters.employeeId) {
+      this.applyEmployeeFilter(query, filters.employeeId)
     }
 
     const paginator = await query.paginate(page, limit)
+    const rows = paginator.all()
+    const revealSubjects = await this.loadRevealSubjects(rows)
+    const data = rows.map((row) => this.serializeListRow(row, revealSubjects))
+
     const serialized = paginator.serialize()
 
     return {
-      meta: { ...serialized.meta, page: serialized.meta.currentPage },
-      data: serialized.data,
+      meta: {
+        ...serialized.meta,
+        page: serialized.meta.currentPage,
+        dateFrom: dateFromIso,
+        dateTo: dateToIso,
+      },
+      data,
     }
+  }
+
+  private resolveDateRange(filters: PiiAccessLogsFiltersInterface): {
+    dateFrom: Date
+    dateTo: Date
+    dateFromIso: string
+    dateToIso: string
+  } {
+    const hasFrom = Boolean(filters.dateFrom)
+    const hasTo = Boolean(filters.dateTo)
+
+    let dateFromDt: DateTime
+    let dateToDt: DateTime
+
+    if (!hasFrom && !hasTo) {
+      dateToDt = DateTime.now().endOf('day')
+      dateFromDt = dateToDt.minus({ days: PII_ACCESS_LOG_DEFAULT_RANGE_DAYS }).startOf('day')
+    } else {
+      dateToDt = hasTo
+        ? DateTime.fromJSDate(filters.dateTo!).endOf('day')
+        : DateTime.now().endOf('day')
+      dateFromDt = hasFrom
+        ? DateTime.fromJSDate(filters.dateFrom!).startOf('day')
+        : dateToDt.minus({ days: PII_ACCESS_LOG_DEFAULT_RANGE_DAYS }).startOf('day')
+    }
+
+    if (dateFromDt > dateToDt) {
+      throw new PiiAuditError(
+        'El rango de fechas es inválido: la fecha inicial no puede ser posterior a la final.',
+        PII_AUDIT_ERROR_CODES.VAL_DATE_RANGE,
+        422,
+        'rango-fechas-invalido'
+      )
+    }
+
+    return {
+      dateFrom: dateFromDt.toJSDate(),
+      dateTo: dateToDt.toJSDate(),
+      dateFromIso: dateFromDt.toISODate() ?? '',
+      dateToIso: dateToDt.toISODate() ?? '',
+    }
+  }
+
+  private applyEmployeeFilter(
+    query: ReturnType<typeof PiiAccessLog.query>,
+    employeeId: number
+  ): void {
+    query.where((outer) => {
+      outer
+        .where((exportCase) => {
+          exportCase
+            .whereNotNull('pii_access_log_export_key')
+            .whereExists((subquery) => {
+              subquery
+                .from('pii_access_log_subjects')
+                .whereRaw('pii_access_log_subjects.pii_access_log_id = pii_access_logs.pii_access_log_id')
+                .where('pii_access_log_subjects.employee_id', employeeId)
+                .whereNull('pii_access_log_subjects.pii_access_log_subject_deleted_at')
+            })
+        })
+        .orWhere((revealCase) => {
+          revealCase.whereNull('pii_access_log_export_key').where((modelMatch) => {
+            modelMatch
+              .where((personCase) => {
+                personCase
+                  .where('pii_access_log_model', 'Person')
+                  .whereExists((subquery) => {
+                    subquery
+                      .from('people')
+                      .join('employees', 'employees.person_id', 'people.person_id')
+                      .whereRaw('people.person_id = pii_access_logs.pii_access_log_record_id')
+                      .where('employees.employee_id', employeeId)
+                      .whereNull('people.person_deleted_at')
+                      .whereNull('employees.employee_deleted_at')
+                  })
+              })
+              .orWhere((bankCase) => {
+                bankCase
+                  .where('pii_access_log_model', 'EmployeeBank')
+                  .whereExists((subquery) => {
+                    subquery
+                      .from('employee_banks')
+                      .whereRaw(
+                        'employee_banks.employee_bank_id = pii_access_logs.pii_access_log_record_id'
+                      )
+                      .where('employee_banks.employee_id', employeeId)
+                      .whereNull('employee_banks.employee_bank_deleted_at')
+                  })
+              })
+              .orWhere((conditionCase) => {
+                conditionCase
+                  .where('pii_access_log_model', 'EmployeeMedicalCondition')
+                  .whereExists((subquery) => {
+                    subquery
+                      .from('employee_medical_conditions')
+                      .whereRaw(
+                        'employee_medical_conditions.employee_medical_condition_id = pii_access_logs.pii_access_log_record_id'
+                      )
+                      .where('employee_medical_conditions.employee_id', employeeId)
+                      .whereNull('employee_medical_conditions.employee_medical_condition_deleted_at')
+                  })
+              })
+          })
+        })
+    })
+  }
+
+  private async loadRevealSubjects(
+    rows: PiiAccessLog[]
+  ): Promise<Map<number, PiiAccessLogSubjectRefInterface>> {
+    const revealRows = rows.filter(
+      (row) => !row.piiAccessLogExportKey && row.piiAccessLogModel && row.piiAccessLogRecordId
+    )
+    const result = new Map<number, PiiAccessLogSubjectRefInterface>()
+    if (revealRows.length === 0) return result
+
+    const personRecordIds = revealRows
+      .filter((row) => row.piiAccessLogModel === 'Person')
+      .map((row) => row.piiAccessLogRecordId!)
+    const bankRecordIds = revealRows
+      .filter((row) => row.piiAccessLogModel === 'EmployeeBank')
+      .map((row) => row.piiAccessLogRecordId!)
+    const conditionRecordIds = revealRows
+      .filter((row) => row.piiAccessLogModel === 'EmployeeMedicalCondition')
+      .map((row) => row.piiAccessLogRecordId!)
+
+    const employeeByPersonId = new Map<number, Employee>()
+    const employeeByBankId = new Map<number, PiiAccessLogSubjectRefInterface>()
+    const employeeByConditionId = new Map<number, PiiAccessLogSubjectRefInterface>()
+
+    if (personRecordIds.length > 0) {
+      const employees = await Employee.query()
+        .whereIn('personId', personRecordIds)
+        .whereNull('employee_deleted_at')
+        .select(
+          'employeeId',
+          'personId',
+          'employeeFirstName',
+          'employeeLastName',
+          'employeeSecondLastName'
+        )
+
+      for (const employee of employees) {
+        if (employee.personId) {
+          employeeByPersonId.set(employee.personId, employee)
+        }
+      }
+    }
+
+    if (bankRecordIds.length > 0) {
+      const bankRows = await db
+        .from('employee_banks')
+        .join('employees', 'employees.employee_id', 'employee_banks.employee_id')
+        .whereIn('employee_banks.employee_bank_id', bankRecordIds)
+        .whereNull('employee_banks.employee_bank_deleted_at')
+        .whereNull('employees.employee_deleted_at')
+        .select(
+          'employee_banks.employee_bank_id as recordId',
+          'employees.employee_id as employeeId',
+          'employees.employee_first_name as employeeFirstName',
+          'employees.employee_last_name as employeeLastName',
+          'employees.employee_second_last_name as employeeSecondLastName'
+        )
+
+      for (const row of bankRows) {
+        employeeByBankId.set(Number(row.recordId), {
+          employeeId: Number(row.employeeId),
+          displayName: this.formatEmployeeDisplayName({
+            employeeFirstName: String(row.employeeFirstName ?? ''),
+            employeeLastName: String(row.employeeLastName ?? ''),
+            employeeSecondLastName: String(row.employeeSecondLastName ?? ''),
+          }),
+        })
+      }
+    }
+
+    if (conditionRecordIds.length > 0) {
+      const conditionRows = await db
+        .from('employee_medical_conditions')
+        .join('employees', 'employees.employee_id', 'employee_medical_conditions.employee_id')
+        .whereIn('employee_medical_conditions.employee_medical_condition_id', conditionRecordIds)
+        .whereNull('employee_medical_conditions.employee_medical_condition_deleted_at')
+        .whereNull('employees.employee_deleted_at')
+        .select(
+          'employee_medical_conditions.employee_medical_condition_id as recordId',
+          'employees.employee_id as employeeId',
+          'employees.employee_first_name as employeeFirstName',
+          'employees.employee_last_name as employeeLastName',
+          'employees.employee_second_last_name as employeeSecondLastName'
+        )
+
+      for (const row of conditionRows) {
+        employeeByConditionId.set(Number(row.recordId), {
+          employeeId: Number(row.employeeId),
+          displayName: this.formatEmployeeDisplayName({
+            employeeFirstName: String(row.employeeFirstName ?? ''),
+            employeeLastName: String(row.employeeLastName ?? ''),
+            employeeSecondLastName: String(row.employeeSecondLastName ?? ''),
+          }),
+        })
+      }
+    }
+
+    for (const row of revealRows) {
+      let subject: PiiAccessLogSubjectRefInterface | undefined
+
+      if (row.piiAccessLogModel === 'Person') {
+        const employee = employeeByPersonId.get(row.piiAccessLogRecordId!)
+        if (employee) {
+          subject = {
+            employeeId: employee.employeeId,
+            displayName: this.formatEmployeeDisplayName(employee),
+          }
+        }
+      } else if (row.piiAccessLogModel === 'EmployeeBank') {
+        subject = employeeByBankId.get(row.piiAccessLogRecordId!)
+      } else if (row.piiAccessLogModel === 'EmployeeMedicalCondition') {
+        subject = employeeByConditionId.get(row.piiAccessLogRecordId!)
+      }
+
+      if (!subject) continue
+
+      result.set(row.piiAccessLogId, subject)
+    }
+
+    return result
+  }
+
+  private serializeListRow(
+    row: PiiAccessLog,
+    revealSubjects: Map<number, PiiAccessLogSubjectRefInterface>
+  ): PiiAccessLogListRowInterface {
+    const entryType = row.piiAccessLogExportKey ? 'export' : 'reveal'
+    const accessorDisplayName = this.formatAccessorDisplayName(row)
+
+    const base: PiiAccessLogListRowInterface = {
+      piiAccessLogId: row.piiAccessLogId,
+      entryType,
+      accessedAt: row.piiAccessLogCreatedAt.toISO() ?? '',
+      accessorUserId: row.accessorUserId,
+      accessorDisplayName,
+      originModule: row.piiAccessLogOriginModule,
+      accessorIp: row.piiAccessLogAccessorIp,
+      businessUnitId: row.businessUnitId,
+    }
+
+    if (entryType === 'export') {
+      base.export = this.serializeExportDetail(row)
+      return base
+    }
+
+    if (row.piiAccessLogModel && row.piiAccessLogModelColumn) {
+      base.field = this.buildFieldRef(row.piiAccessLogModel, row.piiAccessLogModelColumn)
+    }
+
+    const subject = revealSubjects.get(row.piiAccessLogId)
+    if (subject) {
+      base.subject = subject
+    }
+
+    return base
+  }
+
+  private serializeExportDetail(row: PiiAccessLog): PiiAccessLogExportDetailInterface {
+    const columns = (row.piiAccessLogColumns ?? []).map((columnRef) =>
+      this.buildFieldRef(columnRef.model, columnRef.column)
+    )
+
+    const subjects = (row.subjects ?? [])
+      .map((subjectRow) => {
+        const employee = subjectRow.employee
+        if (!employee) return null
+
+        return {
+          employeeId: employee.employeeId,
+          displayName: this.formatEmployeeDisplayName(employee),
+        }
+      })
+      .filter((subject): subject is PiiAccessLogSubjectRefInterface => subject !== null)
+
+    return {
+      exportKey: row.piiAccessLogExportKey ?? '',
+      motive: row.piiAccessLogMotive ?? '',
+      note: row.piiAccessLogNote,
+      subjectCount: row.piiAccessLogSubjectCount ?? subjects.length,
+      columns,
+      filters: row.piiAccessLogFilters,
+      subjects,
+    }
+  }
+
+  private buildFieldRef(model: string, column: string): PiiAccessLogFieldRefInterface {
+    const catalogField = SENSITIVE_FIELDS.find((field) => field.model === model && field.column === column)
+
+    return {
+      model,
+      column,
+      legalCategory: catalogField?.legalCategory ?? null,
+    }
+  }
+
+  private formatAccessorDisplayName(row: PiiAccessLog): string {
+    const person = row.accessorUser?.person
+    if (person) {
+      const fullName = [person.personFirstname, person.personLastname, person.personSecondLastname]
+        .filter((part) => Boolean(part && String(part).trim()))
+        .join(' ')
+        .trim()
+      if (fullName) return fullName
+    }
+
+    return row.accessorUser?.userEmail ?? `Usuario #${row.accessorUserId}`
+  }
+
+  private formatEmployeeDisplayName(
+    employee: Pick<Employee, 'employeeFirstName' | 'employeeLastName' | 'employeeSecondLastName'> | {
+      employeeFirstName?: string
+      employeeLastName?: string
+      employeeSecondLastName?: string
+    }
+  ): string {
+    return [employee.employeeFirstName, employee.employeeLastName, employee.employeeSecondLastName]
+      .filter((part) => Boolean(part && String(part).trim()))
+      .join(' ')
+      .trim()
   }
 }

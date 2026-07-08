@@ -107,9 +107,12 @@ export default class PiiAccessLog extends BaseModel {
   @column({
     prepare: (value: PiiAccessLogColumnRefInterface[] | null) =>
       value !== null && value !== undefined ? JSON.stringify(value) : null,
-    consume: (value: string | null) => {
+    consume: (value: string | PiiAccessLogColumnRefInterface[] | null) => {
       if (value === null || value === undefined) return null
-      return JSON.parse(value) as PiiAccessLogColumnRefInterface[]
+      if (typeof value === 'string') {
+        return JSON.parse(value) as PiiAccessLogColumnRefInterface[]
+      }
+      return value
     },
   })
   declare piiAccessLogColumns: PiiAccessLogColumnRefInterface[] | null
@@ -120,9 +123,12 @@ export default class PiiAccessLog extends BaseModel {
   @column({
     prepare: (value: Record<string, unknown> | null) =>
       value !== null && value !== undefined ? JSON.stringify(value) : null,
-    consume: (value: string | null) => {
+    consume: (value: string | Record<string, unknown> | null) => {
       if (value === null || value === undefined) return null
-      return JSON.parse(value) as Record<string, unknown>
+      if (typeof value === 'string') {
+        return JSON.parse(value) as Record<string, unknown>
+      }
+      return value
     },
   })
   declare piiAccessLogFilters: Record<string, unknown> | null
