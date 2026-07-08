@@ -12,6 +12,7 @@ import Ws from '#services/ws'
 import { middleware } from './kernel.js'
 import env from '#start/env'
 
+import './routes/platform_routes.js'
 import './routes/login_routes.js'
 import './routes/auth_recovery_routes.js'
 import './routes/auth_magic_link_routes.js'
