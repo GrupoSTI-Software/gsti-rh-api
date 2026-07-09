@@ -1973,6 +1973,11 @@
   "legalDocuments": {
     "title": "Legal document",
     "current_success": "Current legal document retrieved successfully.",
+    "history_success": "Legal document history retrieved successfully.",
+    "detail_success": "Legal document retrieved successfully.",
+    "create_success": "Legal document draft created successfully.",
+    "update_success": "Legal document draft updated successfully.",
+    "publish_success": "Legal document published successfully.",
     "errors": {
       "documento-legal-sin-version-vigente": {
         "title": "Legal document",
@@ -1982,6 +1987,25 @@
         "title": "Legal document",
         "detail": "The provided legal document type is not valid.",
         "detail_missing": "You must provide the 'type' parameter with one of these values: privacy_notice, terms_conditions, biometric_consent."
+      },
+      "documento-legal-inexistente": {
+        "title": "Legal document",
+        "detail": "There is no legal document version with that identifier."
+      },
+      "version-publicada-inmutable": {
+        "title": "Legal document",
+        "detail": "The content of a published version cannot be edited. Publish a new version to correct it."
+      },
+      "version-duplicada": {
+        "title": "Legal document",
+        "detail": "A version with that identifier already exists for this document type."
+      },
+      "contenido-idioma-incompleto": {
+        "title": "Legal document",
+        "detail": "You cannot publish a version without content in both Spanish and English."
+      },
+      "entrada-invalida": {
+        "title": "Invalid input"
       }
     }
   },
@@ -1992,6 +2016,10 @@
   "consent_evidence_invalid_business_unit_detail": "The businessUnitPublicId provided does not exist or is not valid.",
   "consent_evidence_forbidden_read_title": "Forbidden",
   "consent_evidence_forbidden_read_message": "You do not have permission to view this module.",
+  "legal_document_forbidden_read_title": "No read permission",
+  "legal_document_forbidden_read_message": "You do not have permission to view legal document management.",
+  "legal_document_forbidden_write_title": "Forbidden",
+  "legal_document_forbidden_write_message": "You do not have permission to manage legal documents.",
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
