@@ -129,6 +129,14 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   declare userActive: number
 
   /**
+   * Indica si el usuario es administrador de la plataforma SaaS (consola interna GSTI).
+   * Por defecto `false`; solo se enciende vía bootstrap manual o `POST /api/platform/users`.
+   * Ningún flujo de tenant puede escribir este campo.
+   */
+  @column({ columnName: 'is_platform_admin' })
+  declare isPlatformAdmin: boolean
+
+  /**
    * Marca temporal de cuándo el usuario verificó su email mediante el flujo de
    * signup self-service (OTP a correo). `null` para todos los usuarios creados
    * antes de habilitar signup; el login legacy NO evalúa esta columna.

@@ -13,3 +13,4 @@ router
   })
   .prefix('/api/access-points')
   .use(middleware.auth())
+  .use(middleware.businessScope())

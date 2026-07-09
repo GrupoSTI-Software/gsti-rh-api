@@ -149,6 +149,48 @@ export default class RoleService {
     return true
   }
 
+  /**
+   * Igual que `hasAccess`, pero SIN el atajo `role.roleSlug === 'root'`: consulta
+   * siempre la fila real en `role_system_permissions`, sin importar el rol.
+   *
+   * Uso: gates de negocio que deben ser revocables incluso para `root` (p.ej. el
+   * revelado de metadatos sensibles de USRH1783368377327), donde otorgar el
+   * permiso "por identidad de rol" rompería la propiedad de ser un permiso real
+   * y auditable. `hasAccess` sigue siendo el método correcto para reservas de
+   * módulo estándar (root siempre administra todo).
+   */
+  async hasExplicitAccess(roleId: number, systemModuleSlug: string, action: string) {
+    const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
+    if (!role) {
+      return false
+    }
+    const systemModule = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', systemModuleSlug)
+      .where('system_module_active', 1)
+      .first()
+
+    if (!systemModule) {
+      return false
+    }
+
+    const systemPermission = await SystemPermission.query()
+      .whereNull('system_permission_deleted_at')
+      .where('system_module_id', systemModule.systemModuleId)
+      .where('system_permission_slug', action)
+      .first()
+    if (!systemPermission) {
+      return false
+    }
+
+    const roleSystemPermission = await RoleSystemPermission.query()
+      .whereNull('role_system_permission_deleted_at')
+      .where('role_id', roleId)
+      .where('system_permission_id', systemPermission.systemPermissionId)
+      .first()
+    return !!roleSystemPermission
+  }
+
   async hasAccessDepartment(roleId: number, departmentId: number) {
     const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
     if (!role) {
