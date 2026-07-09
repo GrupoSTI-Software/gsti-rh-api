@@ -12,3 +12,4 @@ router
   })
   .prefix('/api/position-specific-functions')
   .use(middleware.auth())
+  .use(middleware.businessScope())

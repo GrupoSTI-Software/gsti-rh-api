@@ -7,3 +7,4 @@ router
   })
   .prefix('/api/employee-types')
   .use(middleware.auth())
+  .use(middleware.businessScope())

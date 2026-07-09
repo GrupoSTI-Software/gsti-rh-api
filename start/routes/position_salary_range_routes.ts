@@ -13,3 +13,4 @@ router
   })
   .prefix('/api/position-salary-ranges')
   .use(middleware.auth())
+  .use(middleware.businessScope())

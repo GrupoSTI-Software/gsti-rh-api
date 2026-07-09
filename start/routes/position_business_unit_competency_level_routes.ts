@@ -19,3 +19,4 @@ router
   })
   .prefix('/api/position-business-unit-competency-levels')
   .use(middleware.auth())
+  .use(middleware.businessScope())

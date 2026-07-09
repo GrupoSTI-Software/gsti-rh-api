@@ -9,6 +9,8 @@ router
     router.get('/', '#controllers/position_controller.get')
   })
   .prefix('/api/positions')
+  .use(middleware.auth())
+  .use(middleware.businessScope())
 
 router
   .group(() => {
