@@ -1,8 +1,10 @@
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import User from './user.js'
 import BusinessUnit from './business_unit.js'
+import PiiAccessLogSubject from './pii_access_log_subject.js'
+import type { PiiAccessLogColumnRefInterface } from '../interfaces/pii_access_log_column_ref_interface.js'
 
 /**
  * @swagger
@@ -38,6 +40,27 @@ import BusinessUnit from './business_unit.js'
  *         piiAccessLogRequestId:
  *           type: string
  *           description: HTTP request correlation UUID (X-Request-Id)
+ *         piiAccessLogExportKey:
+ *           type: string
+ *           description: Export identifier for grouped audit rows (null for individual reveal)
+ *         piiAccessLogColumns:
+ *           type: array
+ *           description: Sensitive columns included in the export (references only)
+ *         piiAccessLogSubjectCount:
+ *           type: number
+ *           description: Number of employees covered by the export
+ *         piiAccessLogFilters:
+ *           type: object
+ *           description: Filters applied when generating the export
+ *         piiAccessLogMotive:
+ *           type: string
+ *           description: Catalog motive slug for the export
+ *         piiAccessLogNote:
+ *           type: string
+ *           description: Optional note (required when motive is "otro")
+ *         piiAccessLogOriginModule:
+ *           type: string
+ *           description: Origin screen/module where the export was requested
  *         piiAccessLogCreatedAt:
  *           type: string
  *           format: date-time
@@ -61,13 +84,13 @@ export default class PiiAccessLog extends BaseModel {
   declare accessorUserId: number
 
   @column()
-  declare piiAccessLogModel: string
+  declare piiAccessLogModel: string | null
 
   @column()
-  declare piiAccessLogModelColumn: string
+  declare piiAccessLogModelColumn: string | null
 
   @column()
-  declare piiAccessLogRecordId: number
+  declare piiAccessLogRecordId: number | null
 
   @column()
   declare piiAccessLogAccessorIp: string
@@ -77,6 +100,41 @@ export default class PiiAccessLog extends BaseModel {
 
   @column()
   declare piiAccessLogRequestId: string | null
+
+  @column()
+  declare piiAccessLogExportKey: string | null
+
+  @column({
+    prepare: (value: PiiAccessLogColumnRefInterface[] | null) =>
+      value !== null && value !== undefined ? JSON.stringify(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      return JSON.parse(value) as PiiAccessLogColumnRefInterface[]
+    },
+  })
+  declare piiAccessLogColumns: PiiAccessLogColumnRefInterface[] | null
+
+  @column()
+  declare piiAccessLogSubjectCount: number | null
+
+  @column({
+    prepare: (value: Record<string, unknown> | null) =>
+      value !== null && value !== undefined ? JSON.stringify(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      return JSON.parse(value) as Record<string, unknown>
+    },
+  })
+  declare piiAccessLogFilters: Record<string, unknown> | null
+
+  @column()
+  declare piiAccessLogMotive: string | null
+
+  @column()
+  declare piiAccessLogNote: string | null
+
+  @column()
+  declare piiAccessLogOriginModule: string | null
 
   @column.dateTime({ autoCreate: true })
   declare piiAccessLogCreatedAt: DateTime
@@ -92,4 +150,7 @@ export default class PiiAccessLog extends BaseModel {
 
   @belongsTo(() => BusinessUnit, { foreignKey: 'businessUnitId' })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @hasMany(() => PiiAccessLogSubject, { foreignKey: 'piiAccessLogId' })
+  declare subjects: HasMany<typeof PiiAccessLogSubject>
 }

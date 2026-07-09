@@ -1,4 +1,9 @@
-export type LegalDocumentErrorKey = 'documento-legal-sin-version-vigente'
+export type LegalDocumentErrorKey =
+  | 'documento-legal-sin-version-vigente'
+  | 'documento-legal-inexistente'
+  | 'version-publicada-inmutable'
+  | 'version-duplicada'
+  | 'contenido-idioma-incompleto'
 
 export default class LegalDocumentError extends Error {
   readonly key: LegalDocumentErrorKey
