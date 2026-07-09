@@ -1,4 +1,8 @@
 import Department from '#models/department'
+import {
+  isSensitiveExportPlaceholder,
+  SENSITIVE_EXPORT_PLACEHOLDER,
+} from '#constants/sensitive_export_placeholder'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -2891,7 +2895,7 @@ export default class EmployeeService {
             }
 
             // Crear nuevo empleado: verificar CURP duplicado antes de crear
-            if (employeeData.curp && String(employeeData.curp).trim() !== '') {
+            if (this.hasImportCellValue(employeeData.curp)) {
               const curpExists = await this.personWithCurpExists(employeeData.curp)
               if (curpExists) {
                 results.skipped++
@@ -3471,7 +3475,9 @@ export default class EmployeeService {
     const lastname = (employeeData.emergencyContactLastname ?? '').toString().trim()
     const secondLastname = (employeeData.emergencyContactSecondLastname ?? '').toString().trim()
     const relationship = (employeeData.emergencyContactRelationship ?? '').toString().trim()
-    const phone = (employeeData.emergencyContactPhone ?? '').toString().trim()
+    const phone = this.hasImportCellValue(employeeData.emergencyContactPhone)
+      ? String(employeeData.emergencyContactPhone).trim()
+      : ''
     const hasAny = firstname !== '' || lastname !== '' || secondLastname !== '' || relationship !== '' || phone !== ''
     if (!hasAny) return
 
@@ -3489,7 +3495,9 @@ export default class EmployeeService {
       primaryContact.employeeEmergencyContactLastname = lastname || primaryContact.employeeEmergencyContactLastname
       primaryContact.employeeEmergencyContactSecondLastname = secondLastname || primaryContact.employeeEmergencyContactSecondLastname
       primaryContact.employeeEmergencyContactRelationship = relationship || primaryContact.employeeEmergencyContactRelationship
-      primaryContact.employeeEmergencyContactPhone = phone || primaryContact.employeeEmergencyContactPhone
+      if (phone) {
+        primaryContact.employeeEmergencyContactPhone = phone
+      }
       primaryContact.employeeEmergencyContactIsPrimary = true
       await primaryContact.save()
       for (const other of existingContacts) {
@@ -3576,9 +3584,15 @@ export default class EmployeeService {
       person.personFirstname = employeeData.firstName || person.personFirstname
       person.personLastname = employeeData.lastName || person.personLastname
       person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
-      person.personCurp = employeeData.curp ?? person.personCurp
-      person.personRfc = employeeData.rfc ?? person.personRfc
-      person.personImssNss = employeeData.nss ?? person.personImssNss
+      if (this.hasImportCellValue(employeeData.curp)) {
+        person.personCurp = String(employeeData.curp).trim()
+      }
+      if (this.hasImportCellValue(employeeData.rfc)) {
+        person.personRfc = String(employeeData.rfc).trim()
+      }
+      if (this.hasImportCellValue(employeeData.nss)) {
+        person.personImssNss = String(employeeData.nss).trim()
+      }
       if (employeeData.personGender !== undefined) person.personGender = employeeData.personGender || ''
       if (employeeData.personPlaceOfBirthCountry !== undefined) person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
       if (employeeData.personPlaceOfBirthState !== undefined) person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
@@ -3586,8 +3600,12 @@ export default class EmployeeService {
       if (employeeData.personMaritalStatus !== undefined) person.personMaritalStatus = employeeData.personMaritalStatus || ''
       const parsedBirthday = this.parseDate(employeeData.birthDate)
       if (parsedBirthday) person.personBirthday = parsedBirthday
-      if (employeeData.personalEmail !== undefined) person.personEmail = employeeData.personalEmail || ''
-      if (employeeData.personalPhone !== undefined) person.personPhone = employeeData.personalPhone || ''
+      if (this.hasImportCellValue(employeeData.personalEmail)) {
+        person.personEmail = String(employeeData.personalEmail).trim()
+      }
+      if (this.hasImportCellValue(employeeData.personalPhone)) {
+        person.personPhone = String(employeeData.personalPhone).trim()
+      }
       await person.save()
     }
 
@@ -3776,13 +3794,13 @@ export default class EmployeeService {
     person.personFirstname = employeeData.firstName || ''
     person.personLastname = employeeData.lastName || ''
     person.personSecondLastname = employeeData.secondLastName || ''
-    person.personCurp = employeeData.curp || ''
-    person.personRfc = employeeData.rfc || ''
-    person.personImssNss = employeeData.nss || ''
+    person.personCurp = this.importSensitiveValueOrDefault(employeeData.curp)
+    person.personRfc = this.importSensitiveValueOrDefault(employeeData.rfc)
+    person.personImssNss = this.importSensitiveValueOrDefault(employeeData.nss)
     person.personBirthday = this.parseDate(employeeData.birthDate)
     person.personGender = employeeData.personGender || ''
-    person.personPhone = employeeData.personalPhone || ''
-    person.personEmail = employeeData.personalEmail || ''
+    person.personPhone = this.importSensitiveValueOrDefault(employeeData.personalPhone)
+    person.personEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)
     person.personPhoneSecondary = ''
     person.personMaritalStatus = employeeData.personMaritalStatus || ''
     person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
@@ -4592,6 +4610,122 @@ export default class EmployeeService {
    * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
    * @param options.branchNameIds - IDs de sucursal (branch_office_id); solo empleados con asignación activa a alguna de ellas
    */
+  async listImportTemplateEmployeeIds(options: {
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    orderBy?: string
+    orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+  }): Promise<number[]> {
+    const businessUnitsQuery = BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereNull('business_unit_deleted_at')
+      .select('businessUnitId')
+    if (options.allowedBusinessUnitIds && options.allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', options.allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
+
+    const employees = await this.buildImportTemplateEmployeeQuery({
+      ...options,
+      allowedBusinessUnitIds: businessUnits.map((businessUnit) => businessUnit.businessUnitId),
+    }).select('employee_id')
+
+    return employees.map((employee) => employee.employeeId)
+  }
+
+  /**
+   * Valor de celda sensible en la plantilla de importación.
+   * Sin permiso de export completo se escribe el marcador `*****`.
+   */
+  private templateSensitiveCellValue(
+    maskSensitive: boolean | undefined,
+    value: string | null | undefined
+  ): string {
+    if (maskSensitive) {
+      return SENSITIVE_EXPORT_PLACEHOLDER
+    }
+    return value ?? ''
+  }
+
+  /**
+   * Indica si una celda del Excel trae un valor real para persistir.
+   * Vacío o `*****` (marcador de export sin permiso) no actualizan datos existentes.
+   */
+  private hasImportCellValue(value: unknown): boolean {
+    return !isSensitiveExportPlaceholder(value)
+  }
+
+  /**
+   * Normaliza un campo sensible al crear empleado desde importación.
+   */
+  private importSensitiveValueOrDefault(value: unknown, defaultValue: string = ''): string {
+    if (!this.hasImportCellValue(value)) {
+      return defaultValue
+    }
+    return String(value).trim()
+  }
+
+  private buildImportTemplateEmployeeQuery(options: {
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    orderBy?: string
+    orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+  }) {
+    let employeesQuery = Employee.query().whereNull('deletedAt')
+
+    if (options.departmentId !== undefined) {
+      employeesQuery = employeesQuery.where('departmentId', options.departmentId)
+    }
+    if (options.positionId !== undefined) {
+      employeesQuery = employeesQuery.where('positionId', options.positionId)
+    }
+    if (options.businessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
+    }
+    if (options.payrollBusinessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+    }
+    if (options.branchNameIds && options.branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', options.branchNameIds!)
+      })
+    }
+
+    const allowedBusinessUnitIds = options.allowedBusinessUnitIds ?? []
+    if (allowedBusinessUnitIds.length > 0) {
+      employeesQuery = employeesQuery.where((q) => {
+        q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn(
+          'payrollBusinessUnitId',
+          allowedBusinessUnitIds
+        )
+      })
+    }
+
+    if (options.orderBy === 'number') {
+      const direction = this.getOrderDirection(options.orderDirection)
+      employeesQuery = employeesQuery.orderByRaw(
+        `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
+      )
+    } else if (options.orderBy === 'name') {
+      const direction = this.getOrderDirection(options.orderDirection)
+      employeesQuery = employeesQuery.orderByRaw(
+        `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
+      )
+    } else {
+      employeesQuery = employeesQuery.orderBy('employee_id')
+    }
+
+    return employeesQuery
+  }
+
   async generateEmployeeImportTemplate(options?: {
     fillWithExisting?: boolean
     departmentId?: number
@@ -4603,6 +4737,8 @@ export default class EmployeeService {
     orderBy?: string
     orderDirection?: string
     allowedBusinessUnitIds?: number[]
+    /** Enmascara columnas del catálogo sensibles (exports sin permiso). */
+    maskSensitive?: boolean
   }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
@@ -4900,8 +5036,16 @@ export default class EmployeeService {
     ]
 
     if (options?.fillWithExisting) {
-      let employeesQuery = Employee.query()
-        .whereNull('deletedAt')
+      let employeesQuery = this.buildImportTemplateEmployeeQuery({
+        departmentId: options.departmentId,
+        positionId: options.positionId,
+        businessUnitId: options.businessUnitId,
+        payrollBusinessUnitId: options.payrollBusinessUnitId,
+        branchNameIds: options.branchNameIds,
+        orderBy: options.orderBy,
+        orderDirection: options.orderDirection,
+        allowedBusinessUnitIds: businessUnits.map((bu) => bu.businessUnitId),
+      })
         .preload('person')
         .preload('address', (q) => q.preload('address'))
         .preload('businessUnit')
@@ -4909,45 +5053,6 @@ export default class EmployeeService {
         .preload('position')
         .preload('employeeType')
         .preload('emergencyContacts')
-
-      if (options.departmentId !== undefined) {
-        employeesQuery = employeesQuery.where('departmentId', options.departmentId)
-      }
-      if (options.positionId !== undefined) {
-        employeesQuery = employeesQuery.where('positionId', options.positionId)
-      }
-      if (options.businessUnitId !== undefined) {
-        employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
-      }
-      if (options.payrollBusinessUnitId !== undefined) {
-        employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
-      }
-      if (options.branchNameIds && options.branchNameIds.length > 0) {
-        employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
-          sub.whereIn('branchOfficeId', options.branchNameIds!)
-        })
-      }
-
-      const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
-      if (allowedBusinessUnitIds.length > 0) {
-        employeesQuery = employeesQuery.where((q) => {
-          q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn('payrollBusinessUnitId', allowedBusinessUnitIds)
-        })
-      }
-
-      if (options?.orderBy === 'number') {
-        const direction = this.getOrderDirection(options.orderDirection)
-        employeesQuery = employeesQuery.orderByRaw(
-          `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
-        )
-      } else if (options?.orderBy === 'name') {
-        const direction = this.getOrderDirection(options.orderDirection)
-        employeesQuery = employeesQuery.orderByRaw(
-          `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
-        )
-      } else {
-        employeesQuery = employeesQuery.orderBy('employee_id')
-      }
 
       const employees = await employeesQuery
 
@@ -4983,13 +5088,28 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
         worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
         worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
-        worksheet.getCell(rowNum, 13).value = person?.personCurp ?? ''
-        worksheet.getCell(rowNum, 14).value = person?.personRfc ?? ''
-        worksheet.getCell(rowNum, 15).value = person?.personImssNss ?? ''
+        worksheet.getCell(rowNum, 13).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personCurp
+        )
+        worksheet.getCell(rowNum, 14).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personRfc
+        )
+        worksheet.getCell(rowNum, 15).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personImssNss
+        )
         worksheet.getCell(rowNum, 16).value = emp.employeeBusinessEmail ?? ''
-        worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
+        worksheet.getCell(rowNum, 17).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personEmail
+        )
         worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
-        worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
+        worksheet.getCell(rowNum, 19).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personPhone
+        )
         // Modalidad (col 20) + % Teletrabajo (col 21, informativa/derivada por el servidor).
         // Los tres casos usan el valor persistido en `employee_telework_percentage`:
         // Onsite = 0, Remote = 100, Hybrid = el % calculado con base en su turno y config.
@@ -5016,7 +5136,10 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactLastname ?? ''
         worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
         worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
-        worksheet.getCell(rowNum, 34).value = primaryContact?.employeeEmergencyContactPhone ?? ''
+        worksheet.getCell(rowNum, 34).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          primaryContact?.employeeEmergencyContactPhone
+        )
         worksheet.getCell(rowNum, 35).value = resAddress?.addressCountry ?? ''
         worksheet.getCell(rowNum, 36).value = resAddress?.addressState ?? ''
         worksheet.getCell(rowNum, 37).value = resAddress?.addressTownship ?? ''

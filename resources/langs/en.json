@@ -1973,6 +1973,11 @@
   "legalDocuments": {
     "title": "Legal document",
     "current_success": "Current legal document retrieved successfully.",
+    "history_success": "Legal document history retrieved successfully.",
+    "detail_success": "Legal document retrieved successfully.",
+    "create_success": "Legal document draft created successfully.",
+    "update_success": "Legal document draft updated successfully.",
+    "publish_success": "Legal document published successfully.",
     "errors": {
       "documento-legal-sin-version-vigente": {
         "title": "Legal document",
@@ -1982,9 +1987,39 @@
         "title": "Legal document",
         "detail": "The provided legal document type is not valid.",
         "detail_missing": "You must provide the 'type' parameter with one of these values: privacy_notice, terms_conditions, biometric_consent."
+      },
+      "documento-legal-inexistente": {
+        "title": "Legal document",
+        "detail": "There is no legal document version with that identifier."
+      },
+      "version-publicada-inmutable": {
+        "title": "Legal document",
+        "detail": "The content of a published version cannot be edited. Publish a new version to correct it."
+      },
+      "version-duplicada": {
+        "title": "Legal document",
+        "detail": "A version with that identifier already exists for this document type."
+      },
+      "contenido-idioma-incompleto": {
+        "title": "Legal document",
+        "detail": "You cannot publish a version without content in both Spanish and English."
+      },
+      "entrada-invalida": {
+        "title": "Invalid input"
       }
     }
   },
+  "consent_evidence_title": "Consent evidence",
+  "consent_evidence_list_success": "Consent evidence retrieved successfully.",
+  "consent_evidence_invalid_filters_title": "Invalid query filters",
+  "consent_evidence_invalid_filters_detail": "The filters provided are not valid.",
+  "consent_evidence_invalid_business_unit_detail": "The businessUnitPublicId provided does not exist or is not valid.",
+  "consent_evidence_forbidden_read_title": "Forbidden",
+  "consent_evidence_forbidden_read_message": "You do not have permission to view this module.",
+  "legal_document_forbidden_read_title": "No read permission",
+  "legal_document_forbidden_read_message": "You do not have permission to view legal document management.",
+  "legal_document_forbidden_write_title": "Forbidden",
+  "legal_document_forbidden_write_message": "You do not have permission to manage legal documents.",
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
@@ -2038,7 +2073,15 @@
   "pii_reveal_not_found": "The requested field does not exist or does not belong to the user's scope.",
   "pii_reveal_invalid_params": "The request parameters are invalid.",
   "pii_reveal_error": "An error occurred while processing the request.",
+  "pii_export_title": "Sensitive data export",
+  "motivo-export-requerido": "You must select a valid reason to export sensitive data.",
+  "nota-motivo-requerida": "You must enter a note when the reason is \"Other\".",
+  "no-se-pudo-registrar-la-exportacion": "The export could not be recorded in the audit log. Please try again.",
   "pii_access_logs_list_success": "Access log retrieved successfully.",
+  "pii_audit_title": "Sensitive data access log",
+  "consulta-bitacora-denegada": "You do not have permission to view the sensitive data access log.",
+  "rango-fechas-invalido": "The date range is invalid: the start date cannot be after the end date.",
+  "pii_audit_val_input": "The query parameters are invalid.",
   "employee_work_schedule_error_title": "Work modality",
   "employee_work_schedule_hybrid_requires_active_shift": "To mark this employee as Hybrid, first assign an active shift.",
   "employee_work_schedule_hybrid_days_intersect_rest_days": "The selected days include a rest day from the employee shift.",
@@ -2047,5 +2090,16 @@
   "employee_work_schedule_hybrid_config_out_of_range": "The days value exceeds the employee working days.",
   "employee_work_schedule_hybrid_mode_required": "You must indicate how the home office is granted for the Hybrid modality.",
   "employee_work_schedule_hybrid_config_required": "You must indicate the days or occurrences that apply to the chosen hybrid mode.",
-  "employee_work_schedule_hybrid_config_invalid_shape": "The hybrid configuration has an invalid shape."
+  "employee_work_schedule_hybrid_config_invalid_shape": "The hybrid configuration has an invalid shape.",
+  "telework_location_title": "Telework location",
+  "telework_location_list_success": "Telework locations retrieved successfully.",
+  "telework_location_created": "The telework location was registered successfully.",
+  "telework_location_updated": "The telework location was updated successfully.",
+  "telework_location_deleted": "The telework location was deactivated successfully.",
+  "telework_location_only_teleworkers": "Only employees with Remote or Hybrid work modality can have telework locations.",
+  "telework_location_employee_not_found": "The employee does not exist or does not belong to the selected company.",
+  "telework_location_not_found": "The telework location does not exist or does not belong to the selected company.",
+  "telework_location_employee_id_required": "You must provide the employee (employeeId) to query their telework locations.",
+  "telework_location_invalid_input": "The telework location data is not valid.",
+  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location."
 }

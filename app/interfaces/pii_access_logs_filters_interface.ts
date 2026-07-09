@@ -1,6 +1,7 @@
 interface PiiAccessLogsFiltersInterface {
   page?: number
   limit?: number
+  employeeId?: number
   model?: string
   column?: string
   recordId?: number

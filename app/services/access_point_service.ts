@@ -15,6 +15,18 @@ export default class AccessPointService {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
+  static assertBusinessUnitAllowed(businessUnitId: number, allowedBusinessUnitIds: number[]): void {
+    if (allowedBusinessUnitIds.length === 0 || !allowedBusinessUnitIds.includes(businessUnitId)) {
+      const error = Object.assign(new Error('Empresa no permitida'), {
+        title: 'Empresa no permitida',
+        detail: 'El punto de acceso no puede crearse en una empresa distinta a la activa',
+        key: 'empresa-no-permitida',
+        httpStatus: 400,
+      })
+      throw error
+    }
+  }
+
   async index(filters: AccessPointFilterSearchInterface) {
     const selectedColumns = [
       'access_point_id',
@@ -85,7 +97,7 @@ export default class AccessPointService {
     return currentAccessPoint
   }
 
-  async show(accessPointId: number) {
+  async show(accessPointId: number, allowedBusinessUnitIds?: number[]) {
     const selectedColumns = [
       'access_point_id',
       'access_point_name',
@@ -100,12 +112,15 @@ export default class AccessPointService {
       'access_point_status',
       'access_point_last_connection',
     ]
-    const accessPoint = await AccessPoint.query()
+    const query = AccessPoint.query()
       .whereNull('access_point_deleted_at')
       .where('access_point_id', accessPointId)
       .select(selectedColumns)
       .preload('businessUnit')
-      .first()
+    if (allowedBusinessUnitIds && allowedBusinessUnitIds.length > 0) {
+      query.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const accessPoint = await query.first()
     return accessPoint ? accessPoint : null
   }
 
