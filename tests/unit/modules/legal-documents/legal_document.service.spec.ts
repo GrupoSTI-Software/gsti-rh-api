@@ -3,11 +3,13 @@ import { DateTime } from 'luxon'
 import LegalDocumentError from '#exceptions/legal_document_error'
 import LegalDocumentService from '../../../../app/modules/legal-documents/legal_document.service.js'
 import type {
+  CreateDraftData,
   CreatePublishedVersionData,
   LegalDocumentRepository,
+  UpdateDraftData,
 } from '../../../../app/modules/legal-documents/legal_document.repository.js'
 import type LegalDocument from '#models/legal_document'
-import type { LegalDocumentContent, LegalDocumentType } from '#models/legal_document'
+import type { LegalDocumentContent, LegalDocumentStatus, LegalDocumentType } from '#models/legal_document'
 
 // ---------------------------------------------------------------------------
 // Fake repo en memoria (mismo patrón que tests/unit/modules/nom035-disclosure y
@@ -16,6 +18,21 @@ import type { LegalDocumentContent, LegalDocumentType } from '#models/legal_docu
 // is_current=true por tipo — es la forma más directa de probar la regla de
 // negocio 3 ("una sola vigente por tipo") sin depender de infraestructura.
 // ---------------------------------------------------------------------------
+
+/** Simula la relación `publishedByUser.person` que el repo real precarga. */
+type FakePublishedByUser = {
+  userId: number
+  userEmail: string
+  person: { personFirstname: string; personLastname: string; personSecondLastname: string }
+}
+
+const FAKE_USERS: Record<number, FakePublishedByUser> = {
+  7: {
+    userId: 7,
+    userEmail: 'root7@gsti-tests.local',
+    person: { personFirstname: 'Root', personLastname: 'Siete', personSecondLastname: '' },
+  },
+}
 
 type FakeRow = {
   legalDocumentId: number
@@ -26,6 +43,7 @@ type FakeRow = {
   legalDocumentStatus: 'draft' | 'published'
   legalDocumentPublishedAt: DateTime | null
   legalDocumentPublishedByUserId: number | null
+  publishedByUser?: FakePublishedByUser | null
 }
 
 function makeRow(overrides: Partial<FakeRow> = {}): FakeRow {
@@ -77,6 +95,56 @@ function makeInMemoryRepo(seed: FakeRow[] = []) {
         legalDocumentPublishedByUserId: data.publishedByUserId,
       }
       rows.push(row)
+      return row as unknown as LegalDocument
+    },
+    async findById(legalDocumentId: number) {
+      calls.push({ method: 'findById', args: [legalDocumentId] })
+      return (rows.find((r) => r.legalDocumentId === legalDocumentId) ??
+        null) as unknown as LegalDocument | null
+    },
+    async findByIdForUpdate(legalDocumentId: number) {
+      calls.push({ method: 'findByIdForUpdate', args: [legalDocumentId] })
+      return (rows.find((r) => r.legalDocumentId === legalDocumentId) ??
+        null) as unknown as LegalDocument | null
+    },
+    async listByType(type: LegalDocumentType, status?: LegalDocumentStatus) {
+      calls.push({ method: 'listByType', args: [type, status] })
+      return rows.filter(
+        (r) => r.legalDocumentType === type && (!status || r.legalDocumentStatus === status)
+      ) as unknown as LegalDocument[]
+    },
+    async createDraft(data: CreateDraftData) {
+      calls.push({ method: 'createDraft', args: [data] })
+      const row: FakeRow = {
+        legalDocumentId: nextId++,
+        legalDocumentType: data.type,
+        legalDocumentVersion: data.version,
+        legalDocumentContent: data.content,
+        legalDocumentIsCurrent: false,
+        legalDocumentStatus: 'draft',
+        legalDocumentPublishedAt: null,
+        legalDocumentPublishedByUserId: null,
+      }
+      rows.push(row)
+      return row as unknown as LegalDocument
+    },
+    async updateDraft(legalDocumentId: number, data: UpdateDraftData) {
+      calls.push({ method: 'updateDraft', args: [legalDocumentId, data] })
+      const row = rows.find((r) => r.legalDocumentId === legalDocumentId)
+      if (!row) throw new Error(`fila ${legalDocumentId} no encontrada en el repo falso`)
+      if (data.version !== undefined) row.legalDocumentVersion = data.version
+      row.legalDocumentContent = data.content
+      return row as unknown as LegalDocument
+    },
+    async markAsPublished(legalDocumentId: number, publishedByUserId: number | null) {
+      calls.push({ method: 'markAsPublished', args: [legalDocumentId, publishedByUserId] })
+      const row = rows.find((r) => r.legalDocumentId === legalDocumentId)
+      if (!row) throw new Error(`fila ${legalDocumentId} no encontrada en el repo falso`)
+      row.legalDocumentStatus = 'published'
+      row.legalDocumentIsCurrent = true
+      row.legalDocumentPublishedAt = DateTime.now()
+      row.legalDocumentPublishedByUserId = publishedByUserId
+      row.publishedByUser = publishedByUserId !== null ? FAKE_USERS[publishedByUserId] ?? null : null
       return row as unknown as LegalDocument
     },
   }
@@ -270,5 +338,233 @@ test.group('LegalDocumentService.publishVersion — regla de negocio 3 (una sola
     })
 
     assert.isFalse(getCalls().some((c) => c.method === 'clearCurrentFlag'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// createDraft / updateDraft — regla de negocio 3 (inmutabilidad) y 8 (bilingüe)
+// ---------------------------------------------------------------------------
+test.group('LegalDocumentService.createDraft', () => {
+  test('crea una versión en borrador, nunca vigente', async ({ assert }) => {
+    const { repo, getRows } = makeInMemoryRepo([])
+    const service = new LegalDocumentService(repo)
+
+    const result = await service.createDraft({
+      type: 'biometric_consent',
+      version: '1.0',
+      content: { es: '<p>texto</p>' },
+    })
+
+    assert.equal(result.status, 'draft')
+    assert.isFalse(result.isCurrent)
+    assert.equal(getRows()[0].legalDocumentStatus, 'draft')
+  })
+
+  test('sanea el HTML de cada idioma antes de persistir', async ({ assert }) => {
+    const { repo } = makeInMemoryRepo([])
+    const service = new LegalDocumentService(repo)
+
+    const result = await service.createDraft({
+      type: 'biometric_consent',
+      version: '1.0',
+      content: {
+        es: '<p>hola</p><script>alert(1)</script>',
+        en: '<p onclick="evil()">hi</p>',
+      },
+    })
+
+    assert.notInclude(result.content.es, '<script>')
+    assert.notInclude(result.content.en, 'onclick')
+  })
+
+  test('permite guardar un borrador con un solo idioma (regla de negocio 8)', async ({
+    assert,
+  }) => {
+    const { repo } = makeInMemoryRepo([])
+    const service = new LegalDocumentService(repo)
+
+    const result = await service.createDraft({
+      type: 'biometric_consent',
+      version: '1.0',
+      content: { es: '<p>solo español</p>' },
+    })
+
+    assert.equal(result.content.es, '<p>solo español</p>')
+    assert.equal(result.content.en, '')
+  })
+
+  test('lanza "version-duplicada" si (type, version) ya existe', async ({ assert }) => {
+    const { repo } = makeInMemoryRepo([
+      makeRow({ legalDocumentId: 1, legalDocumentType: 'terms_conditions', legalDocumentVersion: '1.0' }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const thrown = await catchAsync(() =>
+      service.createDraft({
+        type: 'terms_conditions',
+        version: '1.0',
+        content: { es: 'x', en: 'y' },
+      })
+    )
+
+    assert.instanceOf(thrown, LegalDocumentError)
+    assert.equal((thrown as LegalDocumentError).key, 'version-duplicada')
+  })
+})
+
+test.group('LegalDocumentService.updateDraft', () => {
+  test('actualiza el contenido de un borrador existente', async ({ assert }) => {
+    const { repo } = makeInMemoryRepo([
+      makeRow({
+        legalDocumentId: 1,
+        legalDocumentType: 'biometric_consent',
+        legalDocumentVersion: '1.0',
+        legalDocumentStatus: 'draft',
+        legalDocumentIsCurrent: false,
+        legalDocumentContent: { es: 'viejo', en: '' },
+      }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const result = await service.updateDraft(1, { content: { en: '<p>nuevo</p>' } })
+
+    assert.equal(result.content.es, 'viejo')
+    assert.equal(result.content.en, '<p>nuevo</p>')
+  })
+
+  test('lanza "version-publicada-inmutable" al editar una versión ya publicada (regla de negocio 3)', async ({
+    assert,
+  }) => {
+    const { repo } = makeInMemoryRepo([
+      makeRow({ legalDocumentId: 1, legalDocumentStatus: 'published' }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const thrown = await catchAsync(() => service.updateDraft(1, { content: { es: 'x' } }))
+
+    assert.instanceOf(thrown, LegalDocumentError)
+    assert.equal((thrown as LegalDocumentError).key, 'version-publicada-inmutable')
+  })
+
+  test('lanza "documento-legal-inexistente" si el id no existe', async ({ assert }) => {
+    const { repo } = makeInMemoryRepo([])
+    const service = new LegalDocumentService(repo)
+
+    const thrown = await catchAsync(() => service.updateDraft(999, { content: { es: 'x' } }))
+
+    assert.instanceOf(thrown, LegalDocumentError)
+    assert.equal((thrown as LegalDocumentError).key, 'documento-legal-inexistente')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// publishDraft — publica un borrador existente por id (reglas 2, 3, 4, 8)
+// ---------------------------------------------------------------------------
+test.group('LegalDocumentService.publishDraft', () => {
+  test('publica un borrador y lo deja vigente, conservando la anterior (reglas 2 y 4)', async ({
+    assert,
+  }) => {
+    const { repo, getRows } = makeInMemoryRepo([
+      makeRow({
+        legalDocumentId: 1,
+        legalDocumentType: 'terms_conditions',
+        legalDocumentVersion: '1.0',
+        legalDocumentStatus: 'published',
+        legalDocumentIsCurrent: true,
+      }),
+      makeRow({
+        legalDocumentId: 2,
+        legalDocumentType: 'terms_conditions',
+        legalDocumentVersion: '2.0',
+        legalDocumentStatus: 'draft',
+        legalDocumentIsCurrent: false,
+        legalDocumentContent: { es: 'v2 es', en: 'v2 en' },
+      }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const result = await service.publishDraft(2, 7)
+
+    assert.equal(result.status, 'published')
+    assert.isTrue(result.isCurrent)
+    assert.equal(result.publishedBy?.userId, 7)
+    assert.equal(result.publishedBy?.name, 'Root Siete')
+
+    const rows = getRows()
+    const previous = rows.find((r) => r.legalDocumentId === 1)!
+    assert.isFalse(previous.legalDocumentIsCurrent, 'la versión anterior se conserva pero deja de ser vigente')
+    assert.equal(previous.legalDocumentStatus, 'published')
+
+    const currentRows = rows.filter(
+      (r) => r.legalDocumentType === 'terms_conditions' && r.legalDocumentIsCurrent
+    )
+    assert.lengthOf(currentRows, 1, 'nunca dos versiones vigentes del mismo tipo')
+  })
+
+  test('nace la primera versión del biométrico cuando no hay ninguna vigente previa (regla 2)', async ({
+    assert,
+  }) => {
+    const { repo, getRows, getCalls } = makeInMemoryRepo([
+      makeRow({
+        legalDocumentId: 1,
+        legalDocumentType: 'biometric_consent',
+        legalDocumentVersion: '1.0',
+        legalDocumentStatus: 'draft',
+        legalDocumentIsCurrent: false,
+        legalDocumentContent: { es: 'texto es', en: 'text en' },
+      }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const result = await service.publishDraft(1, null)
+
+    assert.isTrue(result.isCurrent)
+    assert.equal(result.status, 'published')
+    assert.isFalse(getCalls().some((c) => c.method === 'clearCurrentFlag'))
+    assert.lengthOf(getRows(), 1)
+  })
+
+  test('lanza "version-publicada-inmutable" si el id no es un borrador (regla de negocio 3)', async ({
+    assert,
+  }) => {
+    const { repo } = makeInMemoryRepo([
+      makeRow({ legalDocumentId: 1, legalDocumentStatus: 'published', legalDocumentIsCurrent: true }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const thrown = await catchAsync(() => service.publishDraft(1, null))
+
+    assert.instanceOf(thrown, LegalDocumentError)
+    assert.equal((thrown as LegalDocumentError).key, 'version-publicada-inmutable')
+  })
+
+  test('lanza "contenido-idioma-incompleto" si falta español o inglés (regla de negocio 8)', async ({
+    assert,
+  }) => {
+    const { repo } = makeInMemoryRepo([
+      makeRow({
+        legalDocumentId: 1,
+        legalDocumentType: 'biometric_consent',
+        legalDocumentStatus: 'draft',
+        legalDocumentIsCurrent: false,
+        legalDocumentContent: { es: 'solo español', en: '' },
+      }),
+    ])
+    const service = new LegalDocumentService(repo)
+
+    const thrown = await catchAsync(() => service.publishDraft(1, null))
+
+    assert.instanceOf(thrown, LegalDocumentError)
+    assert.equal((thrown as LegalDocumentError).key, 'contenido-idioma-incompleto')
+  })
+
+  test('lanza "documento-legal-inexistente" si el id no existe', async ({ assert }) => {
+    const { repo } = makeInMemoryRepo([])
+    const service = new LegalDocumentService(repo)
+
+    const thrown = await catchAsync(() => service.publishDraft(999, null))
+
+    assert.instanceOf(thrown, LegalDocumentError)
+    assert.equal((thrown as LegalDocumentError).key, 'documento-legal-inexistente')
   })
 })
