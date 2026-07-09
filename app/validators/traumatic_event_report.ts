@@ -30,6 +30,21 @@ export const createTraumaticEventReportValidator = vine.compile(
 )
 
 /**
+ * Alta de un reporte de evento traumático desde la app del empleado.
+ * NO acepta `traumaticEventReportEmployeeId`: el servidor resuelve el empleado
+ * desde el token (regla 1). El servidor asigna elaboratedAt, origin='employee'
+ * y capturedByUserId.
+ */
+export const createEmployeeTraumaticEventReportValidator = vine.compile(
+  vine.object({
+    traumaticEventTypeId: vine.number().positive(),
+    traumaticEventReportOccurredAt: vine.date({ formats: ['YYYY-MM-DD'] }),
+    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1),
+    traumaticEventReportDescription: vine.string().trim().minLength(1),
+  })
+)
+
+/**
  * Filtros para el registro auditable NOM-035 §5.8.c (JSON + export PDF).
  * `page` y `limit` son obligatorios para el JSON; el export los ignora pero
  * los acepta para no duplicar el validador.

@@ -1959,15 +1959,70 @@
     "simulate_shift_not_found_detail": "El turno indicado no existe en el sistema."
   },
   "consent": {
+    "title": "Consentimiento",
     "errors": {
       "version-de-consentimiento-invalida": {
         "title": "Versión de consentimiento inválida",
         "detail": "La versión enviada no coincide con la versión vigente de los documentos legales."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Tipo de documento inválido",
+        "detail": "El tipo de documento indicado no es válido."
       }
     },
     "status_success": "Estado de consentimiento obtenido correctamente.",
     "record_success": "Consentimiento registrado correctamente."
   },
+  "legalDocuments": {
+    "title": "Documento legal",
+    "current_success": "Documento legal vigente obtenido correctamente.",
+    "history_success": "Histórico de documento legal obtenido correctamente.",
+    "detail_success": "Documento legal obtenido correctamente.",
+    "create_success": "Borrador de documento legal creado correctamente.",
+    "update_success": "Borrador de documento legal actualizado correctamente.",
+    "publish_success": "Documento legal publicado correctamente.",
+    "errors": {
+      "documento-legal-sin-version-vigente": {
+        "title": "Documento legal",
+        "detail": "Aún no hay una versión vigente publicada para este tipo de documento."
+      },
+      "tipo-de-documento-invalido": {
+        "title": "Documento legal",
+        "detail": "El tipo de documento legal indicado no es válido.",
+        "detail_missing": "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+      },
+      "documento-legal-inexistente": {
+        "title": "Documento legal",
+        "detail": "No existe una versión de documento legal con ese identificador."
+      },
+      "version-publicada-inmutable": {
+        "title": "Documento legal",
+        "detail": "El contenido de una versión publicada no se puede editar. Publica una versión nueva para corregirla."
+      },
+      "version-duplicada": {
+        "title": "Documento legal",
+        "detail": "Ya existe una versión con ese identificador para este tipo de documento."
+      },
+      "contenido-idioma-incompleto": {
+        "title": "Documento legal",
+        "detail": "No puedes publicar una versión sin contenido en español e inglés."
+      },
+      "entrada-invalida": {
+        "title": "Entrada inválida"
+      }
+    }
+  },
+  "consent_evidence_title": "Evidencia de aceptaciones",
+  "consent_evidence_list_success": "Evidencia de aceptaciones obtenida correctamente.",
+  "consent_evidence_invalid_filters_title": "Filtros de consulta inválidos",
+  "consent_evidence_invalid_filters_detail": "Los filtros enviados no son válidos.",
+  "consent_evidence_invalid_business_unit_detail": "El businessUnitPublicId indicado no existe o no es válido.",
+  "consent_evidence_forbidden_read_title": "Sin permiso",
+  "consent_evidence_forbidden_read_message": "No tienes permiso para consultar este módulo.",
+  "legal_document_forbidden_read_title": "Sin permiso de consulta",
+  "legal_document_forbidden_read_message": "No tienes permiso para consultar la gestión de documentos legales.",
+  "legal_document_forbidden_write_title": "Sin permiso",
+  "legal_document_forbidden_write_message": "No tienes permiso para gestionar documentos legales.",
   "employee_temporary_assignment_unauthorized_title": "No autorizado",
   "employee_temporary_assignment_unauthorized_message": "El usuario debe estar autenticado.",
   "employee_temporary_assignment_resource_not_found_title": "Recurso no encontrado",
@@ -2016,6 +2071,12 @@
   "employee_temporary_assignment_without_active_message": "El empleado no tiene un préstamo temporal activo en este momento.",
   "employee_temporary_assignment_active_title": "Préstamo temporal activo",
   "employee_temporary_assignment_active_message": "Se encontró un préstamo temporal activo para el empleado.",
+  "pii_reveal_title": "Datos sensibles",
+  "pii_reveal_success": "Dato revelado correctamente.",
+  "pii_reveal_not_found": "El campo solicitado no existe o no pertenece al alcance del usuario.",
+  "pii_reveal_invalid_params": "Los parámetros de la solicitud son inválidos.",
+  "pii_reveal_error": "Ocurrió un error al procesar la solicitud.",
+  "pii_access_logs_list_success": "Historial de accesos obtenido correctamente.",
   "employee_work_schedule_error_title": "Modalidad de trabajo",
   "employee_work_schedule_hybrid_requires_active_shift": "Para marcar al empleado como Híbrido primero debe tener un turno activo asignado.",
   "employee_work_schedule_hybrid_days_intersect_rest_days": "Los días seleccionados incluyen un día de descanso del turno del empleado.",

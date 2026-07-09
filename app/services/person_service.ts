@@ -92,12 +92,27 @@ export default class PersonService {
     currentPerson.personSecondLastname = person.personSecondLastname || ''
     currentPerson.personBirthday = person.personBirthday
     currentPerson.personGender = person.personGender
-    currentPerson.personPhone = person.personPhone
-    currentPerson.personEmail = person.personEmail
-    currentPerson.personCurp = person.personCurp
-    currentPerson.personRfc = person.personRfc
-    currentPerson.personImssNss = person.personImssNss
-    currentPerson.personPhoneSecondary = person.personPhoneSecondary
+    // Campos sensibles: null = "no actualizar" — el BO los envía como null cuando
+    // los muestra enmascarados y el usuario no los modificó en esa sesión.
+    // Solo se sobreescribe si llega un valor concreto (string no nulo).
+    if (person.personPhone !== null && person.personPhone !== undefined) {
+      currentPerson.personPhone = person.personPhone
+    }
+    if (person.personPhoneSecondary !== null && person.personPhoneSecondary !== undefined) {
+      currentPerson.personPhoneSecondary = person.personPhoneSecondary
+    }
+    if (person.personEmail !== null && person.personEmail !== undefined) {
+      currentPerson.personEmail = person.personEmail
+    }
+    if (person.personCurp !== null && person.personCurp !== undefined) {
+      currentPerson.personCurp = person.personCurp
+    }
+    if (person.personRfc !== null && person.personRfc !== undefined) {
+      currentPerson.personRfc = person.personRfc
+    }
+    if (person.personImssNss !== null && person.personImssNss !== undefined) {
+      currentPerson.personImssNss = person.personImssNss
+    }
     currentPerson.personMaritalStatus = person.personMaritalStatus
     currentPerson.personPlaceOfBirthCountry = person.personPlaceOfBirthCountry
     currentPerson.personPlaceOfBirthState = person.personPlaceOfBirthState

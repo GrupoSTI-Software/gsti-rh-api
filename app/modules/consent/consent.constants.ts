@@ -1,14 +1,20 @@
+import type { LegalDocumentType } from '#models/legal_document'
+
 /**
- * Versión vigente de los documentos de consentimiento (T&C + aviso de privacidad).
+ * Documentos legales exigidos por canal/audiencia (regla de negocio 3 y 4,
+ * USRH1783101935670): la web (responsable de RH) acepta aviso + términos; la app del
+ * empleado acepta además el consentimiento biométrico. Un usuario web nunca queda
+ * pendiente ni bloqueado por el biométrico.
  *
- * Al actualizar los textos legales, incrementa esta constante.
- * El GET /api/consent/me compara la aceptación del usuario contra este valor:
- * si la versión aceptada es distinta, el usuario debe re-aceptar.
- *
- * Historial de versiones:
- *   1.0 — Versión inicial (jun 2026)
+ * La audiencia se deriva del servidor (ver `resolve_audience.ts`), nunca de un
+ * parámetro que el cliente pueda manipular.
  */
-export const CURRENT_CONSENT_VERSION = '1.0'
+export const AUDIENCE_REQUIRED_TYPES: Record<'web' | 'app', readonly LegalDocumentType[]> = {
+  web: ['privacy_notice', 'terms_conditions'],
+  app: ['privacy_notice', 'terms_conditions', 'biometric_consent'],
+}
+
+export type ConsentAudience = keyof typeof AUDIENCE_REQUIRED_TYPES
 
 /**
  * Mapa de clave de error → código HTTP.
@@ -16,4 +22,5 @@ export const CURRENT_CONSENT_VERSION = '1.0'
  */
 export const CONSENT_ERROR_STATUS: Record<string, number> = {
   'version-de-consentimiento-invalida': 422,
+  'tipo-de-documento-invalido': 422,
 }
