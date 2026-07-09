@@ -23,6 +23,8 @@ import { LACTATION_COMPLIANCE_STATUS_VALUES } from '../constants/employee_lactat
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
 import { resolveEmployeeLactationPeriodApiError } from '../helpers/employee_lactation_period_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+import PiiExportService from '#services/pii_export_service'
+import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 
 /**
  * Esta funcionalidad NO tiene módulo propio en `system_modules`: vive
@@ -529,16 +531,42 @@ export default class EmployeeLactationPeriodsController {
    *       '403': { description: Sin permiso 'read' en el módulo employees }
    */
   async complianceReportExport(ctx: HttpContext) {
-    const { request, response } = ctx
+    const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
       if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
+      const reportFilters = this.toReportFilters(filters)
       const service = new EmployeeLactationComplianceReportService()
-      const pdfBuffer = await service.buildCompliancePdf(
-        this.toReportFilters(filters),
-        ctx.businessUnitScope
+      const items = await service.getComplianceAll(reportFilters, ctx.businessUnitScope)
+      const piiExportService = new PiiExportService()
+      const exportDef = SENSITIVE_EXPORT_INVENTORY.find(
+        (item) => item.exportKey === 'lactation-compliance-pdf'
+      )!
+
+      const pdfBuffer = await piiExportService.deliverSensitiveExport(
+        ctx,
+        {
+          exportKey: exportDef.exportKey,
+          sensitiveColumns: [...exportDef.sensitiveColumns],
+          employeeIds: [...new Set(items.map((item) => item.employee.employeeId))],
+          filters: {
+            page: reportFilters.page ?? null,
+            limit: reportFilters.limit ?? null,
+            status: reportFilters.status ?? null,
+            from: reportFilters.from?.toISODate() ?? null,
+            to: reportFilters.to?.toISODate() ?? null,
+            employeeId: reportFilters.employeeId ?? null,
+            businessUnitId: reportFilters.businessUnitId ?? null,
+          },
+          businessUnitId: piiExportService.resolveAuditBusinessUnitId(
+            ctx.businessUnitScope ?? [],
+            reportFilters.businessUnitId
+          ),
+          originModule: 'compliance',
+        },
+        async (maskSensitive) => service.renderCompliancePdf(items, reportFilters, { maskSensitive })
       )
 
       const filename = `reporte-cumplimiento-lactancia-${DateTime.now().toFormat('yyyyLLdd')}.pdf`
@@ -548,6 +576,10 @@ export default class EmployeeLactationPeriodsController {
       response.status(200)
       return response.send(pdfBuffer)
     } catch (error) {
+      const auditError = PiiExportService.formatAuditError(error, i18n)
+      if (auditError) {
+        return response.status(auditError.status).json(auditError.body)
+      }
       return this.respondError(error, response, 400)
     }
   }
