@@ -37,6 +37,24 @@ function makeLegalDocumentRepo(seed: FakeLegalDocRow[]): LegalDocumentRepository
     async createPublishedVersion() {
       throw new Error('no usado en estos tests')
     },
+    async findById() {
+      throw new Error('no usado en estos tests')
+    },
+    async findByIdForUpdate() {
+      throw new Error('no usado en estos tests')
+    },
+    async listByType() {
+      throw new Error('no usado en estos tests')
+    },
+    async createDraft() {
+      throw new Error('no usado en estos tests')
+    },
+    async updateDraft() {
+      throw new Error('no usado en estos tests')
+    },
+    async markAsPublished() {
+      throw new Error('no usado en estos tests')
+    },
   }
 }
 
