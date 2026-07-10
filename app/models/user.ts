@@ -102,12 +102,17 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
 
   /**
    * TTL del refresh token en segundos según el origin de la sesión.
-   * - app: 30 días
-   * - web: 7 días
+   * - app:      30 días
+   * - web:      7 días
+   * - platform: 7 días (consola landlord — misma ventana que web)
    */
   static refreshTokenExpiresIn(origin: string): number {
     if (origin === 'app') {
       return 60 * 60 * 24 * 30
+    }
+
+    if (origin === 'platform') {
+      return 60 * 60 * 24 * 7
     }
 
     return 60 * 60 * 24 * 7
