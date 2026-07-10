@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import ProceedingFile from './proceeding_file.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
@@ -30,7 +31,11 @@ import Employee from './employee.js'
  *            type: string
  *
  */
-export default class EmployeeProceedingFile extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeProceedingFile extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'employee_proceeding_files'
 
   @column({ isPrimary: true })
@@ -38,6 +43,14 @@ export default class EmployeeProceedingFile extends compose(BaseModel, SoftDelet
 
   @column()
   declare employeeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, USRH1783372659486).
+   * Se copia de `employee.businessUnitId` al crear/actualizar el vínculo;
+   * nunca se acepta directamente del cliente.
+   */
+  @column()
+  declare businessUnitId: number
 
   @column()
   declare proceedingFileId: number

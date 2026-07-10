@@ -13,6 +13,7 @@ import {
   updateDepartmentValidator,
 } from '#validators/department'
 import OrgChartMoveService from '#services/org_chart_move_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
 import { DateTime } from 'luxon'
 import UserService from '#services/user_service'
@@ -1503,7 +1504,7 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -1528,9 +1529,17 @@ export default class DepartmentController {
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!currentDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'update',
+          requestedId: departmentId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -1731,7 +1740,7 @@ export default class DepartmentController {
     }
   }
 
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -1747,9 +1756,17 @@ export default class DepartmentController {
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!currentDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'delete',
+          requestedId: departmentId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -1802,7 +1819,7 @@ export default class DepartmentController {
     }
   }
 
-  async forceDelete({ request, response, i18n }: HttpContext) {
+  async forceDelete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -1818,8 +1835,16 @@ export default class DepartmentController {
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'forceDelete',
+          requestedId: departmentId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -1988,7 +2013,7 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async show({ auth, request, response, i18n }: HttpContext) {
+  async show({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -2013,9 +2038,16 @@ export default class DepartmentController {
       }
 
       const departmentService = new DepartmentService(i18n)
-      const showDepartment = await departmentService.show(departmentId)
+      const showDepartment = await departmentService.show(departmentId, businessUnitScope)
 
       if (!showDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'show',
+          requestedId: departmentId,
+          actorUserId: user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {

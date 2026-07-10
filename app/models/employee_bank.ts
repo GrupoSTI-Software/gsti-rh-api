@@ -1,11 +1,14 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import Bank from './bank.js'
+import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 /**
  * @swagger
@@ -56,7 +59,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *
  */
 
-export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeBankId: number
 
@@ -134,8 +137,22 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare bankId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeBank) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column.dateTime({ autoCreate: true })
   declare employeeBankCreatedAt: DateTime

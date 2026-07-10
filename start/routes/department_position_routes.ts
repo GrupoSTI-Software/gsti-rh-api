@@ -14,3 +14,4 @@ router
   })
   .prefix('/api/departments-positions')
   .use(middleware.auth())
+  .use(middleware.businessScope())

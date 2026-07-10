@@ -10,3 +10,4 @@ router
   })
   .prefix('/api/employee-records')
   .use(middleware.auth())
+  .use(middleware.businessScope())

@@ -1,6 +1,8 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Position from './position.js'
@@ -34,7 +36,7 @@ import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
  *            type: string
  */
 
-export default class PositionBusinessUnitCompetencyLevel extends compose(BaseModel, SoftDeletes) {
+export default class PositionBusinessUnitCompetencyLevel extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   static table = 'position_business_unit_competency_levels'
 
   @column({ isPrimary: true })
@@ -42,6 +44,20 @@ export default class PositionBusinessUnitCompetencyLevel extends compose(BaseMod
 
   @column()
   declare positionId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el puesto padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: PositionBusinessUnitCompetencyLevel) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Position.query().where('positionId', instance.positionId).first(),
+      'el puesto'
+    )
+  }
 
   @column()
   declare competencyId: number

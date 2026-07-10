@@ -622,7 +622,12 @@ export default class SyncAssistsService {
       if (empCalendar && empCalendar.status === 200 && empCalendar.data) {
         const calendarDayRes = empCalendar.data as any
         const calendarDay = calendarDayRes.employeeCalendar as AssistDayInterface[]
-        calendarDay.forEach(async (calendarObject: AssistDayInterface) => {
+        // for...of en vez de forEach(async): forEach no espera los await del
+        // callback, por lo que setDateCalendar retornaba antes de que los save()
+        // commitearan. Con el bucle secuencial el metodo completa realmente su
+        // trabajo, lo que la materializacion en lote del calendario necesita
+        // para que la primera lectura ya vea los dias recien creados.
+        for (const calendarObject of calendarDay) {
           const existEmployeeAssistCalendar = await EmployeeAssistCalendar.query()
             .whereNull('employee_assist_calendar_deleted_at')
             .where('employee_id' , filters.employeeID as number)
@@ -660,7 +665,7 @@ export default class SyncAssistsService {
           employeeAssistCalendar.shiftCalculateFlag = calendarObject.assist.shiftCalculateFlag
           employeeAssistCalendar.hasAssitFlatList = calendarObject.assist.assitFlatList && calendarObject.assist.assitFlatList?.length > 0 ? true : false
           await employeeAssistCalendar.save()
-        })
+        }
       } else if (empCalendar && empCalendar.status === 400 && empCalendar.title === 'no_employee_shifts') {
         const start = DateTime.fromISO(filters.date)
         const end = DateTime.fromISO(filters.dateEnd)

@@ -102,12 +102,17 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
 
   /**
    * TTL del refresh token en segundos según el origin de la sesión.
-   * - app: 30 días
-   * - web: 7 días
+   * - app:      30 días
+   * - web:      7 días
+   * - platform: 7 días (consola landlord — misma ventana que web)
    */
   static refreshTokenExpiresIn(origin: string): number {
     if (origin === 'app') {
       return 60 * 60 * 24 * 30
+    }
+
+    if (origin === 'platform') {
+      return 60 * 60 * 24 * 7
     }
 
     return 60 * 60 * 24 * 7
@@ -127,6 +132,14 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
 
   @column()
   declare userActive: number
+
+  /**
+   * Indica si el usuario es administrador de la plataforma SaaS (consola interna GSTI).
+   * Por defecto `false`; solo se enciende vía bootstrap manual o `POST /api/platform/users`.
+   * Ningún flujo de tenant puede escribir este campo.
+   */
+  @column({ columnName: 'is_platform_admin' })
+  declare isPlatformAdmin: boolean
 
   /**
    * Marca temporal de cuándo el usuario verificó su email mediante el flujo de

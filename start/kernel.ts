@@ -49,6 +49,8 @@ export const middleware = router.named({
   basicAuth: () => import('#middleware/basic_auth_middleware'),
   businessScope: () => import('#middleware/business_unit_scope_middleware'),
   businessScopeOptional: () => import('#middleware/business_unit_scope_optional_middleware'),
+  /** Protege las rutas internas de la consola landlord (/api/platform/*). Fail-closed. */
+  platformAdmin: () => import('#middleware/platform_admin_middleware'),
   ...(env.get('APP_MODE') === 'demo'
     ? { demoGuard: () => import('../app/modules/demo/middleware/demo_guard_middleware.js') }
     : {}),

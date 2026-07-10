@@ -9,6 +9,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import { EmployeeProceedingFileFilterInterface } from '../interfaces/employee_proceeding_file_filter_interface.js'
 import UserService from '#services/user_service'
 import UploadService from '#services/upload_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { inject } from '@adonisjs/core'
 
 export default class EmployeeProceedingFileController {
@@ -234,7 +235,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeId = request.input('employeeId')
       const proceedingFileId = request.input('proceedingFileId')
@@ -266,14 +267,28 @@ export default class EmployeeProceedingFileController {
       }
       const newEmployeeProceedingFile =
         await employeeProceedingFileService.create(employeeProceedingFile)
-      if (newEmployeeProceedingFile) {
-        response.status(201)
+      if (!newEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'store',
+          requestedId: employeeId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(404)
         return {
-          type: 'success',
-          title: 'Employees proceeding files',
-          message: 'The relation employee-proceedingfile was created successfully',
-          data: { employeeProceedingFile: newEmployeeProceedingFile },
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered ID',
+          data: { employeeId },
         }
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Employees proceeding files',
+        message: 'The relation employee-proceedingfile was created successfully',
+        data: { employeeProceedingFile: newEmployeeProceedingFile },
       }
     } catch (error) {
       const messageError =
@@ -402,7 +417,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeProceedingFileId = request.param('employeeProceedingFileId')
       const employeeId = request.input('employeeId')
@@ -426,6 +441,13 @@ export default class EmployeeProceedingFileController {
         .where('employee_proceeding_file_id', employeeProceedingFileId)
         .first()
       if (!currentEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'update',
+          requestedId: employeeProceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -460,14 +482,28 @@ export default class EmployeeProceedingFileController {
         currentEmployeeProceedingFile,
         employeeProceedingFile
       )
-      if (updateEmployeeProceedingFile) {
-        response.status(200)
+      if (!updateEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'update',
+          requestedId: employeeId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(404)
         return {
-          type: 'success',
-          title: 'Employee proceeding files',
-          message: 'The relation employee-proceedingfile was updated successfully',
-          data: { employeeProceedingFile: updateEmployeeProceedingFile },
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered ID',
+          data: { employeeId },
         }
+      }
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employee proceeding files',
+        message: 'The relation employee-proceedingfile was updated successfully',
+        data: { employeeProceedingFile: updateEmployeeProceedingFile },
       }
     } catch (error) {
       const messageError =
@@ -580,7 +616,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeProceedingFileId = request.param('employeeProceedingFileId')
       if (!employeeProceedingFileId) {
@@ -597,6 +633,13 @@ export default class EmployeeProceedingFileController {
         .where('employee_proceeding_file_id', employeeProceedingFileId)
         .first()
       if (!currentEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'delete',
+          requestedId: employeeProceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -727,7 +770,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeProceedingFileId = request.param('employeeProceedingFileId')
       if (!employeeProceedingFileId) {
@@ -743,6 +786,13 @@ export default class EmployeeProceedingFileController {
       const showEmployeeProceedingFile =
         await employeeProceedingFileService.show(employeeProceedingFileId)
       if (!showEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'show',
+          requestedId: employeeProceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',

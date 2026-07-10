@@ -64,11 +64,17 @@ export default class EmployeeAssistsCalendarService {
     const missingDates = allDatesInRange.filter(date => !datesWithData.has(date))
 
     if (missingDates.length > 0 && employee) {
-      const assistService = new AssistsService(this.i18n)
-      for await (const day of missingDates) {
-        const date = typeof day === 'string' ? new Date(day) : day
-        await assistService.updateAssistCalendar(employee.employeeId, date)
-      }
+      // Materializacion en lote: una sola llamada a setDateCalendar sobre todo
+      // el rango, en vez de un ciclo dia por dia que invocaba el calculo pesado
+      // de asistencias (SyncAssistsService.index) hasta 42 veces en serie y
+      // superaba el timeout del cliente en la carga fria de un mes. setDateCalendar
+      // ya recorre internamente el rango y hace upsert idempotente por dia.
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      await syncAssistsService.setDateCalendar({
+        date: filterInitialDate,
+        dateEnd: filterEndDate,
+        employeeID: employee.employeeId,
+      })
       employeeCalendar = await this.fetchCalendarData(filters, filterInitialDate, filterEndDate, employee)
     }
 

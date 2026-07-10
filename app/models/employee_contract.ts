@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import EmployeeContractType from './employee_contract_type.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Department from './department.js'
@@ -71,7 +73,7 @@ import Employee from './employee.js'
  *            format: date-time
  *            nullable: true
  */
-export default class EmployeeContract extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeContract extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeContractId: number
 
@@ -102,8 +104,26 @@ export default class EmployeeContract extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeId: number
 
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08).
+   * Distinta de `payrollBusinessUnitId` (unidad de negocio de nómina del
+   * contrato): esta es la unidad de negocio del empleado, para aislamiento.
+   */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare departmentId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeContract) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare positionId: number
