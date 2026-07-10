@@ -10,3 +10,4 @@ router
   })
   .prefix('/api/employee-zones')
   .use(middleware.auth())
+  .use(middleware.businessScope())

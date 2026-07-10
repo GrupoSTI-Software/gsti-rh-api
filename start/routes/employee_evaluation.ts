@@ -13,3 +13,4 @@ router
   })
   .prefix('/api/employee-evaluations')
   .use(middleware.auth())
+  .use(middleware.businessScope())

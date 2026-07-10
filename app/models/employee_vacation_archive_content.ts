@@ -1,17 +1,33 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, manyToMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, manyToMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import EmployeeVacationArchive from './employee_vacation_archive.js'
 import ShiftException from './shift_exception.js'
 
-export default class EmployeeVacationArchiveContent extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeVacationArchiveContent extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeVacationArchiveContentId: number
 
   @column()
   declare employeeVacationArchiveId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde employee_vacation_archives (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeVacationArchiveContent) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => EmployeeVacationArchive.query().where('employeeVacationArchiveId', instance.employeeVacationArchiveId).first(),
+      'el archivo de vacaciones'
+    )
+  }
 
   @column()
   declare employeeVacationArchiveContentDescription: string

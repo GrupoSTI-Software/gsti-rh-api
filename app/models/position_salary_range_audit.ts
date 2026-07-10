@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import encryption from '@adonisjs/core/services/encryption'
 import User from './user.js'
 import PositionSalaryRange from './position_salary_range.js'
@@ -49,7 +51,7 @@ export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
  *          positionSalaryRangeAuditDeletedAt:
  *            type: string
  */
-export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDeletes) {
+export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   static table = 'position_salary_range_audit'
 
   @column({ isPrimary: true })
@@ -57,6 +59,23 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
 
   @column()
   declare rangeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08).
+   * Derivada de `position_salary_ranges.business_unit_id` vía `rangeId`.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde position_salary_ranges (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: PositionSalaryRangeAudit) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => PositionSalaryRange.query().where('positionSalaryRangeId', instance.rangeId).first(),
+      'el rango salarial'
+    )
+  }
 
   @column()
   declare action: SalaryRangeAuditAction

@@ -1,0 +1,22 @@
+name: Notificar merges al equipo
+
+on:
+  push:
+    branches:
+      - multitenant
+      # Para vigilar otra rama: agregarla aqui y commitear este
+      # workflow tambien en esa rama.
+
+jobs:
+  notificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: GrupoSTI-Software/gsti-actions/notifica-merges@main
+        with:
+          product: Valanserh
+          webhook_url: ${{ secrets.GCHAT_WEBHOOK_GSTI }}
+          asana_pat: ${{ secrets.ASANA_PAT_NOTIFICACIONES }}
+          asana_workspace_gid: ${{ vars.ASANA_WORKSPACE_GID }}

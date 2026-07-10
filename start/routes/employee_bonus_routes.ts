@@ -12,3 +12,4 @@ router
   })
   .prefix('/api/employee-bonuses')
   .use(middleware.auth())
+  .use(middleware.businessScope())
