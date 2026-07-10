@@ -462,6 +462,71 @@ test.group('TeleworkPolicy - flujo completo (root)', (group) => {
     assert.equal(response.body().key, 'entrada-invalida')
   })
 
+  test('PUT con un componente que excede el máximo permitido responde 422 (no 413)', async ({
+    client,
+    assert,
+  }) => {
+    const templateResponse = await client
+      .get('/api/nom037/telework-policy/template')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+    const templateComponents = templateResponse.body().data.components as Array<{
+      key: string
+      title: string
+      body: string
+    }>
+
+    // Un solo componente por encima del límite (100 000 caracteres, ver
+    // telework_policy_update.validator.ts) debe fallar con un 422 claro de
+    // Vine, no con el 413 "Entity too large" crudo del bodyparser.
+    const oversizedComponents = templateComponents.map((component, index) => ({
+      key: component.key,
+      title: component.title,
+      body: index === 0 ? 'x'.repeat(100_001) : component.body,
+    }))
+
+    const response = await client
+      .put('/api/nom037/telework-policy')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .json({ title: 'Título válido', components: oversizedComponents })
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'entrada-invalida')
+  })
+
+  test('PUT con los 12 componentes cerca del máximo permitido responde 200 (no 413)', async ({
+    client,
+    assert,
+  }) => {
+    const templateResponse = await client
+      .get('/api/nom037/telework-policy/template')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+    const templateComponents = templateResponse.body().data.components as Array<{
+      key: string
+      title: string
+      body: string
+    }>
+
+    // 12 × ~95 000 caracteres (~1.1 MB de body) debe caber cómodamente bajo
+    // el límite global `json.limit: '2mb'` de config/bodyparser.ts.
+    const largeComponents = templateComponents.map((component) => ({
+      key: component.key,
+      title: component.title,
+      body: 'x'.repeat(95_000),
+    }))
+
+    const response = await client
+      .put('/api/nom037/telework-policy')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .json({ title: 'Título válido', components: largeComponents })
+
+    response.assertStatus(200)
+    assert.lengthOf(response.body().data.components[0].body, 95_000)
+  })
+
   test('DELETE /api/nom037/telework-policy/draft descarta el borrador', async ({
     client,
     assert,

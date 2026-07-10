@@ -1,7 +1,15 @@
 import vine from '@vinejs/vine'
 
-/** 1 MB de HTML por componente (mismo límite que `legal_document`). */
-const MAX_BODY_LENGTH = 1_048_576
+/**
+ * 100 KB de HTML por componente. A diferencia de `legal_document` (1 MB, pero
+ * un solo campo `content.es`/`content.en`), aquí van **12 componentes en el
+ * mismo request** — con 1 MB por componente el payload podría llegar a ~12 MB
+ * y el bodyparser lo rechaza con 413 "Entity too large" antes de que Vine
+ * llegue a validar nada. 100 KB × 12 ≈ 1.2 MB de contenido, holgado bajo el
+ * límite global `json.limit` de `config/bodyparser.ts` (ver ese archivo) y
+ * más que suficiente para el texto de un numeral del 5.2 (decenas de páginas).
+ */
+const MAX_BODY_LENGTH = 100_000
 
 /**
  * Editar el borrador: la cantidad exacta (12) se valida aquí; el **set** exacto
