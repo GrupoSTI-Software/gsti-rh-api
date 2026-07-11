@@ -3,5 +3,6 @@ interface AssistPositionExcelFilterInterface {
   positionId: number
   filterDate: string
   filterDateEnd: string
+  businessUnitId?: number
 }
 export type { AssistPositionExcelFilterInterface }
