@@ -11,3 +11,4 @@ router
   })
   .prefix('/api/employee-competency-evaluations')
   .use(middleware.auth())
+  .use(middleware.businessScope())

@@ -1,4 +1,5 @@
 import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
 import EmployeeMedicalConditionController from '#controllers/employee_medical_condition_controller'
 
 const employeeMedicalConditionController = new EmployeeMedicalConditionController()
@@ -10,4 +11,7 @@ router.group(() => {
   router.get('/:employeeMedicalConditionId', employeeMedicalConditionController.show)
   router.put('/:employeeMedicalConditionId', employeeMedicalConditionController.update)
   router.delete('/:employeeMedicalConditionId', employeeMedicalConditionController.delete)
-}).prefix('/api/employee-medical-conditions')
+})
+  .prefix('/api/employee-medical-conditions')
+  .use(middleware.auth())
+  .use(middleware.businessScope())

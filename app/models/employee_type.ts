@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from './business_unit.js'
@@ -42,7 +43,7 @@ import BusinessUnit from './business_unit.js'
  *         employeeTypeUpdatedAt: '2024-12-05T13:00:00Z'
  *         employeeTypeDeletedAt: null
  */
-export default class EmployeeType extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeType extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeTypeId: number
 

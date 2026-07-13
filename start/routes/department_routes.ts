@@ -13,6 +13,8 @@ router.group(() => {
   router.delete('/:departmentId/force-delete', '#controllers/department_controller.forceDelete')
 })
  .prefix('/api/departments')
+ .use(middleware.auth())
+ .use(middleware.businessScope())
 
 router.group(() => {
   router.get('/', '#controllers/department_controller.getAll')

@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import encryption from '@adonisjs/core/services/encryption'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
@@ -45,15 +47,29 @@ import MedicalConditionTypePropertyValue from './medical_condition_type_property
  *           format: date-time
  *           nullable: true
  */
-export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeMedicalConditionId: number
 
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare medicalConditionTypeId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeMedicalCondition) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   /**
    * Diagnóstico médico — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,

@@ -281,10 +281,13 @@ export default class DepartmentService {
     })
   }
 
-  async show(departmentId: number) {
+  async show(departmentId: number, allowedBusinessUnitIds: number[] = []) {
+    if (allowedBusinessUnitIds.length === 0) return null
+
     const department = await Department.query()
       .whereNull('department_deleted_at')
       .where('department_id', departmentId)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .preload('subDepartments', (query) => {
         query.preload('parentDepartment')
         query.orderBy('departmentName', 'asc')

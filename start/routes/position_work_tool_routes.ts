@@ -11,3 +11,4 @@ router
   })
   .prefix('/api/position-work-tools')
   .use(middleware.auth())
+  .use(middleware.businessScope())

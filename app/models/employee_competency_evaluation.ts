@@ -1,6 +1,8 @@
-import { BaseModel, column ,belongsTo} from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column ,belongsTo} from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import EmployeeEvaluation from './employee_evaluation.js'
 import { DateTime } from 'luxon'
@@ -48,12 +50,26 @@ import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
  *
  */
 
-export default class EmployeeCompetencyEvaluation extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeCompetencyEvaluation extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeCompetencyEvaluationId: number
 
   @column()
   declare employeeEvaluationId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde employee_evaluations (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeCompetencyEvaluation) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => EmployeeEvaluation.query().where('employeeEvaluationId', instance.employeeEvaluationId).first(),
+      'la evaluación del empleado'
+    )
+  }
 
   @column()
   declare positionBusinessUnitCompetencyLevelId: number
