@@ -43,6 +43,8 @@ import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PayrollOvertimeMeasurementService from './payroll_overtime_measurement_service.js'
+import PayrollOvertimeAllocationService from './payroll_overtime_allocation_service.js'
+import PayrollOvertimeWeeklyDetailService from './payroll_overtime_weekly_detail_service.js'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -2897,10 +2899,22 @@ export default class AssistsService {
       filters.employee,
       filters.employeeCalendar
     )
-    const overtimeDouble = overtimeMeasurementService.minutesToDisplayHours(
-      overtimeMeasurement.totalExtraordinaryMinutes
+
+    const overtimeAllocationService = new PayrollOvertimeAllocationService()
+    const overtimeAllocation = overtimeAllocationService.allocateFromMeasurement(
+      filters.employee,
+      overtimeMeasurement
     )
-    const overtimeTriple = 0
+
+    const overtimeWeeklyDetailService = new PayrollOvertimeWeeklyDetailService()
+    await overtimeWeeklyDetailService.persistEmployeeAllocation(overtimeAllocation)
+
+    const overtimeDouble = overtimeAllocationService.minutesToDisplayHours(
+      overtimeAllocation.totalDoubleMinutes
+    )
+    const overtimeTriple = overtimeAllocationService.minutesToDisplayHours(
+      overtimeAllocation.totalTripleMinutes
+    )
     const workingTimeRuleUnresolved = overtimeMeasurement.workingTimeRuleUnresolved
 
     let company = ''
@@ -2941,6 +2955,7 @@ export default class AssistsService {
       bonus: '',
       others: workingTimeRuleUnresolved ? this.t('working_time_rule_unresolved_mark') : '',
       overtimeMeasurement: overtimeMeasurement,
+      overtimeAllocation: overtimeAllocation,
     })
     return rows
   }

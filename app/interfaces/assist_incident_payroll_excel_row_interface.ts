@@ -1,4 +1,5 @@
 import type { PayrollOvertimeEmployeeMeasurement } from './payroll_overtime_measurement_interface.js'
+import type { PayrollOvertimeEmployeeAllocation } from './payroll_overtime_allocation_interface.js'
 
 interface AssistIncidentPayrollExcelRowInterface {
   workBusinessUnit: string
@@ -20,5 +21,6 @@ interface AssistIncidentPayrollExcelRowInterface {
   bonus: string
   others: string
   overtimeMeasurement?: PayrollOvertimeEmployeeMeasurement
+  overtimeAllocation?: PayrollOvertimeEmployeeAllocation
 }
 export type { AssistIncidentPayrollExcelRowInterface }
