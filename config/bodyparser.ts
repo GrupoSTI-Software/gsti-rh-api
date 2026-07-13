@@ -18,9 +18,18 @@ const bodyParserConfig = defineConfig({
 
   /**
    * Config for the JSON parser
+   *
+   * `limit: '2mb'` (AdonisJS default is 1mb): varios endpoints envían texto
+   * enriquecido en JSON con varios campos/componentes en el mismo request
+   * (p. ej. `legal-documents` con `content.es`/`content.en` a 1 MB cada uno,
+   * o `telework-policy` con 12 componentes de hasta 100 KB). Con el límite
+   * default de 1mb, esos payloads ya válidos para los validadores de Vine
+   * eran rechazados antes de llegar a ellos con un 413 "Entity too large"
+   * genérico del framework.
    */
   json: {
     convertEmptyStringsToNull: true,
+    limit: '2mb',
     types: [
       'application/json',
       'application/json-patch+json',
