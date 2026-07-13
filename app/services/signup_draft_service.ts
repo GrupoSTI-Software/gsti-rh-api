@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import logger from '@adonisjs/core/services/logger'
 import { I18n } from '@adonisjs/i18n'
+import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
@@ -11,6 +12,8 @@ import PersonService from '#services/person_service'
 import UserService from '#services/user_service'
 import BusinessUnitService from '#services/business_unit_service'
 import AuthTokenService from '#services/auth_token_service'
+import SystemSettingService from '#services/system_setting_service'
+import { resolveSignupApiError } from '#helpers/signup_api_error'
 
 export interface StartSignupData {
   firstName: string
@@ -26,6 +29,16 @@ interface ServiceResult {
   title: string
   message: string
   data: Record<string, unknown>
+  /**
+   * Campos opcionales del estándar GSTI v2 (`{ title, detail, key, errorCode }`),
+   * presentes únicamente en el error nuevo de provisión de `system_settings`
+   * (USRH1783712837572). El resto de `SignupDraftService` sigue devolviendo el
+   * contrato legado `{ status, type, title, message, data }` sin estos campos
+   * (decisión consciente de convivencia, ver spec §5).
+   */
+  key?: string
+  detail?: string
+  errorCode?: string
 }
 
 export default class SignupDraftService {
@@ -212,47 +225,82 @@ export default class SignupDraftService {
     const personService = new PersonService(this.i18n as any)
     const userService = new UserService(this.i18n as any)
     const businessUnitService = new BusinessUnitService(this.i18n as any)
+    const systemSettingService = new SystemSettingService()
 
-    const personData = new Person()
-    personData.personFirstname = draft.signupDraftFirstName
-    personData.personLastname = draft.signupDraftLastName
-    personData.personSecondLastname = draft.signupDraftSecondLastName ?? ''
-    personData.personEmail = draft.signupDraftEmail
-    personData.personGender = ''
-    personData.personPhone = ''
-    personData.personPhoneSecondary = ''
-    personData.personCurp = ''
-    personData.personRfc = ''
-    personData.personImssNss = ''
-    personData.personMaritalStatus = ''
-    personData.personPlaceOfBirthCountry = ''
-    personData.personPlaceOfBirthState = ''
-    personData.personPlaceOfBirthCity = ''
-    const person = await personService.create(personData)
-
+    // Slug fuera de la transacción: solo lectura de unicidad, no persiste nada.
     const slug = await businessUnitService.resolveUniqueSlug(draft.signupDraftBusinessUnitName)
-    const businessUnitData = new BusinessUnit()
-    businessUnitData.businessUnitName = draft.signupDraftBusinessUnitName
-    businessUnitData.businessUnitSlug = slug
-    businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
-    businessUnitData.businessUnitActive = 1
-    const businessUnit = await businessUnitService.create(businessUnitData)
 
-    // UserService.create ya ejecuta related('businessUnits').attach(businessUnitIds) internamente.
-    const userData = new User()
-    userData.userEmail = draft.signupDraftEmail
-    userData.userPassword = data.password
-    userData.userActive = 1
-    userData.roleId = 1
-    userData.personId = person.personId
-    userData.userToken = ''
-    userData.pinCode = ''
-    userData.userEmailType = 'personal'
-    const user = await userService.create(userData, [businessUnit.businessUnitId])
+    let businessUnit: BusinessUnit
+    let user: User
 
-    // userEmailVerifiedAt no lo copia UserService.create; se persiste en un update separado.
-    user.userEmailVerifiedAt = DateTime.now()
-    await user.save()
+    // Armado completo del alta (Person → BusinessUnit → User → attach →
+    // system_settings) todo-o-nada: un fallo en cualquier paso revierte todo,
+    // sin dejar datos huérfanos (USRH1783712837572).
+    try {
+      const result = await db.transaction(async (trx) => {
+        const personData = new Person()
+        personData.personFirstname = draft.signupDraftFirstName
+        personData.personLastname = draft.signupDraftLastName
+        personData.personSecondLastname = draft.signupDraftSecondLastName ?? ''
+        personData.personEmail = draft.signupDraftEmail
+        personData.personGender = ''
+        personData.personPhone = ''
+        personData.personPhoneSecondary = ''
+        personData.personCurp = ''
+        personData.personRfc = ''
+        personData.personImssNss = ''
+        personData.personMaritalStatus = ''
+        personData.personPlaceOfBirthCountry = ''
+        personData.personPlaceOfBirthState = ''
+        personData.personPlaceOfBirthCity = ''
+        const trxPerson = await personService.create(personData, trx)
+
+        const businessUnitData = new BusinessUnit()
+        businessUnitData.businessUnitName = draft.signupDraftBusinessUnitName
+        businessUnitData.businessUnitSlug = slug
+        businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
+        businessUnitData.businessUnitActive = 1
+        const trxBusinessUnit = await businessUnitService.create(businessUnitData, trx)
+
+        // UserService.create ya ejecuta related('businessUnits').attach(businessUnitIds) internamente.
+        const userData = new User()
+        userData.userEmail = draft.signupDraftEmail
+        userData.userPassword = data.password
+        userData.userActive = 1
+        userData.roleId = 1
+        userData.personId = trxPerson.personId
+        userData.userToken = ''
+        userData.pinCode = ''
+        userData.userEmailType = 'personal'
+        const trxUser = await userService.create(userData, [trxBusinessUnit.businessUnitId], trx)
+
+        // userEmailVerifiedAt no lo copia UserService.create; se persiste en un update separado.
+        trxUser.userEmailVerifiedAt = DateTime.now()
+        await trxUser.save()
+
+        // Configuración base del tenant nuevo, ligada por business_unit_id y
+        // copiada del registro base — dentro de la misma transacción (fail-closed).
+        await systemSettingService.createForTenant(trxBusinessUnit.businessUnitId, slug, trx)
+
+        return { businessUnit: trxBusinessUnit, user: trxUser }
+      })
+
+      businessUnit = result.businessUnit
+      user = result.user
+    } catch (error) {
+      const resolved = resolveSignupApiError(error, 500, this.i18n)
+      logger.error({ err: error }, 'SignupDraftService.complete: rollback del alta self-service.')
+      return {
+        status: resolved.status,
+        type: 'error',
+        title: resolved.title,
+        message: resolved.message,
+        data: {},
+        key: resolved.key,
+        detail: resolved.detail,
+        errorCode: String(resolved.errorCode),
+      }
+    }
 
     await draft.delete()
 

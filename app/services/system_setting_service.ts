@@ -3,6 +3,45 @@ import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
 import SystemSettingSystemModule from '#models/system_setting_system_module'
 import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { SignupServiceError } from '../exceptions/signup_service_error.js'
+import { SIGNUP_ERROR_CODES } from '../constants/signup_error_codes.js'
+
+/**
+ * Id del registro base fundacional de `system_settings` (siembra
+ * `0019_system_setting_seeder.ts`), fuente de la copia de contenido para la
+ * configuración de cada tenant nuevo (USRH1783712837572).
+ */
+const BASE_SYSTEM_SETTING_ID = 1
+
+/**
+ * Columnas de contenido que se copian del registro base al crear la
+ * configuración de un tenant nuevo. Excluye `systemSettingId`, timestamps,
+ * `deletedAt`, `businessUnitId` y `systemSettingBusinessUnits` (estas dos
+ * últimas se resuelven para el tenant destino, no se copian del base).
+ */
+function cloneBaseContent(base: SystemSetting) {
+  return {
+    systemSettingTradeName: base.systemSettingTradeName,
+    systemSettingLogo: base.systemSettingLogo,
+    systemSettingBanner: base.systemSettingBanner,
+    systemSettingSidebarColor: base.systemSettingSidebarColor,
+    systemSettingFavicon: base.systemSettingFavicon,
+    systemSettingEmployeeAplicationIcon: base.systemSettingEmployeeAplicationIcon,
+    systemSettingActive: base.systemSettingActive,
+    systemSettingToleranceCountPerAbsence: base.systemSettingToleranceCountPerAbsence,
+    systemSettingRestrictFutureVacation: base.systemSettingRestrictFutureVacation,
+    systemSettingBirthdayEmails: base.systemSettingBirthdayEmails,
+    systemSettingAnniversaryEmails: base.systemSettingAnniversaryEmails,
+    systemSettingAttendanceFaultHrEmails: base.systemSettingAttendanceFaultHrEmails,
+    systemSettingMaxAbsencesBeforeAttendanceLock: base.systemSettingMaxAbsencesBeforeAttendanceLock,
+    systemSettingMaxLateArrivalsBeforeAttendanceLock: base.systemSettingMaxLateArrivalsBeforeAttendanceLock,
+    systemSettingPeriodAbsencesBeforeAttendanceLock: base.systemSettingPeriodAbsencesBeforeAttendanceLock,
+    systemSettingPeriodLateArrivalsBeforeAttendanceLock:
+      base.systemSettingPeriodLateArrivalsBeforeAttendanceLock,
+    systemSettingMonthlyConversionFactor: base.systemSettingMonthlyConversionFactor,
+  }
+}
 
 export default class SystemSettingService {
   async index(allowedBusinessUnitSlugs: string[] = []) {
@@ -335,5 +374,77 @@ export default class SystemSettingService {
       message: 'The anniversary emails status was updated successfully',
       data: { systemSetting },
     }
+  }
+
+  /**
+   * Crea (o revive) de forma idempotente el `system_settings` de un tenant
+   * nuevo, copiando el contenido del registro base fundacional y ligándolo
+   * por `business_unit_id` (relación formal, USRH1783712837572).
+   *
+   * Debe invocarse dentro de la transacción del alta self-service
+   * (`SignupDraftService.complete()`): si falla, el llamador debe abortar
+   * toda la transacción (fail-closed, sin fallback silencioso).
+   *
+   * Idempotencia por `business_unit_id`:
+   * - Si ya existe un registro **activo** para ese tenant, se devuelve tal
+   *   cual (un reintento del registro no duplica ni sobreescribe contenido).
+   * - Si existe un registro **soft-deleted**, se revive (`restore()`) y se
+   *   actualiza con el contenido vigente del base — decisión confirmada: un
+   *   tenant puede reprovisionarse tras un soft-delete de su configuración.
+   * - Si no existe, se crea copiando el contenido del registro base.
+   *
+   * `system_setting_business_units` también se puebla con el slug del tenant
+   * nuevo (convivencia con los 27 consumidores legacy de `getActive()` que
+   * hoy resuelven por `FIND_IN_SET`; migrarlos es trabajo de las HUs 3 y 4
+   * del set, fuera de alcance aquí).
+   */
+  async createForTenant(
+    businessUnitId: number,
+    businessUnitSlug: string,
+    trx: TransactionClientContract
+  ): Promise<SystemSetting> {
+    const base = await SystemSetting.query({ client: trx })
+      .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
+      .first()
+
+    if (!base) {
+      throw new SignupServiceError(
+        'El registro base de system_settings (id 1) no existe; no es posible provisionar la configuración del tenant nuevo',
+        SIGNUP_ERROR_CODES.SETTINGS_PROVISIONING_FAILED,
+        500,
+        'signup-settings-provisioning-failed',
+        'No fue posible crear la configuración base de la empresa nueva'
+      )
+    }
+
+    const content = cloneBaseContent(base)
+
+    const existing = await SystemSetting.query({ client: trx })
+      .withTrashed()
+      .where('business_unit_id', businessUnitId)
+      .first()
+
+    if (existing) {
+      if (!existing.deletedAt) {
+        // Ya activo para este tenant: idempotente, no se reinserta ni se sobreescribe.
+        return existing
+      }
+
+      existing.useTransaction(trx)
+      Object.assign(existing, content)
+      existing.systemSettingBusinessUnits = businessUnitSlug
+      // `restore()` limpia `deletedAt` y persiste en una sola escritura
+      // (incluye el contenido recién asignado, ya marcado como dirty).
+      await existing.restore()
+      return existing
+    }
+
+    const created = new SystemSetting()
+    Object.assign(created, content)
+    created.businessUnitId = businessUnitId
+    created.systemSettingBusinessUnits = businessUnitSlug
+    created.useTransaction(trx)
+    await created.save()
+    return created
   }
 }
