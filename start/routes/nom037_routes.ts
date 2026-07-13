@@ -19,6 +19,13 @@ router
       })
       .prefix('/nom037/telework-locations')
       .use(middleware.businessScope())
+
+    router
+      .group(() => {
+        router.get('/', '#controllers/telework_worker_controller.index')
+      })
+      .prefix('/nom037/telework-workers')
+      .use(middleware.businessScope())
   })
   .prefix('/api')
   .use(middleware.auth())

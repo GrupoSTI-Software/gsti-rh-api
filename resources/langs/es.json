@@ -2061,5 +2061,9 @@
   "telework_location_not_found": "El lugar de teletrabajo no existe o no pertenece a la empresa seleccionada.",
   "telework_location_employee_id_required": "Debe indicar el empleado (employeeId) para consultar sus lugares de teletrabajo.",
   "telework_location_invalid_input": "Los datos del lugar de teletrabajo no son válidos.",
-  "telework_location_unexpected_error": "Ocurrió un error inesperado al procesar el lugar de teletrabajo."
+  "telework_location_unexpected_error": "Ocurrió un error inesperado al procesar el lugar de teletrabajo.",
+  "telework_workers_title": "Listado de teletrabajadores",
+  "telework_workers_list_success": "Listado de teletrabajadores obtenido correctamente.",
+  "telework_workers_forbidden": "No cuenta con permiso para consultar el listado de teletrabajadores.",
+  "telework_workers_unexpected_error": "Ocurrió un error inesperado al consultar el listado de teletrabajadores."
 }
