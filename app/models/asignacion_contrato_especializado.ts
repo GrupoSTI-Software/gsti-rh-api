@@ -7,11 +7,16 @@ import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import BusinessUnit from '#models/business_unit'
 import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 import Employee from '#models/employee'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * Asignación de un trabajador a un contrato de servicios especializados REPSE.
  */
-export default class AsignacionContratoEspecializado extends compose(BaseModel, SoftDeletes) {
+export default class AsignacionContratoEspecializado extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'asignaciones_contrato_especializado'
 
   @column({ isPrimary: true, columnName: 'asignacion_contrato_especializado_id' })
