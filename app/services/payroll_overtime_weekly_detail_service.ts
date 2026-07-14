@@ -2,10 +2,46 @@ import { DateTime } from 'luxon'
 import OvertimeWeeklyDetail from '#models/overtime_weekly_detail'
 import WorkingTimeRule from '#models/working_time_rule'
 import { DEFAULT_COUNTRY_CODE } from '#modules/working-time-rules/working_time_rule.constants'
+import type { IsoWeekKey } from '../interfaces/payroll_overtime_backfill_interface.js'
 import type {
   PayrollOvertimeEmployeeAllocation,
   PayrollOvertimeWeekAllocation,
 } from '../interfaces/payroll_overtime_allocation_interface.js'
+
+const REVERT_PAGE_SIZE = 100
+
+export interface PayrollOvertimeWeeklyDetailRevertOptions {
+  from: string
+  to: string
+  payrollBusinessUnitId?: number
+  dryRun?: boolean
+}
+
+/**
+ * Recolecta las semanas ISO (lunes–domingo) que intersectan un rango de fechas.
+ */
+export function collectIsoWeeksInDateRange(from: string, to: string): IsoWeekKey[] {
+  const weeks = new Map<string, IsoWeekKey>()
+  let cursor = DateTime.fromISO(from, { zone: 'UTC' }).startOf('day')
+  const end = DateTime.fromISO(to, { zone: 'UTC' }).startOf('day')
+
+  if (!cursor.isValid || !end.isValid || cursor > end) {
+    return []
+  }
+
+  while (cursor <= end) {
+    const key = `${cursor.weekYear}:${cursor.weekNumber}`
+    if (!weeks.has(key)) {
+      weeks.set(key, {
+        isoYear: cursor.weekYear,
+        isoWeek: cursor.weekNumber,
+      })
+    }
+    cursor = cursor.plus({ days: 1 })
+  }
+
+  return Array.from(weeks.values())
+}
 
 /**
  * Persistencia idempotente del desglose semanal de horas extra.
@@ -88,6 +124,88 @@ export default class PayrollOvertimeWeeklyDetailService {
       ...searchKeys,
       ...payload,
     })
+  }
+
+  /**
+   * Soft-delete del detalle semanal migrado en un rango de fechas.
+   * Solo afecta semanas ISO que intersectan `--from`/`--to` y, opcionalmente,
+   * la empresa de nómina indicada.
+   */
+  async revertWeeklyDetailsByRange(
+    options: PayrollOvertimeWeeklyDetailRevertOptions
+  ): Promise<number> {
+    const isoWeeks = collectIsoWeeksInDateRange(options.from, options.to)
+    if (isoWeeks.length === 0) {
+      return 0
+    }
+
+    let page = 1
+    let hasMore = true
+    let reverted = 0
+
+    while (hasMore) {
+      let query = OvertimeWeeklyDetail.query().where((subQuery) => {
+        for (const week of isoWeeks) {
+          subQuery.orWhere((weekQuery) => {
+            weekQuery
+              .where('overtimeWeeklyDetailIsoYear', week.isoYear)
+              .where('overtimeWeeklyDetailIsoWeek', week.isoWeek)
+          })
+        }
+      })
+
+      if (options.payrollBusinessUnitId) {
+        query = query.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+      }
+
+      const records = await query
+        .orderBy('overtimeWeeklyDetailId', 'asc')
+        .paginate(page, REVERT_PAGE_SIZE)
+
+      if (records.length === 0) {
+        hasMore = false
+        break
+      }
+
+      for (const record of records.all()) {
+        if (!options.dryRun) {
+          await record.delete()
+        }
+        reverted++
+      }
+
+      page++
+      hasMore = records.hasMorePages
+    }
+
+    return reverted
+  }
+
+  /**
+   * Empresas de nómina con detalle semanal en las semanas ISO del rango.
+   * Usado por el orquestador de revert cuando no se acota `--payroll-business-unit-id`.
+   */
+  async resolvePayrollBusinessUnitIdsInRange(from: string, to: string): Promise<number[]> {
+    const isoWeeks = collectIsoWeeksInDateRange(from, to)
+    if (isoWeeks.length === 0) {
+      return []
+    }
+
+    const rows = await OvertimeWeeklyDetail.query()
+      .select('payrollBusinessUnitId')
+      .where((subQuery) => {
+        for (const week of isoWeeks) {
+          subQuery.orWhere((weekQuery) => {
+            weekQuery
+              .where('overtimeWeeklyDetailIsoYear', week.isoYear)
+              .where('overtimeWeeklyDetailIsoWeek', week.isoWeek)
+          })
+        }
+      })
+      .groupBy('payrollBusinessUnitId')
+      .orderBy('payrollBusinessUnitId', 'asc')
+
+    return rows.map((row) => row.payrollBusinessUnitId)
   }
 
   /**
