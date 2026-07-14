@@ -16,6 +16,9 @@ import {
   createSystemSettingProceedingFileValidator,
   updateSystemSettingProceedingFileValidator,
 } from '#validators/system_setting_proceeding_file'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { resolveSystemSettingApiError } from '../helpers/resolve_system_setting_api_error.js'
 
 export default class SystemSettingController {
   /**
@@ -263,12 +266,10 @@ export default class SystemSettingController {
    */
   async index({ response, businessUnitScope }: HttpContext) {
     try {
-      const buUnits = businessUnitScope.length > 0
-        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
-        : []
-      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+      // USRH1783712837584: filtra por `business_unit_id` (relación formal) en
+      // vez de `FIND_IN_SET` sobre el CSV de slugs.
       const systemSettingService = new SystemSettingService()
-      const systemSettings = await systemSettingService.index(businessSlugs)
+      const systemSettings = await systemSettingService.index(businessUnitScope[0])
       response.status(200)
       return {
         type: 'success',
@@ -516,7 +517,8 @@ export default class SystemSettingController {
           data: { ...data },
         }
       }
-      const validActive = await systemSettingService.verifyActiveStore(systemSetting, businessSlugsStore)
+      // USRH1783712837584: valida por `business_unit_id`, no por el CSV de slugs.
+      const validActive = await systemSettingService.verifyActiveStore(systemSetting, businessUnitScope[0])
       if (validActive.status !== 200) {
         response.status(validActive.status)
         return {
@@ -646,6 +648,10 @@ export default class SystemSettingController {
         systemSetting.systemSettingEmployeeAplicationIcon = fileUrl
       }
       systemSetting.systemSettingBusinessUnits = businessSlugsStore.join(',')
+      // USRH1783712837584: `create()` no asignaba `businessUnitId` — si un
+      // admin crea manualmente desde la pantalla BO (empresa preexistente sin
+      // backfill), la fila quedaría sin relación formal a su empresa.
+      systemSetting.businessUnitId = businessUnitScope[0]
       const newSystemSetting = await systemSettingService.create(systemSetting)
       response.status(201)
       return {
@@ -921,10 +927,11 @@ export default class SystemSettingController {
           data: { ...systemSetting },
         }
       }
+      // USRH1783712837584: valida por `business_unit_id`, no por el CSV de slugs.
       const validActive = await systemSettingService.verifyActiveUpdate(
         systemSetting,
         currentSystemSetting,
-        businessSlugsUpdate
+        businessUnitScope[0]
       )
       if (validActive.status !== 200) {
         response.status(validActive.status)
@@ -1890,8 +1897,23 @@ export default class SystemSettingController {
    *     tags:
    *       - System Settings
    *     summary: get system setting active
+   *     description: >
+   *       Ruta pública. Si la request incluye el header `X-Business-Unit-Id`
+   *       y una sesión autenticada válida (USRH1783712837584), devuelve la
+   *       configuración de ESA empresa mediante `resolveByBusinessUnitId`
+   *       (fail-closed: 404 `SETTINGS.RESOLVE.NOT_FOUND_TENANT` si la empresa
+   *       no tiene configuración propia). Sin header o sin sesión (branding
+   *       de login/registro), conserva el comportamiento global previo.
    *     produces:
    *       - application/json
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Código público de la unidad de negocio (opcional; solo aplica con sesión autenticada)
+   *         required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -1913,7 +1935,12 @@ export default class SystemSettingController {
    *                   type: object
    *                   description: Processed object
    *       '404':
-   *         description: Resource not found
+   *         description: >
+   *           Resource not found. Dos casos posibles (USRH1783712837584):
+   *           `key: BU.NOT.001` (la unidad de negocio del header no existe o
+   *           no está en el alcance del usuario) o
+   *           `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT` (la empresa resuelta
+   *           no tiene su propia configuración de System Settings).
    *         content:
    *           application/json:
    *             schema:
@@ -1928,6 +1955,12 @@ export default class SystemSettingController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 key:
+   *                   type: string
+   *                   description: Clave estable del error (p. ej. BU.NOT.001)
+   *                 code:
+   *                   type: string
+   *                   description: Código estable del error (p. ej. SETTINGS.RESOLVE.NOT_FOUND_TENANT)
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
@@ -1973,9 +2006,86 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async getActive({ response }: HttpContext) {
+  /**
+   * USRH1783712837584 — "split por contexto": esta ruta (`GET /api/system-settings-active`)
+   * es pública (sin `auth()`/`businessScope()`) porque la consumen tanto páginas
+   * SIN usuario (branding de login/registro en gsti-rh-bo, antes de autenticar)
+   * como pantallas CON usuario y unidad de negocio ya seleccionada.
+   *
+   * Este helper solo resuelve el tenant si hay evidencia real de sesión + BU
+   * seleccionada (header `X-Business-Unit-Id` + usuario autenticado válido):
+   *  - Sin header → `{ businessUnitId: null }` (pre-login, comportamiento intacto).
+   *  - Header pero sin sesión válida → `{ businessUnitId: null }` (igual que pre-login).
+   *  - Header + sesión, pero unidad fuera de scope/inválida → `{ notInScope: true }`
+   *    (mismo criterio que el middleware `businessScope`, sin distinguir el motivo).
+   *  - Header + sesión + unidad válida → `{ businessUnitId }`.
+   */
+  private async resolveOptionalTenantBusinessUnitId(
+    ctx: HttpContext
+  ): Promise<{ businessUnitId: number | null; notInScope?: boolean }> {
+    const headerValue = ctx.request.header('x-business-unit-id')
+    if (!headerValue) return { businessUnitId: null }
+
+    let authenticated = false
+    try {
+      authenticated = await ctx.auth.check()
+    } catch {
+      authenticated = false
+    }
+    if (!authenticated || !ctx.auth.user) return { businessUnitId: null }
+
+    const user = ctx.auth.user
+    if (!user.role) await user.load('role')
+    const scopeService = new BusinessAccessScopeService()
+    const fullScope = await scopeService.getAccessibleIds(user)
+    const resolvedId = await scopeService.resolveInternalId(headerValue, fullScope)
+    if (resolvedId === null) return { businessUnitId: null, notInScope: true }
+    return { businessUnitId: resolvedId }
+  }
+
+  async getActive(ctx: HttpContext) {
+    const { response } = ctx
     try {
       const systemSettingService = new SystemSettingService()
+      const { businessUnitId, notInScope } = await this.resolveOptionalTenantBusinessUnitId(ctx)
+
+      if (notInScope) {
+        response.status(404)
+        return {
+          type: 'error',
+          title: 'Unidad de negocio no encontrada',
+          message: 'El recurso solicitado no existe o no tienes acceso a él.',
+          key: 'BU.NOT.001',
+          data: {},
+        }
+      }
+
+      if (businessUnitId) {
+        try {
+          const showSystemSetting = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+          response.status(200)
+          return {
+            type: 'success',
+            title: 'System settings',
+            message: 'The system setting active was found successfully',
+            data: { systemSetting: showSystemSetting },
+          }
+        } catch (error) {
+          if (!(error instanceof SystemSettingResolutionError)) throw error
+          const resolved = resolveSystemSettingApiError(error, 404, ctx.i18n)
+          response.status(resolved.status)
+          return {
+            type: 'error',
+            title: resolved.title,
+            message: resolved.message,
+            key: resolved.key,
+            code: resolved.code,
+            data: {},
+          }
+        }
+      }
+
+      // Sin tenant resuelto (pre-login o header ausente): comportamiento global intacto.
       const showSystemSetting = await systemSettingService.getActive()
       response.status(200)
       return {
@@ -2847,8 +2957,22 @@ export default class SystemSettingController {
    *     tags:
    *       - System Settings
    *     summary: get system setting get payroll config
+   *     description: >
+   *       Ruta pública. Mismo diseño "split por contexto" que
+   *       `/api/system-settings-active` (USRH1783712837584): con header
+   *       `X-Business-Unit-Id` + sesión válida, resuelve la configuración de
+   *       ESA empresa (fail-closed); sin ellos, conserva el comportamiento
+   *       global previo.
    *     produces:
    *       - application/json
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Código público de la unidad de negocio (opcional; solo aplica con sesión autenticada)
+   *         required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -2870,7 +2994,11 @@ export default class SystemSettingController {
    *                   type: object
    *                   description: Processed object
    *       '404':
-   *         description: Resource not found
+   *         description: >
+   *           Resource not found. Dos casos posibles (USRH1783712837584):
+   *           `key: BU.NOT.001` (unidad de negocio fuera de alcance) o
+   *           `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT` (empresa sin
+   *           configuración propia).
    *         content:
    *           application/json:
    *             schema:
@@ -2882,6 +3010,12 @@ export default class SystemSettingController {
    *                 title:
    *                   type: string
    *                   description: Title of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Clave estable del error (p. ej. BU.NOT.001)
+   *                 code:
+   *                   type: string
+   *                   description: Código estable del error (p. ej. SETTINGS.RESOLVE.NOT_FOUND_TENANT)
    *                 message:
    *                   type: string
    *                   description: Message of response
@@ -2930,10 +3064,49 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async getPayrollConfig({ response }: HttpContext) {
+  /**
+   * USRH1783712837584: mismo diseño "split por contexto" que `getActive()` —
+   * ver el helper `resolveOptionalTenantBusinessUnitId` para el detalle. Esta
+   * ruta tampoco tiene `auth()`/`businessScope()` hoy; se mantiene así.
+   */
+  async getPayrollConfig(ctx: HttpContext) {
+    const { response } = ctx
     try {
       const systemSettingService = new SystemSettingService()
-      const systemSetting = await systemSettingService.getActive()
+      const { businessUnitId, notInScope } = await this.resolveOptionalTenantBusinessUnitId(ctx)
+
+      if (notInScope) {
+        response.status(404)
+        return {
+          type: 'error',
+          title: 'Unidad de negocio no encontrada',
+          message: 'El recurso solicitado no existe o no tienes acceso a él.',
+          key: 'BU.NOT.001',
+          data: {},
+        }
+      }
+
+      let systemSetting: SystemSetting | null
+      if (businessUnitId) {
+        try {
+          systemSetting = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        } catch (error) {
+          if (!(error instanceof SystemSettingResolutionError)) throw error
+          const resolved = resolveSystemSettingApiError(error, 404, ctx.i18n)
+          response.status(resolved.status)
+          return {
+            type: 'error',
+            title: resolved.title,
+            message: resolved.message,
+            key: resolved.key,
+            code: resolved.code,
+            data: {},
+          }
+        }
+      } else {
+        systemSetting = await systemSettingService.getActive()
+      }
+
       if (!systemSetting) {
         response.status(404)
         return {

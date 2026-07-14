@@ -10,8 +10,6 @@ import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
 import env from '../../start/env.js'
 import Role from '#models/role'
-import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
@@ -354,22 +352,16 @@ export default class UserService {
 
   async sendNewPasswordEmail(url: string, newUser: User, userPassword?: string) {
     const hostData = this.getUrlInfo(url)
-    const isWhiteLabel = false
-    let tradeName = 'Valanserh'
-    let backgroundImageLogo =
+    // USRH1783712837584: se llama tanto desde contextos con empresa en
+    // contexto (alta/edición de usuario, con `businessScope`) como desde el
+    // reseteo de contraseña por token (sin usuario autenticado). El branding
+    // "white label" estuvo deshabilitado (isWhiteLabel siempre false) y nunca
+    // se aplicaba; se retira la consulta muerta a `getActive()` en vez de
+    // migrarla a `resolveByBusinessUnitId`, que fallaría en el caso sin tenant.
+    const tradeName = 'Valanserh'
+    const backgroundImageLogo =
       'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-
-    if (systemSettingActive && isWhiteLabel) {
-      if (systemSettingActive.systemSettingLogo) {
-        backgroundImageLogo = systemSettingActive.systemSettingLogo
-      }
-      if (systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
-    }
     await newUser.load('person')
     const emailData = {
       user: newUser,

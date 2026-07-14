@@ -4,6 +4,7 @@ import CareerPathCandidateService from '#services/career_path_candidate_service'
 import { CareerPathCandidateFilterSearchInterface } from 'app/interfaces/career_path_candidate_filter_search_interface.js'
 import CareerPathCandidate from '#models/career_path_candidate'
 import { createCareerPathCandidateValidator, updateCareerPathCandidateValidator } from '#validators/career_path_candidate'
+import { resolveRequestBusinessUnitId } from '../helpers/resolve_request_business_unit_id.js'
 
 export default class CareerPathCandidateController {
   /**
@@ -667,7 +668,8 @@ export default class CareerPathCandidateController {
    *                     error:
    *                       type: string
    */
-  async updateStatus({ request, response, i18n, auth }: HttpContext) {
+  async updateStatus(ctx: HttpContext) {
+    const { request, response, i18n, auth } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const careerPathCandidateId = request.param('careerPathCandidateId')
@@ -740,11 +742,15 @@ export default class CareerPathCandidateController {
           careerPathCandidateStatus === 'activo' ||
           careerPathCandidateStatus === 'rechazado'
         ) {
+          // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
+          // se resuelve el id de la empresa del usuario desde el header.
+          const businessUnitId = await resolveRequestBusinessUnitId(ctx)
           await careerPathCandidateService.sendStatusNotificationEmail(
             currentCareerPathCandidate.proposedBy,
             currentCareerPathCandidate,
             careerPathCandidateStatus,
-            i18n
+            i18n,
+            businessUnitId
           )
         }
         response.status(200)
