@@ -1892,18 +1892,29 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings-active:
    *   get:
-   *     security:
-   *       - bearerAuth: []
+   *     security: []
    *     tags:
    *       - System Settings
    *     summary: get system setting active
    *     description: >
-   *       Ruta pública. Si la request incluye el header `X-Business-Unit-Id`
-   *       y una sesión autenticada válida (USRH1783712837584), devuelve la
-   *       configuración de ESA empresa mediante `resolveByBusinessUnitId`
-   *       (fail-closed: 404 `SETTINGS.RESOLVE.NOT_FOUND_TENANT` si la empresa
-   *       no tiene configuración propia). Sin header o sin sesión (branding
-   *       de login/registro), conserva el comportamiento global previo.
+   *       Ruta pública (sin `bearerAuth` obligatorio): la consumen tanto
+   *       pantallas SIN usuario (branding de login/registro en gsti-rh-bo)
+   *       como pantallas CON usuario y unidad de negocio ya seleccionada.
+   *
+   *
+   *       **Resolución "split por contexto" (USRH1783712837584):**
+   *       - **Sin header `X-Business-Unit-Id` o sin sesión autenticada
+   *         válida** (pre-login): devuelve el comportamiento global previo,
+   *         la configuración "activa" del sistema sin filtrar por empresa.
+   *       - **Con header + sesión autenticada, pero la unidad de negocio no
+   *         existe o está fuera del alcance del usuario**: `404` con
+   *         `key: BU.NOT.001`.
+   *       - **Con header + sesión autenticada y unidad de negocio válida**:
+   *         resuelve la configuración de ESA empresa por su
+   *         `business_unit_id` vía `resolveByBusinessUnitId` (fail-closed).
+   *         Si la empresa no tiene su propia configuración: `404` con
+   *         `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT`. Nunca devuelve la
+   *         configuración de otra empresa como sustituto.
    *     produces:
    *       - application/json
    *     parameters:
@@ -1912,11 +1923,19 @@ export default class SystemSettingController {
    *         schema:
    *           type: string
    *           format: uuid
-   *         description: Código público de la unidad de negocio (opcional; solo aplica con sesión autenticada)
+   *         description: >
+   *           Código público (`businessUnitPublicId`) de la unidad de negocio
+   *           seleccionada. Opcional: solo se usa para resolver por empresa
+   *           cuando además hay una sesión autenticada válida; sin sesión se
+   *           ignora y se conserva el comportamiento global (pre-login).
    *         required: false
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: >
+   *           Configuración obtenida correctamente. `data.systemSetting` es
+   *           el registro global (sin `businessUnitId`) cuando no hay
+   *           header/sesión, o el registro propio de la empresa del usuario
+   *           cuando sí los hay.
    *         content:
    *           application/json:
    *             schema:
@@ -1925,64 +1944,141 @@ export default class SystemSettingController {
    *                 type:
    *                   type: string
    *                   description: Type of response generated
+   *                   example: success
    *                 title:
    *                   type: string
    *                   description: Title of response generated
+   *                   example: System settings
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                   example: The system setting active was found successfully
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   description: Objeto con la configuración resuelta
+   *                   properties:
+   *                     systemSetting:
+   *                       type: object
+   *                       description: Registro de System Settings resuelto (global o por empresa)
+   *                       properties:
+   *                         systemSettingId:
+   *                           type: integer
+   *                         businessUnitId:
+   *                           type: integer
+   *                           nullable: true
+   *                           description: Id de la unidad de negocio dueña del registro; null en el registro global fundacional
+   *                         systemSettingTradeName:
+   *                           type: string
+   *                         systemSettingLogo:
+   *                           type: string
+   *                         systemSettingBanner:
+   *                           type: string
+   *                         systemSettingSidebarColor:
+   *                           type: string
+   *                         systemSettingFavicon:
+   *                           type: string
+   *                         systemSettingActive:
+   *                           type: integer
+   *                         systemSettingToleranceCountPerAbsence:
+   *                           type: integer
+   *                         systemSettingTolerances:
+   *                           type: array
+   *                           description: Tolerancias de asistencia asociadas
+   *                           items:
+   *                             type: object
+   *             examples:
+   *               sinSesionONoTenant:
+   *                 summary: Pre-login o sin header (comportamiento global)
+   *                 value:
+   *                   type: success
+   *                   title: System settings
+   *                   message: The system setting active was found successfully
+   *                   data:
+   *                     systemSetting:
+   *                       systemSettingId: 1
+   *                       businessUnitId: null
+   *                       systemSettingTradeName: Valanserh
+   *                       systemSettingActive: 1
+   *               conSesionYTenant:
+   *                 summary: Con header + sesión (resuelto por business_unit_id)
+   *                 value:
+   *                   type: success
+   *                   title: System settings
+   *                   message: The system setting active was found successfully
+   *                   data:
+   *                     systemSetting:
+   *                       systemSettingId: 42
+   *                       businessUnitId: 7
+   *                       systemSettingTradeName: Empresa Cliente S.A.
+   *                       systemSettingActive: 1
    *       '404':
    *         description: >
-   *           Resource not found. Dos casos posibles (USRH1783712837584):
-   *           `key: BU.NOT.001` (la unidad de negocio del header no existe o
-   *           no está en el alcance del usuario) o
-   *           `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT` (la empresa resuelta
-   *           no tiene su propia configuración de System Settings).
+   *           No encontrado. Dos causas posibles y mutuamente excluyentes
+   *           (USRH1783712837584), distinguibles por la presencia de `key`
+   *           vs `code`:
+   *           1. `key: BU.NOT.001` — la unidad de negocio del header no
+   *           existe o no está en el alcance del usuario autenticado
+   *           (mismo criterio que el middleware `businessScope`).
+   *           2. `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT` — la unidad de
+   *           negocio es válida y está en el alcance del usuario, pero no
+   *           tiene su propia configuración de System Settings (fail-closed;
+   *           nunca cae a la configuración de otra empresa).
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 key:
-   *                   type: string
-   *                   description: Clave estable del error (p. ej. BU.NOT.001)
-   *                 code:
-   *                   type: string
-   *                   description: Código estable del error (p. ej. SETTINGS.RESOLVE.NOT_FOUND_TENANT)
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Unidad de negocio inválida o fuera de alcance
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                     title:
+   *                       type: string
+   *                     message:
+   *                       type: string
+   *                     key:
+   *                       type: string
+   *                       description: Clave estable del error
+   *                       example: BU.NOT.001
+   *                     data:
+   *                       type: object
+   *                 - type: object
+   *                   description: Empresa válida sin System Settings propio
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                     title:
+   *                       type: string
+   *                     message:
+   *                       type: string
+   *                     key:
+   *                       type: string
+   *                       description: Clave i18n del error de resolución
+   *                       example: configuracion-no-encontrada
+   *                     code:
+   *                       type: string
+   *                       description: Código estable del error de resolución
+   *                       example: SETTINGS.RESOLVE.NOT_FOUND_TENANT
+   *                     data:
+   *                       type: object
+   *             examples:
+   *               unidadNegocioNoEncontrada:
+   *                 summary: BU.NOT.001 — header inválido o fuera de alcance
+   *                 value:
+   *                   type: error
+   *                   title: Unidad de negocio no encontrada
+   *                   message: El recurso solicitado no existe o no tienes acceso a él.
+   *                   key: BU.NOT.001
+   *                   data: {}
+   *               empresaSinConfiguracion:
+   *                 summary: SETTINGS.RESOLVE.NOT_FOUND_TENANT — fail-closed
+   *                 value:
+   *                   type: error
+   *                   title: Configuración no encontrada
+   *                   message: La empresa no tiene una configuración de System Settings propia.
+   *                   key: configuracion-no-encontrada
+   *                   code: SETTINGS.RESOLVE.NOT_FOUND_TENANT
+   *                   data: {}
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1993,18 +2089,18 @@ export default class SystemSettingController {
    *                 type:
    *                   type: string
    *                   description: Type of response generated
+   *                   example: error
    *                 title:
    *                   type: string
    *                   description: Title of response generated
+   *                   example: Server error
    *                 message:
    *                   type: string
    *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
+   *                   example: An unexpected error has occurred on the server
+   *                 error:
+   *                   type: string
+   *                   description: Detalle técnico del error inesperado (message de la excepción)
    */
   /**
    * USRH1783712837584 — "split por contexto": esta ruta (`GET /api/system-settings-active`)
@@ -2952,17 +3048,18 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings-get-payroll-config:
    *   get:
-   *     security:
-   *       - bearerAuth: []
+   *     security: []
    *     tags:
    *       - System Settings
    *     summary: get system setting get payroll config
    *     description: >
    *       Ruta pública. Mismo diseño "split por contexto" que
    *       `/api/system-settings-active` (USRH1783712837584): con header
-   *       `X-Business-Unit-Id` + sesión válida, resuelve la configuración de
-   *       ESA empresa (fail-closed); sin ellos, conserva el comportamiento
-   *       global previo.
+   *       `X-Business-Unit-Id` + sesión válida, resuelve primero el
+   *       System Setting de ESA empresa vía `resolveByBusinessUnitId`
+   *       (fail-closed) y luego su configuración de nómina vigente; sin
+   *       header o sin sesión, conserva el comportamiento global previo
+   *       (`getActive()` sin filtrar por empresa).
    *     produces:
    *       - application/json
    *     parameters:
@@ -2971,11 +3068,17 @@ export default class SystemSettingController {
    *         schema:
    *           type: string
    *           format: uuid
-   *         description: Código público de la unidad de negocio (opcional; solo aplica con sesión autenticada)
+   *         description: >
+   *           Código público (`businessUnitPublicId`) de la unidad de negocio
+   *           seleccionada. Opcional: solo se usa para resolver por empresa
+   *           cuando además hay una sesión autenticada válida.
    *         required: false
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: >
+   *           Configuración de nómina vigente a la fecha (la de
+   *           `system_setting_payroll_config_apply_since` más reciente que
+   *           no sea futura) para el System Setting resuelto.
    *         content:
    *           application/json:
    *             schema:
@@ -2983,64 +3086,133 @@ export default class SystemSettingController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Type of response generated
+   *                   example: success
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
+   *                   example: System settings
    *                 message:
    *                   type: string
-   *                   description: Message of response
+   *                   example: The system setting payroll config was found successfully
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   properties:
+   *                     systemSettingPayrollConfig:
+   *                       type: object
+   *                       nullable: true
+   *                       description: Null si el System Setting resuelto no tiene ninguna configuración de nómina vigente
+   *                       properties:
+   *                         systemSettingPayrollConfigId:
+   *                           type: integer
+   *                         systemSettingId:
+   *                           type: integer
+   *                         systemSettingPayrollConfigPaymentType:
+   *                           type: string
+   *                         systemSettingPayrollConfigFixedDay:
+   *                           type: string
+   *                         systemSettingPayrollConfigFixedEveryNWeeks:
+   *                           type: integer
+   *                         systemSettingPayrollConfigNumberOfDaysToBePaid:
+   *                           type: integer
+   *                         systemSettingPayrollConfigApplySince:
+   *                           type: string
+   *                           format: date
+   *             examples:
+   *               conConfiguracionVigente:
+   *                 summary: Configuración de nómina encontrada
+   *                 value:
+   *                   type: success
+   *                   title: System settings
+   *                   message: The system setting payroll config was found successfully
+   *                   data:
+   *                     systemSettingPayrollConfig:
+   *                       systemSettingPayrollConfigId: 3
+   *                       systemSettingId: 42
+   *                       systemSettingPayrollConfigPaymentType: weekly
+   *                       systemSettingPayrollConfigApplySince: '2026-01-01'
    *       '404':
    *         description: >
-   *           Resource not found. Dos casos posibles (USRH1783712837584):
-   *           `key: BU.NOT.001` (unidad de negocio fuera de alcance) o
-   *           `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT` (empresa sin
-   *           configuración propia).
+   *           No encontrado. Tres causas posibles, distinguibles por `type`
+   *           y por la presencia de `key`/`code` (USRH1783712837584):
+   *           1. `type: error`, `key: BU.NOT.001` — la unidad de negocio del
+   *           header no existe o no está en el alcance del usuario.
+   *           2. `type: error`, `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT` —
+   *           la empresa es válida pero no tiene su propio System Setting
+   *           (fail-closed).
+   *           3. `type: warning`, sin `key`/`code` — comportamiento global
+   *           previo (sin header/sesión) cuando no existe ningún System
+   *           Setting activo en el sistema.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 key:
-   *                   type: string
-   *                   description: Clave estable del error (p. ej. BU.NOT.001)
-   *                 code:
-   *                   type: string
-   *                   description: Código estable del error (p. ej. SETTINGS.RESOLVE.NOT_FOUND_TENANT)
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Unidad de negocio inválida o fuera de alcance
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                     title:
+   *                       type: string
+   *                     message:
+   *                       type: string
+   *                     key:
+   *                       type: string
+   *                       example: BU.NOT.001
+   *                     data:
+   *                       type: object
+   *                 - type: object
+   *                   description: Empresa válida sin System Setting propio
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                     title:
+   *                       type: string
+   *                     message:
+   *                       type: string
+   *                     key:
+   *                       type: string
+   *                       example: configuracion-no-encontrada
+   *                     code:
+   *                       type: string
+   *                       example: SETTINGS.RESOLVE.NOT_FOUND_TENANT
+   *                     data:
+   *                       type: object
+   *                 - type: object
+   *                   description: Sin System Setting activo (comportamiento global previo)
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       example: warning
+   *                     title:
+   *                       type: string
+   *                     message:
+   *                       type: string
+   *                     data:
+   *                       type: object
+   *             examples:
+   *               unidadNegocioNoEncontrada:
+   *                 summary: BU.NOT.001 — header inválido o fuera de alcance
+   *                 value:
+   *                   type: error
+   *                   title: Unidad de negocio no encontrada
+   *                   message: El recurso solicitado no existe o no tienes acceso a él.
+   *                   key: BU.NOT.001
+   *                   data: {}
+   *               empresaSinConfiguracion:
+   *                 summary: SETTINGS.RESOLVE.NOT_FOUND_TENANT — fail-closed
+   *                 value:
+   *                   type: error
+   *                   title: Configuración no encontrada
+   *                   message: La empresa no tiene una configuración de System Settings propia.
+   *                   key: configuracion-no-encontrada
+   *                   code: SETTINGS.RESOLVE.NOT_FOUND_TENANT
+   *                   data: {}
+   *               sinSystemSettingActivo:
+   *                 summary: Sin header/sesión y sin ningún System Setting activo
+   *                 value:
+   *                   type: warning
+   *                   title: The system setting was not found
+   *                   message: 'The system setting active was not found '
+   *                   data: {}
    *       default:
    *         description: Unexpected error
    *         content:
@@ -3050,19 +3222,16 @@ export default class SystemSettingController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Type of response generated
+   *                   example: error
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
+   *                   example: Server error
    *                 message:
    *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
+   *                   example: An unexpected error has occurred on the server
+   *                 error:
+   *                   type: string
+   *                   description: Detalle técnico del error inesperado (message de la excepción)
    */
   /**
    * USRH1783712837584: mismo diseño "split por contexto" que `getActive()` —
