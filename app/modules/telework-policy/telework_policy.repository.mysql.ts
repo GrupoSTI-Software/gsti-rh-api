@@ -1,7 +1,10 @@
+import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import TeleworkPolicy from '#models/telework_policy'
 import TeleworkPolicyTemplate from '#models/telework_policy_template'
 import type {
   CreateTeleworkPolicyData,
+  MarkAsPublishedData,
   TeleworkPolicyRepository,
   UpdateTeleworkPolicyData,
 } from './telework_policy.repository.js'
@@ -18,7 +21,49 @@ export default class TeleworkPolicyRepositoryMysql implements TeleworkPolicyRepo
       .where('business_unit_id', businessUnitId)
       .whereNull('telework_policy_deleted_at')
       .orderBy('telework_policy_version', 'desc')
+      .preload('publisher', (userQuery) => userQuery.preload('person'))
       .first()
+  }
+
+  async findActiveByBusinessUnitForUpdate(
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<TeleworkPolicy | null> {
+    return TeleworkPolicy.query({ client: trx })
+      .where('business_unit_id', businessUnitId)
+      .whereNull('telework_policy_deleted_at')
+      .orderBy('telework_policy_version', 'desc')
+      .forUpdate()
+      .first()
+  }
+
+  async findCurrentByBusinessUnit(businessUnitId: number): Promise<TeleworkPolicy | null> {
+    return TeleworkPolicy.query()
+      .where('business_unit_id', businessUnitId)
+      .where('telework_policy_is_current', true)
+      .preload('publisher', (userQuery) => userQuery.preload('person'))
+      .first()
+  }
+
+  async findCurrentByBusinessUnitForUpdate(
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<TeleworkPolicy | null> {
+    return TeleworkPolicy.query({ client: trx })
+      .where('business_unit_id', businessUnitId)
+      .where('telework_policy_is_current', true)
+      .forUpdate()
+      .first()
+  }
+
+  async clearCurrentFlag(teleworkPolicyId: number, trx: TransactionClientContract): Promise<void> {
+    const record = await TeleworkPolicy.query({ client: trx })
+      .where('telework_policy_id', teleworkPolicyId)
+      .firstOrFail()
+
+    record.teleworkPolicyIsCurrent = false
+    record.useTransaction(trx)
+    await record.save()
   }
 
   async findMaxVersion(businessUnitId: number): Promise<number> {
@@ -77,5 +122,34 @@ export default class TeleworkPolicyRepositoryMysql implements TeleworkPolicyRepo
       .firstOrFail()
 
     await record.delete()
+  }
+
+  async markAsPublished(
+    teleworkPolicyId: number,
+    data: MarkAsPublishedData,
+    trx: TransactionClientContract
+  ): Promise<TeleworkPolicy> {
+    const record = await TeleworkPolicy.query({ client: trx })
+      .where('telework_policy_id', teleworkPolicyId)
+      .firstOrFail()
+
+    record.teleworkPolicyStatus = 'published'
+    record.teleworkPolicyIsCurrent = true
+    record.teleworkPolicyContentHash = data.contentHash
+    record.publishedByUserId = data.publishedByUserId
+    record.publishedAt = DateTime.now()
+    record.useTransaction(trx)
+    await record.save()
+    await record.load('publisher', (userQuery) => userQuery.preload('person'))
+
+    return record
+  }
+
+  async listVersions(businessUnitId: number): Promise<TeleworkPolicy[]> {
+    return TeleworkPolicy.query()
+      .where('business_unit_id', businessUnitId)
+      .whereNull('telework_policy_deleted_at')
+      .preload('publisher', (userQuery) => userQuery.preload('person'))
+      .orderBy('telework_policy_version', 'desc')
   }
 }

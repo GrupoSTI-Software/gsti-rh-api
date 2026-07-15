@@ -2016,6 +2016,11 @@
     "initialize_success": "Telework Policy draft created successfully.",
     "update_success": "Telework Policy draft updated successfully.",
     "discard_success": "Telework Policy draft discarded successfully.",
+    "publish_success": "Telework Policy published and distributed successfully.",
+    "draft_from_latest_success": "New Telework Policy draft created from the current version.",
+    "versions_success": "Version history retrieved successfully.",
+    "tracking_success": "Acknowledgement tracking retrieved successfully.",
+    "remind_success": "Reminder sent successfully.",
     "errors": {
       "politica-ya-existe": {
         "title": "Telework Policy",
@@ -2032,6 +2037,18 @@
       "politica-publicada-inmutable": {
         "title": "Telework Policy",
         "detail": "An already published version cannot be edited."
+      },
+      "politica-incompleta-para-publicar": {
+        "title": "Telework Policy",
+        "detail": "Cannot publish; some components of section 5.2 have no content."
+      },
+      "sin-version-vigente": {
+        "title": "Telework Policy",
+        "detail": "This business unit has no published current version to start from."
+      },
+      "borrador-ya-existe": {
+        "title": "Telework Policy",
+        "detail": "An active draft already exists; edit it instead of creating another one."
       },
       "entrada-invalida": {
         "title": "Invalid input"

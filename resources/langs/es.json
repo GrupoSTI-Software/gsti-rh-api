@@ -2019,6 +2019,11 @@
     "initialize_success": "Borrador de la Política de Teletrabajo creado correctamente.",
     "update_success": "Borrador de la Política de Teletrabajo actualizado correctamente.",
     "discard_success": "Borrador de la Política de Teletrabajo descartado correctamente.",
+    "publish_success": "Política de Teletrabajo publicada y difundida correctamente.",
+    "draft_from_latest_success": "Nuevo borrador de la Política de Teletrabajo creado a partir de la versión vigente.",
+    "versions_success": "Historial de versiones obtenido correctamente.",
+    "tracking_success": "Seguimiento de acuses obtenido correctamente.",
+    "remind_success": "Recordatorio enviado correctamente.",
     "errors": {
       "politica-ya-existe": {
         "title": "Política de Teletrabajo",
@@ -2035,6 +2040,18 @@
       "politica-publicada-inmutable": {
         "title": "Política de Teletrabajo",
         "detail": "No se puede editar una versión ya publicada."
+      },
+      "politica-incompleta-para-publicar": {
+        "title": "Política de Teletrabajo",
+        "detail": "No se puede publicar; hay componentes del numeral 5.2 sin contenido."
+      },
+      "sin-version-vigente": {
+        "title": "Política de Teletrabajo",
+        "detail": "La empresa no tiene ninguna versión publicada vigente de la cual partir."
+      },
+      "borrador-ya-existe": {
+        "title": "Política de Teletrabajo",
+        "detail": "Ya existe un borrador activo; edítalo en vez de crear otro."
       },
       "entrada-invalida": {
         "title": "Entrada inválida"
