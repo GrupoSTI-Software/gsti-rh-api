@@ -2024,6 +2024,8 @@
     "versions_success": "Historial de versiones obtenido correctamente.",
     "tracking_success": "Seguimiento de acuses obtenido correctamente.",
     "remind_success": "Recordatorio enviado correctamente.",
+    "remind_no_pending_success": "No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.",
+    "remind_no_matching_pending_success": "Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.",
     "errors": {
       "politica-ya-existe": {
         "title": "Política de Teletrabajo",

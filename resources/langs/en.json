@@ -2021,6 +2021,8 @@
     "versions_success": "Version history retrieved successfully.",
     "tracking_success": "Acknowledgement tracking retrieved successfully.",
     "remind_success": "Reminder sent successfully.",
+    "remind_no_pending_success": "There are no teleworkers pending acknowledgement; no reminder needed to be sent.",
+    "remind_no_matching_pending_success": "None of the specified teleworkers are pending acknowledgement; no reminder was sent.",
     "errors": {
       "politica-ya-existe": {
         "title": "Telework Policy",

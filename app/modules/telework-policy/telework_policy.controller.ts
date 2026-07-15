@@ -1094,11 +1094,28 @@ export default class TeleworkPolicyController {
    *         description: Recordatorio enviado (o 0 pendientes, idempotente)
    *         content:
    *           application/json:
-   *             example:
-   *               type: success
-   *               title: Política de Teletrabajo
-   *               message: Recordatorio enviado correctamente.
-   *               data: { pendingTotal: 2, total: 2, sent: 2, failed: 0, skipped: 0 }
+   *             examples:
+   *               enviado:
+   *                 summary: Al menos un pendiente recibió el recordatorio
+   *                 value:
+   *                   type: success
+   *                   title: Política de Teletrabajo
+   *                   message: Recordatorio enviado correctamente.
+   *                   data: { pendingTotal: 2, total: 2, sent: 2, failed: 0, skipped: 0 }
+   *               sinPendientesEnLaEmpresa:
+   *                 summary: 0 pendientes en toda la empresa (masivo) — idempotente, no es error
+   *                 value:
+   *                   type: success
+   *                   title: Política de Teletrabajo
+   *                   message: No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.
+   *                   data: { pendingTotal: 0, total: 0, sent: 0, failed: 0, skipped: 0 }
+   *               employeeIdsSinCoincidencias:
+   *                 summary: Sí hay pendientes, pero ninguno coincide con los employeeIds indicados — idempotente, no es error
+   *                 value:
+   *                   type: success
+   *                   title: Política de Teletrabajo
+   *                   message: Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.
+   *                   data: { pendingTotal: 2, total: 0, sent: 0, failed: 0, skipped: 0 }
    *       403:
    *         description: Sin permiso del módulo de teletrabajo
    *         content:
@@ -1151,10 +1168,21 @@ export default class TeleworkPolicyController {
       const businessUnitId = ctx.businessUnitScope[0]
       const actorUserId = ctx.auth.user!.userId
       const data = await service.remindPending(businessUnitId, actorUserId, payload.employeeIds)
+      // `total === 0` significa que no se disparó ni un solo correo — decirlo
+      // como "enviado correctamente" sería contradictorio. Se distingue el
+      // motivo: nadie pendiente en TODA la empresa (`pendingTotal === 0`) vs.
+      // los `employeeIds` indicados no coinciden con ningún pendiente real
+      // (sigue habiendo pendientes, solo no en ese subconjunto).
+      const messageKey =
+        data.total > 0
+          ? 'telework_policy.remind_success'
+          : data.pendingTotal === 0
+            ? 'telework_policy.remind_no_pending_success'
+            : 'telework_policy.remind_no_matching_pending_success'
       return ctx.response.status(200).json({
         type: 'success',
         title: ctx.i18n.formatMessage('telework_policy.title'),
-        message: ctx.i18n.formatMessage('telework_policy.remind_success'),
+        message: ctx.i18n.formatMessage(messageKey),
         data,
       })
     } catch (error) {

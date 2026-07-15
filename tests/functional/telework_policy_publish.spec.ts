@@ -547,6 +547,7 @@ test.group('TeleworkPolicy publish/acknowledgements - flujo completo (root)', (g
     assert.equal(body.data.total, 2)
     assert.equal(body.data.sent, 1)
     assert.equal(body.data.skipped, 1)
+    assert.equal(body.message, 'Recordatorio enviado correctamente.')
   })
 
   test('POST /remind-pending selectivo solo envía al employeeId indicado', async ({
@@ -563,6 +564,29 @@ test.group('TeleworkPolicy publish/acknowledgements - flujo completo (root)', (g
     const body = response.body()
     assert.equal(body.data.pendingTotal, 2)
     assert.equal(body.data.total, 1)
+  })
+
+  test('POST /remind-pending con employeeIds que no coinciden con ningún pendiente responde 200 sin enviar nada', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .post('/api/nom037/telework-policy/remind-pending')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .json({ employeeIds: [999999999] })
+
+    response.assertStatus(200)
+    const body = response.body()
+    // Sigue habiendo pendientes en la empresa (pendingTotal > 0); solo no
+    // hubo intersección con el id indicado (total = 0) — mismo mensaje que
+    // el caso de 0 pendientes global, porque en ambos no se envió nada.
+    assert.equal(body.data.pendingTotal, 2)
+    assert.equal(body.data.total, 0)
+    assert.equal(
+      body.message,
+      'Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.'
+    )
   })
 
   test('POST /remind-pending con employeeIds malformado responde 422 entrada-invalida', async ({
@@ -609,6 +633,13 @@ test.group('TeleworkPolicy publish/acknowledgements - flujo completo (root)', (g
     assert.equal(remindBody.data.pendingTotal, 0)
     assert.equal(remindBody.data.total, 0)
     assert.equal(remindBody.data.sent, 0)
+    // El mensaje no debe decir "enviado correctamente" cuando en realidad
+    // no había a quién recordarle nada (0 pendientes es idempotente, no un
+    // envío exitoso).
+    assert.equal(
+      remindBody.message,
+      'No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.'
+    )
   })
 
   test('POST /draft crea la v2 desde la vigente; repetirlo responde 409 borrador-ya-existe', async ({

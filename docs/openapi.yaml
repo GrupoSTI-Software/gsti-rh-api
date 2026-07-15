@@ -8327,6 +8327,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TeleworkPolicyRemindResultSuccess'
+              examples:
+                enviado:
+                  summary: Al menos un pendiente recibió el recordatorio
+                  value:
+                    type: success
+                    title: Política de Teletrabajo
+                    message: Recordatorio enviado correctamente.
+                    data: { pendingTotal: 2, total: 2, sent: 2, failed: 0, skipped: 0 }
+                sinPendientesEnLaEmpresa:
+                  summary: 0 pendientes en toda la empresa (masivo) — idempotente, no es error
+                  value:
+                    type: success
+                    title: Política de Teletrabajo
+                    message: No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.
+                    data: { pendingTotal: 0, total: 0, sent: 0, failed: 0, skipped: 0 }
+                employeeIdsSinCoincidencias:
+                  summary: Sí hay pendientes, pero ninguno coincide con los employeeIds indicados — idempotente, no es error
+                  value:
+                    type: success
+                    title: Política de Teletrabajo
+                    message: Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.
+                    data: { pendingTotal: 2, total: 0, sent: 0, failed: 0, skipped: 0 }
         '401':
           description: Usuario no autenticado
           content:
