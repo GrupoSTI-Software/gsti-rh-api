@@ -54,16 +54,23 @@ export default class PayrollOvertimeWeeklyDetailService {
    * Omite empleados sin empresa operativa o con jornada no resuelta.
    */
   async persistEmployeeAllocation(
-    allocation: PayrollOvertimeEmployeeAllocation
+    allocation: PayrollOvertimeEmployeeAllocation,
+    extendedAllocation?: PayrollOvertimeEmployeeAllocation | null
   ): Promise<OvertimeWeeklyDetail[]> {
-    if (allocation.workingTimeRuleUnresolved || !allocation.payrollBusinessUnitId) {
+    const payrollBusinessUnitId =
+      allocation.payrollBusinessUnitId ?? extendedAllocation?.payrollBusinessUnitId ?? null
+
+    if (allocation.workingTimeRuleUnresolved || !payrollBusinessUnitId) {
       return []
     }
 
     const persisted: OvertimeWeeklyDetail[] = []
 
-    for (const week of allocation.weeks) {
-      const record = await this.persistWeekAllocation(week)
+    for (const { week, extendedWeek } of this.mergeWeekAllocations(
+      allocation,
+      extendedAllocation
+    )) {
+      const record = await this.persistWeekAllocation(week, extendedWeek)
       if (record) {
         persisted.push(record)
       }
@@ -77,9 +84,11 @@ export default class PayrollOvertimeWeeklyDetailService {
    * Restaura la fila si estaba soft-deleted (ciclo revert → re-backfill).
    */
   async persistWeekAllocation(
-    week: PayrollOvertimeWeekAllocation
+    week: PayrollOvertimeWeekAllocation,
+    extendedWeek?: PayrollOvertimeWeekAllocation | null
   ): Promise<OvertimeWeeklyDetail | null> {
-    if (!week.businessUnitId) {
+    const businessUnitId = week.businessUnitId ?? week.payrollBusinessUnitId
+    if (!businessUnitId) {
       return null
     }
 
@@ -96,10 +105,12 @@ export default class PayrollOvertimeWeeklyDetailService {
     }
 
     const payload = {
-      businessUnitId: week.businessUnitId,
+      businessUnitId,
       payrollBusinessUnitId: week.payrollBusinessUnitId,
       overtimeWeeklyDetailDoubleMinutes: week.doubleMinutes,
       overtimeWeeklyDetailTripleMinutes: week.tripleMinutes,
+      overtimeWeeklyDetailExtendedDoubleMinutes: extendedWeek?.doubleMinutes ?? 0,
+      overtimeWeeklyDetailExtendedTripleMinutes: extendedWeek?.tripleMinutes ?? 0,
       overtimeWeeklyDetailWeeklyCapHours: week.weeklyCapHours,
       workingTimeRuleId,
     }
@@ -261,5 +272,85 @@ export default class PayrollOvertimeWeeklyDetailService {
       .first()
 
     return federal ? federal.workingTimeRuleId : null
+  }
+
+  private buildIsoWeekKey(isoWeekYear: number, isoWeek: number): string {
+    return `${isoWeekYear}:${isoWeek}`
+  }
+
+  /**
+   * Une semanas de la asignación autorizada y la extendida.
+   * Si solo hay HE no autorizadas, crea filas con doble/triple en 0 y extended poblado.
+   */
+  private mergeWeekAllocations(
+    allocation: PayrollOvertimeEmployeeAllocation,
+    extendedAllocation?: PayrollOvertimeEmployeeAllocation | null
+  ): Array<{
+    week: PayrollOvertimeWeekAllocation
+    extendedWeek: PayrollOvertimeWeekAllocation | null
+  }> {
+    const allocationByKey = new Map<string, PayrollOvertimeWeekAllocation>()
+    for (const week of allocation.weeks) {
+      allocationByKey.set(this.buildIsoWeekKey(week.isoWeekYear, week.isoWeek), week)
+    }
+
+    const extendedByKey = this.buildExtendedWeekMap(extendedAllocation)
+    const allKeys = new Set([...allocationByKey.keys(), ...extendedByKey.keys()])
+    const merged: Array<{
+      week: PayrollOvertimeWeekAllocation
+      extendedWeek: PayrollOvertimeWeekAllocation | null
+    }> = []
+
+    for (const key of allKeys) {
+      const allocationWeek = allocationByKey.get(key)
+      const extendedWeek = extendedByKey.get(key) ?? null
+
+      if (allocationWeek) {
+        merged.push({ week: allocationWeek, extendedWeek })
+        continue
+      }
+
+      if (extendedWeek) {
+        merged.push({
+          week: this.buildAuthorizedShellWeek(extendedWeek),
+          extendedWeek,
+        })
+      }
+    }
+
+    merged.sort((left, right) => {
+      if (left.week.isoWeekYear !== right.week.isoWeekYear) {
+        return left.week.isoWeekYear - right.week.isoWeekYear
+      }
+      return left.week.isoWeek - right.week.isoWeek
+    })
+
+    return merged
+  }
+
+  private buildAuthorizedShellWeek(
+    extendedWeek: PayrollOvertimeWeekAllocation
+  ): PayrollOvertimeWeekAllocation {
+    return {
+      ...extendedWeek,
+      totalExtraordinaryMinutes: 0,
+      doubleMinutes: 0,
+      tripleMinutes: 0,
+    }
+  }
+
+  private buildExtendedWeekMap(
+    extendedAllocation?: PayrollOvertimeEmployeeAllocation | null
+  ): Map<string, PayrollOvertimeWeekAllocation> {
+    const map = new Map<string, PayrollOvertimeWeekAllocation>()
+    if (!extendedAllocation) {
+      return map
+    }
+
+    for (const week of extendedAllocation.weeks) {
+      map.set(this.buildIsoWeekKey(week.isoWeekYear, week.isoWeek), week)
+    }
+
+    return map
   }
 }

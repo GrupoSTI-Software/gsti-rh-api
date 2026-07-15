@@ -39,6 +39,12 @@ import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
  *         overtimeWeeklyDetailTripleMinutes:
  *           type: number
  *           description: Minutos de horas extra pagadas al triple en la semana
+ *         overtimeWeeklyDetailExtendedDoubleMinutes:
+ *           type: number
+ *           description: Minutos doble extendidos (autorizadas + no autorizadas) cuando PAYROLL_OVERTIME_INCLUDE_UNAUTHORIZED=true
+ *         overtimeWeeklyDetailExtendedTripleMinutes:
+ *           type: number
+ *           description: Minutos triple extendidos (autorizadas + no autorizadas) cuando PAYROLL_OVERTIME_INCLUDE_UNAUTHORIZED=true
  *         overtimeWeeklyDetailWeeklyCapHours:
  *           type: number
  *           description: Tope semanal de horas extra usado para el reparto
@@ -86,6 +92,12 @@ export default class OvertimeWeeklyDetail extends compose(
 
   @column()
   declare overtimeWeeklyDetailTripleMinutes: number
+
+  @column()
+  declare overtimeWeeklyDetailExtendedDoubleMinutes: number
+
+  @column()
+  declare overtimeWeeklyDetailExtendedTripleMinutes: number
 
   @column({ consume: (value: number | string) => Number(value) })
   declare overtimeWeeklyDetailWeeklyCapHours: number

@@ -39,6 +39,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   LOG_LEVEL: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
   APP_BUSINESS_TIMEZONE: Env.schema.string.optional(),
+  /**
+   * Si es `true`, calcula columnas adicionales de HE doble/triple que incluyen
+   * tiempo no autorizado (entrada anticipada / salida tardía) sin duplicar
+   * rangos ya cubiertos por excepciones autorizadas.
+   */
+  PAYROLL_OVERTIME_INCLUDE_UNAUTHORIZED: Env.schema.string.optional(),
 
   /*
   |----------------------------------------------------------

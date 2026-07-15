@@ -3,13 +3,11 @@ import Employee from '#models/employee'
 import EffectiveService from '#modules/working-time-rules/effective/effective.service'
 import type { EffectiveRuleResult } from '#modules/working-time-rules/effective/dto/effective.dto'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
-import { ShiftExceptionInterface } from '../interfaces/shift_exception_interface.js'
 import type {
   PayrollOvertimeDayMeasurement,
   PayrollOvertimeEmployeeMeasurement,
 } from '../interfaces/payroll_overtime_measurement_interface.js'
-
-const OVERTIME_EXCEPTION_SLUG = 'working-during-non-working-hours'
+import PayrollOvertimeUnauthorizedService from './payroll_overtime_unauthorized_service.js'
 
 /**
  * Motor de medición de horas extra para el reporte de incidencias de nómina.
@@ -18,9 +16,14 @@ const OVERTIME_EXCEPTION_SLUG = 'working-during-non-working-hours'
 export default class PayrollOvertimeMeasurementService {
   private readonly effectiveService: EffectiveService
   private readonly ruleCache = new Map<string, EffectiveRuleResult>()
+  private readonly unauthorizedService: PayrollOvertimeUnauthorizedService
 
-  constructor(effectiveService: EffectiveService = new EffectiveService()) {
+  constructor(
+    effectiveService: EffectiveService = new EffectiveService(),
+    unauthorizedService: PayrollOvertimeUnauthorizedService = new PayrollOvertimeUnauthorizedService()
+  ) {
     this.effectiveService = effectiveService
+    this.unauthorizedService = unauthorizedService
   }
 
   async measureEmployeeOvertime(
@@ -48,7 +51,9 @@ export default class PayrollOvertimeMeasurementService {
         continue
       }
 
-      const dayMinutes = this.sumExceptionOvertimeMinutes(calendar.assist.exceptions)
+      const dayMinutes = this.unauthorizedService.measureAuthorizedExceptionMinutes(
+        calendar.assist.exceptions
+      )
       const ruleResult = await this.resolveRulesForDate(payrollBusinessUnitId, calendar.day)
       const dayUnresolved = dayMinutes > 0 && ruleResult.effective === null
 
@@ -106,46 +111,5 @@ export default class PayrollOvertimeMeasurementService {
     const result = await this.effectiveService.getRulesForDate(payrollBusinessUnitId, date)
     this.ruleCache.set(cacheKey, result)
     return result
-  }
-
-  private sumExceptionOvertimeMinutes(exceptions: ShiftExceptionInterface[]): number {
-    let totalMinutes = 0
-
-    for (const exception of exceptions) {
-      if (
-        exception.exceptionType?.exceptionTypeSlug !== OVERTIME_EXCEPTION_SLUG ||
-        exception.shiftExceptionEnjoymentOfSalary !== 1
-      ) {
-        continue
-      }
-
-      totalMinutes += this.measureExceptionMinutes(exception)
-    }
-
-    return totalMinutes
-  }
-
-  /**
-   * Mide la duración de la excepción en minutos (simetría entrada/salida).
-   * No recorta por tolerancia: usa los horarios declarados en la excepción.
-   */
-  private measureExceptionMinutes(exception: ShiftExceptionInterface): number {
-    if (!exception.shiftExceptionCheckInTime || !exception.shiftExceptionCheckOutTime) {
-      return 0
-    }
-
-    const checkIn = DateTime.fromFormat(exception.shiftExceptionCheckInTime, 'HH:mm:ss')
-    const checkOut = DateTime.fromFormat(exception.shiftExceptionCheckOutTime, 'HH:mm:ss')
-
-    if (!checkIn.isValid || !checkOut.isValid) {
-      return 0
-    }
-
-    let minutes = checkOut.diff(checkIn, 'minutes').minutes
-    if (minutes < 0) {
-      minutes += 24 * 60
-    }
-
-    return Math.max(0, Math.round(minutes))
   }
 }

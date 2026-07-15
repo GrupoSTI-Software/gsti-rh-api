@@ -45,6 +45,12 @@ import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PayrollOvertimeMeasurementService from './payroll_overtime_measurement_service.js'
 import PayrollOvertimeAllocationService from './payroll_overtime_allocation_service.js'
 import PayrollOvertimeWeeklyDetailService from './payroll_overtime_weekly_detail_service.js'
+import PayrollOvertimeUnauthorizedService from './payroll_overtime_unauthorized_service.js'
+import {
+  getIncidentPayrollExcelColumnCount,
+  getIncidentPayrollExcelLastColumnLetter,
+  isPayrollOvertimeIncludeUnauthorizedEnabled,
+} from '#constants/payroll_overtime.constants'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -2609,10 +2615,10 @@ export default class AssistsService {
     worksheet.getRow(3).height = 10
     worksheet.getRow(4).height = 10
 
-    worksheet.mergeCells('A1:Q1')
+    worksheet.mergeCells(`A1:${getIncidentPayrollExcelLastColumnLetter()}1`)
     worksheet.mergeCells('A2:E4')
     worksheet.mergeCells('F2:N2')
-    worksheet.mergeCells('O2:Q4')
+    worksheet.mergeCells(`O2:${getIncidentPayrollExcelLastColumnLetter()}4`)
     worksheet.mergeCells('F3:N4')
 
     const reportLabelCell = worksheet.getCell('A1')
@@ -2661,7 +2667,7 @@ export default class AssistsService {
   }
 
   addHeadRowIncidentPayroll(worksheet: ExcelJS.Worksheet) {
-    const headerRow = worksheet.addRow([
+    const headerCells = [
       this.t('work_business_unit'),
       this.t('payroll_business_unit'),
       `${this.t('employee')} ${this.t('name')}`,
@@ -2671,15 +2677,31 @@ export default class AssistsService {
       this.t('fault'),
       this.t('delay'),
       this.t('leaves'),
-      this.t('double_overtime_hours'),
-      this.t('triple_overtime_hours'),
+    ]
+
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      headerCells.push(
+        this.t('extended_double_overtime_hours'),
+        this.t('double_overtime_hours'),
+        this.t('extended_triple_overtime_hours'),
+        this.t('triple_overtime_hours')
+      )
+    } else {
+      headerCells.push(this.t('double_overtime_hours'), this.t('triple_overtime_hours'))
+    }
+
+    headerCells.push(
       this.t('sunday_bonus_abb'),
       this.t('rest_day_worked'),
       this.t('vacation_bonus'),
       this.t('leveling'),
       this.t('bonus'),
       this.t('others')
-    ])
+    )
+
+    const headerRow = worksheet.addRow(headerCells)
+    const totalColumns = getIncidentPayrollExcelColumnCount()
+    const greenEndColumn = isPayrollOvertimeIncludeUnauthorizedEnabled() ? 18 : 16
     let fgColor = '000000'
     let color = 'C9C9C9'
     for (let col = 1; col <= 6; col++) {
@@ -2700,7 +2722,7 @@ export default class AssistsService {
       }
     }
     color = 'A9D08E'
-    for (let col = 10; col <= 16; col++) {
+    for (let col = 10; col <= greenEndColumn; col++) {
       const cell = worksheet.getCell(5, col)
       cell.fill = {
         type: 'pattern',
@@ -2709,7 +2731,7 @@ export default class AssistsService {
       }
     }
     color = '305496'
-    worksheet.getCell(5, 17).fill = {
+    worksheet.getCell(5, totalColumns).fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: color },
@@ -2728,37 +2750,88 @@ export default class AssistsService {
       const cell = worksheet.getCell(5, index)
       cell.alignment = { vertical: 'middle', horizontal: 'center' }
     }
-    worksheet.getColumn(7).width = 10
-    for (let col = 7; col <= 9; col++) {
+    for (let col = 7; col <= totalColumns; col++) {
       const cell = worksheet.getCell(5, col)
-      cell.font = { color: { argb: fgColor } }
+      if (col >= 7 && col <= 9) {
+        cell.font = { color: { argb: fgColor } }
+      }
+      if (col === totalColumns) {
+        cell.font = { color: { argb: fgColor } }
+      }
+      if (col >= 7) {
+        worksheet.getColumn(col).width = col <= 9 ? 10 : col === totalColumns ? 40 : 10
+        cell.alignment = { vertical: 'middle', horizontal: 'center' }
+      }
     }
-    worksheet.getColumn(7).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(8).width = 10
-    worksheet.getColumn(8).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(9).width = 10
-    worksheet.getColumn(9).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(10).width = 10
-    worksheet.getColumn(10).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(11).width = 10
-    worksheet.getColumn(11).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(12).width = 10
-    worksheet.getColumn(12).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(13).width = 10
-    worksheet.getColumn(13).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(14).width = 10
-    worksheet.getColumn(14).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(15).width = 10
-    worksheet.getColumn(15).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(16).width = 10
-    worksheet.getColumn(16).alignment = { vertical: 'middle', horizontal: 'center' }
-    worksheet.getColumn(17).width = 40
-    worksheet.getColumn(17).font = { color: { argb: fgColor } }
-    worksheet.getColumn(17).alignment = { vertical: 'middle', horizontal: 'center' }
-    for (let col = 7; col <= 17; col++) {
-      const cell = worksheet.getCell(5, col)
-      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+  }
+
+  private getIncidentPayrollColumnLayout() {
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      return {
+        faults: 7,
+        delays: 8,
+        inc: 9,
+        overtimeExtendedDouble: 10,
+        overtimeDouble: 11,
+        overtimeExtendedTriple: 12,
+        overtimeTriple: 13,
+        sundayBonus: 14,
+        laborRest: 15,
+        vacationBonus: 16,
+        others: 19,
+      }
     }
+
+    return {
+      faults: 7,
+      delays: 8,
+      inc: 9,
+      overtimeDouble: 10,
+      overtimeTriple: 11,
+      sundayBonus: 12,
+      laborRest: 13,
+      vacationBonus: 14,
+      others: 17,
+    }
+  }
+
+  private buildIncidentPayrollExcelRowValues(rowData: AssistIncidentPayrollExcelRowInterface) {
+    const values: Array<string | number> = [
+      rowData.workBusinessUnit,
+      rowData.payrollBusinessUnit,
+      rowData.employeeName,
+      rowData.employeeId,
+      rowData.department,
+      rowData.company,
+      rowData.faults ? rowData.faults : '',
+      rowData.delays ? rowData.delays : '',
+      rowData.inc ? rowData.inc : '',
+    ]
+
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      values.push(
+        rowData.overtimeExtendedDouble ? rowData.overtimeExtendedDouble : '',
+        rowData.overtimeDouble ? rowData.overtimeDouble : '',
+        rowData.overtimeExtendedTriple ? rowData.overtimeExtendedTriple : '',
+        rowData.overtimeTriple ? rowData.overtimeTriple : ''
+      )
+    } else {
+      values.push(
+        rowData.overtimeDouble ? rowData.overtimeDouble : '',
+        rowData.overtimeTriple ? rowData.overtimeTriple : ''
+      )
+    }
+
+    values.push(
+      rowData.sundayBonus ? rowData.sundayBonus : '',
+      rowData.laborRest ? rowData.laborRest : '',
+      rowData.vacationBonus ? rowData.vacationBonus : '',
+      rowData.leveling,
+      rowData.bonus,
+      rowData.others
+    )
+
+    return values
   }
 
   async addRowIncidentPayrollCalendar(
@@ -2906,8 +2979,34 @@ export default class AssistsService {
       overtimeMeasurement
     )
 
+    let extendedAllocation = null
+    let extendedMeasurement = null
+    let overtimeExtendedDouble: number | undefined
+    let overtimeExtendedTriple: number | undefined
+
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      const unauthorizedService = new PayrollOvertimeUnauthorizedService()
+      extendedMeasurement = unauthorizedService.buildExtendedMeasurement(
+        overtimeMeasurement,
+        filters.employeeCalendar
+      )
+      extendedAllocation = overtimeAllocationService.allocateFromMeasurement(
+        filters.employee,
+        extendedMeasurement
+      )
+      overtimeExtendedDouble = overtimeAllocationService.minutesToDisplayHours(
+        extendedAllocation.totalDoubleMinutes
+      )
+      overtimeExtendedTriple = overtimeAllocationService.minutesToDisplayHours(
+        extendedAllocation.totalTripleMinutes
+      )
+    }
+
     const overtimeWeeklyDetailService = new PayrollOvertimeWeeklyDetailService()
-    await overtimeWeeklyDetailService.persistEmployeeAllocation(overtimeAllocation)
+    await overtimeWeeklyDetailService.persistEmployeeAllocation(
+      overtimeAllocation,
+      extendedAllocation
+    )
 
     const overtimeDouble = overtimeAllocationService.minutesToDisplayHours(
       overtimeAllocation.totalDoubleMinutes
@@ -2947,6 +3046,8 @@ export default class AssistsService {
       inc: daysWorkDisability,
       overtimeDouble: overtimeDouble,
       overtimeTriple: overtimeTriple,
+      overtimeExtendedDouble: overtimeExtendedDouble,
+      overtimeExtendedTriple: overtimeExtendedTriple,
       workingTimeRuleUnresolved: workingTimeRuleUnresolved,
       sundayBonus: sundayBonus,
       laborRest: laborRest,
@@ -2964,33 +3065,18 @@ export default class AssistsService {
     rows: AssistIncidentPayrollExcelRowInterface[],
     worksheet: ExcelJS.Worksheet
   ) {
+    const columns = this.getIncidentPayrollColumnLayout()
     let rowCount = 5
     for await (const rowData of rows) {
       if (rowData.employeeName !== 'null') {
         const fgColor = '000000'
-        worksheet.addRow([
-          rowData.workBusinessUnit,
-          rowData.payrollBusinessUnit,
-          rowData.employeeName,
-          rowData.employeeId,
-          rowData.department,
-          rowData.company,
-          rowData.faults ? rowData.faults : '',
-          rowData.delays ? rowData.delays : '',
-          rowData.inc ? rowData.inc : '',
-          rowData.overtimeDouble ? rowData.overtimeDouble : '',
-          rowData.overtimeTriple ? rowData.overtimeTriple : '',
-          rowData.sundayBonus ? rowData.sundayBonus : '',
-          rowData.laborRest ? rowData.laborRest : '',
-          rowData.vacationBonus ? rowData.vacationBonus : '',
-          rowData.leveling,
-          rowData.bonus,
-          rowData.others,
-        ]).font = { color: { argb: fgColor } }
+        worksheet.addRow(this.buildIncidentPayrollExcelRowValues(rowData)).font = {
+          color: { argb: fgColor },
+        }
         let cell = worksheet.getCell(rowCount + 1, 6)
         cell.font = { bold: true }
         if (rowData.faults > 0) {
-          cell = worksheet.getCell(rowCount + 1, 7)
+          cell = worksheet.getCell(rowCount + 1, columns.faults)
           cell.font = { color: { argb: '9C0006' } }
           cell.fill = {
             type: 'pattern',
@@ -2999,7 +3085,7 @@ export default class AssistsService {
           }
         }
         if (rowData.delays > 0) {
-          cell = worksheet.getCell(rowCount + 1, 8)
+          cell = worksheet.getCell(rowCount + 1, columns.delays)
           cell.font = { color: { argb: '9C0006' } }
           cell.fill = {
             type: 'pattern',
@@ -3008,7 +3094,7 @@ export default class AssistsService {
           }
         }
         if (rowData.inc > 0) {
-          cell = worksheet.getCell(rowCount + 1, 9)
+          cell = worksheet.getCell(rowCount + 1, columns.inc)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -3017,7 +3103,7 @@ export default class AssistsService {
           }
         }
         if (rowData.overtimeDouble > 0) {
-          cell = worksheet.getCell(rowCount + 1, 10)
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeDouble)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -3026,7 +3112,35 @@ export default class AssistsService {
           }
         }
         if (rowData.overtimeTriple > 0) {
-          cell = worksheet.getCell(rowCount + 1, 11)
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeTriple)
+          cell.font = { color: { argb: '006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'C6EFCE' },
+          }
+        }
+        if (
+          isPayrollOvertimeIncludeUnauthorizedEnabled() &&
+          rowData.overtimeExtendedDouble &&
+          rowData.overtimeExtendedDouble > 0 &&
+          'overtimeExtendedDouble' in columns
+        ) {
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeExtendedDouble!)
+          cell.font = { color: { argb: '006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'C6EFCE' },
+          }
+        }
+        if (
+          isPayrollOvertimeIncludeUnauthorizedEnabled() &&
+          rowData.overtimeExtendedTriple &&
+          rowData.overtimeExtendedTriple > 0 &&
+          'overtimeExtendedTriple' in columns
+        ) {
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeExtendedTriple!)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -3035,7 +3149,7 @@ export default class AssistsService {
           }
         }
         if (rowData.workingTimeRuleUnresolved) {
-          cell = worksheet.getCell(rowCount + 1, 17)
+          cell = worksheet.getCell(rowCount + 1, columns.others)
           cell.font = { color: { argb: '9C6500' } }
           cell.fill = {
             type: 'pattern',
@@ -3044,7 +3158,7 @@ export default class AssistsService {
           }
         }
         if (rowData.sundayBonus > 0) {
-          cell = worksheet.getCell(rowCount + 1, 12)
+          cell = worksheet.getCell(rowCount + 1, columns.sundayBonus)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -3053,7 +3167,7 @@ export default class AssistsService {
           }
         }
         if (rowData.vacationBonus > 0) {
-          cell = worksheet.getCell(rowCount + 1, 14)
+          cell = worksheet.getCell(rowCount + 1, columns.vacationBonus)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -3062,7 +3176,7 @@ export default class AssistsService {
           }
         }
         if (rowData.laborRest > 0) {
-          cell = worksheet.getCell(rowCount + 1, 13)
+          cell = worksheet.getCell(rowCount + 1, columns.laborRest)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -3097,9 +3211,10 @@ export default class AssistsService {
   }
 
   paintBorderAll(worksheet: ExcelJS.Worksheet, rowCount: number) {
+    const totalColumns = getIncidentPayrollExcelColumnCount()
     for (let rowIndex = 6; rowIndex <= rowCount + 5; rowIndex++) {
       const row = worksheet.getRow(rowIndex)
-      for (let colNumber = 1; colNumber <= 17; colNumber++) {
+      for (let colNumber = 1; colNumber <= totalColumns; colNumber++) {
         const cell = row.getCell(colNumber)
         cell.border = {
           top: { style: 'thin', color: { argb: 'FF000000' } },

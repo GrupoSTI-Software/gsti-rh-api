@@ -408,6 +408,8 @@
   "leaves": "Leaves",
   "double_overtime_hours": "Double OT",
   "triple_overtime_hours": "Triple OT",
+  "extended_double_overtime_hours": "Double OT (+UA)",
+  "extended_triple_overtime_hours": "Triple OT (+UA)",
   "sunday_bonus_abb": "Sun. bonus",
   "rest_day_worked": "Worked rest",
   "vacation_bonus": "Vac. bonus",

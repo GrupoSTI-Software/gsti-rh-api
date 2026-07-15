@@ -9,10 +9,12 @@ import type {
 } from '../interfaces/payroll_overtime_backfill_interface.js'
 import PayrollOvertimeAllocationService from './payroll_overtime_allocation_service.js'
 import PayrollOvertimeMeasurementService from './payroll_overtime_measurement_service.js'
+import PayrollOvertimeUnauthorizedService from './payroll_overtime_unauthorized_service.js'
 import PayrollOvertimeWeeklyDetailService, {
   collectIsoWeeksInDateRange,
 } from './payroll_overtime_weekly_detail_service.js'
 import SyncAssistsService from './sync_assists_service.js'
+import { isPayrollOvertimeIncludeUnauthorizedEnabled } from '#constants/payroll_overtime.constants'
 
 const PAGE_SIZE = 100
 const LOG_PREFIX = '[payroll-overtime-backfill]'
@@ -36,17 +38,20 @@ export default class PayrollOvertimeBackfillService {
   private readonly measurementService: PayrollOvertimeMeasurementService
   private readonly allocationService: PayrollOvertimeAllocationService
   private readonly weeklyDetailService: PayrollOvertimeWeeklyDetailService
+  private readonly unauthorizedService: PayrollOvertimeUnauthorizedService
 
   constructor(deps?: {
     syncAssistsService?: SyncAssistsService
     measurementService?: PayrollOvertimeMeasurementService
     allocationService?: PayrollOvertimeAllocationService
     weeklyDetailService?: PayrollOvertimeWeeklyDetailService
+    unauthorizedService?: PayrollOvertimeUnauthorizedService
   }) {
     this.syncAssistsService = deps?.syncAssistsService ?? new SyncAssistsService()
     this.measurementService = deps?.measurementService ?? new PayrollOvertimeMeasurementService()
     this.allocationService = deps?.allocationService ?? new PayrollOvertimeAllocationService()
     this.weeklyDetailService = deps?.weeklyDetailService ?? new PayrollOvertimeWeeklyDetailService()
+    this.unauthorizedService = deps?.unauthorizedService ?? new PayrollOvertimeUnauthorizedService()
   }
 
   /**
@@ -231,12 +236,25 @@ export default class PayrollOvertimeBackfillService {
 
       const allocation = this.allocationService.allocateFromMeasurement(employee, measurement)
 
+      let extendedAllocation = null
+      let extendedMeasurement = null
+      if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+        extendedMeasurement = this.unauthorizedService.buildExtendedMeasurement(
+          measurement,
+          data.employeeCalendar
+        )
+        extendedAllocation = this.allocationService.allocateFromMeasurement(
+          employee,
+          extendedMeasurement
+        )
+      }
+
       summary.totalDoubleMinutes += allocation.totalDoubleMinutes
       summary.totalTripleMinutes += allocation.totalTripleMinutes
       summary.weeksPersisted += allocation.weeks.length
 
       if (!options.dryRun) {
-        await this.weeklyDetailService.persistEmployeeAllocation(allocation)
+        await this.weeklyDetailService.persistEmployeeAllocation(allocation, extendedAllocation)
       }
 
       summary.employeesProcessed++

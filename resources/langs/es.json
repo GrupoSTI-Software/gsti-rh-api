@@ -408,6 +408,8 @@
   "leaves": "Inc.",
   "double_overtime_hours": "Hrs ex. dob.",
   "triple_overtime_hours": "Hrs ex. tri.",
+  "extended_double_overtime_hours": "Hrs ex. dob. (+NA)",
+  "extended_triple_overtime_hours": "Hrs ex. tri. (+NA)",
   "sunday_bonus_abb": "P. Dom.",
   "rest_day_worked": "Desc. lab.",
   "vacation_bonus": "P. vac.",

@@ -13,6 +13,8 @@ interface AssistIncidentPayrollExcelRowInterface {
   inc: number
   overtimeDouble: number
   overtimeTriple: number
+  overtimeExtendedDouble?: number
+  overtimeExtendedTriple?: number
   workingTimeRuleUnresolved: boolean
   sundayBonus: number
   laborRest: number
