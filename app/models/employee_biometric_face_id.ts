@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -19,6 +21,9 @@ import Employee from './employee.js'
  *          employeeId:
  *            type: number
  *            description: Employee ID
+ *          businessUnitId:
+ *            type: number
+ *            description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *          employeeBiometricFaceIdPhotoUrl:
  *            type: string
  *            description: URL of the biometric face photo stored in S3
@@ -36,12 +41,30 @@ import Employee from './employee.js'
  *            format: date-time
  *            nullable: true
  */
-export default class EmployeeBiometricFaceId extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeBiometricFaceId extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare employeeBiometricFaceIdId: number
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1783821206584). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1783821206584). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeBiometricFaceId) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   /**
    * Key S3 de la foto facial de reconocimiento — cifrada AES-256-CBC en reposo

@@ -18,7 +18,7 @@ test.group('Shift — 404 uniforme en acceso directo', () => {
     const content = readFileSync(CONTROLLER_FILE, 'utf-8')
 
     assert.include(content, 'code: SHIFT_ERROR_CODES.NOT_FOUND')
-    assert.include(content, 'key: "turno-no-encontrado"')
+    assert.include(content, "key: 'turno-no-encontrado'")
     // Ambos handlers reutilizan el mismo helper — no hay dos formatos distintos.
     const occurrences = content.match(/shiftNotFoundResponse\(response\)/g) ?? []
     assert.isAtLeast(occurrences.length, 2, 'show y destroy deben reutilizar shiftNotFoundResponse')

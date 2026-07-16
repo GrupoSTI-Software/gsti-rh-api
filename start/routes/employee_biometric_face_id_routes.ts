@@ -1,6 +1,13 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
+/**
+ * USRH1783821206584: todo el grupo es administración desde el Backoffice con
+ * sesión de usuario (bearerAuth) — incluidas `getPhotoToken`/`streamPhoto`,
+ * que son un proxy server-side para servir la foto ya autenticada (no un
+ * checador de dispositivo sin unidad activa como `POST /api/verify-face`,
+ * que vive en `face_routes.ts` y se deja explícitamente sin `businessScope`).
+ */
 router
   .group(() => {
     router.get(
@@ -30,4 +37,5 @@ router
   })
   .prefix('/api/employees')
   .use(middleware.auth())
+  .use(middleware.businessScope())
 

@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, belongsTo } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -19,6 +21,9 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *         employeeId:
  *           type: number
  *           description: Employee id
+ *         businessUnitId:
+ *           type: number
+ *           description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *         employeeBiometricData:
  *           type: string
  *           description: Biometric data in format "Finger:1, Finger:2, Face"
@@ -29,12 +34,26 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *         employeeBiometricDeletedAt:
  *           type: string
  */
-export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeBiometricId: number
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1783821206584). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1783821206584). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeBiometric) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   /**
    * String de estado de enrolamiento biométrico (p.ej. "Finger:1, Face").
