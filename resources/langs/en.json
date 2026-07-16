@@ -1965,10 +1965,44 @@
       "tipo-de-documento-invalido": {
         "title": "Invalid document type",
         "detail": "The document type provided is not valid."
+      },
+      "sin-version-vigente-biometrico": {
+        "title": "No current version",
+        "detail": "There is no published current version of the biometric consent."
+      },
+      "archivo-de-evidencia-requerido": {
+        "title": "File required",
+        "detail": "The scanned signed document was not received."
+      },
+      "archivo-de-evidencia-invalido": {
+        "title": "Invalid file",
+        "detail": "Only PDF, JPG or PNG are accepted."
+      },
+      "archivo-de-evidencia-demasiado-grande": {
+        "title": "File too large",
+        "detail": "The file exceeds the maximum size of 10 MB."
+      },
+      "consentimiento-ya-registrado": {
+        "title": "Consent already recorded",
+        "detail": "The employee already has the current version of this document accepted."
+      },
+      "empleado-no-encontrado": {
+        "title": "Employee not found",
+        "detail": "The employee does not exist, is terminated, or does not belong to the current company."
+      },
+      "sin-permiso-consentimiento": {
+        "title": "Forbidden",
+        "detail": "You do not have permission to record physical consents."
+      },
+      "error-de-almacenamiento-de-evidencia": {
+        "title": "Storage error",
+        "detail": "An error occurred while processing the scanned document in storage."
       }
     },
     "status_success": "Consent status retrieved successfully.",
-    "record_success": "Consent recorded successfully."
+    "record_success": "Consent recorded successfully.",
+    "physical_register_success": "Physical consent recorded successfully.",
+    "download_url_success": "Download URL generated successfully."
   },
   "legalDocuments": {
     "title": "Legal document",
@@ -2040,6 +2074,7 @@
   },
   "consent_evidence_title": "Consent evidence",
   "consent_evidence_list_success": "Consent evidence retrieved successfully.",
+  "consent_evidence_download_url_success": "Download URL generated successfully.",
   "consent_evidence_invalid_filters_title": "Invalid query filters",
   "consent_evidence_invalid_filters_detail": "The filters provided are not valid.",
   "consent_evidence_invalid_business_unit_detail": "The businessUnitPublicId provided does not exist or is not valid.",

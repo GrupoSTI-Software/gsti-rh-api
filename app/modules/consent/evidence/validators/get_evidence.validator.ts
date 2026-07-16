@@ -19,6 +19,8 @@ const evidenceFiltersSchema = {
   businessUnitId: positiveIdField.optional(),
   /** Honrado solo si el caller tiene el permiso dedicado de revelado (regla 4). */
   reveal: vine.boolean().optional(),
+  /** `digital` o `physical` — ausente = ambos canales (USRH1784146205513). */
+  channel: vine.enum(['digital', 'physical']).optional(),
 }
 
 export const getEvidenceValidator = vine.compile(

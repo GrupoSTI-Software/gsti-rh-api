@@ -14,6 +14,12 @@ import type {
  * `business_unit_users` (vía `user.businessUnits`), NUNCA un `join` de selección:
  * un usuario puede pertenecer a varias unidades de negocio, y un join de
  * selección duplicaría cada fila de evidencia una vez por unidad de negocio.
+ *
+ * Extensión USRH1784146205513 (H6, obligatoria): un asiento físico puede no tener
+ * usuario, así que el preload/filtro de empresa considera TAMBIÉN `employee.businessUnit`
+ * (ancla alternativa — mismo criterio de alcance que el ancla por user, S8.2). El
+ * preload de `employee` usa `withTrashed()`: la baja del empleado no debe hacer
+ * desaparecer su asiento de la evidencia (regla 11).
  */
 export default class EvidenceRepositoryMysql implements EvidenceRepository {
   async findEvidence(
@@ -43,6 +49,12 @@ export default class EvidenceRepositoryMysql implements EvidenceRepository {
         userQuery.preload('person')
         userQuery.preload('businessUnits')
       })
+      .preload('employee', (employeeQuery) => {
+        employeeQuery.withTrashed().preload('person').preload('businessUnit')
+      })
+      .preload('registeredBy', (registeredByQuery) => {
+        registeredByQuery.preload('person')
+      })
       .preload('legalDocument')
       .if(filters.legalDocumentId, (query) => {
         query.where('legal_document_id', filters.legalDocumentId as number)
@@ -60,14 +72,24 @@ export default class EvidenceRepositoryMysql implements EvidenceRepository {
       .if(filters.userId, (query) => {
         query.where('user_id', filters.userId as number)
       })
+      .if(filters.channel, (query) => {
+        query.where('user_consent_channel', filters.channel as string)
+      })
       .if(filters.businessUnitId, (query) => {
-        query.whereHas('user', (userQuery) => {
-          userQuery.whereHas('businessUnits', (businessUnitQuery) => {
-            // Columna calificada: el `whereHas` de una relación many-to-many hace JOIN
-            // contra el pivot `business_unit_users` (que también tiene `business_unit_id`),
-            // por lo que la columna sin calificar es ambigua para MySQL.
-            businessUnitQuery.where('business_units.business_unit_id', filters.businessUnitId as number)
-          })
+        const businessUnitId = filters.businessUnitId as number
+        query.where((outer) => {
+          outer
+            .whereHas('user', (userQuery) => {
+              userQuery.whereHas('businessUnits', (businessUnitQuery) => {
+                // Columna calificada: el `whereHas` de una relación many-to-many hace JOIN
+                // contra el pivot `business_unit_users` (que también tiene `business_unit_id`),
+                // por lo que la columna sin calificar es ambigua para MySQL.
+                businessUnitQuery.where('business_units.business_unit_id', businessUnitId)
+              })
+            })
+            .orWhereHas('employee', (employeeQuery) => {
+              employeeQuery.withTrashed().where('business_unit_id', businessUnitId)
+            })
         })
       })
       .orderBy('user_consent_accepted_at', 'desc')

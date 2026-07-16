@@ -232,7 +232,7 @@ export default class AcceptanceController {
 
     let payload
     try {
-      payload = await recordAcceptanceValidator.validate(request.all())
+      payload = await request.validateUsing(recordAcceptanceValidator)
     } catch (error) {
       return this.validationError(ctx, error)
     }

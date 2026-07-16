@@ -1968,10 +1968,44 @@
       "tipo-de-documento-invalido": {
         "title": "Tipo de documento inválido",
         "detail": "El tipo de documento indicado no es válido."
+      },
+      "sin-version-vigente-biometrico": {
+        "title": "Sin versión vigente",
+        "detail": "No hay una versión vigente publicada del consentimiento biométrico."
+      },
+      "archivo-de-evidencia-requerido": {
+        "title": "Archivo requerido",
+        "detail": "No se recibió el escaneo del documento firmado."
+      },
+      "archivo-de-evidencia-invalido": {
+        "title": "Archivo inválido",
+        "detail": "Solo se admite PDF, JPG o PNG."
+      },
+      "archivo-de-evidencia-demasiado-grande": {
+        "title": "Archivo demasiado grande",
+        "detail": "El archivo excede el tamaño máximo de 10 MB."
+      },
+      "consentimiento-ya-registrado": {
+        "title": "Consentimiento ya registrado",
+        "detail": "El empleado ya tiene aceptada la versión vigente de este documento."
+      },
+      "empleado-no-encontrado": {
+        "title": "Empleado no encontrado",
+        "detail": "El empleado no existe, está dado de baja o no pertenece a la empresa actual."
+      },
+      "sin-permiso-consentimiento": {
+        "title": "Sin permiso",
+        "detail": "No tienes permiso para asentar consentimientos físicos."
+      },
+      "error-de-almacenamiento-de-evidencia": {
+        "title": "Error de almacenamiento",
+        "detail": "Ocurrió un error al procesar el escaneo del documento en el almacenamiento."
       }
     },
     "status_success": "Estado de consentimiento obtenido correctamente.",
-    "record_success": "Consentimiento registrado correctamente."
+    "record_success": "Consentimiento registrado correctamente.",
+    "physical_register_success": "Consentimiento físico registrado correctamente.",
+    "download_url_success": "URL de descarga generada correctamente."
   },
   "legalDocuments": {
     "title": "Documento legal",
@@ -2043,6 +2077,7 @@
   },
   "consent_evidence_title": "Evidencia de aceptaciones",
   "consent_evidence_list_success": "Evidencia de aceptaciones obtenida correctamente.",
+  "consent_evidence_download_url_success": "URL de descarga generada correctamente.",
   "consent_evidence_invalid_filters_title": "Filtros de consulta inválidos",
   "consent_evidence_invalid_filters_detail": "Los filtros enviados no son válidos.",
   "consent_evidence_invalid_business_unit_detail": "El businessUnitPublicId indicado no existe o no es válido.",

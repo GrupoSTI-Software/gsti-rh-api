@@ -143,6 +143,7 @@ import '#modules/onboarding/trial_access/trial_access.routes'
 import '#modules/onboarding/simulate_attendance/simulate_attendance.routes'
 import '#modules/consent/acceptance/acceptance.routes'
 import '#modules/consent/evidence/evidence.routes'
+import '#modules/consent/physical/physical_consent.routes'
 import '#modules/nom035-disclosure/nom035_disclosure.routes'
 import '#modules/legal-documents/legal_document.routes'
 if (env.get('APP_MODE') === 'demo') {

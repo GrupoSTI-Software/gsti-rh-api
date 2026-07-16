@@ -1,6 +1,7 @@
 import RoleService from '#services/role_service'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import type UserConsent from '#models/user_consent'
+import type Person from '#models/person'
 import EvidenceRepositoryMysql from './evidence.repository.mysql.js'
 import type {
   EvidenceFilters,
@@ -64,31 +65,60 @@ export default class EvidenceService {
   }
 
   /**
-   * Convierte la fila Lucid en DTO. Asume `user`, `user.person`, `user.businessUnits`
-   * y `legalDocument` ya precargados por el repositorio — acceder a una relación no
-   * precargada lanza en tiempo de ejecución (guard de Lucid), así que un fallo aquí
-   * indica un `preload` faltante, no un dato ausente legítimo.
+   * Convierte la fila Lucid en DTO. Asume `legalDocument` ya precargado, y `user`
+   * (+ `person`/`businessUnits`), `employee` (+ `person`/`businessUnit`, `withTrashed`)
+   * y `registeredBy` (+ `person`) precargados condicionalmente por el repositorio.
+   *
+   * H6 (obligatoria, USRH1784146205513): un asiento físico puede tener `userId NULL`
+   * (empleado de kiosco sin usuario) — `row.user` en ese caso es `null` y NUNCA se
+   * accede sin guarda; el nombre/empresa se resuelven desde `row.employee` en su lugar.
+   * Un asiento sin usuario NUNCA debe tronar esta conversión (denegación de servicio
+   * de la consulta de evidencia legal).
    */
   private toDto(row: UserConsent, revealAllowed: boolean): EvidenceRowDto {
-    const businessUnits = row.user.businessUnits ?? []
+    const businessUnits = row.user?.businessUnits ?? []
+    const employeeBusinessUnit = row.employee?.businessUnit ?? null
 
     return {
+      userConsentId: row.userConsentId,
       userId: row.userId,
       userName: this.buildUserName(row),
-      businessUnitPublicIds: businessUnits.map((bu) => bu.businessUnitPublicId),
-      businessUnitNames: businessUnits.map((bu) => bu.businessUnitName),
+      businessUnitPublicIds: row.user
+        ? businessUnits.map((bu) => bu.businessUnitPublicId)
+        : employeeBusinessUnit
+          ? [employeeBusinessUnit.businessUnitPublicId]
+          : [],
+      businessUnitNames: row.user
+        ? businessUnits.map((bu) => bu.businessUnitName)
+        : employeeBusinessUnit
+          ? [employeeBusinessUnit.businessUnitName]
+          : [],
       legalDocumentId: row.legalDocumentId,
       documentType: row.legalDocument.legalDocumentType,
       version: row.legalDocument.legalDocumentVersion ?? row.userConsentDocumentVersion,
       acceptedAt: row.userConsentAcceptedAt ? row.userConsentAcceptedAt.toISO() : null,
       ip: this.reveal(row.userConsentIp, revealAllowed),
       userAgent: this.reveal(row.userConsentUserAgent, revealAllowed),
+      channel: row.userConsentChannel,
+      employeeId: row.employeeId,
+      registeredByName: row.userConsentChannel === 'physical' ? this.buildPersonName(row.registeredBy?.person) : null,
+      signedAt: row.userConsentSignedAt ? row.userConsentSignedAt.toISODate() : null,
+      hasAttachment: Boolean(row.userConsentEvidenceFile),
     }
   }
 
   private buildUserName(row: UserConsent): string {
-    const person = row.user.person
-    if (!person) return ''
+    if (row.user) {
+      return this.buildPersonName(row.user.person) ?? ''
+    }
+    if (row.employee) {
+      return this.buildPersonName(row.employee.person) ?? ''
+    }
+    return ''
+  }
+
+  private buildPersonName(person: Person | null | undefined): string | null {
+    if (!person) return null
     return [person.personFirstname, person.personLastname, person.personSecondLastname]
       .filter(Boolean)
       .join(' ')
