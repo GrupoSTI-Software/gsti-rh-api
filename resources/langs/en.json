@@ -2155,5 +2155,23 @@
   "telework_workers_title": "Telework workers list",
   "telework_workers_list_success": "Telework workers list retrieved successfully.",
   "telework_workers_forbidden": "You do not have permission to view the telework workers list.",
-  "telework_workers_unexpected_error": "An unexpected error occurred while retrieving the telework workers list."
+  "telework_workers_unexpected_error": "An unexpected error occurred while retrieving the telework workers list.",
+  "reform_simulator": {
+    "title": "Working time reform simulation",
+    "success_message": "Affected workers projection calculated successfully.",
+    "errors": {
+      "sin-permiso": {
+        "title": "Forbidden",
+        "detail": "You do not have permission to query the target business unit."
+      },
+      "entrada-invalida": {
+        "title": "Invalid parameters",
+        "detail": "The query is invalid: targetYear must be 2026, 2027, 2028, 2029, or 2030."
+      },
+      "simulacion-no-resuelta": {
+        "title": "Simulation unresolved",
+        "detail": "The working time reform simulation could not be completed."
+      }
+    }
+  }
 }

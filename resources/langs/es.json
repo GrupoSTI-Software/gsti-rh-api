@@ -2158,5 +2158,23 @@
   "telework_workers_title": "Listado de teletrabajadores",
   "telework_workers_list_success": "Listado de teletrabajadores obtenido correctamente.",
   "telework_workers_forbidden": "No cuenta con permiso para consultar el listado de teletrabajadores.",
-  "telework_workers_unexpected_error": "Ocurrió un error inesperado al consultar el listado de teletrabajadores."
+  "telework_workers_unexpected_error": "Ocurrió un error inesperado al consultar el listado de teletrabajadores.",
+  "reform_simulator": {
+    "title": "Simulación de reforma de jornada",
+    "success_message": "Proyección de trabajadores afectados calculada correctamente.",
+    "errors": {
+      "sin-permiso": {
+        "title": "Sin permiso",
+        "detail": "No tiene permiso de consulta sobre la empresa objetivo."
+      },
+      "entrada-invalida": {
+        "title": "Parámetros inválidos",
+        "detail": "El query no es válido: targetYear debe ser 2026, 2027, 2028, 2029 o 2030."
+      },
+      "simulacion-no-resuelta": {
+        "title": "Simulación no resuelta",
+        "detail": "No fue posible completar la simulación de reforma de jornada."
+      }
+    }
+  }
 }
