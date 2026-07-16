@@ -218,7 +218,7 @@ export default class DemoFactoryService {
       assists: { employees: 0, pairs: 0 },
     }
 
-    // 0. Contexto base — se usan todas las BUs activas de la BD (sin depender de SYSTEM_BUSINESS)
+    // 0. Contexto base — se usan todas las BUs activas de la BD
     const activeBusinessUnitsCtx = await BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')

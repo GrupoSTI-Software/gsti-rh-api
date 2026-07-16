@@ -34,7 +34,7 @@ test.group('repse_tenant_scope — fuente del alcance', () => {
 
     assert.notInclude(content, 'SYSTEM_BUSINESS')
     assert.notInclude(content, '#start/env')
-    assert.include(content, 'import { TenantContext } from "#utils/tenant_context"')
+    assert.include(content, "import { TenantContext } from '#utils/tenant_context'")
     assert.include(content, 'TenantContext.getScope()')
   })
 

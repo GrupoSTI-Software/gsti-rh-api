@@ -34,7 +34,7 @@ export interface AttendanceFaultHrRunOptions {
 export default class AttendanceFaultHrNotificationService {
   /**
    * Resuelve el system setting activo cuyas unidades de negocio tengan al menos
-   * una coincidencia con los slugs permitidos (resolvedor central, sin SYSTEM_BUSINESS).
+   * una coincidencia con los slugs permitidos (resolvedor central del scope de tenant).
    */
   resolveActiveSystemSetting(systemSettings: SystemSetting[], allowedBusinessUnitSlugs: string[]): SystemSetting | null {
     if (allowedBusinessUnitSlugs.length === 0) {
@@ -365,7 +365,7 @@ export default class AttendanceFaultHrNotificationService {
   }
 
   /**
-   * Misma noción de “sucursales en el sistema” que la API (unidades en SYSTEM_BUSINESS, no eliminadas).
+   * Misma noción de “sucursales en el sistema” que la API (unidades del scope central, no eliminadas).
    */
   async hasAtLeastOneBranchOfficeInAllowedBusinessUnits(
     allowedBusinessUnitIds: number[]

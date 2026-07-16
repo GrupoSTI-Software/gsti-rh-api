@@ -164,7 +164,7 @@ function serializeLactationPeriod(period: EmployeeLactationPeriod) {
  * Servicio de dominio del catálogo de periodos de lactancia.
  *
  * - Aísla por empresa multitenant: cualquier empleada referenciada debe
- *   pertenecer a una `business_unit` activa cuyo slug esté en SYSTEM_BUSINESS.
+ *   pertenecer a una `business_unit` activa dentro del scope central del tenant.
  *   El aislamiento se aplica en cada operación (read / write).
  * - Aplica las reglas de negocio (coherencia de fechas, sanity de 24 meses,
  *   traslape contra periodos activos del mismo empleado).
@@ -594,7 +594,7 @@ export default class EmployeeLactationPeriodService {
 
   /**
    * Verifica que la empleada exista, no esté dada de baja y pertenezca a una
-   * unidad de negocio permitida por SYSTEM_BUSINESS.
+   * unidad de negocio dentro del scope central del tenant.
    */
   private async ensureEmployeeBelongsToCompany(employeeId: number, allowedBusinessUnitIds: number[] = []) {
     if (allowedBusinessUnitIds.length === 0) {
