@@ -111,12 +111,19 @@ export default class RoleService {
     return role ? role : null
   }
 
+  /**
+   * `owner` (USRH1783712837561) hace bypass de permiso igual que `root`, pero NO es
+   * equivalente a `root`: este método solo resuelve QUÉ ACCIONES puede ejecutar un rol,
+   * nunca QUÉ EMPRESA puede ver. El scope multitenant (`BusinessAccessScopeService` /
+   * `business_unit_scope_middleware`) sigue acotando a `owner` a su propia empresa
+   * exactamente como a cualquier rol no-root; ese scope no se toca aquí.
+   */
   async hasAccess(roleId: number, systemModuleSlug: string, action: string) {
     const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
     if (!role) {
       return false
     }
-    if (role.roleSlug === 'root') {
+    if (role.roleSlug === 'root' || role.roleSlug === 'owner') {
       return true
     }
     const systemModule = await SystemModule.query()

@@ -35,6 +35,8 @@ import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
 import SystemSettingService from './system_setting_service.js'
+import { TenantContext } from '#utils/tenant_context'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import sharp from 'sharp'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
@@ -4557,12 +4559,22 @@ export default class EmployeeService {
   /**
    * Obtener el logo del systemSetting
    */
+  // USRH1783712837584: las rutas de `/api/employees` (`businessScope`
+  // middleware) ya resuelven el tenant en `TenantContext`; fail-closed
+  // silencioso — sin configuración propia se conserva el logo por defecto.
   private async getLogo(): Promise<string> {
     let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive?.systemSettingLogo) {
-      imageLogo = systemSettingActive.systemSettingLogo
+    const businessUnitId = TenantContext.getScope()[0]
+    if (businessUnitId) {
+      const systemSettingService = new SystemSettingService()
+      try {
+        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        if (systemSettingActive.systemSettingLogo) {
+          imageLogo = systemSettingActive.systemSettingLogo
+        }
+      } catch (error) {
+        if (!(error instanceof SystemSettingResolutionError)) throw error
+      }
     }
     return imageLogo
   }

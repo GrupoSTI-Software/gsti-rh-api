@@ -458,6 +458,8 @@ export default class DemoFactoryService {
           shiftTemp: shiftData.shiftTemp,
           shiftColor: shiftData.shiftColor,
           shiftBusinessUnits: systemBusiness,
+          // Unidad dueña (USRH1783821206521): NOT NULL tras la migración de aislamiento.
+          businessUnitId,
         }).create()
         result.shifts.created++
       }

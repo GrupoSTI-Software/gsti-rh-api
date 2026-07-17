@@ -11,6 +11,9 @@ import UserFcmToken from '#models/user_fcm_token'
 import admin from '../../config/firebase.js'
 import Shift from '#models/shift'
 import SystemSettingService from './system_setting_service.js'
+import SystemSetting from '#models/system_setting'
+import { TenantContext } from '#utils/tenant_context'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 
 export default class EmployeeShiftService {
 
@@ -211,8 +214,19 @@ export default class EmployeeShiftService {
         data: { userId: userId },
       }
     }
+    // USRH1783712837584: la ruta (/api/employee_shifts, `businessScope` middleware)
+    // ya resuelve el tenant en `TenantContext`; fail-closed silencioso — sin
+    // configuración propia se conserva el ícono vacío que ya manejaba el código.
     const systemSettingService = new SystemSettingService()
-    const systemSetting = await systemSettingService.getActive()
+    const businessUnitId = TenantContext.getScope()[0]
+    let systemSetting: SystemSetting | null = null
+    if (businessUnitId) {
+      try {
+        systemSetting = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+      } catch (error) {
+        if (!(error instanceof SystemSettingResolutionError)) throw error
+      }
+    }
     // se crea el mensaje algo como "Se te ha asignado el turno de 08:00  to 18:00 Rest(NA) a partir del lunes 02 de febrero, 2026"
     const message = 'Se te ha asignado el turno de ' + shift.shiftName + ' a partir del ' + date
     for (const userFcmToken of userFcmTokens) {

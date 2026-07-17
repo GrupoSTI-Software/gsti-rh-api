@@ -21,3 +21,19 @@ export const TELEWORK_POLICY_COMPONENT_KEYS = [
 export type TeleworkPolicyComponentKey = (typeof TELEWORK_POLICY_COMPONENT_KEYS)[number]
 
 export const TELEWORK_POLICY_COMPONENT_COUNT = TELEWORK_POLICY_COMPONENT_KEYS.length
+
+/**
+ * Estado de un teletrabajador en el seguimiento de acuses
+ * (USRH1783547655377, regla de negocio 7): `acknowledged` acusó la versión
+ * vigente; `outdated` su último acuse es de una versión anterior (desfase);
+ * `pending` no tiene ningún acuse. "Pendientes de recordatorio" = `outdated`
+ * + `pending` (regla de negocio 4).
+ */
+export const TELEWORK_POLICY_ACKNOWLEDGEMENT_STATUSES = [
+  'acknowledged',
+  'outdated',
+  'pending',
+] as const
+
+export type TeleworkPolicyAcknowledgementStatus =
+  (typeof TELEWORK_POLICY_ACKNOWLEDGEMENT_STATUSES)[number]

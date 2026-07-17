@@ -21,7 +21,6 @@ import EmployeeType from '#models/employee_type'
 import BusinessUnit from '#models/business_unit'
 import Position from '#models/position'
 import SystemSettingService from '#services/system_setting_service'
-import SystemSetting from '#models/system_setting'
 import User from '#models/user'
 import Role from '#models/role'
 import AssistsService from '#services/assist_service'
@@ -46,6 +45,8 @@ import {
   EmployeeWorkScheduleErrorCode,
 } from '#constants/employee_work_schedule'
 import { I18n } from '@adonisjs/i18n'
+import { TenantContext } from '#utils/tenant_context'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -4257,13 +4258,27 @@ export default class EmployeeController {
     worksheet.addRow([])
   }
 
+  /**
+   * Logo para reportes Excel generados dentro de la request del usuario
+   * (USRH1783712837584). Se resuelve por la empresa del usuario
+   * (`TenantContext`, poblado por el middleware `businessScope` de las rutas
+   * de `/api/employees`); fail-closed silencioso: si la empresa no tiene
+   * configuración propia, se conserva el logo por defecto en vez de filtrar
+   * el de otra empresa (antes `getActive()` sin scope podía devolver la
+   * configuración "activa" de cualquier empresa).
+   */
   async getLogo() {
     let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingLogo) {
-        imageLogo = systemSettingActive.systemSettingLogo
+    const businessUnitId = TenantContext.getScope()[0]
+    if (businessUnitId) {
+      const systemSettingService = new SystemSettingService()
+      try {
+        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        if (systemSettingActive.systemSettingLogo) {
+          imageLogo = systemSettingActive.systemSettingLogo
+        }
+      } catch (error) {
+        if (!(error instanceof SystemSettingResolutionError)) throw error
       }
     }
     return imageLogo

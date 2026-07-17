@@ -76,7 +76,7 @@ function serializeRepseRegistration(row: RepseRegistration) {
  *
  * - Aísla por empresa multitenant: cada operación valida que el
  *   `business_unit_id` solicitado pertenezca al conjunto activo del tenant
- *   (slugs declarados en `SYSTEM_BUSINESS`).
+ *   (scope central resuelto por `TenantContext`, unidad seleccionada en el header).
  * - Aplica las reglas de negocio: folio único por empresa (sólo entre
  *   registros activos) y `expiresAt > registeredAt`.
  */

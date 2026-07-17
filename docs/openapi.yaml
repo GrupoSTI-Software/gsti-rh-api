@@ -2835,6 +2835,36 @@ components:
           type: integer
         updatedByUserId:
           type: integer
+        contentHash:
+          type: string
+          nullable: true
+          description: Sello sha256 del contenido publicado (`null` en borradores).
+          example: '5d41402abc4b2a76b9719d911017c592'
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishedByName:
+          type: string
+          nullable: true
+          description: Nombre de quien publicó (nunca el userId crudo). `null` en borradores.
+
+    TeleworkPolicyCurrentSummary:
+      type: object
+      description: Resumen ligero de la versión vigente publicada (chip "Vigente vN").
+      properties:
+        id:
+          type: integer
+        version:
+          type: integer
+        publishedAt:
+          type: string
+          format: date-time
+        publishedByName:
+          type: string
+          nullable: true
+        contentHash:
+          type: string
 
     TeleworkPolicySuccess:
       type: object
@@ -2868,6 +2898,167 @@ components:
               nullable: true
               allOf:
                 - $ref: '#/components/schemas/TeleworkPolicy'
+            current:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/TeleworkPolicyCurrentSummary'
+
+    TeleworkPolicyVersion:
+      type: object
+      description: Fila ligera del historial de versiones (sin `components`).
+      properties:
+        id:
+          type: integer
+        version:
+          type: integer
+        status:
+          type: string
+          enum: [draft, published]
+        isCurrent:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishedByName:
+          type: string
+          nullable: true
+        contentHash:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    TeleworkPolicyVersionsSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeleworkPolicyVersion'
+
+    TeleworkPolicyDiffusionSummary:
+      type: object
+      description: Resumen de un lote de envíos (difusión al publicar o recordatorio).
+      properties:
+        total:
+          type: integer
+        sent:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+
+    TeleworkPolicyPublishResultSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            policy:
+              $ref: '#/components/schemas/TeleworkPolicy'
+            diffusion:
+              $ref: '#/components/schemas/TeleworkPolicyDiffusionSummary'
+
+    TeleworkPolicyAcknowledgementRow:
+      type: object
+      properties:
+        employeeId:
+          type: integer
+        employeeCode:
+          type: string
+        fullName:
+          type: string
+        position:
+          type: string
+        status:
+          type: string
+          enum: [acknowledged, outdated, pending]
+        acknowledgedVersion:
+          type: integer
+          nullable: true
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+        hasEmail:
+          type: boolean
+          description: Visibilidad de a quién no le llegará ningún correo. La dirección nunca viaja en la respuesta.
+
+    TeleworkPolicyAcknowledgementTrackingSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            hasCurrentVersion:
+              type: boolean
+            currentVersion:
+              type: integer
+              nullable: true
+            publishedAt:
+              type: string
+              format: date-time
+              nullable: true
+            summary:
+              type: object
+              properties:
+                total: { type: integer }
+                acknowledged: { type: integer }
+                outdated: { type: integer }
+                pending: { type: integer }
+                withoutEmail: { type: integer }
+            workers:
+              type: array
+              items:
+                $ref: '#/components/schemas/TeleworkPolicyAcknowledgementRow'
+
+    TeleworkPolicyRemindResultSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            pendingTotal:
+              type: integer
+            total:
+              type: integer
+            sent:
+              type: integer
+            failed:
+              type: integer
+            skipped:
+              type: integer
 
     TeleworkPolicyError:
       type: object
@@ -7823,3 +8014,387 @@ paths:
                 detail: No se puede editar una versión ya publicada.
                 key: politica-publicada-inmutable
                 code: TWP.CONF.002
+    post:
+      summary: Iniciar un nuevo borrador partiendo de la última versión publicada
+      description: >
+        Clona título y componentes de la vigente publicada en un nuevo
+        borrador editable — nunca de hoja en blanco. 409 si ya hay un
+        borrador activo; 404 sin-version-vigente si la empresa nunca ha
+        publicado (aunque haya tenido un borrador descartado);
+        politica-inexistente si nunca tuvo absolutamente nada.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      responses:
+        '201':
+          description: Nuevo borrador creado a partir de la vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicySuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: No hay versión publicada de la cual partir
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              examples:
+                sinVigente:
+                  summary: Hubo actividad previa pero nunca se publicó
+                  value:
+                    type: error
+                    title: Política de Teletrabajo
+                    detail: La empresa no tiene ninguna versión publicada vigente de la cual partir.
+                    key: sin-version-vigente
+                    code: TWP.NF.002
+                inexistente:
+                  summary: La empresa nunca ha tenido ninguna política
+                  value:
+                    type: error
+                    title: Política de Teletrabajo
+                    detail: La empresa aún no tiene una Política de Teletrabajo; primero inicialízala.
+                    key: politica-inexistente
+                    code: TWP.NF.001
+        '409':
+          description: Ya existe un borrador activo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: Ya existe un borrador activo; edítalo en vez de crear otro.
+                key: borrador-ya-existe
+                code: TWP.CONF.003
+
+  /api/nom037/telework-policy/publish:
+    post:
+      summary: Publicar el borrador (sella una versión vigente y la difunde por correo)
+      description: >
+        Congela el borrador activo como versión publicada e inmutable (sello
+        sha256), la vuelve vigente (apagando la anterior) y, tras confirmar la
+        transacción, difunde por correo al conjunto del listado 5.1 con
+        bitácora. Un fallo de correo nunca revierte la publicación. 422 si
+        algún componente del 5.2 sigue sin contenido.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Versión publicada y difundida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyPublishResultSuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: La empresa aún no tiene un borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: La empresa aún no tiene una Política de Teletrabajo; primero inicialízala.
+                key: politica-inexistente
+                code: TWP.NF.001
+        '409':
+          description: La fila activa ya está publicada (no hay borrador que publicar)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: No se puede editar una versión ya publicada.
+                key: politica-publicada-inmutable
+                code: TWP.CONF.002
+        '422':
+          description: Falta contenido en alguno de los 12 componentes del 5.2
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: No se puede publicar; hay componentes del numeral 5.2 sin contenido.
+                key: politica-incompleta-para-publicar
+                code: TWP.VAL.STRUCTURE.002
+                data:
+                  missingKeys: [5_2_h]
+                  duplicatedKeys: []
+                  unexpectedKeys: []
+
+  /api/nom037/telework-policy/versions:
+    get:
+      summary: Consultar el historial de versiones de la Política de Teletrabajo
+      description: >
+        Todas las versiones no eliminadas de la empresa, de la más reciente a
+        la más antigua (incluye el borrador activo si existe).
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Historial de versiones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyVersionsSuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para consultar este módulo.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: La empresa no tiene ninguna versión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: La empresa aún no tiene una Política de Teletrabajo; primero inicialízala.
+                key: politica-inexistente
+                code: TWP.NF.001
+
+  /api/nom037/telework-policy/acknowledgements:
+    get:
+      summary: Seguimiento de acuses de la Política de Teletrabajo vigente
+      description: >
+        Cruza el conjunto del listado 5.1 contra los acuses registrados
+        (calculado al vuelo): acknowledged/outdated/pending. Responde 200 con
+        hasCurrentVersion=false si aún no hay ninguna versión publicada. El
+        correo nunca viaja en la respuesta — solo hasEmail.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Seguimiento de acuses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyAcknowledgementTrackingSuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para consultar este módulo.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+
+  /api/nom037/telework-policy/remind-pending:
+    post:
+      summary: Recordar por correo a los teletrabajadores pendientes de acusar
+      description: >
+        Sin employeeIds es masivo (todos los outdated + pending de la
+        vigente); con employeeIds es selectivo, intersectado con los
+        pendientes reales. 0 pendientes responde 200 idempotente. 404
+        sin-version-vigente si la empresa nunca ha publicado.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                employeeIds:
+                  type: array
+                  items: { type: integer, minimum: 1 }
+                  minItems: 1
+                  description: Omitir para recordatorio masivo a todos los pendientes.
+      responses:
+        '200':
+          description: Recordatorio enviado (o 0 pendientes, idempotente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyRemindResultSuccess'
+              examples:
+                enviado:
+                  summary: Al menos un pendiente recibió el recordatorio
+                  value:
+                    type: success
+                    title: Política de Teletrabajo
+                    message: Recordatorio enviado correctamente.
+                    data: { pendingTotal: 2, total: 2, sent: 2, failed: 0, skipped: 0 }
+                sinPendientesEnLaEmpresa:
+                  summary: 0 pendientes en toda la empresa (masivo) — idempotente, no es error
+                  value:
+                    type: success
+                    title: Política de Teletrabajo
+                    message: No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.
+                    data: { pendingTotal: 0, total: 0, sent: 0, failed: 0, skipped: 0 }
+                employeeIdsSinCoincidencias:
+                  summary: Sí hay pendientes, pero ninguno coincide con los employeeIds indicados — idempotente, no es error
+                  value:
+                    type: success
+                    title: Política de Teletrabajo
+                    message: Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.
+                    data: { pendingTotal: 2, total: 0, sent: 0, failed: 0, skipped: 0 }
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: La empresa nunca ha publicado ninguna versión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: La empresa no tiene ninguna versión publicada vigente de la cual partir.
+                key: sin-version-vigente
+                code: TWP.NF.002
+        '422':
+          description: employeeIds malformado (no numérico, vacío o negativo)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                message: Entrada inválida
+                detail: The employeeIds.0 field must be a number
+                key: entrada-invalida
+                data: null
