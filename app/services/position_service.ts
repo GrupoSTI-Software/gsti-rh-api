@@ -892,8 +892,8 @@ export default class PositionService {
    * indentación `ql-indent-N`).
    *
    * Reglas y consideraciones:
-   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
-   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - El puesto debe pertenecer a una `BusinessUnit` activa dentro del scope
+   *   central del tenant (resuelto vía `TenantContext`/`businessScope()`).
    * - Solo se consideran puestos no eliminados (`position_deleted_at` nulo) y
    *   sus relaciones activas (funciones específicas, KPIs, competencias y
    *   perfiles de evaluación).
@@ -1625,8 +1625,8 @@ export default class PositionService {
    * (psicométricos), competencias, equipo asignado y firmas.
    *
    * Reglas y consideraciones:
-   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
-   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - El puesto debe pertenecer a una `BusinessUnit` activa dentro del scope
+   *   central del tenant (resuelto vía `TenantContext`/`businessScope()`).
    * - Solo se consideran puestos no eliminados y relaciones activas
    *   (funciones específicas, KPIs, competencias y perfiles de evaluación).
    * - Si existe logo en `SystemSetting`, se descarga (timeout 8s) y se inserta

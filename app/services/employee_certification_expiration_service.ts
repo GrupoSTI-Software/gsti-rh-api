@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import { TenantContext } from '#utils/tenant_context'
 
 export type EmployeeCertificationListRow = {
   employeeCertificationId: number
@@ -44,6 +45,32 @@ export type EmployeeCertificationExpirationRow = {
   daysToExpire: number
 }
 
+/**
+ * USRH1783821206584 — este servicio consulta con `db.from()` (knex crudo), por
+ * lo que el mixin `withBusinessUnitScope()` de los modelos Lucid no aplica
+ * aquí (no hay hooks de modelo en una query builder cruda). El reporte de
+ * vencimientos cruza TODOS los empleados por diseño, así que hay que acotarlo
+ * manualmente a la unidad activa — mismo criterio fail-closed que el mixin:
+ * sin contexto activo → sin filtro (batch/tests sin middleware); contexto
+ * bypassed → sin filtro (root); scope vacío + activo → sin resultados; scope
+ * con ids → `whereIn`.
+ */
+function applyTenantFilterToEmployeeAlias(
+  query: { whereIn: (col: string, ids: number[]) => any; whereRaw: (sql: string) => any },
+  column: string = 'e.business_unit_id'
+): void {
+  if (!TenantContext.isActive()) return
+  if (TenantContext.isBypassed()) return
+
+  const scope = TenantContext.getScope()
+  if (scope.length === 0) {
+    query.whereRaw('1 = 0')
+    return
+  }
+
+  query.whereIn(column, scope)
+}
+
 export default class EmployeeCertificationExpirationService {
   /**
    * Listado paginado de todos los cumplimientos activos,
@@ -79,6 +106,8 @@ export default class EmployeeCertificationExpirationService {
       .leftJoin('positions as p', function (q) {
         q.on('p.position_id', '=', 'e.position_id').andOnNull('p.position_deleted_at')
       })
+
+    applyTenantFilterToEmployeeAlias(base)
 
     if (filters.employeeId) {
       base.where('ec.employee_id', filters.employeeId)
@@ -185,7 +214,7 @@ export default class EmployeeCertificationExpirationService {
       .groupBy('ec_inner.employee_id', 'ec_inner.certification_id')
       .select(db.raw('MAX(ec_inner.employee_certification_id)'))
 
-    const rows = await db
+    const expiringQuery = db
       .from('employee_certifications as ec')
       .whereIn('ec.employee_certification_id', latestIds)
       .where('ec.employee_certification_expires_at', '<=', dateEnd)
@@ -200,6 +229,10 @@ export default class EmployeeCertificationExpirationService {
       )
       .leftJoin('positions as p', 'p.position_id', 'e.position_id')
       .whereNull('p.position_deleted_at')
+
+    applyTenantFilterToEmployeeAlias(expiringQuery)
+
+    const rows = await expiringQuery
       .select(
         'ec.employee_certification_id',
         'ec.employee_certification_complied_at as complied_at',

@@ -948,6 +948,14 @@
   "signup_password_requires_number": "La contraseña debe contener al menos un número",
   "signup_password_requires_symbol": "La contraseña debe contener al menos un símbolo",
   "signup_passwords_do_not_match": "Las contraseñas no coinciden",
+  "signup_settings_provisioning_failed": "No fue posible crear la configuración base de la empresa nueva",
+  "signup_settings_provisioning_failed_title": "Registro",
+  "signup_error_default_title": "Registro",
+  "system_setting_resolution_not_found_title": "Configuración no encontrada",
+  "system_setting_resolution_not_found_detail": "La empresa no tiene una configuración de System Settings propia.",
+  "system_setting_resolution_default_title": "System Settings",
+  "signup_owner_role_missing_title": "Registro",
+  "signup_owner_role_missing_detail": "No se pudo asignar el rol de dueño porque el catálogo de roles no está disponible. Contacta a soporte.",
   "magic_link_title": "Enlace mágico",
   "magic_link_request_message": "Si el correo está registrado, recibirás un enlace de acceso en breve. Revisa tu bandeja de entrada.",
   "magic_link_token_missing_title": "Error de validación",
@@ -1985,10 +1993,44 @@
       "tipo-de-documento-invalido": {
         "title": "Tipo de documento inválido",
         "detail": "El tipo de documento indicado no es válido."
+      },
+      "sin-version-vigente-biometrico": {
+        "title": "Sin versión vigente",
+        "detail": "No hay una versión vigente publicada del consentimiento biométrico."
+      },
+      "archivo-de-evidencia-requerido": {
+        "title": "Archivo requerido",
+        "detail": "No se recibió el escaneo del documento firmado."
+      },
+      "archivo-de-evidencia-invalido": {
+        "title": "Archivo inválido",
+        "detail": "Solo se admite PDF, JPG o PNG."
+      },
+      "archivo-de-evidencia-demasiado-grande": {
+        "title": "Archivo demasiado grande",
+        "detail": "El archivo excede el tamaño máximo de 10 MB."
+      },
+      "consentimiento-ya-registrado": {
+        "title": "Consentimiento ya registrado",
+        "detail": "El empleado ya tiene aceptada la versión vigente de este documento."
+      },
+      "empleado-no-encontrado": {
+        "title": "Empleado no encontrado",
+        "detail": "El empleado no existe, está dado de baja o no pertenece a la empresa actual."
+      },
+      "sin-permiso-consentimiento": {
+        "title": "Sin permiso",
+        "detail": "No tienes permiso para asentar consentimientos físicos."
+      },
+      "error-de-almacenamiento-de-evidencia": {
+        "title": "Error de almacenamiento",
+        "detail": "Ocurrió un error al procesar el escaneo del documento en el almacenamiento."
       }
     },
     "status_success": "Estado de consentimiento obtenido correctamente.",
-    "record_success": "Consentimiento registrado correctamente."
+    "record_success": "Consentimiento registrado correctamente.",
+    "physical_register_success": "Consentimiento físico registrado correctamente.",
+    "download_url_success": "URL de descarga generada correctamente."
   },
   "legalDocuments": {
     "title": "Documento legal",
@@ -2036,6 +2078,13 @@
     "initialize_success": "Borrador de la Política de Teletrabajo creado correctamente.",
     "update_success": "Borrador de la Política de Teletrabajo actualizado correctamente.",
     "discard_success": "Borrador de la Política de Teletrabajo descartado correctamente.",
+    "publish_success": "Política de Teletrabajo publicada y difundida correctamente.",
+    "draft_from_latest_success": "Nuevo borrador de la Política de Teletrabajo creado a partir de la versión vigente.",
+    "versions_success": "Historial de versiones obtenido correctamente.",
+    "tracking_success": "Seguimiento de acuses obtenido correctamente.",
+    "remind_success": "Recordatorio enviado correctamente.",
+    "remind_no_pending_success": "No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.",
+    "remind_no_matching_pending_success": "Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.",
     "errors": {
       "politica-ya-existe": {
         "title": "Política de Teletrabajo",
@@ -2053,6 +2102,18 @@
         "title": "Política de Teletrabajo",
         "detail": "No se puede editar una versión ya publicada."
       },
+      "politica-incompleta-para-publicar": {
+        "title": "Política de Teletrabajo",
+        "detail": "No se puede publicar; hay componentes del numeral 5.2 sin contenido."
+      },
+      "sin-version-vigente": {
+        "title": "Política de Teletrabajo",
+        "detail": "La empresa no tiene ninguna versión publicada vigente de la cual partir."
+      },
+      "borrador-ya-existe": {
+        "title": "Política de Teletrabajo",
+        "detail": "Ya existe un borrador activo; edítalo en vez de crear otro."
+      },
       "entrada-invalida": {
         "title": "Entrada inválida"
       }
@@ -2060,6 +2121,7 @@
   },
   "consent_evidence_title": "Evidencia de aceptaciones",
   "consent_evidence_list_success": "Evidencia de aceptaciones obtenida correctamente.",
+  "consent_evidence_download_url_success": "URL de descarga generada correctamente.",
   "consent_evidence_invalid_filters_title": "Filtros de consulta inválidos",
   "consent_evidence_invalid_filters_detail": "Los filtros enviados no son válidos.",
   "consent_evidence_invalid_business_unit_detail": "El businessUnitPublicId indicado no existe o no es válido.",

@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { compose } from '@adonisjs/core/helpers'
 import EmployeeShift from './employee_shift.js'
 import BranchOfficeShiftQuota from './branch_office_shift_quota.js'
 import * as relations from '@adonisjs/lucid/types/relations'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * @swagger
@@ -48,7 +50,10 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *           nullable: false
  *         shiftBusinessUnits:
  *            type: string
- *            description: Available business Units
+ *            description: Espejo denormalizado legado (CSV de slugs). Ya no gobierna el aislamiento; ver businessUnitId.
+ *         businessUnitId:
+ *           type: number
+ *           description: Unidad de negocio dueña del turno (marca autoritativa de aislamiento, USRH1783821206521)
  *         shiftTemp:
  *           type: number
  *           description: Shift is temp
@@ -97,15 +102,14 @@ import * as relations from '@adonisjs/lucid/types/relations'
  */
 
 /**
- * @tenant-scope pendiente
- * Shift no tiene una columna FK directa `business_unit_id`; usa el campo
- * `shiftBusinessUnits` (CSV de slugs) para la relación con unidades de negocio.
- * Antes de aplicar `withBusinessUnitScope()` se requiere una migración que
- * agregue la columna `business_unit_id` y normalice el campo CSV existente.
- * Hasta entonces, el filtrado de tenant en Shift se gestiona manualmente en
- * los servicios mediante FIND_IN_SET sobre `shift_business_units`.
+ * @tenant-scope activo (USRH1783821206521)
+ * Shift es un modelo dueño de primer nivel (como Employee): cada turno tiene
+ * una unidad dueña única en `business_unit_id`, aplicada automáticamente por
+ * `withBusinessUnitScope()` en toda query. `shiftBusinessUnits` (CSV de slugs)
+ * se conserva como espejo denormalizado por compatibilidad con lectores
+ * existentes, pero deja de gobernar el aislamiento.
  */
-export default class Shift extends BaseModel {
+export default class Shift extends compose(BaseModel, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare shiftId: number
 
@@ -135,6 +139,10 @@ export default class Shift extends BaseModel {
 
   @column()
   declare shiftBusinessUnits: string
+
+  /** Unidad de negocio dueña del turno (marca autoritativa de aislamiento). */
+  @column()
+  declare businessUnitId: number
 
   @column()
   declare shiftTemp: number

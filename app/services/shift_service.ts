@@ -2,6 +2,7 @@ import Employee from '#models/employee'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import EmployeeShift from '#models/employee_shift'
 import EmployeeShiftChange from '#models/employee_shift_changes'
+import BusinessUnit from '#models/business_unit'
 import Shift from '#models/shift'
 import ShiftException from '#models/shift_exception'
 import ShiftExceptionEvidence from '#models/shift_exception_evidence'
@@ -18,6 +19,7 @@ export default class ShiftService {
     newShift.shiftRestDays = shift.shiftRestDays
     newShift.shiftAccumulatedFault = shift.shiftAccumulatedFault
     newShift.shiftBusinessUnits = shift.shiftBusinessUnits
+    newShift.businessUnitId = shift.businessUnitId
     newShift.shiftTemp = shift.shiftTemp
     newShift.shiftLunchTime = shift.shiftLunchTime
     newShift.shiftCompensableLunchSchedule = shift.shiftCompensableLunchSchedule
@@ -29,6 +31,14 @@ export default class ShiftService {
     return newShift
   }
 
+  /**
+   * Verifica unicidad de nombre/alias dentro de la unidad seleccionada.
+   *
+   * USRH1783821206521: la unicidad ya no se acota manualmente con
+   * `FIND_IN_SET` sobre el CSV — el mixin `withBusinessUnitScope()` de
+   * `Shift` acota automáticamente ambas queries a la unidad dueña activa
+   * en `TenantContext` (la misma que `allowedBusinessUnitSlugs` describe).
+   */
   async verifyInfo(shift: Shift, shiftId?: number, allowedBusinessUnitSlugs: string[] = []) {
     if (allowedBusinessUnitSlugs.length === 0) {
       return {
@@ -47,11 +57,6 @@ export default class ShiftService {
       .where('shift_temp', 0)
       .whereNull('shift_deleted_at')
       .where('shift_name', shift.shiftName)
-      .andWhere((subQuery) => {
-        allowedBusinessUnitSlugs.forEach((slug) => {
-          subQuery.orWhereRaw('FIND_IN_SET(?, shift_business_units)', [slug.trim()])
-        })
-      })
       .first()
 
     if (existCode && shift.shiftName) {
@@ -72,14 +77,6 @@ export default class ShiftService {
         .where('shift_temp', 0)
         .whereNull('shift_deleted_at')
         .where('shift_alias', shift.shiftAlias.trim())
-        .andWhere((subQuery) => {
-          allowedBusinessUnitSlugs.forEach((business) => {
-            subQuery.orWhereRaw(
-              'FIND_IN_SET(?, shift_business_units)',
-              [business.trim()]
-            )
-          })
-        })
         .first()
 
       if (existAlias) {
@@ -205,6 +202,10 @@ export default class ShiftService {
     },
     allowedBusinessUnitSlugs: string[] = []
   ): Promise<Shift> {
+    // La unidad dueña se resuelve del primer slug permitido (regla 3, USRH1783821206521);
+    // tras el NOT NULL de business_unit_id, todo alta debe estamparla.
+    const businessUnitId = await this.resolveBusinessUnitIdFromSlugs(allowedBusinessUnitSlugs)
+
     const shift = new Shift()
     shift.shiftName = shiftData.shiftName
     shift.shiftTimeStart = shiftData.shiftTimeStart
@@ -213,11 +214,34 @@ export default class ShiftService {
     shift.shiftAccumulatedFault = shiftData.shiftAccumulatedFault
     shift.shiftCalculateFlag = shiftData.shiftCalculateFlag
     shift.shiftBusinessUnits = allowedBusinessUnitSlugs.join(',')
+    shift.businessUnitId = businessUnitId
     shift.shiftTemp = shiftData.shiftTemp
     shift.shiftColor = shiftData.shiftColor
     shift.shiftDayStart = shiftData.shiftDayStart
     await shift.save()
     return shift
+  }
+
+  /**
+   * Resuelve la unidad dueña desde el primer slug permitido (orden estable
+   * del arreglo recibido). Lanza si ningún slug resuelve a una unidad activa
+   * — nunca se crea un turno con `business_unit_id` nulo.
+   */
+  private async resolveBusinessUnitIdFromSlugs(allowedBusinessUnitSlugs: string[]): Promise<number> {
+    for (const slug of allowedBusinessUnitSlugs) {
+      const trimmed = slug.trim()
+      if (!trimmed) continue
+      const businessUnit = await BusinessUnit.query()
+        .where('business_unit_slug', trimmed)
+        .whereNull('business_unit_deleted_at')
+        .first()
+      if (businessUnit) {
+        return businessUnit.businessUnitId
+      }
+    }
+    throw new Error(
+      'ShiftService.createShift: no se pudo resolver business_unit_id desde allowedBusinessUnitSlugs'
+    )
   }
 
   /**

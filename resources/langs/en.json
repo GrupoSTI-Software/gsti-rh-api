@@ -945,6 +945,14 @@
   "signup_password_requires_number": "Password must contain at least one number",
   "signup_password_requires_symbol": "Password must contain at least one symbol",
   "signup_passwords_do_not_match": "Passwords do not match",
+  "signup_settings_provisioning_failed": "It was not possible to create the base configuration of the new company",
+  "signup_settings_provisioning_failed_title": "Signup",
+  "signup_error_default_title": "Signup",
+  "system_setting_resolution_not_found_title": "Configuration not found",
+  "system_setting_resolution_not_found_detail": "The company does not have its own System Settings configuration.",
+  "system_setting_resolution_default_title": "System Settings",
+  "signup_owner_role_missing_title": "Signup",
+  "signup_owner_role_missing_detail": "The owner role could not be assigned because the role catalog is unavailable. Please contact support.",
   "magic_link_title": "Magic link",
   "magic_link_request_message": "If the email is registered, you will receive a sign-in link shortly. Check your inbox.",
   "magic_link_token_missing_title": "Validation error",
@@ -1982,10 +1990,44 @@
       "tipo-de-documento-invalido": {
         "title": "Invalid document type",
         "detail": "The document type provided is not valid."
+      },
+      "sin-version-vigente-biometrico": {
+        "title": "No current version",
+        "detail": "There is no published current version of the biometric consent."
+      },
+      "archivo-de-evidencia-requerido": {
+        "title": "File required",
+        "detail": "The scanned signed document was not received."
+      },
+      "archivo-de-evidencia-invalido": {
+        "title": "Invalid file",
+        "detail": "Only PDF, JPG or PNG are accepted."
+      },
+      "archivo-de-evidencia-demasiado-grande": {
+        "title": "File too large",
+        "detail": "The file exceeds the maximum size of 10 MB."
+      },
+      "consentimiento-ya-registrado": {
+        "title": "Consent already recorded",
+        "detail": "The employee already has the current version of this document accepted."
+      },
+      "empleado-no-encontrado": {
+        "title": "Employee not found",
+        "detail": "The employee does not exist, is terminated, or does not belong to the current company."
+      },
+      "sin-permiso-consentimiento": {
+        "title": "Forbidden",
+        "detail": "You do not have permission to record physical consents."
+      },
+      "error-de-almacenamiento-de-evidencia": {
+        "title": "Storage error",
+        "detail": "An error occurred while processing the scanned document in storage."
       }
     },
     "status_success": "Consent status retrieved successfully.",
-    "record_success": "Consent recorded successfully."
+    "record_success": "Consent recorded successfully.",
+    "physical_register_success": "Physical consent recorded successfully.",
+    "download_url_success": "Download URL generated successfully."
   },
   "legalDocuments": {
     "title": "Legal document",
@@ -2033,6 +2075,13 @@
     "initialize_success": "Telework Policy draft created successfully.",
     "update_success": "Telework Policy draft updated successfully.",
     "discard_success": "Telework Policy draft discarded successfully.",
+    "publish_success": "Telework Policy published and distributed successfully.",
+    "draft_from_latest_success": "New Telework Policy draft created from the current version.",
+    "versions_success": "Version history retrieved successfully.",
+    "tracking_success": "Acknowledgement tracking retrieved successfully.",
+    "remind_success": "Reminder sent successfully.",
+    "remind_no_pending_success": "There are no teleworkers pending acknowledgement; no reminder needed to be sent.",
+    "remind_no_matching_pending_success": "None of the specified teleworkers are pending acknowledgement; no reminder was sent.",
     "errors": {
       "politica-ya-existe": {
         "title": "Telework Policy",
@@ -2050,6 +2099,18 @@
         "title": "Telework Policy",
         "detail": "An already published version cannot be edited."
       },
+      "politica-incompleta-para-publicar": {
+        "title": "Telework Policy",
+        "detail": "Cannot publish; some components of section 5.2 have no content."
+      },
+      "sin-version-vigente": {
+        "title": "Telework Policy",
+        "detail": "This business unit has no published current version to start from."
+      },
+      "borrador-ya-existe": {
+        "title": "Telework Policy",
+        "detail": "An active draft already exists; edit it instead of creating another one."
+      },
       "entrada-invalida": {
         "title": "Invalid input"
       }
@@ -2057,6 +2118,7 @@
   },
   "consent_evidence_title": "Consent evidence",
   "consent_evidence_list_success": "Consent evidence retrieved successfully.",
+  "consent_evidence_download_url_success": "Download URL generated successfully.",
   "consent_evidence_invalid_filters_title": "Invalid query filters",
   "consent_evidence_invalid_filters_detail": "The filters provided are not valid.",
   "consent_evidence_invalid_business_unit_detail": "The businessUnitPublicId provided does not exist or is not valid.",

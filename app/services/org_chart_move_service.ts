@@ -33,8 +33,13 @@ export default class OrgChartMoveService {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
-  /** Slugs que en la práctica tienen acceso implícito sin fila en role_system_permission. */
-  private static readonly ORG_CHART_ADMIN_SLUGS = ['root', 'super-administrador'] as const
+  /**
+   * Slugs que en la práctica tienen acceso implícito sin fila en role_system_permission.
+   * `owner` (USRH1783712837561) se agrega junto a `super-administrador` para que el
+   * dueño de una cuenta self-service no quede con menos acceso del que ya tenía la
+   * cuenta recién registrada antes de esta HU.
+   */
+  private static readonly ORG_CHART_ADMIN_SLUGS = ['root', 'super-administrador', 'owner'] as const
 
   async assertCanUpdateOrganizationChart(roleId: number | null | undefined): Promise<boolean> {
     if (!roleId) {

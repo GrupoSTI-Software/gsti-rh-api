@@ -59,13 +59,12 @@ export default class BranchOfficeShiftQuotaService {
     quotas: BranchOfficeShiftQuotaInput[],
     businessUnitScope: number[]
   ): Promise<SerializedBranchOfficeShiftQuota[]> {
-    const branch = await this.resolveBranchOffice(branchOfficeId, businessUnitScope)
-    const businessUnitSlug = branch.businessUnit.businessUnitSlug
+    await this.resolveBranchOffice(branchOfficeId, businessUnitScope)
 
     for (const [index, item] of quotas.entries()) {
       const itemIndex = index + 1
       this.assertQuotaThresholds(item, itemIndex)
-      await this.assertShiftAvailableForBranch(item.shiftId, itemIndex, businessUnitSlug)
+      await this.assertShiftAvailableForBranch(item.shiftId, itemIndex)
     }
 
     await db.transaction(async (trx) => {
@@ -106,16 +105,15 @@ export default class BranchOfficeShiftQuotaService {
     }
   }
 
-  private static async assertShiftAvailableForBranch(
-    shiftId: number,
-    itemIndex: number,
-    businessUnitSlug: string
-  ) {
+  private static async assertShiftAvailableForBranch(shiftId: number, itemIndex: number) {
+    // USRH1783821206521: el filtro manual FIND_IN_SET(shift_business_units) se
+    // retira — withBusinessUnitScope() en Shift ya acota automáticamente a la
+    // unidad activa en TenantContext (la misma que resolveBranchOffice validó),
+    // sin necesidad de comparar el CSV a mano.
     const shift = await Shift.query()
       .where('shiftId', shiftId)
       .whereNull('shift_deleted_at')
       .where('shift_temp', 0)
-      .andWhereRaw('FIND_IN_SET(?, shift_business_units)', [businessUnitSlug.trim()])
       .first()
 
     if (!shift) {

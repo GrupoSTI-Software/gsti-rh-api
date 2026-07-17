@@ -14,3 +14,4 @@ router
   })
   .prefix('/api/employee-certifications')
   .use(middleware.auth())
+  .use(middleware.businessScope())

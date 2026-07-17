@@ -1,4 +1,5 @@
 import Employee from '#models/employee'
+import type Person from '#models/person'
 import type EmployeeTeleworkLocation from '#models/employee_telework_location'
 import {
   EMPLOYEE_WORK_SCHEDULE,
@@ -30,6 +31,22 @@ export interface TeleworkWorkerRow {
   workSchedule: string
   teleworkPercentage: number
   workplaces: TeleworkWorkerWorkplace[]
+}
+
+/**
+ * Destinatario del conjunto 5.1 para difusión/seguimiento
+ * (USRH1783547655377, decisión B de Wilvardo 2026-07-15). Con `email`
+ * resuelto ('' si el empleado no tiene ninguno en ninguna fuente) — el DTO
+ * es INTERNO del API: existe solo para que la difusión y el seguimiento de
+ * acuses resuelvan a quién avisar. Ningún endpoint lo serializa al BO; el
+ * seguimiento solo expone `hasEmail` (booleano), nunca la dirección.
+ */
+export interface TeleworkWorkerRecipient {
+  employeeId: number
+  employeeCode: number | string
+  fullName: string
+  position: string
+  email: string
 }
 
 /**
@@ -92,21 +109,49 @@ export default class TeleworkWorkerService {
     }
   }
 
+  /**
+   * Conjunto completo del listado 5.1 con el correo de cada persona resuelto
+   * (USRH1783547655377, §8): misma query base de `list()` — sin `.if(search)`,
+   * sin `.paginate()`, sin preload de `teleworkLocations` (la difusión y el
+   * seguimiento no los necesitan) — con `person.user` precargado para
+   * resolver el correo con la misma jerarquía que `notice_service`.
+   *
+   * `scope` es posicional y OBLIGATORIO, sin default (`scope: number[] = []`
+   * está PROHIBIDO): el `whereIn('business_unit_id', scope)` va siempre, sin
+   * condicional — con `scope = []` Knex genera `1 = 0` (fail-closed).
+   *
+   * Un empleado sin correo NO se excluye del retorno (el seguimiento lo
+   * necesita para marcarlo pendiente visible): viaja con `email: ''` y la
+   * difusión lo salta registrando un `skipped` (regla de negocio 5).
+   *
+   * DTO interno del API: quien llame es responsable del permiso (esta capa
+   * es agnóstica de RBAC, igual que `list()`); el email NUNCA se serializa
+   * a un endpoint.
+   */
+  async listAllForNotification(scope: number[]): Promise<TeleworkWorkerRecipient[]> {
+    const employees = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .whereIn('business_unit_id', scope)
+      .whereIn('employee_work_schedule', [
+        EMPLOYEE_WORK_SCHEDULE.REMOTE,
+        EMPLOYEE_WORK_SCHEDULE.HYBRID,
+      ])
+      .where('employee_telework_percentage', '>=', TELEWORK_LEGAL_THRESHOLD_PERCENT)
+      .preload('person', (personQuery) => {
+        personQuery.preload('user')
+      })
+      .preload('position')
+      .orderBy('employee_telework_percentage', 'desc')
+
+    return employees.map((employee) => this.toRecipient(employee))
+  }
+
   /** Mapea el empleado al DTO del listado (la capa de presentación nunca ve el modelo crudo). */
   private toRow(employee: Employee): TeleworkWorkerRow {
-    const person = employee.person
-    const fullName = [
-      person?.personFirstname,
-      person?.personLastname,
-      person?.personSecondLastname,
-    ]
-      .filter((part) => !!part && `${part}`.trim().length > 0)
-      .join(' ')
-
     return {
       employeeId: employee.employeeId,
       employeeCode: employee.employeeCode,
-      fullName,
+      fullName: this.buildFullName(employee.person),
       position: employee.position?.positionName ?? '',
       workSchedule: employee.employeeWorkSchedule,
       teleworkPercentage: Number(employee.employeeTeleworkPercentage),
@@ -114,6 +159,43 @@ export default class TeleworkWorkerService {
         this.toWorkplace(location)
       ),
     }
+  }
+
+  /** Mapea el empleado al destinatario de difusión/seguimiento, con el correo resuelto. */
+  private toRecipient(employee: Employee): TeleworkWorkerRecipient {
+    return {
+      employeeId: employee.employeeId,
+      employeeCode: employee.employeeCode,
+      fullName: this.buildFullName(employee.person),
+      position: employee.position?.positionName ?? '',
+      email: this.resolveRecipientEmail(employee),
+    }
+  }
+
+  /** Nombre completo a partir de la persona (compartido por `toRow` y `toRecipient`). */
+  private buildFullName(person: Person | null | undefined): string {
+    return [person?.personFirstname, person?.personLastname, person?.personSecondLastname]
+      .filter((part) => !!part && `${part}`.trim().length > 0)
+      .join(' ')
+  }
+
+  /**
+   * Misma jerarquía que `notice_service.resolveRecipientEmailLikeGetMails`:
+   * correo de usuario > correo de empresa > correo personal. `personEmail`
+   * viaja cifrado en reposo y se descifra en memoria vía getter — nunca se
+   * usa en WHERE SQL.
+   */
+  private resolveRecipientEmail(employee: Employee): string {
+    const userEmail = employee.person?.user?.userEmail?.trim()
+    if (userEmail) {
+      return userEmail
+    }
+    const businessEmail = employee.employeeBusinessEmail?.trim()
+    if (businessEmail) {
+      return businessEmail
+    }
+    const personalEmail = employee.person?.personEmail?.trim()
+    return personalEmail || ''
   }
 
   /** Aplana el lugar de teletrabajo a la forma del 5.1 que muestra el listado. */

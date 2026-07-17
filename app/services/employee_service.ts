@@ -22,6 +22,7 @@ import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
 import { blindIndex } from '#utils/blind_index'
+import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
 import axios from 'axios'
@@ -35,6 +36,7 @@ import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
 import SystemSettingService from './system_setting_service.js'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import sharp from 'sharp'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
@@ -2548,17 +2550,8 @@ export default class EmployeeService {
    */
   private async getEmployeeLimitForBusinessUnit(businessUnitId: number): Promise<number | null> {
     try {
-      // Obtener la variable de entorno SYSTEM_BUSINESS
-      const systemBusinessEnv = env.get('SYSTEM_BUSINESS', '')
-      if (!systemBusinessEnv) {
-        console.error('SYSTEM_BUSINESS environment variable not found')
-        return null
-      }
-
-      // Convertir la variable de entorno a array de strings
-      const systemBusinessUnits = systemBusinessEnv.split(',').map((unit: string) => unit.trim())
-
-      // Obtener el nombre de la unidad de negocio
+      // Obtener el slug de la unidad de negocio del empleado (USRH1783821206455:
+      // ya no se empareja contra la lista global, sino contra la unidad concreta).
       const businessUnit = await BusinessUnit.find(businessUnitId)
       if (!businessUnit) {
         console.error('Business unit not found:', businessUnitId)
@@ -2576,10 +2569,8 @@ export default class EmployeeService {
       for (const setting of systemSettings) {
         const settingBusinessUnits = setting.systemSettingBusinessUnits.split(',').map((unit: string) => unit.trim())
 
-        // Verificar si hay coincidencia entre las unidades de negocio
-        const hasMatch = settingBusinessUnits.some((settingUnit: string) =>
-          systemBusinessUnits.includes(settingUnit)
-        )
+        // Verificar si el setting incluye la unidad de negocio del empleado
+        const hasMatch = settingBusinessUnits.includes(businessUnit.businessUnitSlug)
 
         if (hasMatch) {
           matchingSystemSettingId = setting.systemSettingId
@@ -4206,7 +4197,10 @@ export default class EmployeeService {
    * Formato basado en la estructura de la base de datos de biométricos
    */
   private mapEmployeeToBiometricFormat(employee: Employee): any {
-    const payrollNum = env.get('SYSTEM_BUSINESS', '')
+    // USRH1783821206455: se estampa la unidad de negocio concreta del empleado
+    // (decisión Wilvardo 2026-07-10: businessUnit, no payrollBusinessUnit) —
+    // el reverse-sync ya empareja por inclusión contra businessUnit.
+    const payrollNum = employee.businessUnit?.businessUnitSlug ?? ''
 
     // Normalizar gender a un solo carácter (M/F) o null
     let genderValue: string | null = null
@@ -4333,8 +4327,9 @@ export default class EmployeeService {
         }
       }
 
-      // Cargar relaciones necesarias
-      await Promise.all(employees.map(emp => emp.load('person')))
+      // Cargar relaciones necesarias (businessUnit: USRH1783821206455, se
+      // estampa como payrollNum en mapEmployeeToBiometricFormat).
+      await Promise.all(employees.map(emp => Promise.all([emp.load('person'), emp.load('businessUnit')])))
 
       // Mapear empleados al formato de la API
       const biometricEmployees = employees.map(emp => this.mapEmployeeToBiometricFormat(emp))
@@ -4372,6 +4367,7 @@ export default class EmployeeService {
         .where('employeeId', employeeId)
         .whereNull('deletedAt')
         .preload('person')
+        .preload('businessUnit')
         .first()
 
       if (!employee) {
@@ -4513,12 +4509,18 @@ export default class EmployeeService {
    */
   private async getActiveBusinessUnitColor(): Promise<string> {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      if (!businessConf) {
-        return 'FFD6FFDC' // Color por defecto si no hay configuración (ARGB)
+      // USRH1783821206455: la unidad ya no sale de la lista global — se toma
+      // la unidad seleccionada del request, activa vía TenantContext (el
+      // middleware businessScope() ya la fijó en los 3 llamadores de este método).
+      const [selectedBusinessUnitId] = TenantContext.getScope()
+      if (!selectedBusinessUnitId) {
+        return 'FFD6FFDC' // Color por defecto si no hay unidad seleccionada (ARGB)
       }
 
-      const businessList = businessConf.split(',').map((unit: string) => unit.trim())
+      const businessUnit = await BusinessUnit.find(selectedBusinessUnitId)
+      if (!businessUnit) {
+        return 'FFD6FFDC' // Color por defecto si la unidad no existe (ARGB)
+      }
 
       const systemSettings = await SystemSetting.query()
         .whereNull('system_setting_deleted_at')
@@ -4530,9 +4532,7 @@ export default class EmployeeService {
             .split(',')
             .map((unit: string) => unit.trim())
 
-          const hasMatch = businessList.some((businessUnit: string) =>
-            units.includes(businessUnit)
-          )
+          const hasMatch = units.includes(businessUnit.businessUnitSlug)
 
           if (hasMatch && systemSetting.systemSettingSidebarColor) {
             // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
@@ -4557,12 +4557,22 @@ export default class EmployeeService {
   /**
    * Obtener el logo del systemSetting
    */
+  // USRH1783712837584: las rutas de `/api/employees` (`businessScope`
+  // middleware) ya resuelven el tenant en `TenantContext`; fail-closed
+  // silencioso — sin configuración propia se conserva el logo por defecto.
   private async getLogo(): Promise<string> {
     let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive?.systemSettingLogo) {
-      imageLogo = systemSettingActive.systemSettingLogo
+    const businessUnitId = TenantContext.getScope()[0]
+    if (businessUnitId) {
+      const systemSettingService = new SystemSettingService()
+      try {
+        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        if (systemSettingActive.systemSettingLogo) {
+          imageLogo = systemSettingActive.systemSettingLogo
+        }
+      } catch (error) {
+        if (!(error instanceof SystemSettingResolutionError)) throw error
+      }
     }
     return imageLogo
   }
