@@ -43,6 +43,7 @@ function resolveComplaintMessageKey(error: ComplaintServiceError): string | unde
     'justification-required': 'complaint_justification_required',
     'reporter-not-found': 'complaint_reporter_not_found',
     'invalid-date-range': 'complaint_report_invalid_date_range',
+    'CMPL.VAL.CATEGORY': 'complaint_category_not_found',
   }
 
   if (error.key && byClientKey[error.key]) {
@@ -62,6 +63,7 @@ function resolveComplaintMessageKey(error: ComplaintServiceError): string | unde
     [COMPLAINT_ERROR_CODES.JUSTIFICATION_REQUIRED]: 'complaint_justification_required',
     [COMPLAINT_ERROR_CODES.REVEAL_FORBIDDEN]: 'complaint_reveal_forbidden',
     [COMPLAINT_ERROR_CODES.DATE_RANGE_INVALID]: 'complaint_report_invalid_date_range',
+    [COMPLAINT_ERROR_CODES.CATEGORY_NOT_FOUND]: 'complaint_category_not_found',
   }
 
   return byErrorCode[error.errorCode]

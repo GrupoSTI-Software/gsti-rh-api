@@ -11,6 +11,7 @@ import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
 import ComplaintNotificationService from '#services/complaint_notification_service'
 import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
+import ComplaintCategoryService from '#services/complaint_category_service'
 import RetentionGuardService from '#services/retention_guard_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
@@ -52,12 +53,17 @@ type ResolutionRow = {
   average_resolution_hours: string | number | null
 }
 
-/** Serialización admin detalle: nunca expone employeeId ni relaciones de identidad. */
+/** Slug de categoría desde la relación precargada (FK al catálogo). */
+function complaintCategorySlug(complaint: Complaint): ComplaintCategory {
+  return complaint.complaintCategory.complaintCategorySlug as ComplaintCategory
+}
+
+/** Serialización admin: nunca expone employeeId ni relaciones de identidad. */
 function serializeComplaintAdmin(complaint: Complaint): ComplaintAdminResult {
   return {
     complaintId: complaint.complaintId,
     folio: complaint.complaintFolio,
-    category: complaint.complaintCategory,
+    category: complaintCategorySlug(complaint),
     description: complaint.complaintDescription,
     status: complaint.complaintStatus,
     businessUnitId: complaint.businessUnitId,
@@ -70,7 +76,7 @@ function serializeComplaintBoardItem(complaint: Complaint): ComplaintBoardListIt
   return {
     complaintId: complaint.complaintId,
     folio: complaint.complaintFolio,
-    category: complaint.complaintCategory,
+    category: complaintCategorySlug(complaint),
     status: complaint.complaintStatus,
     createdAt: complaint.complaintCreatedAt.toISO()!,
     updatedAt: complaint.complaintUpdatedAt.toISO()!,
@@ -85,7 +91,7 @@ function serializeComplaintDetail(
   return {
     complaintId: complaint.complaintId,
     folio: complaint.complaintFolio,
-    category: complaint.complaintCategory,
+    category: complaintCategorySlug(complaint),
     description: complaint.complaintDescription,
     status: complaint.complaintStatus,
     createdAt: complaint.complaintCreatedAt.toISO()!,
@@ -103,6 +109,7 @@ export default class ComplaintService {
   private readonly attachmentService = new ComplaintAttachmentService()
   private readonly notificationService = new ComplaintNotificationService()
   private readonly identityRevealService = new ComplaintIdentityRevealService()
+  private readonly categoryService = new ComplaintCategoryService()
 
   /**
    * Registra una queja asociada al empleado autenticado.
@@ -134,6 +141,8 @@ export default class ComplaintService {
       )
     }
 
+    const category = await this.categoryService.findActiveBySlugOrFail(input.category)
+
     const plainPassphrase = this.generatePassphrase()
     const complaintPassphraseHash = await hash.make(plainPassphrase)
     const complaintFolio = await this.generateUniqueFolio()
@@ -143,7 +152,7 @@ export default class ComplaintService {
       businessUnitId: employee.businessUnitId,
       complaintFolio,
       complaintPassphraseHash,
-      complaintCategory: input.category,
+      complaintCategoryId: category.complaintCategoryId,
       complaintDescription: input.description.trim(),
       complaintStatus: COMPLAINT_INITIAL_STATUS,
     })
@@ -154,7 +163,7 @@ export default class ComplaintService {
       folio: complaint.complaintFolio,
       passphrase: plainPassphrase,
       status: complaint.complaintStatus,
-      category: complaint.complaintCategory,
+      category: category.complaintCategorySlug as ComplaintCategory,
       createdAt: complaint.complaintCreatedAt.toISO()!,
     }
   }
@@ -162,10 +171,14 @@ export default class ComplaintService {
   /**
    * Consulta el estatus de una queja por folio y passphrase, sin re-identificar al empleado.
    */
-  async consultStatus(input: ConsultComplaintStatusInput): Promise<ComplaintStatusResult> {
+  async consultStatus(
+    input: ConsultComplaintStatusInput,
+    i18n: I18n
+  ): Promise<ComplaintStatusResult> {
     const complaint = await Complaint.query()
       .where('complaint_folio', input.folio.trim())
       .whereNull('complaint_deleted_at')
+      .preload('complaintCategory')
       .first()
 
     const passphraseValid =
@@ -181,10 +194,13 @@ export default class ComplaintService {
       )
     }
 
+    const slug = complaintCategorySlug(complaint!)
+
     return {
       folio: complaint!.complaintFolio,
       status: complaint!.complaintStatus,
-      category: complaint!.complaintCategory,
+      category: slug,
+      categoryLabel: this.categoryService.resolveLabel(slug, i18n),
       createdAt: complaint!.complaintCreatedAt.toISO()!,
       updatedAt: complaint!.complaintUpdatedAt.toISO()!,
     }
@@ -215,10 +231,13 @@ export default class ComplaintService {
     }
 
     if (filters.category) {
-      query.where('complaint_category', filters.category)
+      await this.categoryService.findActiveBySlugOrFail(filters.category)
+      query.whereHas('complaintCategory', (builder) => {
+        builder.where('complaint_category_slug', filters.category!)
+      })
     }
 
-    query.orderBy('complaint_created_at', 'desc')
+    query.preload('complaintCategory').orderBy('complaint_created_at', 'desc')
 
     const paginator = await query.paginate(safePage, safeLimit)
     const pendingNewCount = await this.notificationService.countNewPendingComplaints(
@@ -312,6 +331,7 @@ export default class ComplaintService {
     })
 
     await complaint.refresh()
+    await complaint.load('complaintCategory')
     return serializeComplaintAdmin(complaint)
   }
 
@@ -646,6 +666,7 @@ export default class ComplaintService {
       .where('complaint_id', complaintId)
       .whereNull('complaint_deleted_at')
       .whereIn('business_unit_id', allowedBusinessUnitIds)
+      .preload('complaintCategory')
       .first()
 
     if (!complaint) {
