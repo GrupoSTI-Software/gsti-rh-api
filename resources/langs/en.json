@@ -2024,6 +2024,35 @@
       }
     }
   },
+  "telework_policy": {
+    "title": "Telework Policy",
+    "get_success": "Telework Policy status retrieved successfully.",
+    "template_success": "Telework Policy base template retrieved successfully.",
+    "initialize_success": "Telework Policy draft created successfully.",
+    "update_success": "Telework Policy draft updated successfully.",
+    "discard_success": "Telework Policy draft discarded successfully.",
+    "errors": {
+      "politica-ya-existe": {
+        "title": "Telework Policy",
+        "detail": "This business unit already has a Telework Policy; it cannot be initialized again."
+      },
+      "politica-inexistente": {
+        "title": "Telework Policy",
+        "detail": "This business unit does not have a Telework Policy yet; initialize it first."
+      },
+      "estructura-componentes-invalida": {
+        "title": "Telework Policy",
+        "detail": "The 'components' field must contain exactly the 12 mandatory items of section 5.2, each with a distinct 'key' ('5_2_a' to '5_2_l'); none can be added, removed, or repeated. Check 'data' in this response to see which keys are missing, duplicated, or invalid."
+      },
+      "politica-publicada-inmutable": {
+        "title": "Telework Policy",
+        "detail": "An already published version cannot be edited."
+      },
+      "entrada-invalida": {
+        "title": "Invalid input"
+      }
+    }
+  },
   "consent_evidence_title": "Consent evidence",
   "consent_evidence_list_success": "Consent evidence retrieved successfully.",
   "consent_evidence_invalid_filters_title": "Invalid query filters",
@@ -2035,6 +2064,10 @@
   "legal_document_forbidden_read_message": "You do not have permission to view legal document management.",
   "legal_document_forbidden_write_title": "Forbidden",
   "legal_document_forbidden_write_message": "You do not have permission to manage legal documents.",
+  "telework_policy_forbidden_read_title": "No read permission",
+  "telework_policy_forbidden_read_message": "You do not have permission to view the Telework Policy.",
+  "telework_policy_forbidden_write_title": "No permission",
+  "telework_policy_forbidden_write_message": "You do not have permission to manage the Telework Policy.",
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
@@ -2116,5 +2149,9 @@
   "telework_location_not_found": "The telework location does not exist or does not belong to the selected company.",
   "telework_location_employee_id_required": "You must provide the employee (employeeId) to query their telework locations.",
   "telework_location_invalid_input": "The telework location data is not valid.",
-  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location."
+  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location.",
+  "telework_workers_title": "Telework workers list",
+  "telework_workers_list_success": "Telework workers list retrieved successfully.",
+  "telework_workers_forbidden": "You do not have permission to view the telework workers list.",
+  "telework_workers_unexpected_error": "An unexpected error occurred while retrieving the telework workers list."
 }
