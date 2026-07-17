@@ -236,6 +236,14 @@ export default class ValidationsService {
   }
 
   private serialize(row: ProveedorRepseValidacion): ProveedorRepseValidacionDto {
+    const person = row.autor?.person
+    const autorNombre = person
+      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
+          .filter(Boolean)
+          .join(' ')
+          .trim()
+      : ''
+
     return {
       proveedorRepseValidacionId: row.proveedorRepseValidacionId,
       proveedorRepseId: row.proveedorRepseId,
@@ -243,6 +251,12 @@ export default class ValidationsService {
       estatus: row.estatus,
       fecha: row.fecha.toISODate()!,
       autorUserId: row.autorUserId,
+      autor: row.autor
+        ? {
+            userId: row.autorUserId,
+            nombreCompleto: autorNombre || row.autor.userEmail || 'Usuario',
+          }
+        : null,
       evidenciaNombreArchivo: row.evidenciaNombreArchivo,
       evidenciaMimeType: row.evidenciaMimeType,
       evidenciaTamanoBytes: row.evidenciaTamanoBytes,

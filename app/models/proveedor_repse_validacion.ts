@@ -30,6 +30,14 @@ export type ProveedorRepseValidacionEstatus = 'vigente' | 'no_vigente'
  *           format: date
  *         autorUserId:
  *           type: integer
+ *         autor:
+ *           type: object
+ *           nullable: true
+ *           properties:
+ *             userId:
+ *               type: integer
+ *             nombreCompleto:
+ *               type: string
  *         evidenciaNombreArchivo:
  *           type: string
  *         evidenciaMimeType:

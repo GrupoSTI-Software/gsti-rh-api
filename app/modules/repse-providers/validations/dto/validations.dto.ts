@@ -7,6 +7,10 @@ export interface ProveedorRepseValidacionDto {
   estatus: ProveedorRepseValidacionEstatus
   fecha: string
   autorUserId: number
+  autor: {
+    userId: number
+    nombreCompleto: string
+  } | null
   evidenciaNombreArchivo: string
   evidenciaMimeType: string
   evidenciaTamanoBytes: number

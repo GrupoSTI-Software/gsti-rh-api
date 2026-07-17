@@ -24,12 +24,14 @@ export default class ValidationsRepositoryMysql implements ValidationsRepository
       row.useTransaction(trx)
     }
     await row.save()
+    await row.load('autor', (q) => q.preload('person'))
     return row
   }
 
   async listByProveedor(proveedorRepseId: number): Promise<ProveedorRepseValidacion[]> {
     return ProveedorRepseValidacion.query()
       .where('proveedor_repse_id', proveedorRepseId)
+      .preload('autor', (q) => q.preload('person'))
       .orderBy('proveedor_repse_validacion_fecha', 'desc')
       .orderBy('proveedor_repse_validacion_id', 'desc')
   }
@@ -41,12 +43,14 @@ export default class ValidationsRepositoryMysql implements ValidationsRepository
     return ProveedorRepseValidacion.query()
       .where('proveedor_repse_validacion_id', proveedorRepseValidacionId)
       .where('proveedor_repse_id', proveedorRepseId)
+      .preload('autor', (q) => q.preload('person'))
       .first()
   }
 
   async findLastByProveedor(proveedorRepseId: number): Promise<ProveedorRepseValidacion | null> {
     return ProveedorRepseValidacion.query()
       .where('proveedor_repse_id', proveedorRepseId)
+      .preload('autor', (q) => q.preload('person'))
       .orderBy('proveedor_repse_validacion_fecha', 'desc')
       .orderBy('proveedor_repse_validacion_id', 'desc')
       .first()
