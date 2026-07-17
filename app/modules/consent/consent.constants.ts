@@ -23,4 +23,12 @@ export type ConsentAudience = keyof typeof AUDIENCE_REQUIRED_TYPES
 export const CONSENT_ERROR_STATUS: Record<string, number> = {
   'version-de-consentimiento-invalida': 422,
   'tipo-de-documento-invalido': 422,
+  'sin-version-vigente-biometrico': 422,
+  'archivo-de-evidencia-requerido': 422,
+  'archivo-de-evidencia-invalido': 422,
+  'archivo-de-evidencia-demasiado-grande': 422,
+  'consentimiento-ya-registrado': 409,
+  'empleado-no-encontrado': 404,
+  'sin-permiso-consentimiento': 403,
+  'error-de-almacenamiento-de-evidencia': 500,
 }

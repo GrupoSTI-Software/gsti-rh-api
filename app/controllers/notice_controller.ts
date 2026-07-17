@@ -5,6 +5,7 @@ import { createNoticeValidator, updateNoticeValidator } from '#validators/notice
 import UploadService from '#services/upload_service'
 import NoticeFileService from '#services/notice_file_service'
 import NoticeFile from '#models/notice_file'
+import { resolveRequestBusinessUnitId } from '../helpers/resolve_request_business_unit_id.js'
 
 export default class NoticeController {
   /**
@@ -194,7 +195,8 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const recipientEmployeeIds = request.input('recipientEmployeeIds', []) || []
@@ -341,7 +343,10 @@ export default class NoticeController {
           }
         }
       }
-      await noticeService.sendNoticeEmails(newNotice.noticeId, false)
+      // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
+      // se resuelve el id de la empresa del usuario desde el header.
+      const businessUnitId = await resolveRequestBusinessUnitId(ctx)
+      await noticeService.sendNoticeEmails(newNotice.noticeId, false, businessUnitId)
 
 
       response.status(201)
@@ -408,7 +413,8 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const noticeId = Number(request.param('noticeId'))
@@ -530,7 +536,16 @@ export default class NoticeController {
         }
       }
 
-      const updateNotice = await noticeService.update(currentNotice, notice, resendOnUpdate, recipientEmployeeIds)
+      // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
+      // se resuelve el id de la empresa del usuario desde el header.
+      const businessUnitId = await resolveRequestBusinessUnitId(ctx)
+      const updateNotice = await noticeService.update(
+        currentNotice,
+        notice,
+        resendOnUpdate,
+        recipientEmployeeIds,
+        businessUnitId
+      )
       response.status(201)
       return {
         type: 'success',
@@ -707,7 +722,8 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async send({ request, response, i18n }: HttpContext) {
+  async send(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const noticeId = Number(request.param('noticeId'))
@@ -721,7 +737,10 @@ export default class NoticeController {
         }
       }
       const noticeService = new NoticeService(i18n)
-      const result = await noticeService.sendNotice(noticeId)
+      // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
+      // se resuelve el id de la empresa del usuario desde el header.
+      const businessUnitId = await resolveRequestBusinessUnitId(ctx)
+      const result = await noticeService.sendNotice(noticeId, businessUnitId)
       response.status(result.status)
       return result
     } catch (error) {

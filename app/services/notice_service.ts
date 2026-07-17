@@ -7,6 +7,7 @@ import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
 import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
 import Env from '#start/env'
@@ -189,7 +190,13 @@ export default class NoticeService {
     return newNotice
   }
 
-  async update(currentNotice: Notice, notice: Notice, sendEmails: boolean = true, recipientEmployeeIds: number[] = []) {
+  async update(
+    currentNotice: Notice,
+    notice: Notice,
+    sendEmails: boolean = true,
+    recipientEmployeeIds: number[] = [],
+    businessUnitId: number | null = null
+  ) {
     currentNotice.noticeSubject = notice.noticeSubject
     currentNotice.noticeDescription = notice.noticeDescription
     currentNotice.noticeType = notice.noticeType
@@ -286,7 +293,7 @@ export default class NoticeService {
 
     // Reenviar correos automáticamente al actualizar con prefijo
     if (sendEmails) {
-      await this.sendNoticeEmails(currentNotice.noticeId, true)
+      await this.sendNoticeEmails(currentNotice.noticeId, true, businessUnitId)
     }
 
     return currentNotice
@@ -361,7 +368,7 @@ export default class NoticeService {
    * @param noticeId ID del aviso
    * @param isUpdate Si es true, agrega prefijo "Update" o "Actualización" al subject
    */
-   async sendNoticeEmails(noticeId: number, isUpdate: boolean = false) {
+   async sendNoticeEmails(noticeId: number, isUpdate: boolean = false, businessUnitId: number | null = null) {
     const notice = await Notice.query()
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
@@ -404,16 +411,25 @@ export default class NoticeService {
     const fromEmail = env.get('SMTP_USERNAME')
 
     // Obtener branding del sistema (solo una vez antes del loop)
+    // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`; el
+    // controller resuelve `businessUnitId` desde el header y lo pasa explícito.
+    // Fail-closed silencioso: sin id o sin configuración propia, se conserva
+    // el branding por defecto en vez de filtrar el de otra empresa.
     let tradeName = 'BO'
     let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO') || ''}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingLogo) {
-        backgroundImageLogo = systemSettingActive.systemSettingLogo
-      }
-      if (systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
+    let systemSettingActive: SystemSetting | null = null
+    if (businessUnitId) {
+      const systemSettingService = new SystemSettingService()
+      try {
+        systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        if (systemSettingActive.systemSettingLogo) {
+          backgroundImageLogo = systemSettingActive.systemSettingLogo
+        }
+        if (systemSettingActive.systemSettingTradeName) {
+          tradeName = systemSettingActive.systemSettingTradeName
+        }
+      } catch (error) {
+        if (!(error instanceof SystemSettingResolutionError)) throw error
       }
     }
 
@@ -620,8 +636,8 @@ export default class NoticeService {
     }
   }
 
-  async sendNotice(noticeId: number) {
-    return await this.sendNoticeEmails(noticeId, false)
+  async sendNotice(noticeId: number, businessUnitId: number | null = null) {
+    return await this.sendNoticeEmails(noticeId, false, businessUnitId)
   }
 
   async verifyInfo(notice: Notice) {
