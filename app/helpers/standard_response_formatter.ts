@@ -137,6 +137,10 @@ export class StandardResponseFormatter {
       'Documento del contrato': 'documentoContrato',
       'Asignaciones de Contrato Especializado': 'asignaciones',
       'Asignación de Contrato Especializado': 'asignacion',
+      'Proveedores REPSE': 'proveedoresRepse',
+      'Proveedor REPSE': 'proveedorRepse',
+      'Validaciones de Proveedor REPSE': 'validaciones',
+      'Validación de Proveedor REPSE': 'validacion',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')
