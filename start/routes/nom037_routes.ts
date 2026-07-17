@@ -23,6 +23,27 @@ router
       '/nom037/telework-policy/draft',
       '#modules/telework-policy/telework_policy.controller.discardDraft'
     )
+    // USRH1783547655377 — publicar/difundir la política y seguimiento de acuses.
+    router.post(
+      '/nom037/telework-policy/publish',
+      '#modules/telework-policy/telework_policy.controller.publish'
+    )
+    router.post(
+      '/nom037/telework-policy/draft',
+      '#modules/telework-policy/telework_policy.controller.createDraftFromLatest'
+    )
+    router.get(
+      '/nom037/telework-policy/versions',
+      '#modules/telework-policy/telework_policy.controller.listVersions'
+    )
+    router.get(
+      '/nom037/telework-policy/acknowledgements',
+      '#modules/telework-policy/telework_policy.controller.getAcknowledgementTracking'
+    )
+    router.post(
+      '/nom037/telework-policy/remind-pending',
+      '#modules/telework-policy/telework_policy.controller.remindPending'
+    )
   })
   .prefix('/api')
   .use(middleware.auth())
@@ -44,6 +65,13 @@ router
         router.delete('/:id', '#controllers/employee_telework_location_controller.destroy')
       })
       .prefix('/nom037/telework-locations')
+      .use(middleware.businessScope())
+
+    router
+      .group(() => {
+        router.get('/', '#controllers/telework_worker_controller.index')
+      })
+      .prefix('/nom037/telework-workers')
       .use(middleware.businessScope())
   })
   .prefix('/api')

@@ -3,7 +3,13 @@ import ExcelJS from 'exceljs'
 import { assertConsentEvidenceAccess } from '#helpers/consent_evidence_rbac'
 import { CONSENT_EVIDENCE_ERROR_CODES } from '#constants/consent_evidence_error_codes'
 import type { LegalDocumentType } from '#models/legal_document'
+import type { UserConsentChannel } from '#models/user_consent'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import ConsentError from '#exceptions/consent_error'
+import type { ConsentErrorKey } from '#exceptions/consent_error'
+import { CONSENT_ERROR_CODES } from '#constants/consent_error_codes'
+import { CONSENT_ERROR_STATUS } from '#modules/consent/consent.constants'
+import PhysicalConsentService from '#modules/consent/physical/physical_consent.service'
 import EvidenceService from './evidence.service.js'
 import { getEvidenceExportValidator, getEvidenceValidator } from './validators/get_evidence.validator.js'
 import type { EvidenceFilters } from './evidence.repository.js'
@@ -18,6 +24,12 @@ const DOCUMENT_TYPE_LABELS: Record<LegalDocumentType, string> = {
   privacy_notice: 'Aviso de privacidad',
   terms_conditions: 'Términos y condiciones',
   biometric_consent: 'Consentimiento biométrico',
+}
+
+/** Etiqueta legible del canal para la columna del `.xlsx` (USRH1784146205513). */
+const CHANNEL_LABELS: Record<UserConsentChannel, string> = {
+  digital: 'Digital',
+  physical: 'Físico',
 }
 
 /**
@@ -163,7 +175,7 @@ export default class EvidenceController {
     const { request, response, i18n, auth } = ctx
     let payload
     try {
-      payload = await getEvidenceValidator.validate(request.qs())
+      payload = await request.validateUsing(getEvidenceValidator)
     } catch (error) {
       return this.validationError(ctx, error)
     }
@@ -297,7 +309,7 @@ export default class EvidenceController {
     const { request, response, auth } = ctx
     let payload
     try {
-      payload = await getEvidenceExportValidator.validate(request.qs())
+      payload = await request.validateUsing(getEvidenceExportValidator)
     } catch (error) {
       return this.validationError(ctx, error)
     }
@@ -315,18 +327,28 @@ export default class EvidenceController {
       { header: 'Empresa', key: 'businessUnitNames', width: 30 },
       { header: 'Documento', key: 'documentTypeLabel', width: 26 },
       { header: 'Versión', key: 'version', width: 12 },
+      { header: 'Canal', key: 'channelLabel', width: 14 },
       { header: 'Fecha de aceptación', key: 'acceptedAt', width: 24 },
+      { header: 'Fecha de firma', key: 'signedAt', width: 18 },
+      { header: 'Registrado por', key: 'registeredByName', width: 28 },
+      { header: 'Adjunto', key: 'hasAttachmentLabel', width: 12 },
       { header: 'IP', key: 'ip', width: 22 },
       { header: 'Navegador / dispositivo', key: 'userAgent', width: 40 },
     ]
 
+    // Sin URLs en el export (S8.3): solo `hasAttachment` como sí/no; la descarga se
+    // pide bajo demanda a `evidence/:id/download-url`, nunca embebida en el archivo.
     for (const row of rows) {
       worksheet.addRow({
         userName: row.userName,
         businessUnitNames: row.businessUnitNames.join(', '),
         documentTypeLabel: DOCUMENT_TYPE_LABELS[row.documentType],
         version: row.version,
+        channelLabel: CHANNEL_LABELS[row.channel],
         acceptedAt: row.acceptedAt,
+        signedAt: row.signedAt,
+        registeredByName: row.registeredByName ?? '',
+        hasAttachmentLabel: row.hasAttachment ? 'Sí' : 'No',
         ip: row.ip,
         userAgent: row.userAgent,
       })
@@ -345,6 +367,105 @@ export default class EvidenceController {
     )
     response.header('Content-Disposition', `attachment; filename="${filename}"`)
     return response.send(buffer)
+  }
+
+  /**
+   * @swagger
+   * /api/consent/evidence/{userConsentId}/download-url:
+   *   get:
+   *     summary: URL firmada temporal para descargar el escaneo de un asiento físico (solo rol root)
+   *     description: |
+   *       Devuelve un enlace pre-firmado a S3 con vigencia de 5 minutos, para el escaneo
+   *       adjunto a un asiento de canal `physical`. Mismo gate que el resto del módulo
+   *       (`assertConsentEvidenceAccess`). Registra el acceso en la bitácora PII ANTES de
+   *       firmar la URL (S9, fail-closed).
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [ConsentEvidence]
+   *     parameters:
+   *       - in: header
+   *         name: Authorization
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: userConsentId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200:
+   *         description: URL firmada generada
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               title: Evidencia de aceptaciones
+   *               message: URL de descarga generada correctamente.
+   *               data: { downloadUrl: "https://...", expiresInSeconds: 300 }
+   *       403:
+   *         description: Rol distinto de root
+   *       404:
+   *         description: Asiento inexistente, sin canal físico o sin adjunto (404 opaco)
+   */
+  async downloadUrl(
+    ctx: HttpContext,
+    physicalConsentService: PhysicalConsentService = new PhysicalConsentService()
+  ) {
+    if (!(await assertConsentEvidenceAccess(ctx, 'read', RBAC_FORBIDDEN))) return
+
+    const { params, request, response, i18n, auth } = ctx
+    try {
+      const userConsentId = this.parseUserConsentId(params.userConsentId)
+      const data = await physicalConsentService.getDownloadUrlForEvidence(userConsentId, {
+        accessorUserId: auth.user!.userId,
+        accessorIp: request.ip(),
+        accessorUserAgent: request.header('user-agent') ?? null,
+        requestId: null,
+      })
+
+      return response.status(200).json({
+        type: 'success',
+        title: i18n.t('consent_evidence_title', undefined, 'Evidencia de aceptaciones'),
+        message: i18n.t(
+          'consent_evidence_download_url_success',
+          undefined,
+          'URL de descarga generada correctamente.'
+        ),
+        data,
+      })
+    } catch (error) {
+      return this.consentDomainError(ctx, error)
+    }
+  }
+
+  private parseUserConsentId(raw: unknown): number {
+    const id = Number(raw)
+    if (!Number.isFinite(id) || id <= 0) {
+      // `ConsentError.code` es el enum CSNT.* (dominio de consentimiento), no CEVI.*
+      // (dominio de evidencia — reservado a errores de filtros/RBAC de esta vista).
+      throw new ConsentError(
+        'empleado-no-encontrado',
+        'El identificador indicado es inválido.',
+        CONSENT_ERROR_CODES.EMPLOYEE_NOT_FOUND
+      )
+    }
+    return id
+  }
+
+  private consentDomainError(ctx: HttpContext, error: unknown) {
+    if (error instanceof ConsentError) {
+      const { i18n } = ctx
+      const status = CONSENT_ERROR_STATUS[error.key as ConsentErrorKey] ?? 500
+      return ctx.response.status(status).json({
+        type: 'error',
+        title: i18n.t('consent_evidence_title', undefined, 'Evidencia de aceptaciones'),
+        message: i18n.formatMessage(`consent.errors.${error.key}.title`),
+        detail: i18n.formatMessage(`consent.errors.${error.key}.detail`),
+        key: error.key,
+        code: error.code,
+        data: null,
+      })
+    }
+    throw error
   }
 
   /** `reveal=true` se honra solo si el rol tiene el permiso dedicado (regla 4, sin fuga). */
@@ -394,6 +515,7 @@ export default class EvidenceController {
       version?: string
       legalDocumentId?: number
       userId?: number
+      channel?: UserConsentChannel
     },
     businessUnitId: number | undefined
   ): EvidenceFilters {
@@ -403,6 +525,7 @@ export default class EvidenceController {
       legalDocumentId: payload.legalDocumentId,
       userId: payload.userId,
       businessUnitId,
+      channel: payload.channel,
     }
   }
 

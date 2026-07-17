@@ -1,5 +1,6 @@
 import type UserConsent from '#models/user_consent'
 import type { LegalDocumentType } from '#models/legal_document'
+import type { UserConsentChannel } from '#models/user_consent'
 
 /** Filtros combinables de la consulta de evidencia (regla 3, USRH1783368377327). */
 export interface EvidenceFilters {
@@ -9,10 +10,12 @@ export interface EvidenceFilters {
   version?: string
   /** Documento concreto por id — alternativa directa a `type`/`version`. */
   legalDocumentId?: number
-  /** Historial de un usuario puntual. */
+  /** Historial de un usuario puntual. NO encuentra asientos físicos de empleados sin usuario (limitación documentada, USRH1784146205513 §11.2). */
   userId?: number
   /** Acota a una sola empresa (tenant); ausente = global (todas las empresas). */
   businessUnitId?: number
+  /** `'digital'` o `'physical'` — ausente = ambos canales (USRH1784146205513). */
+  channel?: UserConsentChannel
 }
 
 export interface EvidencePagination {

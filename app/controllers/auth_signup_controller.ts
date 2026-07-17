@@ -448,7 +448,10 @@ export default class AuthSignupController {
    *     tags:
    *       - Auth Signup
    *     summary: Complete signup self-service registration
-   *     description: Complete the signup self-service flow. Validate the temporary session token, create the Person, BusinessUnit and User records, delete the draft and return a Bearer token ready for automatic login in the frontend.
+   *     description: |
+   *       Completa el flujo de registro self-service. Valida el token de sesión temporal, crea los registros de Person, BusinessUnit, User y el System Settings base del tenant (copiado del registro fundacional, ligado por business_unit_id), elimina el borrador y devuelve un token Bearer listo para el login automático en el frontend.
+   *
+   *       La creación de Person, BusinessUnit, User (+ vínculo a la unidad de negocio) y System Settings corre dentro de una sola transacción de base de datos: si falla cualquier paso (incluida la provisión del System Settings), se revierte todo el alta y no quedan registros huérfanos (USRH1783712837572). Reintentar con el mismo borrador es idempotente para la fila de System Settings (se resuelve por business_unit_id).
    *     produces:
    *       - application/json
    *     requestBody:
@@ -662,6 +665,34 @@ export default class AuthSignupController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '500':
+   *         description: Falló la provisión del System Settings del tenant (o cualquier otro paso) dentro de la transacción del alta. Se revierte todo el registro (fail-closed, sin registros huérfanos de Person/BusinessUnit/User/System Settings); este error nuevo sigue la convención GSTI v2 (title/detail/key/errorCode), mientras el resto del área signup conserva la convención legada title/message (convivencia declarada, ver spec USRH1783712837572 §5).
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Signup
+   *                 message:
+   *                   type: string
+   *                   example: No fue posible crear la configuración base de la empresa nueva
+   *                 detail:
+   *                   type: string
+   *                   example: No fue posible crear la configuración base de la empresa nueva
+   *                 key:
+   *                   type: string
+   *                   example: signup-settings-provisioning-failed
+   *                 errorCode:
+   *                   type: string
+   *                   example: SGNP.SETTINGS.001
+   *                 data:
+   *                   type: object
+   *                   example: {}
    *       default:
    *         description: Unexpected error
    *         content:

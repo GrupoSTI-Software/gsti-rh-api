@@ -1,7 +1,17 @@
 import { CONSENT_ERROR_CODES } from '#constants/consent_error_codes'
 import type { ConsentErrorCode } from '#constants/consent_error_codes'
 
-export type ConsentErrorKey = 'version-de-consentimiento-invalida' | 'tipo-de-documento-invalido'
+export type ConsentErrorKey =
+  | 'version-de-consentimiento-invalida'
+  | 'tipo-de-documento-invalido'
+  | 'sin-version-vigente-biometrico'
+  | 'archivo-de-evidencia-requerido'
+  | 'archivo-de-evidencia-invalido'
+  | 'archivo-de-evidencia-demasiado-grande'
+  | 'consentimiento-ya-registrado'
+  | 'empleado-no-encontrado'
+  | 'sin-permiso-consentimiento'
+  | 'error-de-almacenamiento-de-evidencia'
 
 /**
  * Error de dominio del módulo de consentimiento.

@@ -12,8 +12,6 @@ import { UserFilterSearchInterface } from '../interfaces/user_filter_search_inte
 import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogAuthentication } from '../interfaces/MongoDB/log_authentication.js'
-import SystemSettingService from '#services/system_setting_service'
-import SystemSetting from '#models/system_setting'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
@@ -834,22 +832,15 @@ export default class UserController {
       const smtpUsername = env.get('SMTP_USERNAME')
 
       if (isApp) {
-        const isWhiteLabel = false
-        let tradeName = 'Valanserh'
-        let backgroundImageLogo =
+        // USRH1783712837584: este endpoint corre sin usuario autenticado
+        // (recuperación de contraseña, previo al login) — no hay empresa en
+        // contexto que resolver. El branding "white label" por System Settings
+        // estuvo deshabilitado (isWhiteLabel siempre false) y nunca se aplicaba;
+        // se retira la consulta muerta a `getActive()` en vez de migrarla a
+        // `resolveByBusinessUnitId`, que exigiría un tenant que aquí no existe.
+        const tradeName = 'Valanserh'
+        const backgroundImageLogo =
           'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
-
-        const systemSettingService = new SystemSettingService()
-        const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-
-        if (systemSettingActive && isWhiteLabel) {
-          if (systemSettingActive.systemSettingLogo) {
-            backgroundImageLogo = systemSettingActive.systemSettingLogo
-          }
-          if (systemSettingActive.systemSettingTradeName) {
-            tradeName = systemSettingActive.systemSettingTradeName
-          }
-        }
 
         if (smtpUsername) {
           const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })

@@ -4,6 +4,10 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import encryption from '@adonisjs/core/services/encryption'
 import User from '#models/user'
 import LegalDocument from '#models/legal_document'
+import Employee from '#models/employee'
+
+/** Canal por el que se otorgó el consentimiento (USRH1784146205513). */
+export type UserConsentChannel = 'digital' | 'physical'
 
 /**
  * Registro inmutable de la aceptación de un documento legal concreto (aviso de
@@ -18,6 +22,14 @@ import LegalDocument from '#models/legal_document'
  * en texto. Inmutable por convención de service: solo INSERT/fetchOrCreate, nunca UPDATE
  * de evidencia (la única excepción es el backfill de la migración 1783100000001, que
  * solo liga `legalDocumentId` a filas legadas sin tocar fecha/versión).
+ *
+ * Canal físico (USRH1784146205513, migración 1784221190000): el consentimiento
+ * biométrico firmado en papel se asienta contra la MISMA tabla, con `channel='physical'`.
+ * `userId` pasó a nullable porque el empleado de kiosco puede no tener usuario
+ * (`Employee` liga a `Person`, no a `User`); el ancla directa en ese caso es
+ * `employeeId` (siempre presente en físico) y, además, `userId` si `employee.person.user`
+ * existe (doble ancla — regla 8 de la HU). Ningún hook de update: write-once también
+ * para las columnas nuevas.
  */
 export default class UserConsent extends BaseModel {
   static table = 'user_consents'
@@ -25,8 +37,9 @@ export default class UserConsent extends BaseModel {
   @column({ isPrimary: true })
   declare userConsentId: number
 
+  /** Nullable desde el canal físico: el empleado de kiosco puede no tener usuario. */
   @column()
-  declare userId: number
+  declare userId: number | null
 
   @column()
   declare userConsentDocumentVersion: string
@@ -83,9 +96,42 @@ export default class UserConsent extends BaseModel {
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare userConsentUpdatedAt: DateTime | null
 
+  /** Ancla directa del canal físico (regla 8); NULL en las aceptaciones digitales. */
+  @column()
+  declare employeeId: number | null
+
+  /** `'digital'` (default, backfill implícito) o `'physical'` (USRH1784146205513). */
+  @column()
+  declare userConsentChannel: UserConsentChannel
+
+  /** Usuario de RH que asentó el consentimiento físico; NULL en digital. */
+  @column()
+  declare userConsentRegisteredByUserId: number | null
+
+  /**
+   * Fecha en que el empleado firmó el papel. Capturada (opcional) o, en su defecto,
+   * la fecha del asiento (decisión Wilvardo 2026-07-15). NULL en digital.
+   */
+  @column.date()
+  declare userConsentSignedAt: DateTime | null
+
+  /** Key S3 privada del escaneo firmado (nunca URL). NULL en digital. */
+  @column()
+  declare userConsentEvidenceFile: string | null
+
+  /** Nombre original saneado del escaneo. NULL en digital. */
+  @column()
+  declare userConsentEvidenceOriginalName: string | null
+
   @belongsTo(() => User, { foreignKey: 'userId' })
   declare user: BelongsTo<typeof User>
 
   @belongsTo(() => LegalDocument, { foreignKey: 'legalDocumentId' })
   declare legalDocument: BelongsTo<typeof LegalDocument>
+
+  @belongsTo(() => Employee, { foreignKey: 'employeeId' })
+  declare employee: BelongsTo<typeof Employee>
+
+  @belongsTo(() => User, { foreignKey: 'userConsentRegisteredByUserId' })
+  declare registeredBy: BelongsTo<typeof User>
 }
