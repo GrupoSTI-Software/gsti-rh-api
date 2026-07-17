@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+</head>
+<body style="background-color: #f5f5fa; padding: 0rem; padding-top: 1rem; padding-bottom: 1rem; color: #303e67; font-family: 'Tajawal', sans-serif;">
+  <div class="email" style="width: 100%; max-width: 600px; background-color: #fefefe; min-height: 10rem; border-radius: 0.3rem; margin: auto; box-shadow: 0.1rem 0.1rem 0.2rem #f1f5f9; padding: 1.5rem; box-sizing: border-box;">
+    <div class="head" style="background-color: white;">
+      <img src="{{ backgroundImageLogo }}" style="width: 7rem;">
+    </div>
+    <div class="welcome" style="margin-top: 0rem; text-align: left;">
+      @if (isReminder)
+        <h2 style="font-size: 1.25rem; margin-bottom: 0; text-align: center;">
+          Recordatorio: acusa la Política de Teletrabajo
+        </h2>
+      @else
+        <h2 style="font-size: 1.25rem; margin-bottom: 0; text-align: center;">
+          Nueva Política de Teletrabajo publicada
+        </h2>
+      @endif
+
+      <div style="border: 1px dashed #e3ebf6; padding: 1.5rem; border-radius: 0.3rem; text-align: left; font-size: 0.9rem; text-wrap: pretty; margin-top: 1rem;">
+        <p>Hola {{ fullName }},</p>
+
+        @if (isReminder)
+          <p>
+            Te recordamos que aún no has acusado de recibido la versión vigente
+            (v{{ version }}) de la Política de Teletrabajo de {{ tradeName }},
+            conforme a la NOM-037-STPS-2023. Por favor ingresa a la
+            aplicación para revisarla y confirmar que la conoces y aceptas.
+          </p>
+        @else
+          <p>
+            {{ tradeName }} ha publicado la versión {{ version }} de la
+            Política de Teletrabajo, conforme a la NOM-037-STPS-2023. Por
+            favor ingresa a la aplicación para revisarla y confirmar que la
+            conoces y aceptas.
+          </p>
+        @endif
+      </div>
+
+      <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e3ebf6; font-size: 0.85rem; color: #636c87; text-align: center;">
+        Esta notificación fue enviada por {{ tradeName }}.
+        <br>
+        <br>
+        Si tienes alguna duda, no dudes en contactar a tu área de Recursos Humanos.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

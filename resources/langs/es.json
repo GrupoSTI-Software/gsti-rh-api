@@ -247,6 +247,19 @@
   "work_journal_seal_secret_missing_message": "Falta configurar WORK_JOURNAL_HMAC_SECRET en el servidor.",
   "work_journal_unexpected_error_title": "Error",
   "work_journal_unexpected_error_message": "Ocurrió un error inesperado en el servidor.",
+  "working_time_rule_vigencia_solapada_title": "Vigencia solapada",
+  "working_time_rule_vigencia_solapada_message": "Ya existe una regla de jornada vigente que se solapa con el periodo indicado.",
+  "working_time_rule_valores_invalidos_title": "Valores inválidos",
+  "working_time_rule_valores_invalidos_message": "Los valores de jornada no son válidos.",
+  "working_time_rule_override_excede_federal_title": "Override excede al federal",
+  "working_time_rule_override_excede_federal_message": "El override no puede superar los topes federales vigentes.",
+  "working_time_rule_valor_fuera_de_rango_title": "Valor fuera de rango",
+  "working_time_rule_valor_fuera_de_rango_message": "Uno o más valores de jornada están fuera del rango permitido.",
+  "working_time_rule_jornada_no_resuelta_title": "Jornada no resuelta",
+  "working_time_rule_jornada_no_resuelta_message": "No existe regla federal ni override vigente para la fecha indicada.",
+  "working_time_rule_unresolved_mark": "Jornada legal no resuelta — horas extra omitidas",
+  "working_time_rule_unexpected_error_title": "Error del servidor",
+  "working_time_rule_unexpected_error_message": "Ocurrió un error inesperado en el servidor.",
   "address": "Dirección",
   "the_address": "La dirección",
   "address_type": "Tipo de dirección",
@@ -390,9 +403,13 @@
   "vacation_day": "Día de vacaciones",
   "next": "Siguiente",
   "company": "Empresa",
+  "work_business_unit": "Unidad de negocio de trabajo",
+  "payroll_business_unit": "Unidad de nómina",
   "leaves": "Inc.",
   "double_overtime_hours": "Hrs ex. dob.",
   "triple_overtime_hours": "Hrs ex. tri.",
+  "extended_double_overtime_hours": "Hrs ex. dob. (+NA)",
+  "extended_triple_overtime_hours": "Hrs ex. tri. (+NA)",
   "sunday_bonus_abb": "P. Dom.",
   "rest_day_worked": "Desc. lab.",
   "vacation_bonus": "P. vac.",
@@ -931,6 +948,14 @@
   "signup_password_requires_number": "La contraseña debe contener al menos un número",
   "signup_password_requires_symbol": "La contraseña debe contener al menos un símbolo",
   "signup_passwords_do_not_match": "Las contraseñas no coinciden",
+  "signup_settings_provisioning_failed": "No fue posible crear la configuración base de la empresa nueva",
+  "signup_settings_provisioning_failed_title": "Registro",
+  "signup_error_default_title": "Registro",
+  "system_setting_resolution_not_found_title": "Configuración no encontrada",
+  "system_setting_resolution_not_found_detail": "La empresa no tiene una configuración de System Settings propia.",
+  "system_setting_resolution_default_title": "System Settings",
+  "signup_owner_role_missing_title": "Registro",
+  "signup_owner_role_missing_detail": "No se pudo asignar el rol de dueño porque el catálogo de roles no está disponible. Contacta a soporte.",
   "magic_link_title": "Enlace mágico",
   "magic_link_request_message": "Si el correo está registrado, recibirás un enlace de acceso en breve. Revisa tu bandeja de entrada.",
   "magic_link_token_missing_title": "Error de validación",
@@ -2053,6 +2078,13 @@
     "initialize_success": "Borrador de la Política de Teletrabajo creado correctamente.",
     "update_success": "Borrador de la Política de Teletrabajo actualizado correctamente.",
     "discard_success": "Borrador de la Política de Teletrabajo descartado correctamente.",
+    "publish_success": "Política de Teletrabajo publicada y difundida correctamente.",
+    "draft_from_latest_success": "Nuevo borrador de la Política de Teletrabajo creado a partir de la versión vigente.",
+    "versions_success": "Historial de versiones obtenido correctamente.",
+    "tracking_success": "Seguimiento de acuses obtenido correctamente.",
+    "remind_success": "Recordatorio enviado correctamente.",
+    "remind_no_pending_success": "No hay teletrabajadores pendientes de acusar; no fue necesario enviar ningún recordatorio.",
+    "remind_no_matching_pending_success": "Ninguno de los teletrabajadores indicados está pendiente de acusar; no se envió ningún recordatorio.",
     "errors": {
       "politica-ya-existe": {
         "title": "Política de Teletrabajo",
@@ -2069,6 +2101,18 @@
       "politica-publicada-inmutable": {
         "title": "Política de Teletrabajo",
         "detail": "No se puede editar una versión ya publicada."
+      },
+      "politica-incompleta-para-publicar": {
+        "title": "Política de Teletrabajo",
+        "detail": "No se puede publicar; hay componentes del numeral 5.2 sin contenido."
+      },
+      "sin-version-vigente": {
+        "title": "Política de Teletrabajo",
+        "detail": "La empresa no tiene ninguna versión publicada vigente de la cual partir."
+      },
+      "borrador-ya-existe": {
+        "title": "Política de Teletrabajo",
+        "detail": "Ya existe un borrador activo; edítalo en vez de crear otro."
       },
       "entrada-invalida": {
         "title": "Entrada inválida"
@@ -2176,5 +2220,23 @@
   "telework_workers_title": "Listado de teletrabajadores",
   "telework_workers_list_success": "Listado de teletrabajadores obtenido correctamente.",
   "telework_workers_forbidden": "No cuenta con permiso para consultar el listado de teletrabajadores.",
-  "telework_workers_unexpected_error": "Ocurrió un error inesperado al consultar el listado de teletrabajadores."
+  "telework_workers_unexpected_error": "Ocurrió un error inesperado al consultar el listado de teletrabajadores.",
+  "reform_simulator": {
+    "title": "Simulación de reforma de jornada",
+    "success_message": "Proyección de trabajadores afectados calculada correctamente.",
+    "errors": {
+      "sin-permiso": {
+        "title": "Sin permiso",
+        "detail": "No tiene permiso de consulta sobre la empresa objetivo."
+      },
+      "entrada-invalida": {
+        "title": "Parámetros inválidos",
+        "detail": "El query no es válido: targetYear debe ser 2026, 2027, 2028, 2029 o 2030."
+      },
+      "simulacion-no-resuelta": {
+        "title": "Simulación no resuelta",
+        "detail": "No fue posible completar la simulación de reforma de jornada."
+      }
+    }
+  }
 }

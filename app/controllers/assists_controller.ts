@@ -8,14 +8,30 @@ import Position from '#models/position'
 import Department from '#models/department'
 import { AssistPositionExcelFilterInterface } from '../interfaces/assist_position_excel_filter_interface.js'
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
+import { AssistExcelFilterInterface } from '../interfaces/assist_excel_filter_interface.js'
 import UserService from '#services/user_service'
 import Assist from '#models/assist'
 import { DateTime } from 'luxon'
 import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_interface.js'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_dates_excel_filter_interface.js'
+import env from '#start/env'
 
 export default class AssistsController {
+
+  /**
+   * branchNameIds=2,3,4 → [2,3,4]. Vacío o ausente → undefined (no aplica filtro).
+   */
+  private parseBranchNameIds(value: unknown): number[] | undefined {
+    if (value === null || value === undefined || value === '') {
+      return undefined
+    }
+    const parts = String(value)
+      .split(',')
+      .map((part) => Number(part.trim()))
+      .filter((id) => !Number.isNaN(id) && id > 0)
+    return parts.length > 0 ? parts : undefined
+  }
 
   /**
    * @swagger
@@ -473,7 +489,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelByPosition({ request, response, i18n }: HttpContext) {
+  async getExcelByPosition({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.input('departmentId')
@@ -513,9 +529,10 @@ export default class AssistsController {
         departmentId: departmentId,
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
+        businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistPositionExcelFilterInterface
       const assistService = new AssistsService(i18n)
-      const buffer = await assistService.getExcelByPosition(filters)
+      const buffer = await assistService.getExcelByPosition(filters, businessUnitScope)
       if (buffer.status === 201) {
         response.header(
           'Content-Type',
@@ -607,7 +624,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelByDepartment({ auth, request, response, i18n }: HttpContext) {
+  async getExcelByDepartment({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -656,15 +673,16 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
         userResponsibleId: userResponsibleId,
+        businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistDepartmentExcelFilterInterface
       const assistService = new AssistsService(i18n)
       let buffer
       if (reportType === 'Assistance Report') {
-        buffer = await assistService.getExcelByDepartmentAssistance(filters)
+        buffer = await assistService.getExcelByDepartmentAssistance(filters, businessUnitScope)
       } else if (reportType === 'Incident Summary') {
-        buffer = await assistService.getExcelByDepartmentIncidentSummary(filters)
+        buffer = await assistService.getExcelByDepartmentIncidentSummary(filters, businessUnitScope)
       } else if (reportType === 'Incident Summary Payroll') {
-        buffer = await assistService.getExcelByDepartmentIncidentSummaryPayRoll(filters)
+        buffer = await assistService.getExcelByDepartmentIncidentSummaryPayRoll(filters, businessUnitScope)
       }
       if (buffer) {
         if (buffer.status === 201) {
@@ -767,7 +785,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelAll({ auth, request, response, i18n }: HttpContext) {
+  async getExcelAll({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -780,13 +798,22 @@ export default class AssistsController {
         }
       }
       const userService = new UserService(i18n)
+      const filterDate = request.input('date')
+      const filterDateEnd = request.input('date-end')
+      const filterDatePay = request.input('datePay')
+      const businessUnitIdRaw = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
+      const businessUnitId =
+        businessUnitIdRaw !== null && businessUnitIdRaw !== undefined && Number(businessUnitIdRaw) > 0
+          ? Number(businessUnitIdRaw)
+          : undefined
+      const scopedBusinessUnitIds =
+        businessUnitId !== undefined ? [businessUnitId] : businessUnitScope
       let departmentsList = [] as Array<number>
       if (user) {
         departmentsList = await userService.getRoleDepartments(user.userId)
       }
-      const filterDate = request.input('date')
-      const filterDateEnd = request.input('date-end')
-      const filterDatePay = request.input('datePay')
       const reportType = request.input('reportType')
       const validReportTypes = ['Assistance Report', 'Incident Summary', 'Incident Summary Payroll']
 
@@ -805,18 +832,21 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
         userResponsibleId: userResponsibleId,
-      } as AssistDepartmentExcelFilterInterface
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
+        branchNameIds: branchNameIds,
+      } as AssistExcelFilterInterface
       const assistService = new AssistsService(i18n)
       let buffer
       if (reportType === 'Assistance Report') {
-        buffer = await assistService.getExcelAllAssistance(filters, departmentsList)
+        buffer = await assistService.getExcelAllAssistance(filters, departmentsList, scopedBusinessUnitIds)
       } else if (reportType === 'Incident Summary') {
-        buffer = await assistService.getExcelAllIncidentSummary(filters, departmentsList)
+        buffer = await assistService.getExcelAllIncidentSummary(filters, departmentsList, scopedBusinessUnitIds)
       } else if (reportType === 'Incident Summary Payroll') {
-        buffer = await assistService.getExcelAllIncidentSummaryPayRoll(filters, departmentsList)
+        buffer = await assistService.getExcelAllIncidentSummaryPayRoll(filters, departmentsList, scopedBusinessUnitIds)
       }
       if (buffer) {
-        if (buffer.status === 201) {
+        if ('buffer' in buffer && buffer.buffer) {
           response.header(
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -824,13 +854,22 @@ export default class AssistsController {
           response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
           response.status(201)
           response.send(buffer.buffer)
+        } else if (buffer.status === 400) {
+          response.status(400)
+          return {
+            type: buffer.type,
+            title: buffer.title,
+            message: buffer.message,
+            error: 'error' in buffer ? buffer.error : undefined,
+          }
         } else {
           response.status(500)
           return {
             type: buffer.type,
             title: buffer.title,
             message: buffer.message,
-            error: buffer.error,
+            error: 'error' in buffer ? buffer.error : undefined,
+            ...('errorDetail' in buffer && buffer.errorDetail ? { errorDetail: buffer.errorDetail } : {}),
           }
         }
       } else {
@@ -842,13 +881,16 @@ export default class AssistsController {
           data: { filters },
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      console.error('AssistsController.getExcelAll: error inesperado', err)
       response.status(500)
       return {
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+        error: err.message,
+        ...(env.get('NODE_ENV') !== 'production' ? { errorDetail: err.stack } : {}),
       }
     }
   }

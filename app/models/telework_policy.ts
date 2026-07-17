@@ -86,4 +86,12 @@ export default class TeleworkPolicy extends compose(BaseModel, SoftDeletes) {
 
   @belongsTo(() => User, { foreignKey: 'updatedByUserId' })
   declare lastEditor: BelongsTo<typeof User>
+
+  /**
+   * Quién publicó esta versión (USRH1783547655377). `publishedByUserId`
+   * conserva `serializeAs: null`: los DTOs exponen el nombre resuelto
+   * (`publishedByName`), nunca el userId crudo.
+   */
+  @belongsTo(() => User, { foreignKey: 'publishedByUserId' })
+  declare publisher: BelongsTo<typeof User>
 }

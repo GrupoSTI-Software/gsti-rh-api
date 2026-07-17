@@ -13,6 +13,7 @@ import DocumentoContratoEspecializado from '#models/documento_contrato_especiali
 import VersionContratoEspecializado from '#models/version_contrato_especializado'
 import AsignacionContratoEspecializado from '#models/asignacion_contrato_especializado'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate, isBusinessCalendarDateBefore } from '#utils/business_date'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 export type ContratoServicioEspecializadoEstatus =
   | 'borrador'
@@ -37,7 +38,11 @@ export const DOC_FECHA_VENCIMIENTO_EXTRA = 'doc_fecha_vencimiento'
  * `withDocumentoVigenteFechaVencimiento`. Leer `contrato_servicio_especializado_estatus`
  * directamente reintroduce el bug de contratos caducados mostrándose vigentes.
  */
-export default class ContratoServicioEspecializado extends compose(BaseModel, SoftDeletes) {
+export default class ContratoServicioEspecializado extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'contratos_servicios_especializados'
 
   @column({ isPrimary: true, columnName: 'contrato_servicio_especializado_id' })

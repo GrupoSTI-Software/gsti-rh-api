@@ -3,6 +3,12 @@ export type TeleworkPolicyErrorKey =
   | 'politica-inexistente'
   | 'estructura-componentes-invalida'
   | 'politica-publicada-inmutable'
+  /** Regla de negocio 13: falta contenido en alguno de los 12 componentes al publicar. */
+  | 'politica-incompleta-para-publicar'
+  /** No hay versión publicada vigente de la cual partir (nuevo borrador) o a la cual recordar. */
+  | 'sin-version-vigente'
+  /** Regla de negocio 12: ya existe un borrador activo; no se apila otro. */
+  | 'borrador-ya-existe'
 
 /**
  * Detalle accionable de por qué el `components` recibido no calza contra los

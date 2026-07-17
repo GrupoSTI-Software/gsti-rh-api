@@ -3,29 +3,70 @@ import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
 import SystemSettingSystemModule from '#models/system_setting_system_module'
 import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { SignupServiceError } from '../exceptions/signup_service_error.js'
+import { SIGNUP_ERROR_CODES } from '../constants/signup_error_codes.js'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { SYSTEM_SETTING_RESOLUTION_ERROR_CODES } from '../constants/system_setting_resolution_error_codes.js'
+
+/**
+ * Id del registro base fundacional de `system_settings` (siembra
+ * `0019_system_setting_seeder.ts`), fuente de la copia de contenido para la
+ * configuración de cada tenant nuevo (USRH1783712837572).
+ */
+const BASE_SYSTEM_SETTING_ID = 1
+
+/**
+ * Columnas de contenido que se copian del registro base al crear la
+ * configuración de un tenant nuevo. Excluye `systemSettingId`, timestamps,
+ * `deletedAt`, `businessUnitId` y `systemSettingBusinessUnits` (estas dos
+ * últimas se resuelven para el tenant destino, no se copian del base).
+ */
+function cloneBaseContent(base: SystemSetting) {
+  return {
+    systemSettingTradeName: base.systemSettingTradeName,
+    systemSettingLogo: base.systemSettingLogo,
+    systemSettingBanner: base.systemSettingBanner,
+    systemSettingSidebarColor: base.systemSettingSidebarColor,
+    systemSettingFavicon: base.systemSettingFavicon,
+    systemSettingEmployeeAplicationIcon: base.systemSettingEmployeeAplicationIcon,
+    systemSettingActive: base.systemSettingActive,
+    systemSettingToleranceCountPerAbsence: base.systemSettingToleranceCountPerAbsence,
+    systemSettingRestrictFutureVacation: base.systemSettingRestrictFutureVacation,
+    systemSettingBirthdayEmails: base.systemSettingBirthdayEmails,
+    systemSettingAnniversaryEmails: base.systemSettingAnniversaryEmails,
+    systemSettingAttendanceFaultHrEmails: base.systemSettingAttendanceFaultHrEmails,
+    systemSettingMaxAbsencesBeforeAttendanceLock: base.systemSettingMaxAbsencesBeforeAttendanceLock,
+    systemSettingMaxLateArrivalsBeforeAttendanceLock: base.systemSettingMaxLateArrivalsBeforeAttendanceLock,
+    systemSettingPeriodAbsencesBeforeAttendanceLock: base.systemSettingPeriodAbsencesBeforeAttendanceLock,
+    systemSettingPeriodLateArrivalsBeforeAttendanceLock:
+      base.systemSettingPeriodLateArrivalsBeforeAttendanceLock,
+    systemSettingMonthlyConversionFactor: base.systemSettingMonthlyConversionFactor,
+  }
+}
 
 export default class SystemSettingService {
-  async index(allowedBusinessUnitSlugs: string[] = []) {
+  /**
+   * USRH1783712837584: filtra por la relación formal `business_unit_id` en
+   * vez de `FIND_IN_SET` sobre el CSV de slugs. `businessUnitId` viene de
+   * `ctx.businessUnitScope[0]` (middleware `businessScope`, siempre un único
+   * id). Lista vacía (sin `businessUnitId`) no es un error: es el estado
+   * "esta empresa aún no tiene configuración", que habilita el flujo "New"
+   * existente en la pantalla BO — no lanza `resolveByBusinessUnitId`.
+   */
+  async index(businessUnitId?: number) {
     const systemSettingsList = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .preload('systemSettingPayrollConfigs')
-      .andWhere((query) => {
-        if (allowedBusinessUnitSlugs.length === 0) {
-          query.whereRaw('1 = 0')
-          return
-        }
-        query.andWhere((subQuery) => {
-          allowedBusinessUnitSlugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-          })
-        })
-      })
+      .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+      .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
 
     return { data: systemSettingsList }
   }
 
   async create(systemSetting: SystemSetting) {
     const newSystemSetting = new SystemSetting()
+    newSystemSetting.businessUnitId = systemSetting.businessUnitId
     newSystemSetting.systemSettingTradeName = systemSetting.systemSettingTradeName
     newSystemSetting.systemSettingSidebarColor = systemSetting.systemSettingSidebarColor
     newSystemSetting.systemSettingLogo = systemSetting.systemSettingLogo
@@ -105,6 +146,41 @@ export default class SystemSettingService {
     return systemSetting ?? null
   }
 
+  /**
+   * Localiza la configuración de UNA empresa por su relación formal
+   * (`business_unit_id`, USRH1783712837572). Frontera de reúso única:
+   * es el único punto que consulta `system_settings` por `business_unit_id`.
+   *
+   * Entrada plana (no recibe `ctx`, no lee header, no toca `TenantContext`):
+   * resolver el identificador es responsabilidad del call-site. Esto permite
+   * que la historia hermana batch (USRH1783713925140) reutilice este mismo
+   * método pasando el tenant que obtenga de su propio contexto.
+   *
+   * Fail-closed estricto: sin registro propio para el id → error tipado
+   * `SystemSettingResolutionError`. Nunca cae a "todas las unidades activas"
+   * (patrón de `getActive()`) ni al registro base `system_setting_id = 1`.
+   */
+  async resolveByBusinessUnitId(businessUnitId: number): Promise<SystemSetting> {
+    const systemSetting = await SystemSetting.query()
+      .where('business_unit_id', businessUnitId)
+      .where('system_setting_active', 1)
+      .whereNull('system_setting_deleted_at')
+      .preload('systemSettingTolerances')
+      .first()
+
+    if (!systemSetting) {
+      throw new SystemSettingResolutionError(
+        'La empresa no tiene una configuración de System Settings propia',
+        SYSTEM_SETTING_RESOLUTION_ERROR_CODES.NOT_FOUND_TENANT,
+        404,
+        'configuracion-no-encontrada',
+        'La empresa no tiene una configuración de System Settings propia.'
+      )
+    }
+
+    return systemSetting
+  }
+
   async getPayrollConfig(systemSettingId: number) {
 
     const today = DateTime.local().toFormat('yyyy-LL-dd')
@@ -147,21 +223,20 @@ export default class SystemSettingService {
     }
   }
 
-  async verifyActiveStore(systemSetting: SystemSetting, allowedBusinessUnitSlugs: string[] = []) {
+  /**
+   * USRH1783712837584: filtra por `business_unit_id` en vez de `FIND_IN_SET`.
+   * Con el `UNIQUE(business_unit_id)` de la migración de la HU2, esto en la
+   * práctica detecta "esta empresa ya tiene una fila" antes de que la BD
+   * tire el constraint.
+   */
+  async verifyActiveStore(systemSetting: SystemSetting, businessUnitId?: number) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     if (systemSetting.systemSettingActive) {
       const activeItem = await SystemSetting.query()
         .where('system_setting_active', 1)
         .whereNull('system_setting_deleted_at')
-        .andWhere((query) => {
-          if (allowedBusinessUnitSlugs.length === 0) {
-            query.whereRaw('1 = 0')
-            return
-          }
-          allowedBusinessUnitSlugs.forEach((business) => {
-            query.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-          })
-        })
+        .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+        .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
         .first()
       if (activeItem) {
         return {
@@ -182,22 +257,22 @@ export default class SystemSettingService {
     }
   }
 
-  async verifyActiveUpdate(systemSetting: SystemSetting, currentSystemSetting: SystemSetting, allowedBusinessUnitSlugs: string[] = []) {
+  /**
+   * USRH1783712837584: filtra por `business_unit_id` en vez de `FIND_IN_SET`.
+   */
+  async verifyActiveUpdate(
+    systemSetting: SystemSetting,
+    currentSystemSetting: SystemSetting,
+    businessUnitId?: number
+  ) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     if (systemSetting.systemSettingId > 0) {
       if (systemSetting.systemSettingActive && !currentSystemSetting.systemSettingActive) {
         const activeItem = await SystemSetting.query()
           .where('system_setting_active', 1)
           .whereNull('system_setting_deleted_at')
-          .andWhere((query) => {
-            if (allowedBusinessUnitSlugs.length === 0) {
-              query.whereRaw('1 = 0')
-              return
-            }
-            allowedBusinessUnitSlugs.forEach((business) => {
-              query.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-            })
-          })
+          .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+          .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
           .first()
         if (activeItem && activeItem.systemSettingId !== currentSystemSetting.systemSettingId) {
           return {
@@ -335,5 +410,77 @@ export default class SystemSettingService {
       message: 'The anniversary emails status was updated successfully',
       data: { systemSetting },
     }
+  }
+
+  /**
+   * Crea (o revive) de forma idempotente el `system_settings` de un tenant
+   * nuevo, copiando el contenido del registro base fundacional y ligándolo
+   * por `business_unit_id` (relación formal, USRH1783712837572).
+   *
+   * Debe invocarse dentro de la transacción del alta self-service
+   * (`SignupDraftService.complete()`): si falla, el llamador debe abortar
+   * toda la transacción (fail-closed, sin fallback silencioso).
+   *
+   * Idempotencia por `business_unit_id`:
+   * - Si ya existe un registro **activo** para ese tenant, se devuelve tal
+   *   cual (un reintento del registro no duplica ni sobreescribe contenido).
+   * - Si existe un registro **soft-deleted**, se revive (`restore()`) y se
+   *   actualiza con el contenido vigente del base — decisión confirmada: un
+   *   tenant puede reprovisionarse tras un soft-delete de su configuración.
+   * - Si no existe, se crea copiando el contenido del registro base.
+   *
+   * `system_setting_business_units` también se puebla con el slug del tenant
+   * nuevo (convivencia con los 27 consumidores legacy de `getActive()` que
+   * hoy resuelven por `FIND_IN_SET`; migrarlos es trabajo de las HUs 3 y 4
+   * del set, fuera de alcance aquí).
+   */
+  async createForTenant(
+    businessUnitId: number,
+    businessUnitSlug: string,
+    trx: TransactionClientContract
+  ): Promise<SystemSetting> {
+    const base = await SystemSetting.query({ client: trx })
+      .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
+      .first()
+
+    if (!base) {
+      throw new SignupServiceError(
+        'El registro base de system_settings (id 1) no existe; no es posible provisionar la configuración del tenant nuevo',
+        SIGNUP_ERROR_CODES.SETTINGS_PROVISIONING_FAILED,
+        500,
+        'signup-settings-provisioning-failed',
+        'No fue posible crear la configuración base de la empresa nueva'
+      )
+    }
+
+    const content = cloneBaseContent(base)
+
+    const existing = await SystemSetting.query({ client: trx })
+      .withTrashed()
+      .where('business_unit_id', businessUnitId)
+      .first()
+
+    if (existing) {
+      if (!existing.deletedAt) {
+        // Ya activo para este tenant: idempotente, no se reinserta ni se sobreescribe.
+        return existing
+      }
+
+      existing.useTransaction(trx)
+      Object.assign(existing, content)
+      existing.systemSettingBusinessUnits = businessUnitSlug
+      // `restore()` limpia `deletedAt` y persiste en una sola escritura
+      // (incluye el contenido recién asignado, ya marcado como dirty).
+      await existing.restore()
+      return existing
+    }
+
+    const created = new SystemSetting()
+    Object.assign(created, content)
+    created.businessUnitId = businessUnitId
+    created.systemSettingBusinessUnits = businessUnitSlug
+    created.useTransaction(trx)
+    await created.save()
+    return created
   }
 }

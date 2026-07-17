@@ -39,6 +39,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   LOG_LEVEL: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
   APP_BUSINESS_TIMEZONE: Env.schema.string.optional(),
+  /**
+   * Si es `true`, calcula columnas adicionales de HE doble/triple que incluyen
+   * tiempo no autorizado (entrada anticipada / salida tardía) sin duplicar
+   * rangos ya cubiertos por excepciones autorizadas.
+   */
+  PAYROLL_OVERTIME_INCLUDE_UNAUTHORIZED: Env.schema.string.optional(),
 
   /*
   |----------------------------------------------------------
@@ -75,6 +81,12 @@ export default await Env.create(new URL('../', import.meta.url), {
    * de correo aplica un fallback razonable cuando no está definida.
    */
   BACKOFFICE_URL: Env.schema.string.optional(),
+  /**
+   * URL pública del panel landlord (consola interna GSTI). Usada para construir
+   * los enlaces de magic link y recuperación de contraseña de plataforma.
+   * Opcional: aplica fallback a localhost:3001 (puerto típico del landlord en dev).
+   */
+  LANDLORD_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization 
