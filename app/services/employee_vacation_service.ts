@@ -11,7 +11,8 @@ import { AssistExcelImageInterface } from '../interfaces/assist_excel_image_inte
 import axios from 'axios'
 import env from '#start/env'
 import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
+import { TenantContext } from '#utils/tenant_context'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import sharp from 'sharp'
 import { EmployeeVacationExcelRowSummaryInterface } from '../interfaces/employee_vacation_excel_row_summary_interface.js'
 import { EmployeeVacationExcelRowSummaryYearInterface } from '../interfaces/employee_vacation_excel_row_summary_year_interface.js'
@@ -442,13 +443,23 @@ export default class EmployeeVacationService {
     }
   }
 
+  /**
+   * USRH1783712837584: las rutas de `/api/employees-vacations` (`businessScope`
+   * middleware) ya resuelven el tenant en `TenantContext`; fail-closed
+   * silencioso — sin configuración propia se conserva el logo por defecto.
+   */
   async getLogo() {
     let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingLogo) {
-        imageLogo = systemSettingActive.systemSettingLogo
+    const businessUnitId = TenantContext.getScope()[0]
+    if (businessUnitId) {
+      const systemSettingService = new SystemSettingService()
+      try {
+        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        if (systemSettingActive.systemSettingLogo) {
+          imageLogo = systemSettingActive.systemSettingLogo
+        }
+      } catch (error) {
+        if (!(error instanceof SystemSettingResolutionError)) throw error
       }
     }
     return imageLogo
@@ -937,17 +948,26 @@ export default class EmployeeVacationService {
   ): Promise<{ status: number; buffer?: Buffer; type?: string; title?: string; message?: string; error?: string }> {
     try {
       // ── Obtener color corporativo y logo (igual que generateShiftAssignmentTemplate) ──
+      // USRH1783712837584: reutiliza el `allowedBusinessUnitIds` ya resuelto por
+      // el controller (middleware `businessScope`, siempre un único id) en vez
+      // de tocar TenantContext directamente. Fail-closed silencioso.
       const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
       let headerColor = 'FFD6FFDC'
       let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-      if (systemSettingActive) {
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-        if (systemSettingActive.systemSettingSidebarColor) {
-          let c = systemSettingActive.systemSettingSidebarColor.replace('#', '').toUpperCase()
-          headerColor = c.length === 6 ? 'FF' + c : c
+      if (allowedBusinessUnitIds[0]) {
+        try {
+          const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(
+            allowedBusinessUnitIds[0]
+          )
+          if (systemSettingActive.systemSettingLogo) {
+            imageLogo = systemSettingActive.systemSettingLogo
+          }
+          if (systemSettingActive.systemSettingSidebarColor) {
+            let c = systemSettingActive.systemSettingSidebarColor.replace('#', '').toUpperCase()
+            headerColor = c.length === 6 ? 'FF' + c : c
+          }
+        } catch (error) {
+          if (!(error instanceof SystemSettingResolutionError)) throw error
         }
       }
 

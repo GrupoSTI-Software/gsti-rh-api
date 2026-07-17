@@ -2,6 +2,7 @@ import BusinessUnit from '#models/business_unit'
 import { I18n } from '@adonisjs/i18n'
 import { BusinessUnitInterface } from '../interfaces/business_unit_interface.js'
 import { ResponseDataInterface } from '../interfaces/response_data_interface.js'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export default class BusinessUnitService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -37,12 +38,20 @@ export default class BusinessUnitService {
     return slug
   }
 
-  async create(businessUnit: BusinessUnit): Promise<BusinessUnit> {
+  /**
+   * @param trx Transacción opcional (p. ej. la del alta self-service en
+   * `SignupDraftService.complete()`, USRH1783712837572). Sin `trx`, se
+   * comporta igual que antes (compatible hacia atrás).
+   */
+  async create(businessUnit: BusinessUnit, trx?: TransactionClientContract): Promise<BusinessUnit> {
     const newBusinessUnit = new BusinessUnit()
     newBusinessUnit.businessUnitName = businessUnit.businessUnitName
     newBusinessUnit.businessUnitSlug = businessUnit.businessUnitSlug
     newBusinessUnit.businessUnitLegalName = businessUnit.businessUnitLegalName
     newBusinessUnit.businessUnitActive = businessUnit.businessUnitActive
+    if (trx) {
+      newBusinessUnit.useTransaction(trx)
+    }
     await newBusinessUnit.save()
     return newBusinessUnit
   }

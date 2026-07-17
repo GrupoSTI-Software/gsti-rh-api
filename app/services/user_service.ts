@@ -10,8 +10,6 @@ import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
 import env from '../../start/env.js'
 import Role from '#models/role'
-import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
@@ -23,6 +21,7 @@ import RoleService from './role_service.js'
 import EmployeeType from '#models/employee_type'
 import Shift from '#models/shift'
 import EmployeeShift from '#models/employee_shift'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export default class UserService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -121,8 +120,12 @@ export default class UserService {
    *
    * @param user Datos base del usuario a crear.
    * @param businessUnitIds IDs de unidades de negocio ya validados (deben existir y estar activos).
+   * @param trx Transacción opcional (p. ej. la del alta self-service en
+   * `SignupDraftService.complete()`, USRH1783712837572). Al establecerla en el
+   * modelo con `useTransaction()`, la relación `related('businessUnits').attach()`
+   * corre en la misma transacción. Sin `trx`, se comporta igual que antes.
    */
-  async create(user: User, businessUnitIds: number[] = []) {
+  async create(user: User, businessUnitIds: number[] = [], trx?: TransactionClientContract) {
     const newUser = new User()
     newUser.userEmail = user.userEmail
     newUser.userPassword = user.userPassword
@@ -130,6 +133,9 @@ export default class UserService {
     newUser.roleId = user.roleId
     newUser.personId = user.personId
     newUser.userEmailType = user.userEmailType
+    if (trx) {
+      newUser.useTransaction(trx)
+    }
     await newUser.save()
 
     if (businessUnitIds.length > 0) {
@@ -346,22 +352,16 @@ export default class UserService {
 
   async sendNewPasswordEmail(url: string, newUser: User, userPassword?: string) {
     const hostData = this.getUrlInfo(url)
-    const isWhiteLabel = false
-    let tradeName = 'Valanserh'
-    let backgroundImageLogo =
+    // USRH1783712837584: se llama tanto desde contextos con empresa en
+    // contexto (alta/edición de usuario, con `businessScope`) como desde el
+    // reseteo de contraseña por token (sin usuario autenticado). El branding
+    // "white label" estuvo deshabilitado (isWhiteLabel siempre false) y nunca
+    // se aplicaba; se retira la consulta muerta a `getActive()` en vez de
+    // migrarla a `resolveByBusinessUnitId`, que fallaría en el caso sin tenant.
+    const tradeName = 'Valanserh'
+    const backgroundImageLogo =
       'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-
-    if (systemSettingActive && isWhiteLabel) {
-      if (systemSettingActive.systemSettingLogo) {
-        backgroundImageLogo = systemSettingActive.systemSettingLogo
-      }
-      if (systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
-    }
     await newUser.load('person')
     const emailData = {
       user: newUser,

@@ -198,6 +198,14 @@ export default class SupplieService {
         .orderBy('employeeSupplyCreatedAt', 'desc')
 
       // Get active system setting
+      // USRH1783712837584: NO migrado a resolveByBusinessUnitId a propósito.
+      // Este reporte agrega `Supplie`/`EmployeeSupplie` de TODAS las empresas
+      // en un solo Excel (sin filtro por business_unit_id arriba), así que no
+      // existe un único tenant que resolver. Es un proceso cross-tenant tipo
+      // batch pese a vivir detrás de un endpoint HTTP autenticado (sin
+      // `businessScope`) — se deja con `getActive()` y se reclasifica para la
+      // hermana batch (USRH1783713925140) en vez de forzar un fail-closed que
+      // rompería el reporte.
       const systemSettingService = new SystemSettingService()
       const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
 

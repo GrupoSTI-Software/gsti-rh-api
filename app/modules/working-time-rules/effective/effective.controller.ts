@@ -1,6 +1,8 @@
 import { HttpContext } from '@adonisjs/core/http'
+import WorkingTimeRuleError from '#exceptions/working_time_rule_error'
 import EffectiveService from './effective.service.js'
 import { getEffectiveValidator } from './validators/get_effective.validator.js'
+import { resolveWorkingTimeRuleApiError } from '#helpers/working_time_rule_api_error'
 
 /**
  * Controller de la jornada efectiva por empresa y fecha.
@@ -89,13 +91,21 @@ export default class EffectiveController {
   }
 
   private unresolved(ctx: HttpContext) {
-    const detail = 'No existe regla federal ni override vigente para la fecha indicada.'
-    return ctx.response.status(404).json({
+    const resolved = resolveWorkingTimeRuleApiError(
+      new WorkingTimeRuleError(
+        'jornada-no-resuelta',
+        'Jornada no resuelta',
+        'No existe regla federal ni override vigente para la fecha indicada.'
+      ),
+      404,
+      ctx.i18n
+    )
+    return ctx.response.status(resolved.status).json({
       type: 'warning',
-      title: 'Jornada no resuelta',
-      message: detail,
-      detail,
-      key: 'jornada-no-resuelta',
+      title: resolved.title,
+      message: resolved.message,
+      detail: resolved.detail,
+      key: resolved.key,
     })
   }
 

@@ -1,18 +1,10 @@
 import { HttpContext } from '@adonisjs/core/http'
 import WorkingTimeRuleError from '#exceptions/working_time_rule_error'
-import type { WorkingTimeRuleErrorKey } from '#exceptions/working_time_rule_error'
+import { resolveWorkingTimeRuleApiError } from '#helpers/working_time_rule_api_error'
 import OverridesService from './overrides.service.js'
 import { createOverrideValidator } from './validators/create_override.validator.js'
 import { updateOverrideValidator } from './validators/update_override.validator.js'
 import type { CreateOverrideInput } from './dto/override.dto.js'
-
-/** Mapea cada key de error de dominio a su código HTTP. */
-const ERROR_STATUS: Record<WorkingTimeRuleErrorKey, number> = {
-  'vigencia-solapada': 409,
-  'override-excede-federal': 422,
-  'valor-fuera-de-rango': 422,
-  'valores-invalidos': 422,
-}
 
 /**
  * Controller del submódulo de overrides de jornada por empresa.
@@ -313,12 +305,13 @@ export default class OverridesController {
 
   private domainError(ctx: HttpContext, error: unknown) {
     if (error instanceof WorkingTimeRuleError) {
-      return ctx.response.status(ERROR_STATUS[error.key]).json({
+      const resolved = resolveWorkingTimeRuleApiError(error, 500, ctx.i18n)
+      return ctx.response.status(resolved.status).json({
         type: 'error',
-        title: error.title,
-        message: error.detail,
-        detail: error.detail,
-        key: error.key,
+        title: resolved.title,
+        message: resolved.message,
+        detail: resolved.detail,
+        key: resolved.key,
       })
     }
     const message = error instanceof Error ? error.message : 'Error desconocido'

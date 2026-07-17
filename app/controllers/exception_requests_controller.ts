@@ -17,9 +17,10 @@ import Ws from '#services/ws'
 import User from '#models/user'
 import { ExceptionRequestErrorInterface } from '../interfaces/exception_request_error_interface.js'
 import SystemSettingService from '#services/system_setting_service'
-import SystemSetting from '#models/system_setting'
 import NotificationEmailService from '#services/notification_email_service'
 import EmployeeService from '#services/employee_service'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { resolveRequestBusinessUnitId } from '../helpers/resolve_request_business_unit_id.js'
 
 /** Slugs de roles de RRHH que ven solicitudes sin jefe directo con usuario */
 const RRHH_ROLE_SLUGS = ['rh-manager', 'recursos-humanos'] as const
@@ -94,7 +95,8 @@ export default class ExceptionRequestsController {
    *                   type: string
    *                   example: ExceptionRequest not found
    */
-  async updateStatus({ auth, request, params, response, i18n }: HttpContext) {
+  async updateStatus(ctx: HttpContext) {
+    const { auth, request, params, response, i18n } = ctx
     const { status, description } = request.only(['status', 'description'])
 
     if (status !== 'accepted' && status !== 'refused') {
@@ -124,14 +126,24 @@ export default class ExceptionRequestsController {
             if (userEmail) {
               let tradeName = 'BO'
               let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-              const systemSettingService = new SystemSettingService()
-              const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-              if (systemSettingActive) {
-                if ( systemSettingActive.systemSettingLogo) {
-                  backgroundImageLogo = systemSettingActive.systemSettingLogo
-                }
-                if ( systemSettingActive.systemSettingTradeName) {
-                  tradeName = systemSettingActive.systemSettingTradeName
+              // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`,
+              // así que se resuelve el id de la empresa del usuario directamente
+              // desde el header (sin activar TenantContext) y se aplica fail-closed
+              // silencioso — si la empresa no tiene configuración propia, se
+              // conserva el branding por defecto en vez de filtrar el de otra empresa.
+              const businessUnitId = await resolveRequestBusinessUnitId(ctx)
+              if (businessUnitId) {
+                const systemSettingService = new SystemSettingService()
+                try {
+                  const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+                  if (systemSettingActive.systemSettingLogo) {
+                    backgroundImageLogo = systemSettingActive.systemSettingLogo
+                  }
+                  if (systemSettingActive.systemSettingTradeName) {
+                    tradeName = systemSettingActive.systemSettingTradeName
+                  }
+                } catch (error) {
+                  if (!(error instanceof SystemSettingResolutionError)) throw error
                 }
               }
               await mail.send((message) => {
