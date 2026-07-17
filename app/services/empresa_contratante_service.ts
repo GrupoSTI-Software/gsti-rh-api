@@ -61,7 +61,7 @@ export function serializeEmpresaContratante(row: EmpresaContratante) {
 /**
  * Servicio de dominio del catálogo de empresas contratantes REPSE.
  *
- * - Aísla por tenant vía `business_unit_id` y `SYSTEM_BUSINESS`.
+ * - Aísla por tenant vía `business_unit_id` resuelto del scope central (`TenantContext`).
  * - RFC único a nivel catálogo del prestador (todas las BUs permitidas).
  * - Soft delete obligatorio para conservar expediente fiscal.
  */
@@ -255,7 +255,7 @@ export default class EmpresaContratanteService {
 
   /**
    * Verifica que el RFC no exista en el catálogo activo del tenant
-   * (todas las BUs permitidas por SYSTEM_BUSINESS).
+   * (todas las BUs del scope central resuelto por `TenantContext`).
    */
   private async assertRfcUniqueInTenant(rfc: string, excludeId?: number) {
     const allowed = await getAllowedBusinessUnitIds()

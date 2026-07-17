@@ -6,6 +6,7 @@ import Employee from '#models/employee'
 import SyncAssistsService from './sync_assists_service.js'
 import { AssistPositionExcelFilterInterface } from '../interfaces/assist_position_excel_filter_interface.js'
 import EmployeeService from './employee_service.js'
+import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
 import DepartmentService from './department_service.js'
 import { AssistExcelRowInterface } from '../interfaces/assist_excel_row_interface.js'
@@ -41,16 +42,79 @@ import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import PayrollOvertimeMeasurementService from './payroll_overtime_measurement_service.js'
+import PayrollOvertimeAllocationService from './payroll_overtime_allocation_service.js'
+import PayrollOvertimeWeeklyDetailService from './payroll_overtime_weekly_detail_service.js'
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
   private i18n: I18n
   private localeToUse: string
+  private businessUnits: BusinessUnit[] = []
 
   constructor(i18n: I18n) {
     this.t = i18n.formatMessage.bind(i18n)
     this.i18n = i18n
     this.localeToUse = i18n.locale
+  }
+
+  /**
+   * Prioriza el `businessUnitId` explícito del query sobre el scope del header.
+   */
+  private resolveBusinessUnitFilterIds(
+    businessUnitId: number | undefined,
+    allowedBusinessUnitIds: number[]
+  ): number[] {
+    if (businessUnitId && businessUnitId > 0) {
+      return [businessUnitId]
+    }
+    return allowedBusinessUnitIds
+  }
+
+  /**
+   * Resuelve el scope de BU requerido por employeeService.index sin tocar ese servicio.
+   */
+  private resolveExcelBusinessUnitScope(
+    businessUnitId: number | undefined,
+    allowedBusinessUnitIds: number[] = []
+  ): { businessUnitFilterIds: number[]; resolvedBusinessUnitId: number } | null {
+    const businessUnitFilterIds = this.resolveBusinessUnitFilterIds(
+      businessUnitId,
+      allowedBusinessUnitIds
+    )
+    const resolvedBusinessUnitId = businessUnitFilterIds[0]
+    if (!resolvedBusinessUnitId || resolvedBusinessUnitId <= 0) {
+      return null
+    }
+    return { businessUnitFilterIds, resolvedBusinessUnitId }
+  }
+
+  private buildExcelBusinessUnitScopeError() {
+    return {
+      status: 400,
+      type: 'warning' as const,
+      title: 'Parámetros inválidos',
+      message: 'El scope de unidad de negocio es requerido para generar el reporte',
+      error: 'MISSING_BUSINESS_UNIT_SCOPE',
+    }
+  }
+
+  private async fetchEmployeesForExcelReport(
+    employeeService: EmployeeService,
+    filters: EmployeeFilterSearchInterface,
+    departmentIds: number[],
+    businessUnitId: number | undefined,
+    allowedBusinessUnitIds: number[] = []
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return null
+    }
+    return employeeService.index(
+      { ...filters, businessUnitId: scope.resolvedBusinessUnitId },
+      departmentIds,
+      scope.businessUnitFilterIds
+    )
   }
 
   async getExcelByEmployeeAssistance(
@@ -267,6 +331,7 @@ export default class AssistsService {
       await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
       await this.addHeadRowIncidentPayroll(worksheet)
 
+      await this.getBusinessUnits()
       if (data) {
         const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
         let newRows = [] as AssistIncidentPayrollExcelRowInterface[]
@@ -305,7 +370,10 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByPosition(filters: AssistPositionExcelFilterInterface) {
+  async getExcelByPosition(
+    filters: AssistPositionExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
       const departmentId = filters.departmentId
       const positionId = filters.positionId
@@ -314,7 +382,8 @@ export default class AssistsService {
       const page = 1
       const limit = 999999999999999
       const employeeService = new EmployeeService(this.i18n)
-      const resultEmployes = await employeeService.index(
+      const resultEmployes = await this.fetchEmployeesForExcelReport(
+        employeeService,
         {
           search: '',
           departmentId: departmentId,
@@ -325,8 +394,13 @@ export default class AssistsService {
           ignoreDiscriminated: 0,
           ignoreExternal: 1,
         },
-        [departmentId]
+        [departmentId],
+        filters.businessUnitId,
+        allowedBusinessUnitIds
       )
+      if (!resultEmployes) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const dataEmployes: any = resultEmployes
       const syncAssistsService = new SyncAssistsService(this.i18n)
       const rows = [] as AssistExcelRowInterface[]
@@ -451,8 +525,15 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByDepartmentAssistance(filters: AssistDepartmentExcelFilterInterface) {
+  async getExcelByDepartmentAssistance(
+    filters: AssistDepartmentExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const departmentId = filters.departmentId
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
@@ -464,7 +545,8 @@ export default class AssistsService {
       const rows = [] as AssistExcelRowInterface[]
       for await (const position of resultPositions) {
         const employeeService = new EmployeeService(this.i18n)
-        const resultEmployes = await employeeService.index(
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
           {
             search: '',
             departmentId: departmentId,
@@ -476,8 +558,13 @@ export default class AssistsService {
             ignoreExternal: 1,
             userResponsibleId: filters.userResponsibleId,
           },
-          [departmentId]
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
         )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {
           const result = await syncAssistsService.index(
@@ -563,8 +650,15 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByDepartmentIncidentSummary(filters: AssistDepartmentExcelFilterInterface) {
+  async getExcelByDepartmentIncidentSummary(
+    filters: AssistDepartmentExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const departmentId = filters.departmentId
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
@@ -588,7 +682,8 @@ export default class AssistsService {
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
       for await (const position of resultPositions) {
         const employeeService = new EmployeeService(this.i18n)
-        const resultEmployes = await employeeService.index(
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
           {
             search: '',
             departmentId: departmentId,
@@ -600,8 +695,13 @@ export default class AssistsService {
             ignoreExternal: 1,
             userResponsibleId: filters.userResponsibleId,
           },
-          [departmentId]
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
         )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {
           const result = await syncAssistsService.index(
@@ -653,16 +753,22 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByDepartmentIncidentSummaryPayRoll(filters: AssistDepartmentExcelFilterInterface) {
+  async getExcelByDepartmentIncidentSummaryPayRoll(
+    filters: AssistDepartmentExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const departmentId = filters.departmentId
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
       const page = 1
       const limit = 999999999999999
-      const departmentService = new DepartmentService(this.i18n)
-      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
       const syncAssistsService = new SyncAssistsService(this.i18n)
+      const employeeService = new EmployeeService(this.i18n)
       const workbook = new ExcelJS.Workbook()
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
@@ -672,53 +778,25 @@ export default class AssistsService {
       this.addHeadRowIncidentPayroll(worksheet)
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
-      for await (const position of resultPositions) {
-        const employeeService = new EmployeeService(this.i18n)
-        const resultEmployes = await employeeService.index(
-          {
-            search: '',
-            departmentId: departmentId,
-            positionId: position.positionId,
-            employeeWorkSchedule: '',
-            page: page,
-            limit: limit,
-            ignoreDiscriminated: 0,
-            ignoreExternal: 1,
-            userResponsibleId: filters.userResponsibleId,
-          },
-          [departmentId]
-        )
-        const dataEmployes: any = resultEmployes
-        for await (const employee of dataEmployes) {
-          const result = await syncAssistsService.index(
-            {
-              date: filterDate,
-              dateEnd: filterDateEnd,
-              employeeID: employee.employeeId,
-              withOutExternal: true,
-            },
-            { page, limit }
-          )
-          const data: any = result.data
-          if (data) {
-            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-            let newRows = [] as AssistIncidentPayrollExcelRowInterface[]
-            const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
-              employee: employee,
-              employeeCalendar: employeeCalendar,
-              tardies: tardies,
-              datePay: filters.filterDatePay,
-              toleranceCountPerAbsences: toleranceCountPerAbsences,
-            }
-            newRows = await this.addRowIncidentPayrollCalendar(
-              incidentPayrollFilters
-            )
-            for await (const row of newRows) {
-              rowsIncidentPayroll.push(row)
-            }
-          }
-        }
-      }
+      await this.getBusinessUnits()
+      await this.appendIncidentPayrollRowsForDepartmentEmployees({
+        departmentId,
+        filterDate,
+        filterDateEnd,
+        filterDatePay: filters.filterDatePay ?? '',
+        userResponsibleId: filters.userResponsibleId,
+        businessUnitId: scope.resolvedBusinessUnitId,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+        branchNameIds: filters.branchNameIds,
+        businessUnitFilterIds: scope.businessUnitFilterIds,
+        employeeService,
+        syncAssistsService,
+        tardies,
+        toleranceCountPerAbsences,
+        rowsIncidentPayroll,
+        page,
+        limit,
+      })
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
       // Crear un buffer del archivo Excel
@@ -741,11 +819,23 @@ export default class AssistsService {
     }
   }
 
-  async getExcelAllAssistance(filters: AssistExcelFilterInterface, departmentsList: Array<number>) {
+  async getExcelAllAssistance(
+    filters: AssistExcelFilterInterface,
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      const businessUnitFilterIds = scope.businessUnitFilterIds
       const departments = await Department.query()
         .whereNull('department_deleted_at')
         .whereIn('departmentId', departmentsList)
+        .if(businessUnitFilterIds.length > 0, (query) => {
+          query.whereIn('businessUnitId', businessUnitFilterIds)
+        })
         .orderBy('departmentId')
       const rows = [] as AssistExcelRowInterface[]
       const filterDate = filters.filterDate
@@ -759,7 +849,8 @@ export default class AssistsService {
         const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
         const syncAssistsService = new SyncAssistsService(this.i18n)
         for await (const position of resultPositions) {
-          const resultEmployes = await employeeService.index(
+          const resultEmployes = await this.fetchEmployeesForExcelReport(
+            employeeService,
             {
               search: '',
               departmentId: departmentId,
@@ -770,9 +861,15 @@ export default class AssistsService {
               ignoreDiscriminated: 0,
               ignoreExternal: 1,
               userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
             },
-            [departmentId]
+            [departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
           )
+          if (!resultEmployes) {
+            return this.buildExcelBusinessUnitScopeError()
+          }
           const dataEmployes: any = resultEmployes
           for await (const employee of dataEmployes) {
             const result = await syncAssistsService.index(
@@ -861,12 +958,21 @@ export default class AssistsService {
 
   async getExcelAllIncidentSummary(
     filters: AssistExcelFilterInterface,
-    departmentsList: Array<number>
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[] = []
   ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      const businessUnitFilterIds = scope.businessUnitFilterIds
       const departments = await Department.query()
         .whereNull('department_deleted_at')
         .whereIn('departmentId', departmentsList)
+        .if(businessUnitFilterIds.length > 0, (query) => {
+          query.whereIn('businessUnitId', businessUnitFilterIds)
+        })
         .orderBy('departmentId')
 
       const filterDate = filters.filterDate
@@ -894,7 +1000,8 @@ export default class AssistsService {
         const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
         const syncAssistsService = new SyncAssistsService(this.i18n)
         for await (const position of resultPositions) {
-          const resultEmployes = await employeeService.index(
+          const resultEmployes = await this.fetchEmployeesForExcelReport(
+            employeeService,
             {
               search: '',
               departmentId: departmentId,
@@ -905,9 +1012,15 @@ export default class AssistsService {
               ignoreDiscriminated: 0,
               ignoreExternal: 1,
               userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
             },
-            [departmentId]
+            [departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
           )
+          if (!resultEmployes) {
+            return this.buildExcelBusinessUnitScopeError()
+          }
           const dataEmployes: any = resultEmployes
           for await (const employee of dataEmployes) {
             const result = await syncAssistsService.index(
@@ -961,20 +1074,29 @@ export default class AssistsService {
   }
 
   async getExcelAllIncidentSummaryPayRoll(
-    filters: AssistDepartmentExcelFilterInterface,
-    departmentsList: Array<number>
+    filters: AssistExcelFilterInterface,
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[] = []
   ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      const businessUnitFilterIds = scope.businessUnitFilterIds
       const departments = await Department.query()
         .whereNull('department_deleted_at')
         .whereIn('departmentId', departmentsList)
+        .if(businessUnitFilterIds.length > 0, (query) => {
+          query.whereIn('businessUnitId', businessUnitFilterIds)
+        })
         .orderBy('departmentId')
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
-      const departmentService = new DepartmentService(this.i18n)
       const employeeService = new EmployeeService(this.i18n)
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+      await this.getBusinessUnits()
       // Crear un nuevo libro de Excel
       const workbook = new ExcelJS.Workbook()
       // hasta aquí era lo de incidencias
@@ -984,61 +1106,31 @@ export default class AssistsService {
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
       await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
       this.addHeadRowIncidentPayroll(worksheet)
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       for await (const departmentRow of departments) {
         const totalRowByDepartmentIncident = {} as AssistIncidentExcelRowInterface
         await this.cleanTotalByDepartment(totalRowByDepartmentIncident)
         const departmentId = departmentRow.departmentId
         const page = 1
         const limit = 999999999999999
-        const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
-        const syncAssistsService = new SyncAssistsService(this.i18n)
-        for await (const position of resultPositions) {
-          const resultEmployes = await employeeService.index(
-            {
-              search: '',
-              departmentId: departmentId,
-              positionId: position.positionId,
-              employeeWorkSchedule: '',
-              page: page,
-              limit: limit,
-              ignoreDiscriminated: 0,
-              ignoreExternal: 1,
-              onlyPayroll: false,
-              userResponsibleId: filters.userResponsibleId,
-            },
-            [departmentId]
-          )
-          const dataEmployes: any = resultEmployes
-          for await (const employee of dataEmployes) {
-            const result = await syncAssistsService.index(
-              {
-                date: filterDate,
-                dateEnd: filterDateEnd,
-                employeeID: employee.employeeId,
-                withOutExternal: true,
-              },
-              { page, limit }
-            )
-            const data: any = result.data
-            if (data) {
-              const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-              let newRows = [] as AssistIncidentPayrollExcelRowInterface[]
-              const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
-                employee: employee,
-                employeeCalendar:employeeCalendar,
-                tardies: tardies,
-                datePay: filters.filterDatePay,
-                toleranceCountPerAbsences: toleranceCountPerAbsences,
-              }
-              newRows = await this.addRowIncidentPayrollCalendar(
-                incidentPayrollFilters
-              )
-              for await (const row of newRows) {
-                rowsIncidentPayroll.push(row)
-              }
-            }
-          }
-        }
+        await this.appendIncidentPayrollRowsForDepartmentEmployees({
+          departmentId,
+          filterDate,
+          filterDateEnd,
+          filterDatePay: filters.filterDatePay ?? '',
+          userResponsibleId: filters.userResponsibleId,
+          businessUnitId: scope.resolvedBusinessUnitId,
+          payrollBusinessUnitId: filters.payrollBusinessUnitId,
+          branchNameIds: filters.branchNameIds,
+          businessUnitFilterIds: scope.businessUnitFilterIds,
+          employeeService,
+          syncAssistsService,
+          tardies,
+          toleranceCountPerAbsences,
+          rowsIncidentPayroll,
+          page,
+          limit,
+        })
       }
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
@@ -1051,13 +1143,16 @@ export default class AssistsService {
         message: this.t('resource_was_created_successfully'),
         buffer: buffer,
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      console.error('AssistsService.getExcelAllIncidentSummaryPayRoll: error al generar reporte', err)
       return {
         status: 500,
         type: 'error',
         title: this.t('server_error'),
         message: this.t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+        error: err.message,
+        ...(env.get('NODE_ENV') !== 'production' ? { errorDetail: err.stack } : {}),
       }
     }
   }
@@ -2383,59 +2478,192 @@ export default class AssistsService {
     return tolerancePerAbsence
   }
 
+  /**
+   * Indica si el empleado puede incluirse en reportes de nómina del monitor,
+   * replicando `computeDepartmentStatistics` del front
+   * (`employeeAssistDiscriminator === 0`).
+   */
+  private isPayrollAssistEligibleEmployee(employee: Employee): boolean {
+    return employee.employeeAssistDiscriminator === 0
+  }
+
+  /**
+   * Indica si el empleado tiene días evaluables en el periodo, replicando
+   * `computeDepartmentStatistics` del front (`totalAvailable > 0`).
+   */
+  private hasPayrollEvaluableAttendance(employeeCalendar: AssistDayInterface[]): boolean {
+    const evaluableDays = employeeCalendar.filter(
+      (day) =>
+        !day.assist.isFutureDay &&
+        !day.assist.isRestDay &&
+        !day.assist.isVacationDate &&
+        !day.assist.isHoliday &&
+        !day.assist.isWorkDisabilityDate &&
+        !day.assist.hasExceptions
+    )
+    const assists = evaluableDays.filter((day) => day.assist.checkInStatus === 'ontime').length
+    const tolerances = evaluableDays.filter((day) => day.assist.checkInStatus === 'tolerance').length
+    const delays = evaluableDays.filter((day) => day.assist.checkInStatus === 'delay').length
+    const faults = evaluableDays.filter((day) => day.assist.checkInStatus === 'fault').length
+    return assists + tolerances + delays + faults > 0
+  }
+
+  /**
+   * Parámetros para armar filas de nómina de un departamento con el mismo
+   * orden que el front (`fetchEmployees` → `orderBy: name`, `ascend`).
+   */
+  private async appendIncidentPayrollRowsForDepartmentEmployees(params: {
+    departmentId: number
+    filterDate: string
+    filterDateEnd: string
+    filterDatePay: string
+    userResponsibleId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    businessUnitFilterIds: number[]
+    employeeService: EmployeeService
+    syncAssistsService: SyncAssistsService
+    tardies: number
+    toleranceCountPerAbsences: number
+    rowsIncidentPayroll: AssistIncidentPayrollExcelRowInterface[]
+    page: number
+    limit: number
+  }): Promise<void> {
+    const resultEmployes = await this.fetchEmployeesForExcelReport(
+      params.employeeService,
+      {
+        search: '',
+        departmentId: params.departmentId,
+        positionId: 0,
+        employeeWorkSchedule: '',
+        page: params.page,
+        limit: params.limit,
+        orderBy: 'name',
+        orderDirection: 'ascend',
+        ignoreDiscriminated: 1,
+        ignoreExternal: 1,
+        onlyPayroll: false,
+        userResponsibleId: params.userResponsibleId,
+        payrollBusinessUnitId: params.payrollBusinessUnitId,
+        branchNameIds: params.branchNameIds,
+      },
+      [params.departmentId],
+      params.businessUnitId,
+      params.businessUnitFilterIds
+    )
+    if (!resultEmployes) {
+      return
+    }
+
+    for (const employee of resultEmployes.all()) {
+      if (!this.isPayrollAssistEligibleEmployee(employee)) {
+        continue
+      }
+
+      const result = await params.syncAssistsService.index(
+        {
+          date: params.filterDate,
+          dateEnd: params.filterDateEnd,
+          employeeID: employee.employeeId,
+          withOutExternal: true,
+        },
+        { page: params.page, limit: params.limit }
+      )
+      const data: any = result.data
+      if (!data?.employeeCalendar) {
+        continue
+      }
+
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      if (!this.hasPayrollEvaluableAttendance(employeeCalendar)) {
+        continue
+      }
+
+      const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
+        employee: employee,
+        employeeCalendar: employeeCalendar,
+        tardies: params.tardies,
+        datePay: params.filterDatePay,
+        toleranceCountPerAbsences: params.toleranceCountPerAbsences,
+      }
+      const newRows = await this.addRowIncidentPayrollCalendar(incidentPayrollFilters)
+      for (const row of newRows) {
+        params.rowsIncidentPayroll.push(row)
+      }
+    }
+  }
+
   async addTitleIncidentPayrollToWorkSheet(
     workbook: ExcelJS.Workbook,
     worksheet: ExcelJS.Worksheet,
     title: string
   ) {
-    worksheet.addRow([title])
-    worksheet.addRow(['', '', '', title])
-    const assistExcelImageInterface = {
+    worksheet.addRow([])
+    worksheet.addRow([])
+    worksheet.addRow([])
+    worksheet.addRow([])
+
+    worksheet.getRow(1).height = 26
+    worksheet.getRow(2).height = 52
+    worksheet.getRow(3).height = 10
+    worksheet.getRow(4).height = 10
+
+    worksheet.mergeCells('A1:Q1')
+    worksheet.mergeCells('A2:E4')
+    worksheet.mergeCells('F2:N2')
+    worksheet.mergeCells('O2:Q4')
+    worksheet.mergeCells('F3:N4')
+
+    const reportLabelCell = worksheet.getCell('A1')
+    reportLabelCell.value = this.t('incident_summary_payroll')
+    reportLabelCell.font = { bold: true, size: 13, color: { argb: '203864' } }
+    reportLabelCell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+    await this.addImageLogo({
+      workbook: workbook,
+      worksheet: worksheet,
+      col: 0.27,
+      row: 1.2,
+    } as AssistExcelImageInterface)
+    await this.addImageLogo({
       workbook: workbook,
       worksheet: worksheet,
       col: 14.2,
       row: 1.2,
-    } as AssistExcelImageInterface
-    await this.addImageLogo(assistExcelImageInterface)
-    worksheet.getRow(2).height = 45
-    const fgColor = 'FFFFFF'
+    } as AssistExcelImageInterface)
 
-    worksheet.getCell('D2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('F2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('G2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('H2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('I2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('J2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('K2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('L2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    let cell = worksheet.getCell(2, 4)
-    cell.fill = {
+    const bannerCell = worksheet.getCell('F2')
+    bannerCell.value = title
+    bannerCell.font = { bold: true, size: 16, color: { argb: 'FFFFFF' } }
+    bannerCell.fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: '203864' },
     }
-    worksheet.getCell('D2').alignment = { horizontal: 'center', vertical: 'middle' }
-    worksheet.mergeCells('D2:L2')
-    worksheet.mergeCells('A2:C4')
-    worksheet.mergeCells('M2:O4')
-    worksheet.mergeCells('A1:O1')
-    worksheet.mergeCells('D3:L4')
-    cell = worksheet.getCell(3, 4)
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
+    bannerCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+    const whiteFill = {
+      type: 'pattern' as const,
+      pattern: 'solid' as const,
       fgColor: { argb: 'FFFFFF' },
     }
+    worksheet.getCell('A2').fill = whiteFill
+    worksheet.getCell('O2').fill = whiteFill
+    worksheet.getCell('F3').fill = whiteFill
+
     worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-      { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-      { state: 'frozen', ySplit: 5 }, // Fija la tercer fila
+      { state: 'frozen', ySplit: 1 },
+      { state: 'frozen', ySplit: 2 },
+      { state: 'frozen', ySplit: 3 },
+      { state: 'frozen', ySplit: 5 },
     ]
   }
 
   addHeadRowIncidentPayroll(worksheet: ExcelJS.Worksheet) {
     const headerRow = worksheet.addRow([
+      this.t('work_business_unit'),
+      this.t('payroll_business_unit'),
       `${this.t('employee')} ${this.t('name')}`,
       `${this.t('employee')} ID`,
       this.t('department'),
@@ -2454,7 +2682,7 @@ export default class AssistsService {
     ])
     let fgColor = '000000'
     let color = 'C9C9C9'
-    for (let col = 1; col <= 4; col++) {
+    for (let col = 1; col <= 6; col++) {
       const cell = worksheet.getCell(5, col)
       cell.fill = {
         type: 'pattern',
@@ -2463,7 +2691,7 @@ export default class AssistsService {
       }
     }
     color = '305496'
-    for (let col = 5; col <= 7; col++) {
+    for (let col = 7; col <= 9; col++) {
       const cell = worksheet.getCell(5, col)
       cell.fill = {
         type: 'pattern',
@@ -2472,7 +2700,7 @@ export default class AssistsService {
       }
     }
     color = 'A9D08E'
-    for (let col = 8; col <= 14; col++) {
+    for (let col = 10; col <= 16; col++) {
       const cell = worksheet.getCell(5, col)
       cell.fill = {
         type: 'pattern',
@@ -2481,75 +2709,63 @@ export default class AssistsService {
       }
     }
     color = '305496'
-    for (let col = 15; col <= 15; col++) {
-      const cell = worksheet.getCell(5, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
+    worksheet.getCell(5, 17).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: color },
     }
     headerRow.height = 40
     fgColor = '000000'
     headerRow.font = { bold: true, color: { argb: fgColor } }
     fgColor = 'FFFFFF'
-    const columnA = worksheet.getColumn(1)
-    columnA.width = 42
-    const columnB = worksheet.getColumn(2)
-    columnB.width = 10
-    const columnC = worksheet.getColumn(3)
-    columnC.width = 28.57
-    const columnD = worksheet.getColumn(4)
-    columnD.width = 11.43
-    for (let index = 1; index <= 4; index++) {
+    worksheet.getColumn(1).width = 25
+    worksheet.getColumn(2).width = 25
+    worksheet.getColumn(3).width = 42
+    worksheet.getColumn(4).width = 10
+    worksheet.getColumn(5).width = 28.57
+    worksheet.getColumn(6).width = 11.43
+    for (let index = 1; index <= 6; index++) {
       const cell = worksheet.getCell(5, index)
       cell.alignment = { vertical: 'middle', horizontal: 'center' }
     }
-    const columnE = worksheet.getColumn(5)
-    columnE.width = 10
-    for (let col = 5; col <= 7; col++) {
+    worksheet.getColumn(7).width = 10
+    for (let col = 7; col <= 9; col++) {
       const cell = worksheet.getCell(5, col)
       cell.font = { color: { argb: fgColor } }
     }
-    columnE.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnF = worksheet.getColumn(6)
-    columnF.width = 10
-    columnF.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnG = worksheet.getColumn(7)
-    columnG.width = 10
-    columnG.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnH = worksheet.getColumn(8)
-    columnH.width = 10
-    columnH.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnI = worksheet.getColumn(9)
-    columnI.width = 10
-    columnI.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnJ = worksheet.getColumn(10)
-    columnJ.width = 10
-    columnJ.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnK = worksheet.getColumn(11)
-    columnK.width = 10
-    columnK.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnL = worksheet.getColumn(12)
-    columnL.width = 10
-    columnL.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnM = worksheet.getColumn(13)
-    columnM.width = 10
-    columnM.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnN = worksheet.getColumn(14)
-    columnN.width = 10
-    columnN.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnO = worksheet.getColumn(15)
-    columnO.width = 40
-    columnO.font = { color: { argb: fgColor } }
-    columnO.alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(7).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(8).width = 10
+    worksheet.getColumn(8).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(9).width = 10
+    worksheet.getColumn(9).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(10).width = 10
+    worksheet.getColumn(10).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(11).width = 10
+    worksheet.getColumn(11).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(12).width = 10
+    worksheet.getColumn(12).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(13).width = 10
+    worksheet.getColumn(13).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(14).width = 10
+    worksheet.getColumn(14).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(15).width = 10
+    worksheet.getColumn(15).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(16).width = 10
+    worksheet.getColumn(16).alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getColumn(17).width = 40
+    worksheet.getColumn(17).font = { color: { argb: fgColor } }
+    worksheet.getColumn(17).alignment = { vertical: 'middle', horizontal: 'center' }
+    for (let col = 7; col <= 17; col++) {
+      const cell = worksheet.getCell(5, col)
+      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+    }
   }
 
   async addRowIncidentPayrollCalendar(
    filters: AssistIncidentPayrollCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentPayrollExcelRowInterface[]
-    let department = filters.employee.department.departmentAlias ? filters.employee.department.departmentAlias : ''
+    let department = filters.employee.department?.departmentAlias ? filters.employee.department.departmentAlias : ''
     department =
       department === '' && filters.employee.department?.departmentName
         ? filters.employee.department.departmentName
@@ -2562,7 +2778,6 @@ export default class AssistsService {
     let rests = 0
     let sundayBonus = 0
     let laborRest = 0
-    let overtimeDouble = 0
     let vacations = 0
     let holidaysWorked = 0
     let faults = 0
@@ -2592,21 +2807,11 @@ export default class AssistsService {
                   laborRestCounted = true
                 }
               } else if (
-                exceptionTypeSlug === 'working-during-non-working-hours' &&
-                exception.shiftExceptionEnjoymentOfSalary === 1
+                (exceptionTypeSlug === 'falta-por-incapacidad' ||
+                  exceptionTypeSlug === 'incapacidad-por-maternidad') &&
+                exception.shiftExceptionEnjoymentOfSalary !== 0
               ) {
-                if (exception.shiftExceptionCheckInTime && exception.shiftExceptionCheckOutTime) {
-                  const checkIn = DateTime.fromFormat(
-                    exception.shiftExceptionCheckInTime,
-                    'HH:mm:ss'
-                  )
-                  const checkOut = DateTime.fromFormat(
-                    exception.shiftExceptionCheckOutTime,
-                    'HH:mm:ss'
-                  )
-                  const duration = checkOut.diff(checkIn, 'hours')
-                  overtimeDouble += Math.floor(duration.hours)
-                }
+                daysWorkDisability += 1
               }
               if (
                 exceptionTypeSlug === 'absence-from-work' &&
@@ -2648,7 +2853,11 @@ export default class AssistsService {
               calendar.assist.checkOut ||
               (calendar.assist.assitFlatList && calendar.assist.assitFlatList.length > 0))
           ) {
-            sundayBonus += 1
+            if (!calendar.assist.isRestDay) {
+              sundayBonus += 1
+            } else if (calendar.assist.exceptions.find(a => a.exceptionType?.exceptionTypeSlug === 'descanso-laborado')) {
+              sundayBonus += 1
+            }
           }
           if (calendar.assist.isRestDay && !firstCheck) {
             rests += 1
@@ -2658,7 +2867,7 @@ export default class AssistsService {
           }
           if (
             calendar.assist.checkInStatus === 'fault' &&
-            !calendar.assist.isRestDay &&
+            !calendar.assist.isRestDay && !calendar.assist.isFutureDay &&
             !faultProcessed
           ) {
             if (calendar.assist.dateShift && calendar.assist.dateShift.shiftAccumulatedFault > 0) {
@@ -2684,33 +2893,69 @@ export default class AssistsService {
     earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, filters.tardies)
 
     vacationBonus = this.getVacationBonus(filters.employee, filters.datePay)
-    daysWorkDisability = await this.getDaysWorkDisability(filters.employee, filters.datePay)
+
+    const overtimeMeasurementService = new PayrollOvertimeMeasurementService()
+    const overtimeMeasurement = await overtimeMeasurementService.measureEmployeeOvertime(
+      filters.employee,
+      filters.employeeCalendar
+    )
+
+    const overtimeAllocationService = new PayrollOvertimeAllocationService()
+    const overtimeAllocation = overtimeAllocationService.allocateFromMeasurement(
+      filters.employee,
+      overtimeMeasurement
+    )
+
+    const overtimeWeeklyDetailService = new PayrollOvertimeWeeklyDetailService()
+    await overtimeWeeklyDetailService.persistEmployeeAllocation(overtimeAllocation)
+
+    const overtimeDouble = overtimeAllocationService.minutesToDisplayHours(
+      overtimeAllocation.totalDoubleMinutes
+    )
+    const overtimeTriple = overtimeAllocationService.minutesToDisplayHours(
+      overtimeAllocation.totalTripleMinutes
+    )
+    const workingTimeRuleUnresolved = overtimeMeasurement.workingTimeRuleUnresolved
+
     let company = ''
     if (filters.employee.payrollBusinessUnitId) {
-      const payrollBusinessUnit = await BusinessUnit.query()
-        .whereNull('business_unit_deleted_at')
-        .where('business_unit_id', filters.employee.payrollBusinessUnitId)
-        .first()
+      const payrollBusinessUnit = this.businessUnits.find(
+        (item) => item.businessUnitId === filters.employee.payrollBusinessUnitId
+      )
       if (payrollBusinessUnit) {
         company = payrollBusinessUnit.businessUnitName
       }
     }
+    let workBusinessUnit = ''
+    if (filters.employee.businessUnitId) {
+      const workBu = this.businessUnits.find(
+        (item) => item.businessUnitId === filters.employee.businessUnitId
+      )
+      if (workBu) {
+        workBusinessUnit = workBu.businessUnitName
+      }
+    }
     rows.push({
+      workBusinessUnit: workBusinessUnit,
+      payrollBusinessUnit: company,
       employeeName: `${filters.employee.person?.personFirstname} ${filters.employee.person?.personLastname} ${filters.employee.person?.personSecondLastname}`,
-      employeeId: filters.employee.employeeCode.toString(),
+      employeeId: filters.employee.employeePayrollCode?.toString() || '',
       department: department,
       company: company,
       faults: faults,
       delays: delayFaults + earlyOutsFaults,
       inc: daysWorkDisability,
       overtimeDouble: overtimeDouble,
-      overtimeTriple: '',
+      overtimeTriple: overtimeTriple,
+      workingTimeRuleUnresolved: workingTimeRuleUnresolved,
       sundayBonus: sundayBonus,
       laborRest: laborRest,
       vacationBonus: vacationBonus,
       leveling: '',
       bonus: '',
-      others: '',
+      others: workingTimeRuleUnresolved ? this.t('working_time_rule_unresolved_mark') : '',
+      overtimeMeasurement: overtimeMeasurement,
+      overtimeAllocation: overtimeAllocation,
     })
     return rows
   }
@@ -2724,6 +2969,8 @@ export default class AssistsService {
       if (rowData.employeeName !== 'null') {
         const fgColor = '000000'
         worksheet.addRow([
+          rowData.workBusinessUnit,
+          rowData.payrollBusinessUnit,
           rowData.employeeName,
           rowData.employeeId,
           rowData.department,
@@ -2732,7 +2979,7 @@ export default class AssistsService {
           rowData.delays ? rowData.delays : '',
           rowData.inc ? rowData.inc : '',
           rowData.overtimeDouble ? rowData.overtimeDouble : '',
-          rowData.overtimeTriple,
+          rowData.overtimeTriple ? rowData.overtimeTriple : '',
           rowData.sundayBonus ? rowData.sundayBonus : '',
           rowData.laborRest ? rowData.laborRest : '',
           rowData.vacationBonus ? rowData.vacationBonus : '',
@@ -2740,10 +2987,10 @@ export default class AssistsService {
           rowData.bonus,
           rowData.others,
         ]).font = { color: { argb: fgColor } }
-        let cell = worksheet.getCell(rowCount + 1, 4)
+        let cell = worksheet.getCell(rowCount + 1, 6)
         cell.font = { bold: true }
         if (rowData.faults > 0) {
-          cell = worksheet.getCell(rowCount + 1, 5)
+          cell = worksheet.getCell(rowCount + 1, 7)
           cell.font = { color: { argb: '9C0006' } }
           cell.fill = {
             type: 'pattern',
@@ -2752,7 +2999,7 @@ export default class AssistsService {
           }
         }
         if (rowData.delays > 0) {
-          cell = worksheet.getCell(rowCount + 1, 6)
+          cell = worksheet.getCell(rowCount + 1, 8)
           cell.font = { color: { argb: '9C0006' } }
           cell.fill = {
             type: 'pattern',
@@ -2761,7 +3008,7 @@ export default class AssistsService {
           }
         }
         if (rowData.inc > 0) {
-          cell = worksheet.getCell(rowCount + 1, 7)
+          cell = worksheet.getCell(rowCount + 1, 9)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -2770,15 +3017,6 @@ export default class AssistsService {
           }
         }
         if (rowData.overtimeDouble > 0) {
-          cell = worksheet.getCell(rowCount + 1, 8)
-          cell.font = { color: { argb: '006100' } }
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
-          }
-        }
-        if (rowData.sundayBonus > 0) {
           cell = worksheet.getCell(rowCount + 1, 10)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
@@ -2787,7 +3025,25 @@ export default class AssistsService {
             fgColor: { argb: 'C6EFCE' },
           }
         }
-        if (rowData.vacationBonus > 0) {
+        if (rowData.overtimeTriple > 0) {
+          cell = worksheet.getCell(rowCount + 1, 11)
+          cell.font = { color: { argb: '006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'C6EFCE' },
+          }
+        }
+        if (rowData.workingTimeRuleUnresolved) {
+          cell = worksheet.getCell(rowCount + 1, 17)
+          cell.font = { color: { argb: '9C6500' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFEB9C' },
+          }
+        }
+        if (rowData.sundayBonus > 0) {
           cell = worksheet.getCell(rowCount + 1, 12)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
@@ -2796,8 +3052,17 @@ export default class AssistsService {
             fgColor: { argb: 'C6EFCE' },
           }
         }
+        if (rowData.vacationBonus > 0) {
+          cell = worksheet.getCell(rowCount + 1, 14)
+          cell.font = { color: { argb: '006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'C6EFCE' },
+          }
+        }
         if (rowData.laborRest > 0) {
-          cell = worksheet.getCell(rowCount + 1, 11)
+          cell = worksheet.getCell(rowCount + 1, 13)
           cell.font = { color: { argb: '006100' } }
           cell.fill = {
             type: 'pattern',
@@ -2808,6 +3073,15 @@ export default class AssistsService {
         rowCount += 1
       }
     }
+  }
+
+  /**
+   * Carga en memoria las unidades de negocio para resolver nombres en el Excel payroll.
+   */
+  async getBusinessUnits(): Promise<void> {
+    this.businessUnits = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .orderBy('business_unit_id')
   }
 
   async getTradeName() {
@@ -2825,7 +3099,7 @@ export default class AssistsService {
   paintBorderAll(worksheet: ExcelJS.Worksheet, rowCount: number) {
     for (let rowIndex = 6; rowIndex <= rowCount + 5; rowIndex++) {
       const row = worksheet.getRow(rowIndex)
-      for (let colNumber = 1; colNumber <= 15; colNumber++) {
+      for (let colNumber = 1; colNumber <= 17; colNumber++) {
         const cell = row.getCell(colNumber)
         cell.border = {
           top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -2856,6 +3130,10 @@ export default class AssistsService {
 
     if (assistExcelImageInterface.col === 14.2) {
       const increaseFactor = 1.3
+      adjustedWidth *= increaseFactor
+      adjustedHeight *= increaseFactor
+    } else if (assistExcelImageInterface.col < 1) {
+      const increaseFactor = 1.05
       adjustedWidth *= increaseFactor
       adjustedHeight *= increaseFactor
     }
@@ -3078,9 +3356,9 @@ export default class AssistsService {
       const filterDateEnd = filters.filterDateEnd
       const userResponsibleId = filters.userResponsibleId
 
-      // Obtener empleados activos
       const employeeService = new EmployeeService(this.i18n)
-      const employees = await employeeService.index(
+      const employees = await this.fetchEmployeesForExcelReport(
+        employeeService,
         {
           search: '',
           departmentId: 0,
@@ -3091,12 +3369,15 @@ export default class AssistsService {
           ignoreDiscriminated: 0,
           ignoreExternal: 1,
           userResponsibleId: userResponsibleId || undefined,
-          businessUnitId: filters.businessUnitId,
           payrollBusinessUnitId: filters.payrollBusinessUnitId,
         },
         departmentsList,
+        filters.businessUnitId,
         allowedBusinessUnitIds
       )
+      if (!employees) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
 
       // Crear workbook
       const workbook = new ExcelJS.Workbook()
