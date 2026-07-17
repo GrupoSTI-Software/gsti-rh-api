@@ -14,4 +14,5 @@ router
     router.delete('/:employeeAnnotationId', employeeAnnotationController.delete)
   })
   .use(middleware.auth())
+  .use(middleware.businessScope())
   .prefix('/api/employee-annotations')

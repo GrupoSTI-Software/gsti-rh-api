@@ -254,6 +254,79 @@ components:
               format: date-time
               nullable: true
 
+    LegalDocumentAdmin:
+      type: object
+      description: Forma administrativa de una versión (gestión reservada al rol root).
+      properties:
+        id:
+          type: integer
+          example: 6
+        type:
+          type: string
+          enum: [privacy_notice, terms_conditions, biometric_consent]
+        version:
+          type: string
+          example: '1.0'
+        content:
+          type: object
+          description: Contenido HTML saneado por idioma.
+          properties:
+            es:
+              type: string
+            en:
+              type: string
+        status:
+          type: string
+          enum: [draft, published]
+        isCurrent:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        publishedBy:
+          type: object
+          nullable: true
+          description: Quién publicó la versión, resuelto a un nombre visible en UI.
+          properties:
+            userId:
+              type: integer
+              example: 12
+            name:
+              type: string
+              example: 'Ana Root'
+            email:
+              type: string
+              example: 'ana.root@gsti.mx'
+
+    LegalDocumentAdminSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/LegalDocumentAdmin'
+
+    LegalDocumentAdminListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LegalDocumentAdmin'
+
     ConsentStatusSuccess:
       type: object
       properties:
@@ -2667,6 +2740,153 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/RepseCoverageReportEmployee'
+
+    TeleworkPolicyComponent:
+      type: object
+      description: >
+        Un componente del numeral 5.2 de la NOM-037 (incisos a-l). `key`, `clause`,
+        `required` y `order` son estructura fija (no editables); `title` y `body`
+        son editables por el tenant.
+      properties:
+        key:
+          type: string
+          example: '5_2_a'
+        clause:
+          type: string
+          example: '5.2.a'
+        title:
+          type: string
+        body:
+          type: string
+          description: HTML enriquecido saneado (negritas, listas, párrafos).
+        required:
+          type: boolean
+          example: true
+        order:
+          type: integer
+          example: 1
+
+    TeleworkPolicyTemplate:
+      type: object
+      description: Plantilla base global vigente (mantenida por GSTI, sembrada por seeder).
+      properties:
+        version:
+          type: string
+          example: '2023.1'
+        isCurrent:
+          type: boolean
+          example: true
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeleworkPolicyComponent'
+
+    TeleworkPolicyTemplateSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/TeleworkPolicyTemplate'
+
+    TeleworkPolicy:
+      type: object
+      description: Borrador (o versión) de la Política de Teletrabajo de una empresa.
+      properties:
+        id:
+          type: integer
+          example: 1
+        businessUnitId:
+          type: integer
+          example: 5
+        version:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: 'Política de Teletrabajo'
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeleworkPolicyComponent'
+        status:
+          type: string
+          enum: [draft, published]
+        isCurrent:
+          type: boolean
+        missingComponentKeys:
+          type: array
+          description: Componentes con `body` vacío tras sanear (guía, no bloqueo).
+          items:
+            type: string
+          example: ['5_2_b', '5_2_h']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        createdByUserId:
+          type: integer
+        updatedByUserId:
+          type: integer
+
+    TeleworkPolicySuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/TeleworkPolicy'
+
+    TeleworkPolicyStateSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            exists:
+              type: boolean
+            policy:
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/TeleworkPolicy'
+
+    TeleworkPolicyError:
+      type: object
+      description: Contrato de error del módulo (prefijo de código `TWP`).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+        code:
+          type: string
+        data:
+          type: object
+          nullable: true
 
 paths:
   /api/employees/{employeeId}/temporary-assignments:
@@ -5252,6 +5472,536 @@ paths:
                     key: tipo-de-documento-invalido
                     code: LGDOC.VAL.001
 
+  /api/legal-documents:
+    get:
+      summary: "[Gestión GSTI] Histórico de versiones de un tipo de documento legal"
+      description: |
+        Devuelve todas las versiones (borrador y publicadas) de un tipo de documento
+        legal, con cuál está vigente. Reservado al rol `root`; cualquier otro rol
+        recibe 403, incluida esta consulta de solo lectura. Sin `X-Business-Unit-Id`:
+        documento global de plataforma.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [privacy_notice, terms_conditions, biometric_consent]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, published]
+      responses:
+        '200':
+          description: Histórico de versiones del tipo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminListSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Histórico de documento legal obtenido correctamente.
+                data:
+                  - id: 5
+                    type: terms_conditions
+                    version: '2.0'
+                    content: { es: '<h1>Términos v2</h1>', en: '<h1>Terms v2</h1>' }
+                    status: published
+                    isCurrent: true
+                    publishedAt: '2026-07-05T10:00:00.000-06:00'
+                    publishedBy: { userId: 12, name: 'Ana Root', email: 'ana.root@gsti.mx' }
+                  - id: 1
+                    type: terms_conditions
+                    version: '1.0'
+                    content: { es: '<h1>Términos v1</h1>', en: '<h1>Terms v1</h1>' }
+                    status: published
+                    isCurrent: false
+                    publishedAt: '2026-07-02T00:00:00.000-06:00'
+                    publishedBy: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '422':
+          description: El parámetro `type` es inválido o falta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: "Debes indicar el parámetro 'type' con uno de estos valores: privacy_notice, terms_conditions, biometric_consent."
+                key: tipo-de-documento-invalido
+                code: LGDOC.VAL.001
+    post:
+      summary: "[Gestión GSTI] Crear una versión en borrador"
+      description: |
+        Crea una versión nueva en `status='draft'` (nunca vigente). El contenido
+        puede llegar con un solo idioma completo (regla de negocio 8): la
+        obligatoriedad de ambos idiomas se valida al publicar, no al crear el
+        borrador. El contenido se sanea por idioma en el servidor antes de
+        persistir. Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, version, content]
+              properties:
+                type:
+                  type: string
+                  enum: [privacy_notice, terms_conditions, biometric_consent]
+                version:
+                  type: string
+                  maxLength: 20
+                  example: '2.0'
+                content:
+                  type: object
+                  properties:
+                    es:
+                      type: string
+                      example: '<h1>Términos v2</h1>'
+                    en:
+                      type: string
+                      example: '<h1>Terms v2</h1>'
+      responses:
+        '201':
+          description: Borrador creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Borrador de documento legal creado correctamente.
+                data:
+                  id: 6
+                  type: biometric_consent
+                  version: '1.0'
+                  content: { es: '<p>Texto biométrico</p>', en: '' }
+                  status: draft
+                  isCurrent: false
+                  publishedAt: null
+                  publishedBy: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '409':
+          description: La combinación tipo + versión ya existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: Ya existe una versión con ese identificador para este tipo de documento.
+                key: version-duplicada
+                code: LGDOC.CONF.002
+        '422':
+          description: Body malformado (tipo/versión/contenido inválidos)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                message: Entrada inválida
+                detail: The version field must be defined
+                key: entrada-invalida
+                data: null
+
+  /api/legal-documents/{id}:
+    get:
+      summary: "[Gestión GSTI] Detalle administrativo de una versión"
+      description: |
+        Devuelve una versión puntual con su contenido completo en ambos idiomas y
+        metadatos de auditoría. Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 5
+      responses:
+        '200':
+          description: Detalle de la versión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal obtenido correctamente.
+                data:
+                  id: 5
+                  type: terms_conditions
+                  version: '2.0'
+                  content: { es: '<h1>Términos v2</h1>', en: '<h1>Terms v2</h1>' }
+                  status: published
+                  isCurrent: true
+                  publishedAt: '2026-07-05T10:00:00.000-06:00'
+                  publishedBy: { userId: 12, name: 'Ana Root', email: 'ana.root@gsti.mx' }
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '404':
+          description: No existe ninguna versión con ese id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No existe una versión de documento legal con ese identificador.
+                key: documento-legal-inexistente
+                code: LGDOC.NF.002
+    put:
+      summary: "[Gestión GSTI] Editar un borrador"
+      description: |
+        Actualiza el contenido y/o la versión de una versión en `status='draft'`.
+        Sobre una versión ya publicada responde 409 (regla de negocio 3: el
+        contenido publicado es inmutable — corregir significa publicar una
+        versión nueva). Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 6
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                version:
+                  type: string
+                  maxLength: 20
+                  example: '1.0'
+                content:
+                  type: object
+                  properties:
+                    es:
+                      type: string
+                    en:
+                      type: string
+      responses:
+        '200':
+          description: Borrador actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Borrador de documento legal actualizado correctamente.
+                data:
+                  id: 6
+                  type: biometric_consent
+                  version: '1.0'
+                  content: { es: '<p>Texto biométrico</p>', en: '<p>Biometric text</p>' }
+                  status: draft
+                  isCurrent: false
+                  publishedAt: null
+                  publishedBy: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '404':
+          description: No existe ninguna versión con ese id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No existe una versión de documento legal con ese identificador.
+                key: documento-legal-inexistente
+                code: LGDOC.NF.002
+        '409':
+          description: La versión ya está publicada (inmutable) o la nueva versión choca con otra existente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                publicadaInmutable:
+                  summary: La versión ya está publicada
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: El contenido de una versión publicada no se puede editar.
+                    key: version-publicada-inmutable
+                    code: LGDOC.CONF.001
+                versionDuplicada:
+                  summary: El nuevo identificador de versión ya existe
+                  value:
+                    type: error
+                    title: Documento legal
+                    detail: Ya existe una versión con ese identificador para este tipo de documento.
+                    key: version-duplicada
+                    code: LGDOC.CONF.002
+
+  /api/legal-documents/{id}/publish:
+    post:
+      summary: "[Gestión GSTI] Publicar un borrador (transaccional)"
+      description: |
+        Publica un borrador existente: lo marca `published` + vigente y apaga la
+        versión vigente anterior del mismo tipo en una sola transacción (regla de
+        negocio 4). Si el tipo no tenía ninguna vigente (el biométrico al inicio),
+        esta operación crea su primera versión vigente (regla de negocio 2).
+        Requiere contenido en español e inglés (regla de negocio 8); si falta
+        alguno, 422 y el borrador permanece sin publicar. Habilita la
+        re-aceptación de los usuarios (la aplican las historias hermanas).
+        Reservado al rol `root`.
+      tags: [LegalDocuments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token.
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 6
+      responses:
+        '200':
+          description: Versión publicada y vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegalDocumentAdminSuccess'
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal publicado correctamente.
+                data:
+                  id: 6
+                  type: biometric_consent
+                  version: '1.0'
+                  content: { es: '<p>Texto biométrico</p>', en: '<p>Biometric text</p>' }
+                  status: published
+                  isCurrent: true
+                  publishedAt: '2026-07-06T12:00:00.000-06:00'
+                  publishedBy: { userId: 12, name: 'Ana Root', email: 'ana.root@gsti.mx' }
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: warning
+                title: No autorizado
+                message: El token de acceso no es válido o expiró.
+                detail: Debes autenticarte nuevamente.
+                key: no-autenticado
+                data:
+                  refreshable: true
+        '403':
+          description: El usuario autenticado no tiene rol `root`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: LGDOC.FORB.001
+                data: null
+        '404':
+          description: No existe ninguna versión con ese id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No existe una versión de documento legal con ese identificador.
+                key: documento-legal-inexistente
+                code: LGDOC.NF.002
+        '409':
+          description: El id no corresponde a un borrador (ya está publicado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: El contenido de una versión publicada no se puede editar.
+                key: version-publicada-inmutable
+                code: LGDOC.CONF.001
+        '422':
+          description: Falta contenido en español o en inglés
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Documento legal
+                detail: No puedes publicar una versión sin contenido en español e inglés.
+                key: contenido-idioma-incompleto
+                code: LGDOC.VAL.002
+
   /api/consent/me:
     get:
       summary: Estado de consentimiento del usuario autenticado, por documento
@@ -6675,3 +7425,401 @@ paths:
                 key: datos-invalidos
                 code: NOM035.PRG.VAL_INPUT
                 data: null
+
+  /api/nom037/telework-policy:
+    get:
+      summary: Consultar el estado/borrador de la Política de Teletrabajo de la empresa
+      description: >
+        Devuelve la política (borrador) de la empresa resuelta por el header
+        X-Business-Unit-Id. Si la empresa aún no tiene ninguna, responde
+        exists=false sin crear nada (dispara el selector cero/plantilla en el BO).
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+          description: Código público (UUID v4) de la empresa activa.
+        - in: header
+          name: Accept-Language
+          required: false
+          schema: { type: string, enum: [es, en] }
+      responses:
+        '200':
+          description: Estado de la política (con o sin borrador existente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyStateSuccess'
+              example:
+                type: success
+                title: Política de Teletrabajo
+                message: Estado de la Política de Teletrabajo obtenido correctamente.
+                data: { exists: false, policy: null }
+        '400':
+          description: Falta el header X-Business-Unit-Id
+          content:
+            application/json:
+              example:
+                title: Header requerido
+                detail: El header x-business-unit-id es obligatorio.
+                key: BU.VAL.000
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para consultar este módulo.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+    put:
+      summary: Editar el borrador (título y los 12 componentes con texto enriquecido)
+      description: >
+        Se puede guardar aunque falte contenido en algún componente; la
+        respuesta señala en missingComponentKeys cuáles siguen vacíos (guía,
+        no bloqueo). El components debe traer exactamente los 12 key
+        esperados (5_2_a..5_2_l); estructura fija. El body de cada componente
+        se sanea en el servidor.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, components]
+              properties:
+                title: { type: string, minLength: 3, maxLength: 150 }
+                components:
+                  type: array
+                  minItems: 12
+                  maxItems: 12
+                  items:
+                    type: object
+                    required: [key, title, body]
+                    properties:
+                      key: { type: string, example: '5_2_a' }
+                      title: { type: string }
+                      body: { type: string, description: HTML enriquecido }
+      responses:
+        '200':
+          description: Borrador actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicySuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: La empresa aún no tiene un borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: La empresa aún no tiene una Política de Teletrabajo; primero inicialízala.
+                key: politica-inexistente
+                code: TWP.NF.001
+        '409':
+          description: La política ya está publicada (inmutable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: No se puede editar una versión ya publicada.
+                key: politica-publicada-inmutable
+                code: TWP.CONF.002
+        '422':
+          description: El components no trae exactamente los 12 key esperados, o body malformado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              examples:
+                estructuraInvalida:
+                  summary: Faltan/sobran/duplican componentes
+                  value:
+                    type: error
+                    title: Política de Teletrabajo
+                    detail: El campo 'components' debe traer exactamente los 12 elementos obligatorios del numeral 5.2, cada uno con una 'key' distinta ('5_2_a' a '5_2_l'); no se pueden agregar, quitar ni repetir. Revisa 'data' en esta respuesta para ver qué claves faltan, están duplicadas o no son válidas.
+                    key: estructura-componentes-invalida
+                    code: TWP.VAL.STRUCTURE.001
+                    data:
+                      missingKeys: [5_2_b, 5_2_c, 5_2_d, 5_2_e, 5_2_f, 5_2_g, 5_2_h, 5_2_i, 5_2_j, 5_2_k, 5_2_l]
+                      duplicatedKeys: [5_2_a]
+                      unexpectedKeys: []
+                entradaInvalida:
+                  summary: Body malformado (Vine)
+                  value:
+                    type: error
+                    title: Política de Teletrabajo
+                    message: Entrada inválida
+                    detail: The title field must be defined
+                    key: entrada-invalida
+                    data: null
+
+  /api/nom037/telework-policy/template:
+    get:
+      summary: Consultar la plantilla base global (los 12 componentes del 5.2)
+      description: >
+        Plantilla base mantenida por GSTI (semilla, sin pantalla de
+        administración): los 12 componentes obligatorios con su título y
+        texto modelo, para previsualizar antes de elegir "partir de la
+        plantilla".
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Plantilla base vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyTemplateSuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para consultar este módulo.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: Aún no se ha sembrado ninguna plantilla base
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: Aún no existe una política ni una plantilla base disponible.
+                key: politica-inexistente
+                code: TWP.NF.001
+
+  /api/nom037/telework-policy/initialize:
+    post:
+      summary: Inicializar el borrador la primera vez (plantilla base o de cero)
+      description: >
+        Elección única: mode=template copia los 12 componentes de la
+        plantilla base vigente; mode=blank arranca con el título del sistema
+        y body vacío. 409 si la empresa ya tiene una política.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: { type: string, enum: [template, blank] }
+      responses:
+        '201':
+          description: Borrador creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicySuccess'
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '409':
+          description: La empresa ya tiene una política (borrador o publicada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: La empresa ya tiene una Política de Teletrabajo; no se puede volver a inicializar.
+                key: politica-ya-existe
+                code: TWP.CONF.001
+        '422':
+          description: Body malformado (mode fuera de enum o ausente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                message: Entrada inválida
+                detail: The mode field must be defined
+                key: entrada-invalida
+                data: null
+
+  /api/nom037/telework-policy/draft:
+    delete:
+      summary: Descartar el borrador de la Política de Teletrabajo
+      description: >
+        Elimina (soft delete) el borrador de la empresa en scope. Solo aplica
+        mientras esté en status=draft; sobre una versión publicada responde 409.
+      tags: [TeleworkPolicy]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: X-Business-Unit-Id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Borrador descartado
+          content:
+            application/json:
+              example:
+                type: success
+                title: Política de Teletrabajo
+                message: Borrador de la Política de Teletrabajo descartado correctamente.
+                data: null
+        '401':
+          description: Usuario no autenticado
+          content:
+            application/json:
+              example:
+                type: warning
+                title: Sesión expirada
+                message: Tu sesión ha expirado, inicia sesión de nuevo.
+                detail: Token inválido o expirado.
+                key: unauthorized
+                data: { refreshable: false }
+        '403':
+          description: Sin permiso del módulo de teletrabajo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: TWP.AUTH.001
+                data: null
+        '404':
+          description: La empresa no tiene ningún borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: La empresa aún no tiene una Política de Teletrabajo; primero inicialízala.
+                key: politica-inexistente
+                code: TWP.NF.001
+        '409':
+          description: La política ya está publicada (inmutable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeleworkPolicyError'
+              example:
+                type: error
+                title: Política de Teletrabajo
+                detail: No se puede editar una versión ya publicada.
+                key: politica-publicada-inmutable
+                code: TWP.CONF.002

@@ -20,3 +20,4 @@ router
   })
   .prefix('/api/position-assessment-profiles')
   .use(middleware.auth())
+  .use(middleware.businessScope())

@@ -30,4 +30,5 @@ router
     )
   })
   .use(middleware.auth())
+  .use(middleware.businessScope())
   .prefix('/api/employee-vacation-archives')

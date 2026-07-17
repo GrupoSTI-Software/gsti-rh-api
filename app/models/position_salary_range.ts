@@ -3,6 +3,7 @@ import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import encryption from '@adonisjs/core/services/encryption'
 import BusinessUnit from './business_unit.js'
 import Position from './position.js'
@@ -47,7 +48,7 @@ import PositionSalaryRangeAudit from './position_salary_range_audit.js'
  *          positionSalaryRangeDeletedAt:
  *            type: string
  */
-export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes) {
+export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare positionSalaryRangeId: number
 

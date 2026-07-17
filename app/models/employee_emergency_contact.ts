@@ -1,9 +1,12 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
+import Employee from './employee.js'
 /**
  * @swagger
  * components:
@@ -41,7 +44,7 @@ import encryption from '@adonisjs/core/services/encryption'
  *
  */
 
-export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeEmergencyContactId: number
 
@@ -78,6 +81,20 @@ export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDel
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeEmergencyContact) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   /** Contacto principal: el que se muestra y edita en la plantilla de importación de empleados */
   @column()

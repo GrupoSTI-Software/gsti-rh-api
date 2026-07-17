@@ -16,6 +16,8 @@ import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 import { resolveTraumaticEventReportApiError } from '../helpers/traumatic_event_report_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+import PiiExportService from '#services/pii_export_service'
+import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 
 const MODULE_SLUG = 'traumatic-event-reports'
 
@@ -621,7 +623,7 @@ export default class TraumaticEventReportController {
    *       '403': { description: Sin permiso read ETR.FORBID.001 }
    */
   async registryExport(ctx: HttpContext) {
-    const { request, response } = ctx
+    const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
       if (!(await this.assertHasPermission(ctx, 'read'))) return
@@ -629,7 +631,28 @@ export default class TraumaticEventReportController {
       const raw = await request.validateUsing(traumaticEventRegistryFiltersValidator)
       const filters = this.toRegistryFilters(raw)
       const service = new TraumaticEventRegistryReportService()
-      const pdfBuffer = await service.buildRegistryPdf(filters, ctx.businessUnitScope)
+      const items = await service.getRegistryAll(filters, ctx.businessUnitScope)
+      const piiExportService = new PiiExportService()
+      const exportDef = SENSITIVE_EXPORT_INVENTORY.find(
+        (item) => item.exportKey === 'traumatic-events-registry-pdf'
+      )!
+
+      const pdfBuffer = await piiExportService.deliverSensitiveExport(
+        ctx,
+        {
+          exportKey: exportDef.exportKey,
+          sensitiveColumns: [...exportDef.sensitiveColumns],
+          employeeIds: items.map((item) => item.employee.employeeId),
+          filters: {
+            from: filters.from?.toISODate() ?? null,
+            to: filters.to?.toISODate() ?? null,
+            eventTypeId: filters.eventTypeId ?? null,
+          },
+          businessUnitId: piiExportService.resolveAuditBusinessUnitId(ctx.businessUnitScope ?? []),
+          originModule: 'compliance',
+        },
+        async (maskSensitive) => service.renderRegistryPdf(items, filters, { maskSensitive })
+      )
 
       const dateTag = DateTime.now().setZone('America/Mexico_City').toFormat('yyyyLLdd')
       response.header('Content-Type', 'application/pdf')
@@ -639,6 +662,10 @@ export default class TraumaticEventReportController {
       )
       return response.send(pdfBuffer)
     } catch (error) {
+      const auditError = PiiExportService.formatAuditError(error, i18n)
+      if (auditError) {
+        return response.status(auditError.status).json(auditError.body)
+      }
       return this.respondError(error, response, 400)
     }
   }

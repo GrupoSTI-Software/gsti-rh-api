@@ -804,18 +804,57 @@ export default class extends BaseSeeder {
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
         </svg>`,
       },
+      {
+        systemModuleId: 46,
+        systemModuleName: 'Teletrabajadores',
+        systemModuleSlug: 'telework-workers',
+        systemModuleDescription:
+          'Listado derivado de la NOM-037-STPS-2023 (numeral 5.1): teletrabajadores con más del 40% de jornada remota, con puesto, modalidad, porcentaje y lugar donde laboran',
+        systemModules: 1,
+        systemModulePath: '/telework-workers',
+        systemModuleGroup: '2. Empresa',
+        systemModuleActive: 1,
+        systemModuleIcon: `<svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>`,
+      },
     ]
     for (const systemModule of systemModules) {
       const { systemModuleId, ...systemModuleData } = systemModule
-      // updateOrCreate: actualiza el módulo si ya existe, lo crea si no existe
-      await SystemModule.updateOrCreate(
-        { systemModuleId },
-        {
-          ...systemModuleData,
-          systemModules: String(systemModuleData.systemModules),
-          systemModuleUpdatedAt: DateTime.now(),
-        }
-      )
+      const values = {
+        ...systemModuleData,
+        systemModules: String(systemModuleData.systemModules),
+        systemModuleUpdatedAt: DateTime.now(),
+      }
+
+      // withTrashed: las filas con baja lógica cuentan para la PK pero el
+      // scope de SoftDeletes las oculta de updateOrCreate, lo que provocaba
+      // un INSERT duplicado al re-ejecutar el seeder.
+      const existing = await SystemModule.query()
+        .withTrashed()
+        .where('systemModuleId', systemModuleId)
+        .first()
+
+      if (existing) {
+        // Se actualizan los datos sin tocar deletedAt: un módulo retirado
+        // (baja lógica) no debe revivir por re-ejecutar el seeder.
+        existing.merge(values)
+        await existing.save()
+        continue
+      }
+
+      await SystemModule.create({ systemModuleId, ...values })
     }
   }
 }

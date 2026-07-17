@@ -10,9 +10,30 @@ import { EmployeeProceedingFileFilterInterface } from '../interfaces/employee_pr
 import EmployeeContract from '#models/employee_contract'
 
 export default class EmployeeProceedingFileService {
+  /**
+   * Resuelve la unidad de negocio del vínculo desde el empleado padre.
+   * `Employee.query()` ya está acotado por `withBusinessUnitScope`, así que un
+   * `employeeId` fuera del scope del usuario resuelve a `null` aquí — nunca se
+   * confía en un `businessUnitId` enviado por el cliente.
+   */
+  private async resolveBusinessUnitIdFromEmployee(employeeId: number): Promise<number | null> {
+    const employee = await Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('employee_id', employeeId)
+      .first()
+    return employee ? employee.businessUnitId : null
+  }
+
   async create(employeeProceedingFile: EmployeeProceedingFile) {
+    const businessUnitId = await this.resolveBusinessUnitIdFromEmployee(
+      employeeProceedingFile.employeeId
+    )
+    if (businessUnitId === null) {
+      return null
+    }
     const newEmployeeProceedingFile = new EmployeeProceedingFile()
     newEmployeeProceedingFile.employeeId = employeeProceedingFile.employeeId
+    newEmployeeProceedingFile.businessUnitId = businessUnitId
     newEmployeeProceedingFile.proceedingFileId = employeeProceedingFile.proceedingFileId
     await newEmployeeProceedingFile.save()
     return newEmployeeProceedingFile
@@ -22,6 +43,15 @@ export default class EmployeeProceedingFileService {
     currentEmployeeProceedingFile: EmployeeProceedingFile,
     employeeProceedingFile: EmployeeProceedingFile
   ) {
+    if (employeeProceedingFile.employeeId !== currentEmployeeProceedingFile.employeeId) {
+      const businessUnitId = await this.resolveBusinessUnitIdFromEmployee(
+        employeeProceedingFile.employeeId
+      )
+      if (businessUnitId === null) {
+        return null
+      }
+      currentEmployeeProceedingFile.businessUnitId = businessUnitId
+    }
     currentEmployeeProceedingFile.employeeId = employeeProceedingFile.employeeId
     currentEmployeeProceedingFile.proceedingFileId = employeeProceedingFile.proceedingFileId
     await currentEmployeeProceedingFile.save()

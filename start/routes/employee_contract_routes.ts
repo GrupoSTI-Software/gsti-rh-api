@@ -13,4 +13,5 @@ router
       .use(middleware.businessScopeOptional())
   })
   .use(middleware.auth())
+  .use(middleware.businessScope())
   .prefix('/api/employee-contracts')

@@ -11,3 +11,4 @@ router
   })
   .prefix('/api/position-kpis')
   .use(middleware.auth())
+  .use(middleware.businessScope())

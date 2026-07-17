@@ -55,7 +55,7 @@ export default class AccessPointController {
       const search = request.input('search')
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
-      const businessUnitId = Number(request.input('businessUnitId'))
+      const businessUnitId = request.input('businessUnitId') as number
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
       const accessPointService = new AccessPointService(i18n)
@@ -158,12 +158,12 @@ export default class AccessPointController {
    *       default:
    *         description: Unexpected error
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPoint = {
         accessPointName: (request.input('accessPointName', '') || '').toString().trim(),
-        businessUnitId: Number(request.input('businessUnitId')),
+        businessUnitId: request.input('businessUnitId') as number,
         accessPointActive: Number(request.input('accessPointActive', 0)),
         accessPointSerialNumber: request.input('accessPointSerialNumber')
           ? request.input('accessPointSerialNumber').toString().trim()
@@ -194,6 +194,7 @@ export default class AccessPointController {
 
       const accessPointService = new AccessPointService(i18n)
       await request.validateUsing(createAccessPointValidator)
+      AccessPointService.assertBusinessUnitAllowed(accessPoint.businessUnitId, businessUnitScope)
       const verifyInfo = await accessPointService.verifyInfo(accessPoint)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
@@ -221,6 +222,10 @@ export default class AccessPointController {
         data: { accessPoint: newAccessPoint },
       }
     } catch (error) {
+      if (error.key === 'empresa-no-permitida') {
+        response.status(400)
+        return { title: error.title, detail: error.detail, key: error.key }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -255,7 +260,7 @@ export default class AccessPointController {
    *       default:
    *         description: Unexpected error
    */
-  async update({ auth, request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPointId = Number(request.param('accessPointId'))
@@ -271,6 +276,7 @@ export default class AccessPointController {
       const currentAccessPoint = await AccessPoint.query()
         .whereNull('access_point_deleted_at')
         .where('access_point_id', accessPointId)
+        .whereIn('business_unit_id', businessUnitScope)
         .first()
       if (!currentAccessPoint) {
         response.status(404)
@@ -285,7 +291,7 @@ export default class AccessPointController {
       const accessPoint = {
         accessPointId,
         accessPointName: (request.input('accessPointName', '') || '').toString().trim(),
-        businessUnitId: Number(request.input('businessUnitId')),
+        businessUnitId: request.input('businessUnitId') as number,
         accessPointActive: Number(request.input('accessPointActive', 0)),
         accessPointSerialNumber: request.input('accessPointSerialNumber')
           ? request.input('accessPointSerialNumber').toString().trim()
@@ -315,6 +321,7 @@ export default class AccessPointController {
 
       await request.validateUsing(updateAccessPointValidator)
       const accessPointService = new AccessPointService(i18n)
+      AccessPointService.assertBusinessUnitAllowed(accessPoint.businessUnitId, businessUnitScope)
       const verifyInfo = await accessPointService.verifyInfo(accessPoint)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
@@ -352,6 +359,10 @@ export default class AccessPointController {
         data: { accessPoint: updateAccessPoint },
       }
     } catch (error) {
+      if (error.key === 'empresa-no-permitida') {
+        response.status(400)
+        return { title: error.title, detail: error.detail, key: error.key }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -386,7 +397,7 @@ export default class AccessPointController {
    *       default:
    *         description: Unexpected error
    */
-  async delete({ auth, request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPointId = Number(request.param('accessPointId'))
@@ -402,6 +413,7 @@ export default class AccessPointController {
       const currentAccessPoint = await AccessPoint.query()
         .whereNull('access_point_deleted_at')
         .where('access_point_id', accessPointId)
+        .whereIn('business_unit_id', businessUnitScope)
         .first()
       if (!currentAccessPoint) {
         response.status(404)
@@ -468,7 +480,7 @@ export default class AccessPointController {
    *       default:
    *         description: Unexpected error
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPointId = Number(request.param('accessPointId'))
@@ -482,7 +494,7 @@ export default class AccessPointController {
         }
       }
       const accessPointService = new AccessPointService(i18n)
-      let accessPoint = await accessPointService.show(accessPointId)
+      let accessPoint = await accessPointService.show(accessPointId, businessUnitScope)
       if (!accessPoint) {
         response.status(404)
         return {

@@ -1,7 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import Employee from './employee.js'
 /**
  * @swagger
  * components:
@@ -52,7 +55,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *         employeeRecordDeletedAt: null
  */
 
-export default class EmployeeRecord extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeRecord extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeRecordId: number
 
@@ -62,8 +65,22 @@ export default class EmployeeRecord extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare employeeRecordValue: string
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeRecord) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare employeeRecordActive: number

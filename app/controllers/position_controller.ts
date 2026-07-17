@@ -14,6 +14,7 @@ import {
 import { PositionShiftFilterInterface } from '../interfaces/position_shift_filter_interface.js'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 
 export default class PositionController {
   /**
@@ -690,7 +691,7 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const positionId = request.param('positionId')
@@ -726,8 +727,16 @@ export default class PositionController {
       const currentPosition = await Position.query()
         .whereNull('position_deleted_at')
         .where('position_id', positionId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentPosition) {
+        await ScopeDeniedLogService.log({
+          domain: 'position',
+          action: 'update',
+          requestedId: positionId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -1127,7 +1136,7 @@ export default class PositionController {
   //     }
   //   }
   // }
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const positionId = request.param('positionId')
       if (!positionId) {
@@ -1143,8 +1152,16 @@ export default class PositionController {
       const currentPosition = await Position.query()
         .whereNull('position_deleted_at')
         .where('position_id', positionId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentPosition) {
+        await ScopeDeniedLogService.log({
+          domain: 'position',
+          action: 'delete',
+          requestedId: positionId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',

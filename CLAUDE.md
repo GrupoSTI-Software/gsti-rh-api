@@ -1,5 +1,7 @@
 # Reglas del proyecto — valanserh-api
 
+@.claude/rules/design-principles.md
+
 ## Migraciones (AdonisJS Lucid)
 
 - NUNCA usar `await` con `this.schema` dentro de `up()`/`down()`: el getter `schema` registra cada builder y Lucid los ejecuta de forma diferida al terminar el método; como los builders de Knex son thenables, el `await` manual provoca que el SQL se ejecute DOS VECES.
