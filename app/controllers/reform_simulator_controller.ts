@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import WorkingTimeReformSimulator from '../services/reform_simulator_service.js'
-import type { ReformSimulationTargetYear } from '#constants/reform_simulator.constants'
+import type { ReformSimulationTargetYear } from '#constants/reform_simulator'
 import { simulateReformValidator } from '#validators/reform_simulator'
 
 /**

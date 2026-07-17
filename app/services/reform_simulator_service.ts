@@ -11,7 +11,7 @@ import {
   buildReformSimulationQueryDate,
   REFORM_SIMULATION_COMPARISON_YEARS,
   type ReformSimulationTargetYear,
-} from '#constants/reform_simulator.constants'
+} from '#constants/reform_simulator'
 import type {
   ReformSimulationComparisonYear,
   ReformSimulationEmployee,

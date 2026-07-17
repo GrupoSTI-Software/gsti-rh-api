@@ -1,5 +1,5 @@
 import vine from '@vinejs/vine'
-import { REFORM_SIMULATION_TARGET_YEARS } from '#constants/reform_simulator.constants'
+import { REFORM_SIMULATION_TARGET_YEARS } from '#constants/reform_simulator'
 
 /**
  * Validador del query de simulación de reforma de jornada.
