@@ -1,6 +1,5 @@
-import env from '#start/env'
 import logger from '@adonisjs/core/services/logger'
-import BusinessUnit from '#models/business_unit'
+import { TenantContext } from '#utils/tenant_context'
 import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 import EmpresaContratante from '#models/empresa_contratante'
 import RepseRegistration from '#models/repse_registration'
@@ -18,8 +17,8 @@ import { RepseRegistrationError } from '../exceptions/repse_registration_error.j
 /**
  * Helpers reutilizables para aplicar el aislamiento multi-tenant del módulo
  * REPSE. Encapsulan la resolución de los `business_unit_id` permitidos por
- * el tenant actual (vía `SYSTEM_BUSINESS`) y la verificación de que un
- * registro REPSE pertenezca a dicho tenant.
+ * el tenant actual (vía el resolvedor central `TenantContext`) y la
+ * verificación de que un registro REPSE pertenezca a dicho tenant.
  *
  * Se extraen del servicio padre para que las historias siguientes de la
  * cadena (catálogo de servicios especializados, contratos B2B, asignación
@@ -27,27 +26,18 @@ import { RepseRegistrationError } from '../exceptions/repse_registration_error.j
  */
 
 /**
- * Devuelve los IDs de unidades de negocio activas a las que el usuario
- * autenticado puede llegar, según los slugs declarados en `SYSTEM_BUSINESS`.
+ * Devuelve los IDs de unidades de negocio accesibles para la request actual,
+ * resueltos por el middleware `businessScope()` (rol `root` incluido, vía
+ * `BusinessAccessScopeService.getAllActiveIds()` + unidad seleccionada en el
+ * header) y propagados por `TenantContext` (AsyncLocalStorage).
+ *
+ * Fail-closed: si no hay `TenantContext` activo (la request no pasó por el
+ * middleware), `TenantContext.getScope()` devuelve `[]`; los callers de este
+ * helper ya tratan un scope vacío como "sin acceso" (404), por lo que nunca
+ * se degrada a una consulta sin filtro.
  */
 export async function getAllowedBusinessUnitIds(): Promise<number[]> {
-  const businessConf = `${env.get('SYSTEM_BUSINESS') ?? ''}`
-  const businessSlugs = businessConf
-    .split(',')
-    .map((slug) => slug.trim())
-    .filter((slug) => slug.length > 0)
-
-  if (businessSlugs.length === 0) {
-    return []
-  }
-
-  const businessUnits = await BusinessUnit.query()
-    .whereNull('business_unit_deleted_at')
-    .where('business_unit_active', 1)
-    .whereIn('business_unit_slug', businessSlugs)
-    .select('business_unit_id')
-
-  return businessUnits.map((bu) => bu.businessUnitId)
+  return TenantContext.getScope()
 }
 
 /**

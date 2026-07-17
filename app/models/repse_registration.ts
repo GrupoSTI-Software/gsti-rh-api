@@ -5,6 +5,7 @@ import { DateTime } from 'luxon'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from '#models/business_unit'
 import RepseSpecializedService from '#models/repse_specialized_service'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * Estados permitidos para un registro REPSE.
@@ -55,7 +56,11 @@ export type RepseRegistrationStatus = 'active'
  *           format: date-time
  *           nullable: true
  */
-export default class RepseRegistration extends compose(BaseModel, SoftDeletes) {
+export default class RepseRegistration extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'repse_registrations'
 
   @column({ isPrimary: true })

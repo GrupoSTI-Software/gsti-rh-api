@@ -14,6 +14,7 @@ import BusinessUnitService from '#services/business_unit_service'
 import AuthTokenService from '#services/auth_token_service'
 import SystemSettingService from '#services/system_setting_service'
 import { resolveSignupApiError } from '#helpers/signup_api_error'
+import RoleService from '#services/role_service'
 
 export interface StartSignupData {
   firstName: string
@@ -39,6 +40,7 @@ interface ServiceResult {
   key?: string
   detail?: string
   errorCode?: string
+  code?: string
 }
 
 export default class SignupDraftService {
@@ -232,6 +234,37 @@ export default class SignupDraftService {
 
     let businessUnit: BusinessUnit
     let user: User
+    // El registro self-service asigna el rol owner (dueño de la cuenta contratada),
+    // resuelto por slug y nunca hardcodeado: distinto del rol interno usado antes (roleId 1).
+    const roleService = new RoleService()
+    const ownerRole = await roleService.findRoleBySlug('owner')
+    if (!ownerRole) {
+      logger.error(
+        'SignupDraftService.complete: el rol "owner" no existe en el catálogo de roles.'
+      )
+      return {
+        status: 500,
+        type: 'error',
+        title: this.t('signup_owner_role_missing_title'),
+        message: this.t('signup_owner_role_missing_detail'),
+        detail: this.t('signup_owner_role_missing_detail'),
+        key: 'rol-owner-no-encontrado',
+        code: 'SIGNUP.ROLE.OWNER_NOT_FOUND.001',
+        data: {},
+      }
+    }
+
+    // UserService.create ya ejecuta related('businessUnits').attach(businessUnitIds) internamente.
+    // const userData = new User()
+    // userData.userEmail = draft.signupDraftEmail
+    // userData.userPassword = data.password
+    // userData.userActive = 1
+    // userData.roleId = ownerRole.roleId
+    // userData.personId = person.personId
+    // userData.userToken = ''
+    // userData.pinCode = ''
+    // userData.userEmailType = 'personal'
+    // const user = await userService.create(userData, [businessUnit.businessUnitId])
 
     // Armado completo del alta (Person → BusinessUnit → User → attach →
     // system_settings) todo-o-nada: un fallo en cualquier paso revierte todo,

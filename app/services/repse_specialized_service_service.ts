@@ -56,9 +56,8 @@ function serializeRepseSpecializedService(row: RepseSpecializedService) {
  * - Cada registro vive colgando de un `RepseRegistration` (parent) que a su
  *   vez pertenece a una `BusinessUnit`.
  * - Aísla por tenant heredando del padre: cada operación valida que el
- *   `repse_registration_id` involucrado pertenezca a una empresa autorizada
- *   por el slug declarado en `SYSTEM_BUSINESS` (vía
- *   `findRegistrationInTenantOrFail`).
+ *   `repse_registration_id` involucrado pertenezca al scope central resuelto
+ *   por `TenantContext` (vía `findRegistrationInTenantOrFail`).
  * - Las reglas no especificadas explícitamente por la HU se mantienen al
  *   mínimo: `name` obligatorio (3–150), `objectDescription` obligatorio,
  *   `status` opcional con default `active`.
