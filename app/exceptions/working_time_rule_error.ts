@@ -7,6 +7,7 @@ export type WorkingTimeRuleErrorKey =
   | 'valores-invalidos'
   | 'override-excede-federal'
   | 'valor-fuera-de-rango'
+  | 'jornada-no-resuelta'
 
 export default class WorkingTimeRuleError extends Error {
   readonly key: WorkingTimeRuleErrorKey
