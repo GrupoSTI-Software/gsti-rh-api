@@ -247,6 +247,19 @@
   "work_journal_seal_secret_missing_message": "WORK_JOURNAL_HMAC_SECRET must be configured on the server.",
   "work_journal_unexpected_error_title": "Error",
   "work_journal_unexpected_error_message": "An unexpected error occurred on the server.",
+  "working_time_rule_vigencia_solapada_title": "Overlapping validity",
+  "working_time_rule_vigencia_solapada_message": "A working time rule already exists that overlaps the specified period.",
+  "working_time_rule_valores_invalidos_title": "Invalid values",
+  "working_time_rule_valores_invalidos_message": "The working time values are not valid.",
+  "working_time_rule_override_excede_federal_title": "Override exceeds federal",
+  "working_time_rule_override_excede_federal_message": "The override cannot exceed the current federal caps.",
+  "working_time_rule_valor_fuera_de_rango_title": "Value out of range",
+  "working_time_rule_valor_fuera_de_rango_message": "One or more working time values are outside the allowed range.",
+  "working_time_rule_jornada_no_resuelta_title": "Unresolved working time",
+  "working_time_rule_jornada_no_resuelta_message": "No federal rule or override is in effect for the specified date.",
+  "working_time_rule_unresolved_mark": "Unresolved legal working time — overtime omitted",
+  "working_time_rule_unexpected_error_title": "Server error",
+  "working_time_rule_unexpected_error_message": "An unexpected error occurred on the server.",
   "address": "Address",
   "the_address": "The address",
   "address_type": "Address type",
@@ -390,9 +403,13 @@
   "vacation_day": "Vacation Day",
   "next": "Next",
   "company": "Company",
+  "work_business_unit": "Work Business Unit",
+  "payroll_business_unit": "Payroll Business Unit",
   "leaves": "Leaves",
   "double_overtime_hours": "Double OT",
   "triple_overtime_hours": "Triple OT",
+  "extended_double_overtime_hours": "Double OT (+UA)",
+  "extended_triple_overtime_hours": "Triple OT (+UA)",
   "sunday_bonus_abb": "Sun. bonus",
   "rest_day_worked": "Worked rest",
   "vacation_bonus": "Vac. bonus",
@@ -928,6 +945,14 @@
   "signup_password_requires_number": "Password must contain at least one number",
   "signup_password_requires_symbol": "Password must contain at least one symbol",
   "signup_passwords_do_not_match": "Passwords do not match",
+  "signup_settings_provisioning_failed": "It was not possible to create the base configuration of the new company",
+  "signup_settings_provisioning_failed_title": "Signup",
+  "signup_error_default_title": "Signup",
+  "system_setting_resolution_not_found_title": "Configuration not found",
+  "system_setting_resolution_not_found_detail": "The company does not have its own System Settings configuration.",
+  "system_setting_resolution_default_title": "System Settings",
+  "signup_owner_role_missing_title": "Signup",
+  "signup_owner_role_missing_detail": "The owner role could not be assigned because the role catalog is unavailable. Please contact support.",
   "magic_link_title": "Magic link",
   "magic_link_request_message": "If the email is registered, you will receive a sign-in link shortly. Check your inbox.",
   "magic_link_token_missing_title": "Validation error",
@@ -2016,6 +2041,13 @@
     "initialize_success": "Telework Policy draft created successfully.",
     "update_success": "Telework Policy draft updated successfully.",
     "discard_success": "Telework Policy draft discarded successfully.",
+    "publish_success": "Telework Policy published and distributed successfully.",
+    "draft_from_latest_success": "New Telework Policy draft created from the current version.",
+    "versions_success": "Version history retrieved successfully.",
+    "tracking_success": "Acknowledgement tracking retrieved successfully.",
+    "remind_success": "Reminder sent successfully.",
+    "remind_no_pending_success": "There are no teleworkers pending acknowledgement; no reminder needed to be sent.",
+    "remind_no_matching_pending_success": "None of the specified teleworkers are pending acknowledgement; no reminder was sent.",
     "errors": {
       "politica-ya-existe": {
         "title": "Telework Policy",
@@ -2032,6 +2064,18 @@
       "politica-publicada-inmutable": {
         "title": "Telework Policy",
         "detail": "An already published version cannot be edited."
+      },
+      "politica-incompleta-para-publicar": {
+        "title": "Telework Policy",
+        "detail": "Cannot publish; some components of section 5.2 have no content."
+      },
+      "sin-version-vigente": {
+        "title": "Telework Policy",
+        "detail": "This business unit has no published current version to start from."
+      },
+      "borrador-ya-existe": {
+        "title": "Telework Policy",
+        "detail": "An active draft already exists; edit it instead of creating another one."
       },
       "entrada-invalida": {
         "title": "Invalid input"
@@ -2134,5 +2178,9 @@
   "telework_location_not_found": "The telework location does not exist or does not belong to the selected company.",
   "telework_location_employee_id_required": "You must provide the employee (employeeId) to query their telework locations.",
   "telework_location_invalid_input": "The telework location data is not valid.",
-  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location."
+  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location.",
+  "telework_workers_title": "Telework workers list",
+  "telework_workers_list_success": "Telework workers list retrieved successfully.",
+  "telework_workers_forbidden": "You do not have permission to view the telework workers list.",
+  "telework_workers_unexpected_error": "An unexpected error occurred while retrieving the telework workers list."
 }
