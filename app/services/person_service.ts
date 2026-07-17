@@ -7,6 +7,7 @@ import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
 import { I18n } from '@adonisjs/i18n'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export default class PersonService {
 
@@ -46,7 +47,12 @@ export default class PersonService {
     return persons
   }
 
-  async create(person: Person) {
+  /**
+   * @param trx Transacción opcional (p. ej. la del alta self-service en
+   * `SignupDraftService.complete()`, USRH1783712837572). Sin `trx`, se
+   * comporta igual que antes (compatible hacia atrás).
+   */
+  async create(person: Person, trx?: TransactionClientContract) {
     const newPerson = new Person()
     newPerson.personFirstname = person.personFirstname
     newPerson.personLastname = person.personLastname
@@ -63,6 +69,9 @@ export default class PersonService {
     newPerson.personPlaceOfBirthCountry = person.personPlaceOfBirthCountry
     newPerson.personPlaceOfBirthState = person.personPlaceOfBirthState
     newPerson.personPlaceOfBirthCity = person.personPlaceOfBirthCity
+    if (trx) {
+      newPerson.useTransaction(trx)
+    }
     await newPerson.save()
 
     await newPerson.load('employee')

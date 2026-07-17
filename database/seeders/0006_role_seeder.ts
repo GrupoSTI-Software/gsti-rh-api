@@ -36,6 +36,14 @@ export default class extends BaseSeeder {
         roleDescription: 'Empleado',
         roleActive: 1,
         roleBusinessAccess: 'gsti-rh'
+      },
+      {
+        roleId: 5,
+        roleName: 'Dueño',
+        roleSlug: 'owner',
+        roleDescription: 'Dueño de la cuenta contratada por autoservicio (acceso total a su empresa)',
+        roleActive: 1,
+        roleBusinessAccess: 'gsti-rh'
       }
     ]
 

@@ -700,13 +700,32 @@ export default class extends BaseSeeder {
         systemPermissionSlug: 'read',
         systemModuleId: 42
       },
+      {
+        systemPermissionId: 187,
+        systemPermissionName: 'Acceder',
+        systemPermissionSlug: 'read',
+        systemModuleId: 46
+      },
     ]
 
     for (const systemPermission of systemPermissions) {
-      await SystemPermission.updateOrCreate(
-        { systemPermissionId: systemPermission.systemPermissionId },
-        systemPermission,
-      )
+      // withTrashed: las filas con baja lógica cuentan para la PK pero el
+      // scope de SoftDeletes las oculta de updateOrCreate, lo que provocaba
+      // un INSERT duplicado al re-ejecutar el seeder.
+      const existing = await SystemPermission.query()
+        .withTrashed()
+        .where('systemPermissionId', systemPermission.systemPermissionId)
+        .first()
+
+      if (existing) {
+        // Se actualizan los datos sin tocar deletedAt: un permiso retirado
+        // (baja lógica) no debe revivir por re-ejecutar el seeder.
+        existing.merge(systemPermission)
+        await existing.save()
+        continue
+      }
+
+      await SystemPermission.create(systemPermission)
     }
   }
 }
