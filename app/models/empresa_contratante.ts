@@ -8,6 +8,7 @@ import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import BusinessUnit from '#models/business_unit'
 import BranchOffice from '#models/branch_office'
 import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * @swagger
@@ -41,7 +42,11 @@ import ContratoServicioEspecializado from '#models/contrato_servicio_especializa
  *           format: date-time
  *           nullable: true
  */
-export default class EmpresaContratante extends compose(BaseModel, SoftDeletes) {
+export default class EmpresaContratante extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'empresas_contratantes'
 
   @column({ isPrimary: true })

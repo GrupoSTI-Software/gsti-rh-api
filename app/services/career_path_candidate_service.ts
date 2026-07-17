@@ -13,7 +13,7 @@ import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import User from '#models/user'
 import SystemSettingService from '#services/system_setting_service'
-import SystemSetting from '#models/system_setting'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 
 export default class CareerPathCandidateService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -415,11 +415,20 @@ verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, career
   } 
 
 
+  /**
+   * USRH1783712837584: la ruta (`PUT /api/career-path-candidates/:id`) tiene
+   * `auth()` pero no `businessScope()`, así que el controller resuelve
+   * `businessUnitId` puntualmente desde el header `X-Business-Unit-Id`
+   * (`resolveRequestBusinessUnitId`) y lo pasa explícito — este servicio no
+   * lee `TenantContext` por sí mismo. Fail-closed silencioso: sin id o sin
+   * configuración propia, se conserva el branding por defecto.
+   */
   async sendStatusNotificationEmail(
     proposedByUserId: number,
     candidate: CareerPathCandidate,
     newStatus: string,
-    i18n: I18n
+    i18n: I18n,
+    businessUnitId: number | null = null
   ): Promise<void> {
     try {
       const smtpUsername = env.get('SMTP_USERNAME')
@@ -439,14 +448,18 @@ verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, career
 
       let tradeName = 'BO'
       let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-      if (systemSettingActive) {
-        if (systemSettingActive.systemSettingLogo) {
-          backgroundImageLogo = systemSettingActive.systemSettingLogo
-        }
-        if (systemSettingActive.systemSettingTradeName) {
-          tradeName = systemSettingActive.systemSettingTradeName
+      if (businessUnitId) {
+        const systemSettingService = new SystemSettingService()
+        try {
+          const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+          if (systemSettingActive.systemSettingLogo) {
+            backgroundImageLogo = systemSettingActive.systemSettingLogo
+          }
+          if (systemSettingActive.systemSettingTradeName) {
+            tradeName = systemSettingActive.systemSettingTradeName
+          }
+        } catch (error) {
+          if (!(error instanceof SystemSettingResolutionError)) throw error
         }
       }
 

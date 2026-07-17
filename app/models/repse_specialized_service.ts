@@ -16,6 +16,16 @@ import ContratoServicioEspecializado from '#models/contrato_servicio_especializa
 export type RepseSpecializedServiceStatus = 'active'
 
 /**
+ * Excepción intencional al mixin `withBusinessUnitScope()` (USRH1783691644909):
+ * este modelo no tiene columna `business_unit_id` propia (relación indirecta,
+ * ver JSDoc del mixin) y esta HU no agrega migraciones. Su aislamiento se
+ * hereda del padre `RepseRegistration` (que sí compone el mixin) mediante
+ * `whereHas('repseRegistration', ...)` en cada acceso — ver
+ * `repse_specialized_service_service.ts`. Nunca se consulta por PK propio
+ * sin ese join.
+ */
+
+/**
  * @swagger
  * components:
  *   schemas:

@@ -11,7 +11,9 @@ export type ComplianceRepseForbiddenResponse = {
 /**
  * Verifica permiso granular del módulo REPSE/compliance.
  * Permite la acción si el rol tiene el permiso específico o `gestion`.
- * Root y super-administrador omiten la verificación.
+ * Root, super-administrador y owner (USRH1783712837561) omiten la verificación:
+ * owner queda al menos igual que super-administrador para no perder acceso que
+ * ya tenía la cuenta self-service antes de esta HU.
  */
 export async function assertComplianceRepsePermission(
   ctx: HttpContext,
@@ -22,7 +24,7 @@ export async function assertComplianceRepsePermission(
   const user = ctx.auth.user!
   await user.preload('role')
   const roleSlug = user.role?.roleSlug
-  if (roleSlug === 'root' || roleSlug === 'super-administrador') {
+  if (roleSlug === 'root' || roleSlug === 'super-administrador' || roleSlug === 'owner') {
     return true
   }
 
