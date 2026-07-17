@@ -943,6 +943,11 @@
   "signup_password_requires_number": "Password must contain at least one number",
   "signup_password_requires_symbol": "Password must contain at least one symbol",
   "signup_passwords_do_not_match": "Passwords do not match",
+  "signup_settings_provisioning_failed": "It was not possible to create the base configuration of the new company",
+  "signup_settings_provisioning_failed_title": "Signup",
+  "signup_error_default_title": "Signup",
+  "signup_owner_role_missing_title": "Signup",
+  "signup_owner_role_missing_detail": "The owner role could not be assigned because the role catalog is unavailable. Please contact support.",
   "magic_link_title": "Magic link",
   "magic_link_request_message": "If the email is registered, you will receive a sign-in link shortly. Check your inbox.",
   "magic_link_token_missing_title": "Validation error",
@@ -2149,5 +2154,9 @@
   "telework_location_not_found": "The telework location does not exist or does not belong to the selected company.",
   "telework_location_employee_id_required": "You must provide the employee (employeeId) to query their telework locations.",
   "telework_location_invalid_input": "The telework location data is not valid.",
-  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location."
+  "telework_location_unexpected_error": "An unexpected error occurred while processing the telework location.",
+  "telework_workers_title": "Telework workers list",
+  "telework_workers_list_success": "Telework workers list retrieved successfully.",
+  "telework_workers_forbidden": "You do not have permission to view the telework workers list.",
+  "telework_workers_unexpected_error": "An unexpected error occurred while retrieving the telework workers list."
 }

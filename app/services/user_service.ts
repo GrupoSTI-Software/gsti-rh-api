@@ -23,6 +23,7 @@ import RoleService from './role_service.js'
 import EmployeeType from '#models/employee_type'
 import Shift from '#models/shift'
 import EmployeeShift from '#models/employee_shift'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export default class UserService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -121,8 +122,12 @@ export default class UserService {
    *
    * @param user Datos base del usuario a crear.
    * @param businessUnitIds IDs de unidades de negocio ya validados (deben existir y estar activos).
+   * @param trx Transacción opcional (p. ej. la del alta self-service en
+   * `SignupDraftService.complete()`, USRH1783712837572). Al establecerla en el
+   * modelo con `useTransaction()`, la relación `related('businessUnits').attach()`
+   * corre en la misma transacción. Sin `trx`, se comporta igual que antes.
    */
-  async create(user: User, businessUnitIds: number[] = []) {
+  async create(user: User, businessUnitIds: number[] = [], trx?: TransactionClientContract) {
     const newUser = new User()
     newUser.userEmail = user.userEmail
     newUser.userPassword = user.userPassword
@@ -130,6 +135,9 @@ export default class UserService {
     newUser.roleId = user.roleId
     newUser.personId = user.personId
     newUser.userEmailType = user.userEmailType
+    if (trx) {
+      newUser.useTransaction(trx)
+    }
     await newUser.save()
 
     if (businessUnitIds.length > 0) {
