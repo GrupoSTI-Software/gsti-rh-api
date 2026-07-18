@@ -5,7 +5,8 @@ import { compose } from '@adonisjs/core/helpers'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
 import BusinessUnit from './business_unit.js'
-import type { ComplaintCategory, ComplaintStatus } from '#constants/complaint'
+import ComplaintCategory from './complaint_category.js'
+import type { ComplaintStatus } from '#constants/complaint'
 
 /**
  * @swagger
@@ -20,10 +21,9 @@ import type { ComplaintCategory, ComplaintStatus } from '#constants/complaint'
  *         complaintFolio:
  *           type: string
  *           description: Complaint folio
- *         complaintCategory:
- *           type: string
- *           enum: [violencia-laboral, entorno, otro]
- *           description: Complaint category (NOM-035 reporting type)
+ *         complaintCategoryId:
+ *           type: number
+ *           description: FK al catálogo de categorías del buzón (NOM-035)
  *         complaintDescription:
  *           type: string
  *           description: description of the complaint
@@ -65,7 +65,7 @@ export default class Complaint extends compose(BaseModel, SoftDeletes) {
   declare complaintPassphraseHash: string
 
   @column()
-  declare complaintCategory: ComplaintCategory
+  declare complaintCategoryId: number
 
   @column()
   declare complaintDescription: string
@@ -87,4 +87,7 @@ export default class Complaint extends compose(BaseModel, SoftDeletes) {
 
   @belongsTo(() => BusinessUnit, { foreignKey: 'businessUnitId' })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @belongsTo(() => ComplaintCategory, { foreignKey: 'complaintCategoryId' })
+  declare complaintCategory: BelongsTo<typeof ComplaintCategory>
 }

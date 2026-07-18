@@ -46,8 +46,7 @@ export default class ComplaintController {
    *             properties:
    *               category:
    *                 type: string
-   *                 description: Complaint category aligned with NOM-035 reporting types
-   *                 enum: [violencia-laboral, entorno, otro]
+   *                 description: Slug estable de la categoría según el catálogo del buzón
    *                 example: violencia-laboral
    *               description:
    *                 type: string
@@ -102,6 +101,33 @@ export default class ComplaintController {
    *                   type: object
    *                   nullable: true
    *                   description: Validation details when applicable
+   *       '422':
+   *         description: Slug de categoría inexistente o inactivo en el catálogo
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   description: Clave estable del error
+   *                   example: CMPL.VAL.CATEGORY
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   description: Código estable del error
+   *                   example: CMPL.VAL.CATEGORY.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       '403':
    *         description: Authenticated user has no associated employee record to submit a complaint
    *         content:
@@ -171,7 +197,7 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.complaintApiService.respondError(error, response, 500, i18n)
+      return this.complaintApiService.respondError(error, response, 422, i18n)
     }
   }
 
@@ -210,9 +236,9 @@ export default class ComplaintController {
    *         name: category
    *         schema:
    *           type: string
-   *           enum: [violencia-laboral, entorno, otro]
-   *         description: Filter by complaint category (NOM-035 reporting type)
+   *         description: Filtrar por slug de categoría del catálogo (`GET /api/v1/complaint-categories`)
    *         required: false
+   *         example: violencia-laboral
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -283,6 +309,31 @@ export default class ComplaintController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '422':
+   *         description: Slug de categoría inexistente o inactivo en el catálogo
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: CMPL.VAL.CATEGORY
+   *                 detail:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.VAL.CATEGORY.001
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1767,6 +1818,23 @@ export default class ComplaintController {
    *                 data:
    *                   type: object
    *                   description: Public complaint status snapshot (no reporter identity)
+   *                   properties:
+   *                     folio:
+   *                       type: string
+   *                     status:
+   *                       type: string
+   *                     category:
+   *                       type: string
+   *                       description: Slug estable de la categoría
+   *                     categoryLabel:
+   *                       type: string
+   *                       description: Etiqueta traducida según Accept-Language
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
    *       '400':
    *         description: The parameters entered are invalid or essential data is missing to process the request
    *         content:
@@ -1859,7 +1927,7 @@ export default class ComplaintController {
     try {
       const payload = await consultComplaintStatusValidator.validate(request.qs())
       const complaintService = new ComplaintService()
-      const result = await complaintService.consultStatus(payload)
+      const result = await complaintService.consultStatus(payload, i18n)
 
       response.status(200)
       return {
