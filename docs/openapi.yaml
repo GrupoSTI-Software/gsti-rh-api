@@ -3335,6 +3335,122 @@ components:
           type: object
           nullable: true
 
+    RepseExpedienteDocumento:
+      type: object
+      properties:
+        repseExpedienteDocumentoId:
+          type: integer
+        proveedorRepseId:
+          type: integer
+        businessUnitId:
+          type: integer
+        tipo:
+          type: string
+          enum: [contrato, anexo-15d, cfdi, comprobante-imss, comprobante-infonavit, declaracion-isr, declaracion-iva, retencion-isr]
+        anio:
+          type: integer
+        mes:
+          type: integer
+          nullable: true
+        cuatrimestre:
+          type: integer
+          nullable: true
+        fechaDocumento:
+          type: string
+          format: date
+          nullable: true
+        conservarHasta:
+          type: string
+          format: date
+        nombreArchivo:
+          type: string
+        mimeType:
+          type: string
+        tamanoBytes:
+          type: integer
+        subidoPorUserId:
+          type: integer
+          nullable: true
+        repseExpedienteDocumentoCreatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RepseExpedienteDocumentoSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            documentoExpediente:
+              $ref: '#/components/schemas/RepseExpedienteDocumento'
+
+    RepseExpedienteListSuccess:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            expediente:
+              type: object
+              properties:
+                meta:
+                  type: object
+                  properties:
+                    total: { type: integer }
+                    perPage: { type: integer }
+                    currentPage: { type: integer }
+                    lastPage: { type: integer }
+                    page: { type: integer }
+                    firstPage: { type: integer }
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RepseExpedienteDocumento'
+
+    RepseExpedienteApiError:
+      type: object
+      description: Contrato de error del expediente REPSE (prefijo `REXP`).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        key:
+          type: string
+        detail:
+          type: string
+        errorCode:
+          type: string
+        data:
+          type: object
+          nullable: true
+      example:
+        type: error
+        title: Documento inválido
+        message: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+        key: documento-invalido
+        errorCode: REXP.VAL.DOC.001
+        detail: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+        data: null
+
 paths:
   /api/employees/{employeeId}/temporary-assignments:
     post:
@@ -9030,3 +9146,441 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseProviderApiError'
+
+  /api/repse-providers/{providerId}/expediente:
+    get:
+      summary: Listar documentos del expediente de un proveedor REPSE
+      description: Lista paginada filtrable por tipo/periodo. Registra consulta en bitácora.
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: tipo
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [contrato, anexo-15d, cfdi, comprobante-imss, comprobante-infonavit, declaracion-isr, declaracion-iva, retencion-isr]
+        - name: anio
+          in: query
+          schema: { type: integer }
+        - name: mes
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+        - name: cuatrimestre
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 3 }
+        - name: page
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Listado paginado (registra consulta en bitácora)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteListSuccess'
+              example:
+                type: success
+                title: Expediente de Proveedor REPSE
+                message: Documentos del expediente obtenidos correctamente
+                data:
+                  expediente:
+                    meta:
+                      total: 1
+                      perPage: 20
+                      currentPage: 1
+                      lastPage: 1
+                      page: 1
+                      firstPage: 1
+                    data:
+                      - repseExpedienteDocumentoId: 1
+                        proveedorRepseId: 1
+                        businessUnitId: 1
+                        tipo: contrato
+                        anio: 2024
+                        mes: null
+                        cuatrimestre: null
+                        fechaDocumento: "2024-01-15"
+                        conservarHasta: "2029-01-15"
+                        nombreArchivo: contrato-proveedor.pdf
+                        mimeType: application/pdf
+                        tamanoBytes: 245678
+                        subidoPorUserId: 5
+                        repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+        '400':
+          description: Query inválido (key `entrada-invalida`, errorCode `REXP.VAL.001`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: El valor del campo page debe ser mayor o igual a 1
+                errorCode: REXP.VAL.001
+                key: entrada-invalida
+                detail: El valor del campo page debe ser mayor o igual a 1
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso, errorCode REXP.FORBID.001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Sin permiso de consulta
+                message: No tienes permiso para consultar el expediente.
+                key: sin-permiso
+                errorCode: REXP.FORBID.001
+                data: null
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Proveedor REPSE no encontrado
+                message: El proveedor REPSE no existe o no pertenece al tenant actual.
+                key: proveedor-repse-no-encontrado
+                errorCode: REXP.NF.001
+                detail: El proveedor REPSE no existe o no pertenece al tenant actual.
+                data: null
+
+    post:
+      summary: Subir un documento al expediente del proveedor REPSE
+      description: |
+        Multipart obligatorio. Campo **`archivo`** (File): solo PDF, máximo 10 MB.
+        Campo **`tipo`**: catálogo cerrado. Calcula `conservarHasta` (+5 años).
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [tipo, anio, archivo]
+              properties:
+                tipo:
+                  type: string
+                  enum: [contrato, anexo-15d, cfdi, comprobante-imss, comprobante-infonavit, declaracion-isr, declaracion-iva, retencion-isr]
+                anio: { type: integer, minimum: 2000, maximum: 2100 }
+                mes: { type: integer, minimum: 1, maximum: 12 }
+                cuatrimestre: { type: integer, minimum: 1, maximum: 3 }
+                fechaDocumento: { type: string, format: date }
+                archivo:
+                  type: string
+                  format: binary
+                  description: PDF obligatorio, máximo 10 MB (clave multipart `archivo`)
+      responses:
+        '201':
+          description: Documento registrado con conservarHasta calculada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteDocumentoSuccess'
+              example:
+                type: success
+                title: Documento del expediente REPSE
+                message: Documento del expediente registrado correctamente
+                data:
+                  documentoExpediente:
+                    repseExpedienteDocumentoId: 1
+                    proveedorRepseId: 1
+                    businessUnitId: 1
+                    tipo: contrato
+                    anio: 2024
+                    mes: null
+                    cuatrimestre: null
+                    fechaDocumento: "2024-01-15"
+                    conservarHasta: "2029-01-15"
+                    nombreArchivo: contrato-proveedor.pdf
+                    mimeType: application/pdf
+                    tamanoBytes: 245678
+                    subidoPorUserId: 5
+                    repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+        '400':
+          description: Metadatos inválidos VineJS (key entrada-invalida, errorCode REXP.VAL.001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: "El tipo de documento seleccionado no es válido. Las opciones válidas son: 'contrato', 'anexo-15d', 'cfdi', 'comprobante-imss', 'comprobante-infonavit', 'declaracion-isr', 'declaracion-iva', 'retencion-isr'."
+                errorCode: REXP.VAL.001
+                key: entrada-invalida
+                detail: "El tipo de documento seleccionado no es válido. Las opciones válidas son: 'contrato', 'anexo-15d', 'cfdi', 'comprobante-imss', 'comprobante-infonavit', 'declaracion-isr', 'declaracion-iva', 'retencion-isr'."
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: REXP.FORBID.001
+                data: null
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Proveedor REPSE no encontrado
+                message: El proveedor REPSE no existe o no pertenece al tenant actual.
+                key: proveedor-repse-no-encontrado
+                errorCode: REXP.NF.001
+                detail: El proveedor REPSE no existe o no pertenece al tenant actual.
+                data: null
+        '422':
+          description: Archivo inválido (key documento-invalido) o fallo S3 (REXP.S3.001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              examples:
+                archivoFaltante:
+                  summary: Falta campo multipart archivo
+                  value:
+                    type: error
+                    title: Documento inválido
+                    message: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+                    key: documento-invalido
+                    errorCode: REXP.VAL.DOC.001
+                    detail: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+                    data: null
+                tamanoExcedido:
+                  summary: PDF mayor a 10 MB
+                  value:
+                    type: error
+                    title: Documento inválido
+                    message: "El archivo enviado en 'archivo' excede el tamaño máximo de 10 MB."
+                    key: documento-invalido
+                    errorCode: REXP.VAL.DOC.001
+                    detail: "El archivo enviado en 'archivo' excede el tamaño máximo de 10 MB."
+                    data: null
+
+  /api/repse-providers/{providerId}/expediente/{docId}/download:
+    get:
+      summary: Descargar un documento del expediente REPSE
+      description: Stream PDF privado. Registra descarga en bitácora.
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: docId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Stream del PDF (Content-Disposition attachment, Cache-Control private no-store)
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Sin permiso de consulta
+                message: No tienes permiso para consultar el expediente.
+                key: sin-permiso
+                errorCode: REXP.FORBID.001
+                data: null
+        '404':
+          description: Proveedor o documento inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              examples:
+                documentoNoEncontrado:
+                  summary: Documento inexistente
+                  value:
+                    type: error
+                    title: Documento no encontrado
+                    message: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                    key: documento-no-encontrado
+                    errorCode: REXP.NF.001
+                    detail: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                    data: null
+
+  /api/repse-providers/{providerId}/expediente/{docId}:
+    delete:
+      summary: Baja lógica de un documento del expediente
+      description: Soft delete. Bloqueado en retención vigente salvo rol elevado.
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: docId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Documento eliminado lógicamente (sin body; registra eliminacion en bitácora)
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Retención vigente (key retencion-vigente) o sin permiso delete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              examples:
+                retencionVigente:
+                  summary: Retención normativa activa
+                  value:
+                    type: error
+                    title: Retención vigente
+                    message: No se puede eliminar el documento mientras esté vigente su periodo de retención normativa.
+                    key: retencion-vigente
+                    errorCode: REXP.FORBID.RET.001
+                    detail: No se puede eliminar el documento mientras esté vigente su periodo de retención normativa.
+                    data: null
+        '404':
+          description: Documento inexistente (key documento-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Documento no encontrado
+                message: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                key: documento-no-encontrado
+                errorCode: REXP.NF.001
+                detail: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                data: null

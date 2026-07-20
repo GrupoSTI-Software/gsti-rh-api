@@ -141,6 +141,8 @@ export class StandardResponseFormatter {
       'Proveedor REPSE': 'proveedorRepse',
       'Validaciones de Proveedor REPSE': 'validaciones',
       'Validación de Proveedor REPSE': 'validacion',
+      'Expediente de Proveedor REPSE': 'expediente',
+      'Documento del expediente REPSE': 'documentoExpediente',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')
