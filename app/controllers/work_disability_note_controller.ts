@@ -5,6 +5,17 @@ import {
   createWorkDisabilityNoteValidator,
   updateWorkDisabilityNoteValidator,
 } from '#validators/work_disability_note'
+import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
+function workDisabilityNoteNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: WORK_DISABILITY_ERROR_CODES.NOT_FOUND,
+  })
+}
 
 export default class WorkDisabilityNoteController {
   /**
@@ -273,13 +284,7 @@ export default class WorkDisabilityNoteController {
       const workDisabilityNoteService = new WorkDisabilityNoteService()
       const showWorkDisabilityNote = await workDisabilityNoteService.show(workDisabilityNoteId)
       if (!showWorkDisabilityNote) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability note was not found',
-          message: 'The work disability note was not found with the entered ID',
-          data: { workDisabilityNoteId },
-        }
+        return workDisabilityNoteNotFoundResponse(response)
       } else {
         response.status(200)
         return {
@@ -427,13 +432,7 @@ export default class WorkDisabilityNoteController {
         .where('work_disability_note_id', workDisabilityNoteId)
         .first()
       if (!currentWorkDisabilityNote) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability note was not found',
-          message: 'The work disability note was not found with the entered ID',
-          data: { workDisabilityNoteId },
-        }
+        return workDisabilityNoteNotFoundResponse(response)
       }
       const workDisabilityNoteDescription = request.input('workDisabilityNoteDescription')
       const workDisabilityNote = {
@@ -583,13 +582,7 @@ export default class WorkDisabilityNoteController {
         .where('work_disability_note_id', workDisabilityNoteId)
         .first()
       if (!currentWorkDisabilityNote) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability note was not found',
-          message: 'The work disability note was not found with the entered ID',
-          data: { workDisabilityNoteId },
-        }
+        return workDisabilityNoteNotFoundResponse(response)
       }
       const workDisabilityNoteService = new WorkDisabilityNoteService()
       const deleteWorkDisabilityNote =

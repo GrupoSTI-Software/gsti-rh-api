@@ -13,6 +13,7 @@ import LactationExpiringMail, {
   type LactationExpiringMailRow,
 } from '#mails/lactation_expiring_mail'
 import mail from '@adonisjs/mail/services/main'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Logger inyectable. El comando ace pasa los métodos `info/warn/error` de
@@ -76,6 +77,8 @@ interface CandidateRow {
   fullName: string
   employeeCode: string | null
   businessUnitSlug: string
+  /** Marca de pertenencia del periodo (para el INSERT crudo de notificaciones). */
+  businessUnitId: number
 }
 
 /**
@@ -103,9 +106,22 @@ export default class EmployeeLactationNotificationService {
    * Diferencia entre los dos: ninguna. La HU lo pidió así para que el
    * endpoint sea fiel reproducción del cron y RH pueda verificar
    * exactamente lo que se enviaría.
+   *
+   * USRH1784259058510: corrida cross-empresa envuelta en `runUnscoped`
+   * para que el camino HTTP (bajo `businessScope`) no quede acotado a
+   * la unidad del actor; el cron ya corre sin contexto.
    */
   async runExpiringCheck(
     logger: NotificationServiceLogger = NOOP_LOGGER
+  ): Promise<RunExpiringCheckResult> {
+    return TenantContext.runUnscoped(
+      () => this.executeExpiringCheck(logger),
+      'aviso de vencimientos de lactancia (cross-empresa)'
+    )
+  }
+
+  private async executeExpiringCheck(
+    logger: NotificationServiceLogger
   ): Promise<RunExpiringCheckResult> {
     const today = DateTime.now().setZone('America/Mexico_City').startOf('day')
     const horizon = today.plus({ days: LACTATION_EXPIRING_THRESHOLD_DAYS })
@@ -224,6 +240,7 @@ export default class EmployeeLactationNotificationService {
         await db.table('employee_lactation_period_notifications').multiInsert(
           toSend.map((r) => ({
             employee_lactation_period_id: r.employeeLactationPeriodId,
+            business_unit_id: r.businessUnitId,
             lactation_notification_type: LACTATION_NOTIFICATION_TYPE.EXPIRING,
             lactation_notification_sent_at: sentAt,
             employee_lactation_period_notification_created_at: sentAt,
@@ -318,6 +335,7 @@ export default class EmployeeLactationNotificationService {
         fullName,
         employeeCode: employee.employeeCode ? String(employee.employeeCode) : null,
         businessUnitSlug: employee.businessUnit.businessUnitSlug ?? '',
+        businessUnitId: period.businessUnitId,
       })
     }
     return candidates

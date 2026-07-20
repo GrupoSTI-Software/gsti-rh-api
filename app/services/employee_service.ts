@@ -7200,14 +7200,24 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         .count('* as total')
       const totalEmployeeContracts = await EmployeeContract.query()
         .count('* as total')
-      const totalWorkDisabilities = await WorkDisability.query()
-        .count('* as total')
-      const totalWorkDisabilityNotes = await WorkDisabilityNote.query()
-        .count('* as total')
-      const totalWorkDisabilityPeriods = await WorkDisabilityPeriod.query()
-        .count('* as total')
-      const totalWorkDisabilityPeriodExpenses = await WorkDisabilityPeriodExpense.query()
-        .count('* as total')
+      // USRH1784259058487: counts globales de incapacidades bajo bypass del candado.
+      const {
+        totalWorkDisabilities,
+        totalWorkDisabilityNotes,
+        totalWorkDisabilityPeriods,
+        totalWorkDisabilityPeriodExpenses,
+      } = await TenantContext.runUnscoped(async () => {
+        const disabilities = await WorkDisability.query().count('* as total')
+        const notes = await WorkDisabilityNote.query().count('* as total')
+        const periods = await WorkDisabilityPeriod.query().count('* as total')
+        const expenses = await WorkDisabilityPeriodExpense.query().count('* as total')
+        return {
+          totalWorkDisabilities: disabilities,
+          totalWorkDisabilityNotes: notes,
+          totalWorkDisabilityPeriods: periods,
+          totalWorkDisabilityPeriodExpenses: expenses,
+        }
+      }, 'purga masiva de empleados')
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -7330,17 +7340,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       // 19. Eliminar todas las relaciones en employee_records
       await EmployeeRecord.query().delete()
 
-      // 20. Eliminar todas las relaciones en work_disability_notes
-      await WorkDisabilityNote.query().delete()
-
-      // 22. Eliminar todas las relaciones en work_disability_period_expenses
-      await WorkDisabilityPeriodExpense.query().delete()
-
-      // 22. Eliminar todas las relaciones en work_disability_periods
-      await WorkDisabilityPeriod.query().delete()
-
-      // 23. Eliminar todas las relaciones en work_disabilities
-      await WorkDisability.query().delete()
+      // 20–23. Eliminar incapacidades y colgados (bypass del candado, USRH1784259058487)
+      await TenantContext.runUnscoped(async () => {
+        await WorkDisabilityNote.query().delete()
+        await WorkDisabilityPeriodExpense.query().delete()
+        await WorkDisabilityPeriod.query().delete()
+        await WorkDisability.query().delete()
+      }, 'purga masiva de empleados')
 
       // 24. Eliminar todas las relaciones en exception_requests
       await ExceptionRequest.query().delete()

@@ -3079,6 +3079,262 @@ components:
           type: object
           nullable: true
 
+    RepseProvider:
+      type: object
+      description: |
+        Catálogo de proveedores REPSE del contratante (USRH1784259105646).
+        Lado contratante: el tenant es quien contrata servicios especializados
+        y cataloga a SUS proveedores REPSE, a diferencia de `RepseRegistration`
+        (lado prestador).
+      properties:
+        proveedorRepseId:
+          type: integer
+        businessUnitId:
+          type: integer
+        razonSocial:
+          type: string
+        rfc:
+          type: string
+        folio:
+          type: string
+        objetoRegistrado:
+          type: string
+        folioVencimiento:
+          type: string
+          format: date
+        periodicidadMeses:
+          type: integer
+        nextReviewAt:
+          type: string
+          format: date
+          nullable: true
+        reviewStatus:
+          type: string
+          enum: [pending_first_validation, on_track, due_soon, overdue]
+          description: |
+            Indicador MVP de próxima revisión (sin correo). `overdue` aplica tanto si
+            el ciclo de validaciones (`nextReviewAt`) ya venció como si `folioVencimiento`
+            ya pasó (aunque no le toque su próxima revisión periódica todavía).
+        proveedorRepseCreatedAt:
+          type: string
+          format: date-time
+        proveedorRepseUpdatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RepseProviderCreate:
+      type: object
+      required: [businessUnitId, razonSocial, rfc, folio, objetoRegistrado, folioVencimiento]
+      properties:
+        businessUnitId:
+          type: integer
+        razonSocial:
+          type: string
+          maxLength: 255
+        rfc:
+          type: string
+          minLength: 12
+          maxLength: 13
+        folio:
+          type: string
+          maxLength: 50
+        objetoRegistrado:
+          type: string
+          maxLength: 1000
+        folioVencimiento:
+          type: string
+          format: date
+          description: Debe ser hoy o una fecha futura (AAAA-MM-DD); no se acepta un folio ya vencido.
+        periodicidadMeses:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 1
+
+    RepseProviderUpdate:
+      type: object
+      properties:
+        businessUnitId:
+          type: integer
+        razonSocial:
+          type: string
+          maxLength: 255
+        rfc:
+          type: string
+          minLength: 12
+          maxLength: 13
+        folio:
+          type: string
+          maxLength: 50
+        objetoRegistrado:
+          type: string
+          maxLength: 1000
+        folioVencimiento:
+          type: string
+          format: date
+          description: |
+            Debe ser hoy o una fecha futura (AAAA-MM-DD); no se acepta un folio ya vencido.
+        periodicidadMeses:
+          type: integer
+          minimum: 1
+          maximum: 60
+          description: Si cambia, `nextReviewAt` se recalcula a partir de la última validación registrada.
+
+    RepseProviderSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            proveedorRepse:
+              $ref: '#/components/schemas/RepseProvider'
+
+    RepseProvidersListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            proveedoresRepse:
+              type: object
+              properties:
+                meta:
+                  $ref: '#/components/schemas/PaginationMeta'
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RepseProvider'
+
+    RepseProviderValidation:
+      type: object
+      description: |
+        Fila de la bitácora de validaciones periódicas del folio de un
+        proveedor REPSE. Append-only: nunca se edita ni se borra.
+      properties:
+        proveedorRepseValidacionId:
+          type: integer
+        proveedorRepseId:
+          type: integer
+        businessUnitId:
+          type: integer
+        estatus:
+          type: string
+          enum: [vigente, no_vigente]
+        fecha:
+          type: string
+          format: date
+        autorUserId:
+          type: integer
+        autor:
+          type: object
+          nullable: true
+          properties:
+            userId:
+              type: integer
+            nombreCompleto:
+              type: string
+        evidenciaNombreArchivo:
+          type: string
+        evidenciaMimeType:
+          type: string
+        evidenciaTamanoBytes:
+          type: integer
+        proveedorRepseValidacionCreatedAt:
+          type: string
+          format: date-time
+
+    RepseProviderValidationCreate:
+      type: object
+      required: [estatus, fecha, archivo]
+      properties:
+        estatus:
+          type: string
+          enum: [vigente, no_vigente]
+        fecha:
+          type: string
+          format: date
+          description: |
+            AAAA-MM-DD. No puede ser posterior a hoy ni anterior a la fecha de la
+            última validación ya registrada para este proveedor.
+        archivo:
+          type: string
+          format: binary
+          description: Evidencia PDF/PNG/JPG (máx. 10 MB).
+
+    RepseProviderValidationSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            validacion:
+              $ref: '#/components/schemas/RepseProviderValidation'
+
+    RepseProviderValidationsListSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            validaciones:
+              type: array
+              items:
+                $ref: '#/components/schemas/RepseProviderValidation'
+
+    RepseProviderApiError:
+      type: object
+      description: Contrato de error del módulo `repse-providers` (prefijo de código `REPSEPROV`).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        key:
+          type: string
+        detail:
+          type: string
+        errorCode:
+          type: string
+        data:
+          type: object
+          nullable: true
+
 paths:
   /api/employees/{employeeId}/temporary-assignments:
     post:
@@ -8398,3 +8654,379 @@ paths:
                 detail: The employeeIds.0 field must be a number
                 key: entrada-invalida
                 data: null
+
+  /api/repse-providers:
+    get:
+      summary: Lista paginada del catálogo de proveedores REPSE del tenant
+      description: |
+        Lado contratante (USRH1784259105646): el tenant cataloga a SUS
+        proveedores REPSE y consulta el indicador de próxima revisión
+        (`nextReviewAt` + `reviewStatus`).
+      tags: [RepseProviders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: businessUnitId
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Listado paginado ordenado por fecha de creación descendente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProvidersListSuccess'
+        '400':
+          description: Validación de filtros
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: businessUnitId inexistente o ajeno al tenant (key empresa-no-encontrada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+    post:
+      summary: Registrar un proveedor REPSE en el catálogo del contratante
+      tags: [RepseProviders]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepseProviderCreate'
+      responses:
+        '201':
+          description: Proveedor creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: businessUnitId inexistente o ajeno al tenant (key empresa-no-encontrada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '409':
+          description: Folio repetido en la misma empresa (key folio-proveedor-repse-ya-registrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '422':
+          description: |
+            Validación VineJS (RFC, folio, fechas o campos requeridos) o coherencia de
+            fecha: `folioVencimiento` no puede ser anterior a hoy (key `folio-vencimiento-pasado`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+  /api/repse-providers/{id}:
+    get:
+      summary: Obtener un proveedor REPSE por id
+      tags: [RepseProviders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Proveedor encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+    put:
+      summary: Actualizar un proveedor REPSE
+      tags: [RepseProviders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepseProviderUpdate'
+      responses:
+        '200':
+          description: Actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso update o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: Proveedor o businessUnitId inexistente/ajeno al tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '409':
+          description: Folio repetido en la misma empresa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '422':
+          description: |
+            Validación VineJS o coherencia de fecha: `folioVencimiento` no puede ser
+            anterior a hoy (key `folio-vencimiento-pasado`). Si se cambia `periodicidadMeses`,
+            `nextReviewAt` se recalcula automáticamente a partir de la última validación registrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+    delete:
+      summary: Borrado lógico de un proveedor REPSE
+      tags: [RepseProviders]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Borrado lógico aplicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso delete o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: Proveedor inexistente o ajeno al tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+  /api/repse-providers/{providerId}/validations:
+    get:
+      summary: Bitácora completa de validaciones de un proveedor REPSE
+      description: Listado append-only, más reciente primero. No se pagina.
+      tags: [RepseProviderValidations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Listado cronológico descendente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderValidationsListSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+    post:
+      summary: Registrar una validación periódica del folio (con evidencia)
+      description: |
+        Alta append-only: cada validación deja quién (usuario autenticado),
+        cuándo (`fecha`) y con qué evidencia (`archivo`) se comprobó el
+        estatus del folio en el padrón REPSE de la STPS. Tras guardar,
+        recalcula `nextReviewAt` del proveedor (`fecha + periodicidadMeses`).
+      tags: [RepseProviderValidations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RepseProviderValidationCreate'
+      responses:
+        '201':
+          description: Validación registrada; nextReviewAt del proveedor actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderValidationSuccess'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '422':
+          description: |
+            Validación VineJS, evidencia inválida (key `evidencia-invalida`) o
+            incoherencia de fecha: `fecha` no puede ser posterior a hoy
+            (key `fecha-futura`) ni anterior a la última validación ya registrada
+            para el proveedor (key `fecha-anterior-a-ultima-validacion`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+
+  /api/repse-providers/{providerId}/validations/{validationId}/download:
+    get:
+      summary: Descargar la evidencia de una validación
+      description: |
+        Hace stream del archivo de evidencia adjuntado al registrar la
+        validación (POST .../validations). Contraparte de lectura necesaria
+        para poder demostrar diligencia ante una auditoría.
+      tags: [RepseProviderValidations]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: validationId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Stream del archivo de evidencia (Content-Disposition attachment)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'
+        '404':
+          description: Proveedor, validación o archivo de evidencia inexistente (key proveedor-repse-no-encontrado, validacion-no-encontrada o evidencia-invalida)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseProviderApiError'

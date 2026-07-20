@@ -6,6 +6,17 @@ import { createWorkDisabilityPeriodValidator } from '#validators/work_disability
 import { WorkDisabilityPeriodAddShiftExceptionInterface } from '../interfaces/work_disability_period_add_shift_exception_interface.js'
 import path from 'node:path'
 import Env from '#start/env'
+import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
+function workDisabilityPeriodNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: WORK_DISABILITY_ERROR_CODES.NOT_FOUND,
+  })
+}
 
 export default class WorkDisabilityPeriodController {
   /**
@@ -395,13 +406,7 @@ export default class WorkDisabilityPeriodController {
         .where('work_disability_period_id', workDisabilityPeriodId)
         .first()
       if (!currentWorkDisabilityPeriod) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period was not found',
-          message: 'The work disability period was not found with the entered ID',
-          data: { workDisabilityPeriodId },
-        }
+        return workDisabilityPeriodNotFoundResponse(response)
       }
       const workDisabilityPeriodStartDate = request.input('workDisabilityPeriodStartDate')
       const workDisabilityPeriodEndDate = request.input('workDisabilityPeriodEndDate')
@@ -630,13 +635,7 @@ export default class WorkDisabilityPeriodController {
       const showWorkDisabilityPeriod =
         await workDisabilityPeriodService.show(workDisabilityPeriodId)
       if (!showWorkDisabilityPeriod) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period was not found',
-          message: 'The work disability period was not found with the entered ID',
-          data: { workDisabilityPeriodId },
-        }
+        return workDisabilityPeriodNotFoundResponse(response)
       } else {
         response.status(200)
         return {
@@ -772,13 +771,7 @@ export default class WorkDisabilityPeriodController {
         .where('work_disability_period_id', workDisabilityPeriodId)
         .first()
       if (!currentWorkDisabilityPeriod) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period was not found',
-          message: 'The work disability period was not found with the entered ID',
-          data: { workDisabilityPeriodId },
-        }
+        return workDisabilityPeriodNotFoundResponse(response)
       }
       const workDisabilityPeriodService = new WorkDisabilityPeriodService(i18n)
       const deleteWorkDisabilityPeriod = await workDisabilityPeriodService.delete(
