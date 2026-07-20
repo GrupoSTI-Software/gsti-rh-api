@@ -11,7 +11,6 @@ import { TenantContext } from '#utils/tenant_context'
  */
 
 const BU1_PUBLIC_ID = 'a76db057-2292-49a0-9f1b-911e328d93b0'
-const BU6_PUBLIC_ID = '8c3617a4-c942-4ba7-aee6-2ac32d4ab5ef'
 const BU1_EMPLOYEE_ID = 678
 const BU6_EMPLOYEE_ID = 12
 
