@@ -19,3 +19,4 @@ router
   })
   .prefix('/api/work-disability-period-expenses')
   .use(middleware.auth())
+  .use(middleware.businessScope())

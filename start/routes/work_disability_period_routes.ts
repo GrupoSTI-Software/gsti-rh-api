@@ -13,3 +13,4 @@ router
   })
   .prefix('/api/work-disability-periods')
   .use(middleware.auth())
+  .use(middleware.businessScope())

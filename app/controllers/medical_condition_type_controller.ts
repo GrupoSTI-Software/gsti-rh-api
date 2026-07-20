@@ -6,6 +6,17 @@ import {
   createMedicalConditionTypeValidator,
   updateMedicalConditionTypeValidator,
 } from '#validators/medical_condition_type'
+import { MEDICAL_CONDITION_TYPE_ERROR_CODES } from '#constants/medical_condition_type_error_codes'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058487. */
+function medicalConditionTypeNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: MEDICAL_CONDITION_TYPE_ERROR_CODES.NOT_FOUND,
+  })
+}
 
 export default class MedicalConditionTypeController {
   /**
@@ -223,13 +234,7 @@ export default class MedicalConditionTypeController {
         .first()
 
       if (!currentMedicalConditionType) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The medical condition type was not found',
-          message: 'The medical condition type was not found with the entered ID',
-          data: { medicalConditionTypeId },
-        }
+        return medicalConditionTypeNotFoundResponse(response)
       }
 
       const medicalConditionType = {
@@ -328,13 +333,7 @@ export default class MedicalConditionTypeController {
         .first()
 
       if (!currentMedicalConditionType) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The medical condition type was not found',
-          message: 'The medical condition type was not found with the entered ID',
-          data: { medicalConditionTypeId },
-        }
+        return medicalConditionTypeNotFoundResponse(response)
       }
 
       const medicalConditionTypeService = new MedicalConditionTypeService()
@@ -401,13 +400,7 @@ export default class MedicalConditionTypeController {
       const medicalConditionTypeService = new MedicalConditionTypeService()
       const showMedicalConditionType = await medicalConditionTypeService.show(medicalConditionTypeId)
       if (!showMedicalConditionType) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The medical condition type was not found',
-          message: 'The medical condition type was not found with the entered ID',
-          data: { medicalConditionTypeId },
-        }
+        return medicalConditionTypeNotFoundResponse(response)
       } else {
         response.status(200)
         return {
