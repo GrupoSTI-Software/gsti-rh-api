@@ -1,10 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import encryption from '@adonisjs/core/services/encryption'
 import User from './user.js'
+import WorkDisability from './work_disability.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
  * @swagger
  * components:
@@ -21,6 +24,9 @@ import User from './user.js'
  *          workDisabilityId:
  *            type: number
  *            description: Work disability Id
+ *          businessUnitId:
+ *            type: number
+ *            description: Unidad de negocio dueña (hereda de la incapacidad, USRH1784259058498)
  *          userId:
  *            type: number
  *            description: User Id
@@ -35,7 +41,11 @@ import User from './user.js'
  *            format: date-time
  *            nullable: true
  */
-export default class WorkDisabilityNote extends compose(BaseModel, SoftDeletes) {
+export default class WorkDisabilityNote extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare workDisabilityNoteId: number
 
@@ -59,6 +69,20 @@ export default class WorkDisabilityNote extends compose(BaseModel, SoftDeletes) 
 
   @column()
   declare workDisabilityId: number
+
+  /** Marca de pertenencia propia (hereda de la incapacidad, USRH1784259058498). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde la incapacidad padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: WorkDisabilityNote) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => WorkDisability.query().where('workDisabilityId', instance.workDisabilityId).first(),
+      'la incapacidad'
+    )
+  }
 
   @column()
   declare userId: number
