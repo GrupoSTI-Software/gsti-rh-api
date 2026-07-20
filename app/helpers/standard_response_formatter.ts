@@ -9,8 +9,11 @@ export class StandardResponseFormatter {
     data: any,
     title: string,
     message: string,
-    statusCode: number = 200
+    statusCode: number = 200,
+    dataKey?: string
   ) {
+    const resolvedDataKey = dataKey ?? this.getDataKey(title)
+
     // If data has pagination (from Lucid paginate)
     if (data && data.meta && data.data) {
       return response.status(statusCode).json({
@@ -18,7 +21,7 @@ export class StandardResponseFormatter {
         title,
         message,
         data: {
-          [this.getDataKey(title)]: {
+          [resolvedDataKey]: {
             meta: {
               total: data.meta.total,
               perPage: data.meta.perPage,
@@ -42,7 +45,7 @@ export class StandardResponseFormatter {
       title,
       message,
       data: {
-        [this.getDataKey(title)]: data
+        [resolvedDataKey]: data
       }
     })
   }
@@ -143,6 +146,12 @@ export class StandardResponseFormatter {
       'Validación de Proveedor REPSE': 'validacion',
       'Expediente de Proveedor REPSE': 'expediente',
       'Documento del expediente REPSE': 'documentoExpediente',
+      'REPSE Providers': 'proveedoresRepse',
+      'REPSE Provider': 'proveedorRepse',
+      'REPSE Provider Validations': 'validaciones',
+      'REPSE Provider Validation': 'validacion',
+      'REPSE Provider File': 'expediente',
+      'REPSE provider file document': 'documentoExpediente',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

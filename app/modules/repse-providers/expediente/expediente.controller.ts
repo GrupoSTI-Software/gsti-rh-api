@@ -34,6 +34,7 @@ export default class ExpedienteController {
    *     description: |
    *       Lista paginada y filtrable por tipo/periodo. Registra una fila de
    *       `consulta` en `repse_expediente_accesos` cuando hay al menos un documento.
+   *       Payload estable en `data.expediente` (title/message i18n vía Accept-Language).
    *     tags: [RepseExpediente]
    *     security:
    *       - bearerAuth: []
@@ -184,7 +185,9 @@ export default class ExpedienteController {
           'repse_expediente_listed_successfully',
           undefined,
           'Documentos del expediente obtenidos correctamente'
-        )
+        ),
+        200,
+        'expediente'
       )
     } catch (error) {
       return this.respondError(error, response, 404, i18n)
@@ -199,7 +202,8 @@ export default class ExpedienteController {
    *     description: |
    *       Alta multipart. El archivo debe enviarse en el campo **`archivo`**
    *       (tipo File). Solo PDF, máximo **10 MB**. Calcula `conservarHasta`
-   *       (fecha del documento o hoy + 5 años).
+   *       (fecha del documento o hoy + 5 años). Payload estable en
+   *       `data.documentoExpediente` (title/message i18n vía Accept-Language).
    *     tags: [RepseExpediente]
    *     security:
    *       - bearerAuth: []
@@ -391,7 +395,8 @@ export default class ExpedienteController {
           undefined,
           'Documento del expediente registrado correctamente'
         ),
-        201
+        201,
+        'documentoExpediente'
       )
     } catch (error) {
       return this.respondError(error, response, 422, i18n)

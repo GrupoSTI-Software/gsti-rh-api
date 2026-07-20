@@ -38,6 +38,9 @@ export default class ProvidersController {
    *       Devuelve el catálogo de proveedores REPSE de la(s) empresa(s)
    *       contratante(s) del tenant autenticado, con el indicador de próxima
    *       revisión (`nextReviewAt` + `reviewStatus`).
+   *
+   *       **Contrato i18n:** `title` y `message` varían con `Accept-Language`;
+   *       el payload siempre va en `data.proveedoresRepse` (clave estable).
    *     tags: [RepseProviders]
    *     security:
    *       - bearerAuth: []
@@ -52,6 +55,11 @@ export default class ProvidersController {
    *         required: true
    *         schema: { type: string }
    *         description: "Unidad de negocio seleccionada (scope del tenant)."
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema: { type: string, enum: [es, en] }
+   *         description: "Traduce title/message; no altera la clave data.proveedoresRepse."
    *       - in: query
    *         name: page
    *         required: true
@@ -66,7 +74,10 @@ export default class ProvidersController {
    *         schema: { type: integer, minimum: 1 }
    *     responses:
    *       '200':
-   *         description: Listado paginado ordenado por fecha de creación descendente
+   *         description: |
+   *           Listado paginado ordenado por fecha de creación descendente.
+   *           Con `Accept-Language: en`, title/message cambian pero la clave
+   *           del payload permanece `data.proveedoresRepse`.
    *         content:
    *           application/json:
    *             example:
@@ -89,6 +100,29 @@ export default class ProvidersController {
    *                       reviewStatus: on_track
    *                       proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
    *                       proveedorRepseUpdatedAt: null
+   *             examples:
+   *               englishAcceptLanguage:
+   *                 summary: "Accept-Language en (misma clave proveedoresRepse)"
+   *                 value:
+   *                   type: success
+   *                   title: REPSE Providers
+   *                   message: REPSE providers retrieved successfully
+   *                   data:
+   *                     proveedoresRepse:
+   *                       meta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1, page: 1 }
+   *                       data:
+   *                         - proveedorRepseId: 1
+   *                           businessUnitId: 1
+   *                           razonSocial: "Servicios Especializados Acme S.A. de C.V."
+   *                           rfc: "ASE930101AB1"
+   *                           folio: "REPSE-12345"
+   *                           objetoRegistrado: "Servicios de limpieza industrial"
+   *                           folioVencimiento: "2027-01-01"
+   *                           periodicidadMeses: 1
+   *                           nextReviewAt: "2026-08-01"
+   *                           reviewStatus: on_track
+   *                           proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
+   *                           proveedorRepseUpdatedAt: null
    *       '400':
    *         description: Validación VineJS (page, limit o businessUnitId inválidos)
    *         content:
@@ -146,7 +180,9 @@ export default class ProvidersController {
         response,
         bundle,
         i18n.t('repse_provider_title', undefined, 'Proveedores REPSE'),
-        i18n.t('repse_provider_listed_successfully', undefined, 'Proveedores REPSE obtenidos correctamente')
+        i18n.t('repse_provider_listed_successfully', undefined, 'Proveedores REPSE obtenidos correctamente'),
+        200,
+        'proveedoresRepse'
       )
     } catch (error) {
       return this.respondError(error, response, 400, i18n)
@@ -158,6 +194,8 @@ export default class ProvidersController {
    * /api/repse-providers/{id}:
    *   get:
    *     summary: Obtener un proveedor REPSE por id
+   *     description: |
+   *       Payload estable en `data.proveedorRepse` (title/message i18n vía Accept-Language).
    *     tags: [RepseProviders]
    *     security:
    *       - bearerAuth: []
@@ -227,7 +265,9 @@ export default class ProvidersController {
         response,
         provider,
         i18n.t('repse_provider_detail_title', undefined, 'Proveedor REPSE'),
-        i18n.t('repse_provider_found_successfully', undefined, 'Proveedor REPSE encontrado correctamente')
+        i18n.t('repse_provider_found_successfully', undefined, 'Proveedor REPSE encontrado correctamente'),
+        200,
+        'proveedorRepse'
       )
     } catch (error) {
       return this.respondError(error, response, 404, i18n)
@@ -331,7 +371,8 @@ export default class ProvidersController {
         created,
         i18n.t('repse_provider_detail_title', undefined, 'Proveedor REPSE'),
         i18n.t('repse_provider_created_successfully', undefined, 'Proveedor REPSE creado correctamente'),
-        201
+        201,
+        'proveedorRepse'
       )
     } catch (error) {
       return this.respondError(error, response, 422, i18n)
@@ -422,7 +463,9 @@ export default class ProvidersController {
         response,
         updated,
         i18n.t('repse_provider_detail_title', undefined, 'Proveedor REPSE'),
-        i18n.t('repse_provider_updated_successfully', undefined, 'Proveedor REPSE actualizado correctamente')
+        i18n.t('repse_provider_updated_successfully', undefined, 'Proveedor REPSE actualizado correctamente'),
+        200,
+        'proveedorRepse'
       )
     } catch (error) {
       return this.respondError(error, response, 422, i18n)
@@ -486,7 +529,9 @@ export default class ProvidersController {
         response,
         deleted,
         i18n.t('repse_provider_detail_title', undefined, 'Proveedor REPSE'),
-        i18n.t('repse_provider_deleted_successfully', undefined, 'Proveedor REPSE eliminado correctamente')
+        i18n.t('repse_provider_deleted_successfully', undefined, 'Proveedor REPSE eliminado correctamente'),
+        200,
+        'proveedorRepse'
       )
     } catch (error) {
       return this.respondError(error, response, 404, i18n)

@@ -3181,8 +3181,26 @@ components:
           maximum: 60
           description: Si cambia, `nextReviewAt` se recalcula a partir de la última validación registrada.
 
+    RepseProvidersResponseI18nContract:
+      type: object
+      description: |
+        Contrato i18n del módulo REPSE (proveedores, validaciones y expediente).
+        `title` y `message` varían según el header `Accept-Language` (`es` default, `en`).
+        Las claves de `data` son **estables** (camelCase) y **no cambian** con el idioma:
+        | Operación | Clave en `data` |
+        |-----------|-----------------|
+        | GET listado proveedores | `proveedoresRepse` |
+        | GET/POST/PUT/DELETE proveedor | `proveedorRepse` |
+        | GET validaciones | `validaciones` |
+        | POST validación | `validacion` |
+        | GET expediente | `expediente` |
+        | POST documento expediente | `documentoExpediente` |
+
     RepseProviderSuccess:
       type: object
+      description: |
+        Respuesta exitosa de un proveedor REPSE. Ver `RepseProvidersResponseI18nContract`
+        para el contrato i18n; la clave de payload es siempre `data.proveedorRepse`.
       required: [type, title, message, data]
       properties:
         type:
@@ -3190,16 +3208,22 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [proveedorRepse]
           properties:
             proveedorRepse:
               $ref: '#/components/schemas/RepseProvider'
 
     RepseProvidersListSuccess:
       type: object
+      description: |
+        Listado paginado de proveedores REPSE. Ver `RepseProvidersResponseI18nContract`;
+        la clave de payload es siempre `data.proveedoresRepse` (también con `Accept-Language: en`).
       required: [type, title, message, data]
       properties:
         type:
@@ -3207,10 +3231,13 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language` (p. ej. "Proveedores REPSE" / "REPSE Providers").
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [proveedoresRepse]
           properties:
             proveedoresRepse:
               type: object
@@ -3280,6 +3307,9 @@ components:
 
     RepseProviderValidationSuccess:
       type: object
+      description: |
+        Alta de validación periódica. Clave estable `data.validacion`
+        (ver `RepseProvidersResponseI18nContract`).
       required: [type, title, message, data]
       properties:
         type:
@@ -3287,16 +3317,22 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [validacion]
           properties:
             validacion:
               $ref: '#/components/schemas/RepseProviderValidation'
 
     RepseProviderValidationsListSuccess:
       type: object
+      description: |
+        Bitácora de validaciones. Clave estable `data.validaciones`
+        (ver `RepseProvidersResponseI18nContract`).
       required: [type, title, message, data]
       properties:
         type:
@@ -3304,10 +3340,13 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [validaciones]
           properties:
             validaciones:
               type: array
@@ -3378,32 +3417,46 @@ components:
 
     RepseExpedienteDocumentoSuccess:
       type: object
+      description: |
+        Alta de documento del expediente. Clave estable `data.documentoExpediente`
+        (ver `RepseProvidersResponseI18nContract`).
+      required: [type, title, message, data]
       properties:
         type:
           type: string
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [documentoExpediente]
           properties:
             documentoExpediente:
               $ref: '#/components/schemas/RepseExpedienteDocumento'
 
     RepseExpedienteListSuccess:
       type: object
+      description: |
+        Listado paginado del expediente. Clave estable `data.expediente`
+        (ver `RepseProvidersResponseI18nContract`).
+      required: [type, title, message, data]
       properties:
         type:
           type: string
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [expediente]
           properties:
             expediente:
               type: object
@@ -8778,10 +8831,31 @@ paths:
         Lado contratante (USRH1784259105646): el tenant cataloga a SUS
         proveedores REPSE y consulta el indicador de próxima revisión
         (`nextReviewAt` + `reviewStatus`).
+
+        **Contrato i18n:** `title` y `message` dependen de `Accept-Language`;
+        el payload siempre va en `data.proveedoresRepse` (ver
+        `RepseProvidersResponseI18nContract`).
       tags: [RepseProviders]
       security:
         - bearerAuth: []
       parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+          description: |
+            Idioma de `title` y `message`. No altera las claves de `data`
+            (`proveedoresRepse` permanece estable).
         - name: page
           in: query
           required: true
@@ -8801,6 +8875,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseProvidersListSuccess'
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Proveedores REPSE
+                    message: Proveedores REPSE obtenidos correctamente
+                    data:
+                      proveedoresRepse:
+                        meta:
+                          total: 1
+                          perPage: 10
+                          currentPage: 1
+                          lastPage: 1
+                          firstPage: 1
+                          firstPageUrl: "/?page=1"
+                          lastPageUrl: "/?page=1"
+                          nextPageUrl: null
+                          previousPageUrl: null
+                        data:
+                          - proveedorRepseId: 1
+                            businessUnitId: 1
+                            razonSocial: Proveedor Demo Expediente REPSE SA de CV
+                            rfc: DEM850101016
+                            folio: DEMO-EXPEDIENTE-001
+                            objetoRegistrado: Servicios especializados de limpieza y mantenimiento
+                            folioVencimiento: "2027-12-31"
+                            periodicidadMeses: 1
+                            nextReviewAt: null
+                            reviewStatus: pending_first_validation
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave proveedoresRepse"
+                  value:
+                    type: success
+                    title: REPSE Providers
+                    message: REPSE providers retrieved successfully
+                    data:
+                      proveedoresRepse:
+                        meta:
+                          total: 1
+                          perPage: 10
+                          currentPage: 1
+                          lastPage: 1
+                          firstPage: 1
+                          firstPageUrl: "/?page=1"
+                          lastPageUrl: "/?page=1"
+                          nextPageUrl: null
+                          previousPageUrl: null
+                        data:
+                          - proveedorRepseId: 1
+                            businessUnitId: 1
+                            razonSocial: Proveedor Demo Expediente REPSE SA de CV
+                            rfc: DEM850101016
+                            folio: DEMO-EXPEDIENTE-001
+                            objetoRegistrado: Servicios especializados de limpieza y mantenimiento
+                            folioVencimiento: "2027-12-31"
+                            periodicidadMeses: 1
+                            nextReviewAt: null
+                            reviewStatus: pending_first_validation
         '400':
           description: Validación de filtros
           content:
@@ -8880,6 +9013,9 @@ paths:
   /api/repse-providers/{id}:
     get:
       summary: Obtener un proveedor REPSE por id
+      description: |
+        Clave estable del payload: `data.proveedorRepse`
+        (ver `RepseProvidersResponseI18nContract`).
       tags: [RepseProviders]
       security:
         - bearerAuth: []
@@ -9009,11 +9145,27 @@ paths:
   /api/repse-providers/{providerId}/validations:
     get:
       summary: Bitácora completa de validaciones de un proveedor REPSE
-      description: Listado append-only, más reciente primero. No se pagina.
+      description: |
+        Listado append-only, más reciente primero. No se pagina.
+        Clave estable del payload: `data.validaciones` (ver `RepseProvidersResponseI18nContract`).
       tags: [RepseProviderValidations]
       security:
         - bearerAuth: []
       parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
         - name: providerId
           in: path
           required: true
@@ -9025,6 +9177,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseProviderValidationsListSuccess'
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Validaciones de Proveedor REPSE
+                    message: Validaciones obtenidas correctamente
+                    data:
+                      validaciones: []
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave validaciones"
+                  value:
+                    type: success
+                    title: REPSE Provider Validations
+                    message: Validations retrieved successfully
+                    data:
+                      validaciones: []
         '401':
           description: No autenticado
           content:
@@ -9051,6 +9220,7 @@ paths:
         cuándo (`fecha`) y con qué evidencia (`archivo`) se comprobó el
         estatus del folio en el padrón REPSE de la STPS. Tras guardar,
         recalcula `nextReviewAt` del proveedor (`fecha + periodicidadMeses`).
+        Clave estable del payload: `data.validacion`.
       tags: [RepseProviderValidations]
       security:
         - bearerAuth: []
@@ -9150,7 +9320,9 @@ paths:
   /api/repse-providers/{providerId}/expediente:
     get:
       summary: Listar documentos del expediente de un proveedor REPSE
-      description: Lista paginada filtrable por tipo/periodo. Registra consulta en bitácora.
+      description: |
+        Lista paginada filtrable por tipo/periodo. Registra consulta en bitácora.
+        Clave estable del payload: `data.expediente` (ver `RepseProvidersResponseI18nContract`).
       tags: [RepseExpediente]
       security:
         - bearerAuth: []
@@ -9201,34 +9373,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseExpedienteListSuccess'
-              example:
-                type: success
-                title: Expediente de Proveedor REPSE
-                message: Documentos del expediente obtenidos correctamente
-                data:
-                  expediente:
-                    meta:
-                      total: 1
-                      perPage: 20
-                      currentPage: 1
-                      lastPage: 1
-                      page: 1
-                      firstPage: 1
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Expediente de Proveedor REPSE
+                    message: Documentos del expediente obtenidos correctamente
                     data:
-                      - repseExpedienteDocumentoId: 1
-                        proveedorRepseId: 1
-                        businessUnitId: 1
-                        tipo: contrato
-                        anio: 2024
-                        mes: null
-                        cuatrimestre: null
-                        fechaDocumento: "2024-01-15"
-                        conservarHasta: "2029-01-15"
-                        nombreArchivo: contrato-proveedor.pdf
-                        mimeType: application/pdf
-                        tamanoBytes: 245678
-                        subidoPorUserId: 5
-                        repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+                      expediente:
+                        meta:
+                          total: 1
+                          perPage: 20
+                          currentPage: 1
+                          lastPage: 1
+                          page: 1
+                          firstPage: 1
+                        data:
+                          - repseExpedienteDocumentoId: 1
+                            proveedorRepseId: 1
+                            businessUnitId: 1
+                            tipo: contrato
+                            anio: 2024
+                            mes: null
+                            cuatrimestre: null
+                            fechaDocumento: "2024-01-15"
+                            conservarHasta: "2029-01-15"
+                            nombreArchivo: contrato-proveedor.pdf
+                            mimeType: application/pdf
+                            tamanoBytes: 245678
+                            subidoPorUserId: 5
+                            repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave expediente"
+                  value:
+                    type: success
+                    title: REPSE Provider File
+                    message: File documents retrieved successfully
+                    data:
+                      expediente:
+                        meta:
+                          total: 1
+                          perPage: 20
+                          currentPage: 1
+                          lastPage: 1
+                          page: 1
+                          firstPage: 1
+                        data:
+                          - repseExpedienteDocumentoId: 1
+                            proveedorRepseId: 1
+                            businessUnitId: 1
+                            tipo: contrato
+                            anio: 2024
+                            mes: null
+                            cuatrimestre: null
+                            fechaDocumento: "2024-01-15"
+                            conservarHasta: "2029-01-15"
+                            nombreArchivo: contrato-proveedor.pdf
+                            mimeType: application/pdf
+                            tamanoBytes: 245678
+                            subidoPorUserId: 5
+                            repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
         '400':
           description: Query inválido (key `entrada-invalida`, errorCode `REXP.VAL.001`)
           content:
@@ -9288,6 +9493,7 @@ paths:
       description: |
         Multipart obligatorio. Campo **`archivo`** (File): solo PDF, máximo 10 MB.
         Campo **`tipo`**: catálogo cerrado. Calcula `conservarHasta` (+5 años).
+        Clave estable del payload: `data.documentoExpediente`.
       tags: [RepseExpediente]
       security:
         - bearerAuth: []
@@ -9334,26 +9540,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseExpedienteDocumentoSuccess'
-              example:
-                type: success
-                title: Documento del expediente REPSE
-                message: Documento del expediente registrado correctamente
-                data:
-                  documentoExpediente:
-                    repseExpedienteDocumentoId: 1
-                    proveedorRepseId: 1
-                    businessUnitId: 1
-                    tipo: contrato
-                    anio: 2024
-                    mes: null
-                    cuatrimestre: null
-                    fechaDocumento: "2024-01-15"
-                    conservarHasta: "2029-01-15"
-                    nombreArchivo: contrato-proveedor.pdf
-                    mimeType: application/pdf
-                    tamanoBytes: 245678
-                    subidoPorUserId: 5
-                    repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Documento del expediente REPSE
+                    message: Documento del expediente registrado correctamente
+                    data:
+                      documentoExpediente:
+                        repseExpedienteDocumentoId: 1
+                        proveedorRepseId: 1
+                        businessUnitId: 1
+                        tipo: contrato
+                        anio: 2024
+                        mes: null
+                        cuatrimestre: null
+                        fechaDocumento: "2024-01-15"
+                        conservarHasta: "2029-01-15"
+                        nombreArchivo: contrato-proveedor.pdf
+                        mimeType: application/pdf
+                        tamanoBytes: 245678
+                        subidoPorUserId: 5
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave documentoExpediente"
+                  value:
+                    type: success
+                    title: REPSE provider file document
+                    message: File document registered successfully
+                    data:
+                      documentoExpediente:
+                        repseExpedienteDocumentoId: 1
+                        proveedorRepseId: 1
+                        businessUnitId: 1
+                        tipo: contrato
+                        anio: 2024
+                        mes: null
+                        cuatrimestre: null
+                        fechaDocumento: "2024-01-15"
+                        conservarHasta: "2029-01-15"
+                        nombreArchivo: contrato-proveedor.pdf
+                        mimeType: application/pdf
+                        tamanoBytes: 245678
+                        subidoPorUserId: 5
         '400':
           description: Metadatos inválidos VineJS (key entrada-invalida, errorCode REXP.VAL.001)
           content:
