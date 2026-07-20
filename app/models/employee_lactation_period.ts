@@ -1,11 +1,13 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from '#models/employee'
 import EmployeeChildren from '#models/employee_children'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * Tipo de aplicación del horario de lactancia.
@@ -35,6 +37,9 @@ export type EmployeeLactationPeriodReductionApplication = 'start' | 'end' | 'spl
  *         employeeId:
  *           type: integer
  *           description: Empleada (FK a employees).
+ *         businessUnitId:
+ *           type: integer
+ *           description: Unidad de negocio dueña (defensa en profundidad, USRH1784259058510).
  *         employeeLactationPeriodStartDate:
  *           type: string
  *           format: date
@@ -92,7 +97,11 @@ export type EmployeeLactationPeriodReductionApplication = 'start' | 'end' | 'spl
  *           format: date-time
  *           nullable: true
  */
-export default class EmployeeLactationPeriod extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeLactationPeriod extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'employee_lactation_periods'
 
   @column({ isPrimary: true })
@@ -100,6 +109,20 @@ export default class EmployeeLactationPeriod extends compose(BaseModel, SoftDele
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1784259058510). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde la empleada padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeLactationPeriod) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'la empleada'
+    )
+  }
 
   @column.date()
   declare employeeLactationPeriodStartDate: DateTime
