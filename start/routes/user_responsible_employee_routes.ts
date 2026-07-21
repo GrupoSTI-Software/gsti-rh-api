@@ -13,3 +13,4 @@ router
   })
   .prefix('/api/user-responsible-employees')
   .use(middleware.auth())
+  .use(middleware.businessScope())
