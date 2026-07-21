@@ -26,6 +26,41 @@ export interface AttendanceFaultHrRunOptions {
   test?: boolean
 }
 
+export type AttendanceFaultHrSkipReason =
+  | 'disabled'
+  | 'no_business_units'
+  | 'no_recipients'
+  | 'no_pending'
+  | 'no_employees'
+  | 'mail_error'
+  | 'process_error'
+
+export type AttendanceFaultHrProcessSettingResult =
+  | { sent: true; count: number }
+  | { sent: false; reason: AttendanceFaultHrSkipReason; error?: string }
+
+export type AttendanceFaultHrSettingRunResult = {
+  systemSettingId: number
+  tradeName: string
+} & AttendanceFaultHrProcessSettingResult
+
+export type AttendanceFaultHrRunResult = {
+  sent: boolean
+  count: number
+  processedSettings: number
+  sentSettings: number
+  failedSettings: number
+  skippedSettings: number
+  results: AttendanceFaultHrSettingRunResult[]
+  reason?: 'no_system_setting' | AttendanceFaultHrSkipReason
+  error?: string
+}
+
+export interface ResolveActiveSystemSettingsOptions {
+  /** Si es false, incluye settings aunque el flag de faltas esté apagado (modo prueba). */
+  requireAttendanceFaultFlag?: boolean
+}
+
 /**
  * Destinatarios: solo por rol (y usuario activo con empleado vinculado + `user_email`).
  * Empleados evaluados: todos los activos en las unidades del system setting con turno asignado
@@ -33,23 +68,61 @@ export interface AttendanceFaultHrRunOptions {
  */
 export default class AttendanceFaultHrNotificationService {
   /**
+   * Indica si el setting tiene al menos una unidad de negocio entre los slugs permitidos.
+   */
+  private settingMatchesAllowedBusinessUnits(
+    setting: SystemSetting,
+    allowedBusinessUnitSlugs: string[]
+  ): boolean {
+    const units = setting.systemSettingBusinessUnits
+      ? setting.systemSettingBusinessUnits.split(',').map((u: string) => u.trim())
+      : []
+    return units.some((u) => allowedBusinessUnitSlugs.includes(u))
+  }
+
+  /**
    * Resuelve el system setting activo cuyas unidades de negocio tengan al menos
    * una coincidencia con los slugs permitidos (resolvedor central del scope de tenant).
+   * Devuelve el primer match en el orden de la consulta (comportamiento legacy de una sola empresa).
    */
   resolveActiveSystemSetting(systemSettings: SystemSetting[], allowedBusinessUnitSlugs: string[]): SystemSetting | null {
     if (allowedBusinessUnitSlugs.length === 0) {
       return null
     }
     for (const setting of systemSettings) {
-      const units = setting.systemSettingBusinessUnits
-        ? setting.systemSettingBusinessUnits.split(',').map((u: string) => u.trim())
-        : []
-      const hasMatch = units.some((u) => allowedBusinessUnitSlugs.includes(u))
-      if (hasMatch && setting.systemSettingActive === 1) {
+      if (setting.systemSettingActive === 1 && this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitSlugs)) {
         return setting
       }
     }
     return null
+  }
+
+  /**
+   * Resuelve todos los system settings activos con notificación de faltas a RH habilitada
+   * y al menos una unidad de negocio entre los slugs permitidos, en orden estable por id.
+   */
+  resolveActiveSystemSettings(
+    systemSettings: SystemSetting[],
+    allowedBusinessUnitSlugs: string[],
+    options?: ResolveActiveSystemSettingsOptions
+  ): SystemSetting[] {
+    if (allowedBusinessUnitSlugs.length === 0) {
+      return []
+    }
+
+    const requireFlag = options?.requireAttendanceFaultFlag !== false
+
+    return systemSettings
+      .filter((setting) => {
+        if (setting.systemSettingActive !== 1) {
+          return false
+        }
+        if (requireFlag && !setting.systemSettingAttendanceFaultHrEmails) {
+          return false
+        }
+        return this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitSlugs)
+      })
+      .sort((a, b) => a.systemSettingId - b.systemSettingId)
   }
 
   async getFaultToleranceMinutes(systemSettingId: number): Promise<number> {
@@ -431,49 +504,31 @@ export default class AttendanceFaultHrNotificationService {
       .preload('businessUnit')
   }
 
-  async run(
-    logger?: { info: (m: string) => void; error: (m: string) => void; warning: (m: string) => void },
-    options?: AttendanceFaultHrRunOptions
-  ) {
-    const isTest = options?.test === true
-    const log = {
-      info: (m: string) => logger?.info(m),
-      error: (m: string) => logger?.error(m),
-      warning: (m: string) => logger?.warning(m),
+  /**
+   * Procesa un system setting de punta a punta: faltas pendientes, correo y log de deduplicación.
+   */
+  private async processSetting(
+    systemSetting: SystemSetting,
+    context: {
+      isTest: boolean
+      log: {
+        info: (m: string) => void
+        error: (m: string) => void
+        warning: (m: string) => void
+      }
     }
-
-    const systemSettings = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .select(
-        'system_setting_id',
-        'system_setting_business_units',
-        'system_setting_active',
-        'system_setting_trade_name',
-        'system_setting_sidebar_color',
-        'system_setting_attendance_fault_hr_emails'
-      )
-
-    const activeUnits = await BusinessUnit.query()
-      .whereNull('business_unit_deleted_at')
-      .where('business_unit_active', 1)
-      .select('business_unit_slug')
-    const allowedBusinessUnitSlugs = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
-
-    const systemSetting = this.resolveActiveSystemSetting(systemSettings as SystemSetting[], allowedBusinessUnitSlugs)
-    if (!systemSetting) {
-      log.warning('No hay system setting activo que coincida con las unidades de negocio activas')
-      return { sent: false, reason: 'no_system_setting' as const }
-    }
+  ): Promise<AttendanceFaultHrProcessSettingResult> {
+    const { isTest, log } = context
+    const settingLabel = `${systemSetting.systemSettingTradeName} (id ${systemSetting.systemSettingId})`
 
     if (!isTest && !systemSetting.systemSettingAttendanceFaultHrEmails) {
-      log.info('Notificaciones de falta por asistencia a RH deshabilitadas en ajustes del sistema')
-      return { sent: false, reason: 'disabled' as const }
+      log.info(`Notificaciones de falta por asistencia a RH deshabilitadas en ${settingLabel}`)
+      return { sent: false, reason: 'disabled' }
     }
 
     if (isTest && !systemSetting.systemSettingAttendanceFaultHrEmails) {
       log.info(
-        'Modo prueba: se omite la desactivación de notificaciones en ajustes del sistema para poder enviar el correo de prueba'
+        `Modo prueba (${settingLabel}): se omite la desactivación de notificaciones en ajustes del sistema para poder enviar el correo de prueba`
       )
     }
 
@@ -488,8 +543,8 @@ export default class AttendanceFaultHrNotificationService {
       .filter(Boolean)
 
     if (businessUnitSlugs.length === 0) {
-      log.warning('El system setting no tiene unidades de negocio configuradas')
-      return { sent: false, reason: 'no_business_units' as const }
+      log.warning(`${settingLabel}: el system setting no tiene unidades de negocio configuradas`)
+      return { sent: false, reason: 'no_business_units' }
     }
 
     const recipients = isTest
@@ -499,10 +554,10 @@ export default class AttendanceFaultHrNotificationService {
     if (recipients.length === 0) {
       log.warning(
         isTest
-          ? `No hay destinatarios de prueba: usuarios activos con rol "${ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG}", empleado asociado y user_email`
-          : 'No hay destinatarios: usuarios activos con roles configurados, empleado asociado y user_email'
+          ? `${settingLabel}: no hay destinatarios de prueba con rol "${ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG}", empleado asociado y user_email`
+          : `${settingLabel}: no hay destinatarios con roles configurados, empleado asociado y user_email`
       )
-      return { sent: false, reason: 'no_recipients' as const }
+      return { sent: false, reason: 'no_recipients' }
     }
 
     await this.ensureEmployeeAssistCalendarsForDay(calendarDay, businessUnitSlugs, log)
@@ -514,19 +569,19 @@ export default class AttendanceFaultHrNotificationService {
     if (pending.length === 0) {
       log.info(
         isTest
-          ? 'Modo prueba: no hay colaboradores elegibles sin entrada hoy (misma lógica que la notificación real, sin filtro de plazo ni de log)'
-          : 'Sin faltas nuevas por registro de asistencia para notificar'
+          ? `${settingLabel}: modo prueba sin colaboradores elegibles sin entrada hoy`
+          : `${settingLabel}: sin faltas nuevas por registro de asistencia para notificar`
       )
-      return { sent: false, reason: 'no_pending' as const }
+      return { sent: false, reason: 'no_pending' }
     }
 
     if (isTest) {
       log.info(
-        `Modo prueba: ${pending.length} colaborador(es) en la simulación (sin plazo Fault ni exclusión por log previo)`
+        `${settingLabel}: modo prueba con ${pending.length} colaborador(es) en la simulación (sin plazo Fault ni exclusión por log previo)`
       )
     } else if (pendingRaw.length !== pending.length) {
       log.info(
-        `Filas de calendario consolidadas por empleado: ${pendingRaw.length} → ${pending.length} en el correo`
+        `${settingLabel}: filas de calendario consolidadas por empleado: ${pendingRaw.length} → ${pending.length} en el correo`
       )
     }
 
@@ -583,8 +638,8 @@ export default class AttendanceFaultHrNotificationService {
       .filter((r): r is NonNullable<typeof r> => r !== null)
 
     if (emailRows.length === 0) {
-      log.warning('No se pudieron resolver empleados para las filas de calendario pendientes')
-      return { sent: false, reason: 'no_employees' as const }
+      log.warning(`${settingLabel}: no se pudieron resolver empleados para las filas de calendario pendientes`)
+      return { sent: false, reason: 'no_employees' }
     }
 
     const sidebarColor = this.formatSidebarColor(systemSetting.systemSettingSidebarColor || '333')
@@ -603,14 +658,14 @@ export default class AttendanceFaultHrNotificationService {
       : `Alerta: registro de asistencia no recibido — ${systemSetting.systemSettingTradeName}`
 
     try {
-      await mail.send((message) => {
-        message.subject(subject).htmlView('emails/attendance_fault_hr_batch', emailData)
-        // Un solo correo para todo RH: mismo cuerpo con la tabla completa de faltas
-        message.to(recipients[0])
+       await mail.send((message) => {
+         message.subject(subject).htmlView('emails/attendance_fault_hr_batch', emailData)
+         // Un solo correo para todo RH: mismo cuerpo con la tabla completa de faltas
+         message.to(recipients[0])
          if (recipients.length > 1) {
           message.bcc(recipients.slice(1))
-         }
-       })
+        }
+      })
 
       const fixedLogs = emailRows.map((r) => {
         const p = pending.find((x) => x.employeeAssistCalendarId === r.employeeAssistCalendarId)!
@@ -622,7 +677,7 @@ export default class AttendanceFaultHrNotificationService {
         }
       })
 
-      if (!isTest) {
+     if (!isTest) {
         await Database.table('attendance_fault_hr_notification_logs').insert(
           fixedLogs.map((l) => ({
             employee_assist_calendar_id: l.employeeAssistCalendarId,
@@ -636,13 +691,183 @@ export default class AttendanceFaultHrNotificationService {
 
       log.info(
         isTest
-          ? `Correo de prueba enviado a ${recipients.length} destinatario(s); sin registro en log (${fixedLogs.length} fila(s) simulada(s))`
-          : `Correo enviado a ${recipients.length} destinatario(s); ${fixedLogs.length} registro(s) en log`
+          ? `${settingLabel}: correo de prueba enviado a ${recipients.length} destinatario(s); sin registro en log (${fixedLogs.length} fila(s) simulada(s))`
+          : `${settingLabel}: correo enviado a ${recipients.length} destinatario(s); ${fixedLogs.length} registro(s) en log`
       )
-      return { sent: true, count: fixedLogs.length as number }
-    } catch (e: any) {
-      log.error(`Error al enviar correo de faltas a RH: ${e?.message ?? e}`)
-      return { sent: false, reason: 'mail_error' as const, error: e?.message }
+      return { sent: true, count: fixedLogs.length }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      log.error(`${settingLabel}: error al enviar correo de faltas a RH: ${message}`)
+      return { sent: false, reason: 'mail_error', error: message }
+    }
+  }
+
+  /**
+   * Registra un resumen agregado de la corrida multi-empresa.
+   */
+  private logRunSummary(
+    results: AttendanceFaultHrSettingRunResult[],
+    totalNotified: number,
+    isTest: boolean,
+    log: {
+      info: (m: string) => void
+      error: (m: string) => void
+    }
+  ): void {
+    const sentSettings = results.filter((r) => r.sent).length
+    const failedSettings = results.filter(
+      (r) => !r.sent && (r.reason === 'mail_error' || r.reason === 'process_error')
+    ).length
+    const skippedSettings = results.length - sentSettings - failedSettings
+
+    const parts: string[] = [`${results.length} empresa(s) evaluada(s)`]
+    if (sentSettings > 0) {
+      parts.push(`${sentSettings} con correo enviado (${totalNotified} aviso(s))`)
+    }
+    if (skippedSettings > 0) {
+      parts.push(`${skippedSettings} sin envío`)
+    }
+    if (failedSettings > 0) {
+      parts.push(`${failedSettings} con error`)
+    }
+
+    const prefix = isTest ? 'Resumen de corrida (prueba)' : 'Resumen de corrida'
+    log.info(`${prefix}: ${parts.join('; ')}`)
+
+    for (const result of results) {
+      if (
+        !result.sent &&
+        (result.reason === 'mail_error' || result.reason === 'process_error')
+      ) {
+        log.error(
+          `${result.tradeName} (id ${result.systemSettingId}): falló el procesamiento (${result.reason})${result.error ? `: ${result.error}` : ''}`
+        )
+      }
+    }
+  }
+
+  async run(
+    logger?: { info: (m: string) => void; error: (m: string) => void; warning: (m: string) => void },
+    options?: AttendanceFaultHrRunOptions
+  ): Promise<AttendanceFaultHrRunResult> {
+    const isTest = options?.test === true
+    const log = {
+      info: (m: string) => logger?.info(m),
+      error: (m: string) => logger?.error(m),
+      warning: (m: string) => logger?.warning(m),
+    }
+
+    const systemSettings = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+      .select(
+        'system_setting_id',
+        'system_setting_business_units',
+        'system_setting_active',
+        'system_setting_trade_name',
+        'system_setting_sidebar_color',
+        'system_setting_attendance_fault_hr_emails'
+      )
+
+    const activeUnits = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .where('business_unit_active', 1)
+      .select('business_unit_slug')
+    const allowedBusinessUnitSlugs = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
+
+    const activeSettings = this.resolveActiveSystemSettings(
+      systemSettings as SystemSetting[],
+      allowedBusinessUnitSlugs,
+      { requireAttendanceFaultFlag: !isTest }
+    )
+
+    if (activeSettings.length === 0) {
+      log.warning(
+        isTest
+          ? 'No hay system settings activos que coincidan con las unidades de negocio activas'
+          : 'No hay system settings activos con notificación de faltas habilitada'
+      )
+      return {
+        sent: false,
+        reason: 'no_system_setting',
+        count: 0,
+        processedSettings: 0,
+        sentSettings: 0,
+        failedSettings: 0,
+        skippedSettings: 0,
+        results: [],
+      }
+    }
+
+    const results: AttendanceFaultHrSettingRunResult[] = []
+    let totalNotified = 0
+
+    for (const systemSetting of activeSettings) {
+      const settingLabel = `${systemSetting.systemSettingTradeName} (id ${systemSetting.systemSettingId})`
+      try {
+        const result = await this.processSetting(systemSetting, { isTest, log })
+        results.push({
+          systemSettingId: systemSetting.systemSettingId,
+          tradeName: systemSetting.systemSettingTradeName,
+          ...result,
+        })
+        if (result.sent) {
+          totalNotified += result.count
+        }
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e)
+        log.error(`${settingLabel}: error inesperado al procesar notificación de faltas: ${message}`)
+        results.push({
+          systemSettingId: systemSetting.systemSettingId,
+          tradeName: systemSetting.systemSettingTradeName,
+          sent: false,
+          reason: 'process_error',
+          error: message,
+        })
+      }
+    }
+
+    const sentSettings = results.filter((r) => r.sent).length
+    const failedSettings = results.filter(
+      (r) => !r.sent && (r.reason === 'mail_error' || r.reason === 'process_error')
+    ).length
+    const skippedSettings = results.length - sentSettings - failedSettings
+
+    this.logRunSummary(results, totalNotified, isTest, log)
+
+    if (totalNotified > 0) {
+      return {
+        sent: true,
+        count: totalNotified,
+        processedSettings: activeSettings.length,
+        sentSettings,
+        failedSettings,
+        skippedSettings,
+        results,
+      }
+    }
+
+    const failedResult = results.find(
+      (r) => !r.sent && (r.reason === 'mail_error' || r.reason === 'process_error')
+    )
+    const lastResult = results[results.length - 1]
+    const lastReason =
+      failedResult && failedResult.sent === false
+        ? failedResult.reason
+        : lastResult && lastResult.sent === false
+          ? lastResult.reason
+          : 'no_pending'
+
+    return {
+      sent: false,
+      reason: lastReason,
+      count: 0,
+      processedSettings: activeSettings.length,
+      sentSettings,
+      failedSettings,
+      skippedSettings,
+      results,
+      error: failedResult && failedResult.sent === false ? failedResult.error : undefined,
     }
   }
 }

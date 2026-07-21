@@ -44,13 +44,27 @@ export default class NotifyAttendanceFaultHr extends BaseCommand {
       { test: isTest }
     )
     if (result.sent) {
+      const companiesLabel =
+        result.processedSettings === 1
+          ? '1 empresa'
+          : `${result.processedSettings} empresas`
+      const errorsSuffix =
+        result.failedSettings > 0
+          ? `; ${result.failedSettings} empresa(s) con error`
+          : ''
       this.logger.info(
         isTest
-          ? `Proceso de prueba finalizado: correo enviado (${result.count} empleado(s) en la tabla simulada)`
-          : `Proceso finalizado: correo enviado (${result.count} empleado(s))`
+          ? `Proceso de prueba finalizado: correo enviado (${result.count} empleado(s) en la tabla simulada, ${result.sentSettings}/${companiesLabel}${errorsSuffix})`
+          : `Proceso finalizado: correo enviado (${result.count} empleado(s), ${result.sentSettings}/${companiesLabel}${errorsSuffix})`
       )
     } else {
-      this.logger.info(`Proceso finalizado sin envío (motivo: ${result.reason})`)
+      const errorsSuffix =
+        result.failedSettings > 0
+          ? `, ${result.failedSettings} con error`
+          : ''
+      this.logger.info(
+        `Proceso finalizado sin envío (${result.processedSettings} empresa(s) evaluada(s)${errorsSuffix}, motivo: ${result.reason})`
+      )
     }
   }
 }
