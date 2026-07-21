@@ -933,6 +933,23 @@ test.group('RepseProviders - i18n (Accept-Language)', (group) => {
     assert.include(response.body().message, 'does not exist or does not belong to the current tenant')
   })
 
+  test('GET listado mantiene data.proveedoresRepse con Accept-Language: en', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get('/api/repse-providers')
+      .qs({ page: 1, limit: 10 })
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .header('Accept-Language', 'en')
+
+    response.assertStatus(200)
+    assert.equal(response.body().title, 'REPSE Providers')
+    assert.isDefined(response.body().data.proveedoresRepse)
+    assert.isUndefined(response.body().data.repseproviders)
+  })
+
   test('sin ?limit= en la URL, el 422 aclara que es un query param (es)', async ({
     client,
     assert,
