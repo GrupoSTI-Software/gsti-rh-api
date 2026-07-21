@@ -29,6 +29,8 @@ export default class ValidationsController {
    * /api/repse-providers/{providerId}/validations:
    *   get:
    *     summary: Bit?cora completa de validaciones de un proveedor REPSE
+   *     description: |
+   *       Payload estable en `data.validaciones` (title/message i18n vía Accept-Language).
    *     tags: [RepseProviderValidations]
    *     security:
    *       - bearerAuth: []
@@ -100,7 +102,9 @@ export default class ValidationsController {
           'repse_provider_validation_listed_successfully',
           undefined,
           'Validaciones obtenidas correctamente'
-        )
+        ),
+        200,
+        'validaciones'
       )
     } catch (error) {
       return this.respondError(error, response, 404, i18n)
@@ -307,7 +311,8 @@ export default class ValidationsController {
           undefined,
           'Validaci?n registrada correctamente'
         ),
-        201
+        201,
+        'validacion'
       )
     } catch (error) {
       return this.respondError(error, response, 422, i18n)
