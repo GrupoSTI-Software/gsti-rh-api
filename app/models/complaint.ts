@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
@@ -7,6 +7,8 @@ import Employee from './employee.js'
 import BusinessUnit from './business_unit.js'
 import ComplaintCategory from './complaint_category.js'
 import type { ComplaintStatus } from '#constants/complaint'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -45,7 +47,7 @@ import type { ComplaintStatus } from '#constants/complaint'
  *           nullable: true
  *           description: Complaint deleted at
  */
-export default class Complaint extends compose(BaseModel, SoftDeletes) {
+export default class Complaint extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   static table = 'complaints'
 
   @column({ isPrimary: true })
@@ -55,8 +57,23 @@ export default class Complaint extends compose(BaseModel, SoftDeletes) {
   @column({ serializeAs: null })
   declare employeeId: number
 
+  /**
+   * Marca de pertenencia — ya se puebla en `complaint_service.ts` al crear
+   * (desde `employee.businessUnitId`). Hook defensivo: guard estándar, no
+   * resuelve nada nuevo (USRH1784259058521).
+   */
   @column()
   declare businessUnitId: number
+
+  /** Guard defensivo: no sobreescribe si ya viene poblado desde el servicio. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: Complaint) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare complaintFolio: string
