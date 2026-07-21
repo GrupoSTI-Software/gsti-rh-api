@@ -38,6 +38,9 @@ export default class BillingPlan extends compose(BaseModel, SoftDeletes) {
   @column.dateTime()
   declare billingPlanPublishedAt: DateTime | null
 
+  @column()
+  declare billingPlanParentId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
