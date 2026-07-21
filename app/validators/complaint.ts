@@ -1,9 +1,9 @@
 import vine from '@vinejs/vine'
-import { COMPLAINT_CATEGORIES, COMPLAINT_STATUSES } from '#constants/complaint'
+import { COMPLAINT_STATUSES } from '#constants/complaint'
 
 export const createComplaintValidator = vine.compile(
   vine.object({
-    category: vine.enum(COMPLAINT_CATEGORIES),
+    category: vine.string().trim().minLength(1).maxLength(100),
     description: vine.string().trim().minLength(10).maxLength(10000),
   })
 )
@@ -20,7 +20,7 @@ export const complaintListValidator = vine.compile(
     page: vine.number().min(1).optional(),
     limit: vine.number().min(1).max(100).optional(),
     status: vine.enum(COMPLAINT_STATUSES).optional(),
-    category: vine.enum(COMPLAINT_CATEGORIES).optional(),
+    category: vine.string().trim().minLength(1).maxLength(100).optional(),
   })
 )
 

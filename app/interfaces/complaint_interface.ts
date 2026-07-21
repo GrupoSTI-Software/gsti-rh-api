@@ -2,7 +2,7 @@ import type { ComplaintCategory, ComplaintStatus } from '../constants/complaint.
 import type { ComplaintAttachmentRow } from './complaint_attachment_interface.js'
 
 export interface CreateComplaintInput {
-  category: ComplaintCategory
+  category: string
   description: string
 }
 
@@ -18,6 +18,7 @@ export interface ComplaintStatusResult {
   folio: string
   status: ComplaintStatus
   category: ComplaintCategory
+  categoryLabel: string
   createdAt: string
   updatedAt: string
 }
@@ -52,7 +53,7 @@ export interface ComplaintListFilters {
   page?: number
   limit?: number
   status?: ComplaintStatus
-  category?: ComplaintCategory
+  category?: string
 }
 
 export interface ComplaintListResult {

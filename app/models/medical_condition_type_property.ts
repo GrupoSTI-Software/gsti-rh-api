@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import MedicalConditionType from './medical_condition_type.js'
 import MedicalConditionTypePropertyValue from './medical_condition_type_property_value.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -31,6 +33,9 @@ import MedicalConditionTypePropertyValue from './medical_condition_type_property
  *         medicalConditionTypeId:
  *           type: number
  *           description: Medical condition type ID
+ *         businessUnitId:
+ *           type: number
+ *           description: Unidad de negocio dueña (hereda del tipo, USRH1784259058487)
  *         medicalConditionTypePropertyActive:
  *           type: number
  *           description: Medical condition type property status
@@ -45,7 +50,11 @@ import MedicalConditionTypePropertyValue from './medical_condition_type_property
  *           format: date-time
  *           nullable: true
  */
-export default class MedicalConditionTypeProperty extends compose(BaseModel, SoftDeletes) {
+export default class MedicalConditionTypeProperty extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare medicalConditionTypePropertyId: number
 
@@ -63,6 +72,23 @@ export default class MedicalConditionTypeProperty extends compose(BaseModel, Sof
 
   @column()
   declare medicalConditionTypeId: number
+
+  /** Marca de pertenencia propia (hereda del tipo médico, USRH1784259058487). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el tipo padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: MedicalConditionTypeProperty) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () =>
+        MedicalConditionType.query()
+          .where('medicalConditionTypeId', instance.medicalConditionTypeId)
+          .first(),
+      'el tipo de condición médica'
+    )
+  }
 
   @column()
   declare medicalConditionTypePropertyActive: number
