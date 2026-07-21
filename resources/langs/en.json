@@ -55,6 +55,8 @@
   "repse_registrations_title": "Repse",
   "repse_registration_title": "Repse Registration",
   "repse_registrations_listed_successfully": "Repse retrieved successfully",
+  "repse_folio_expirations_title": "REPSE folio expirations",
+  "repse_folio_expirations_found_successfully": "REPSE folio expirations retrieved successfully",
   "repse_registration_found_successfully": "REPSE registration found successfully",
   "repse_registration_created_successfully": "REPSE registration created successfully",
   "repse_registration_updated_successfully": "REPSE registration updated successfully",

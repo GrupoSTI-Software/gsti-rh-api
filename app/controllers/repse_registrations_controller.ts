@@ -4,6 +4,7 @@ import RepseRegistrationService, {
   type RepseRegistrationUpdatePayload,
 } from '#services/repse_registration_service'
 import RepseFolioAvisoService from '#services/repse_folio_aviso_service'
+import RepseFolioExpirationService from '#services/repse_folio_expiration_service'
 import {
   createRepseRegistrationValidator,
   repseRegistrationListValidator,
@@ -405,6 +406,90 @@ export default class RepseRegistrationsController {
    *                 errorCode: { type: string, example: REPSE.SYS.001 }
    *                 data: { nullable: true }
    */
+  /**
+   * @swagger
+   * /api/repse-registrations/get-expired-and-expiring:
+   *   get:
+   *     summary: Folios REPSE vencidos y por vencer (próximos 90 días)
+   *     description: |
+   *       Lista registros REPSE activos del tenant con `expiresAt` vencido o dentro
+   *       del umbral de renovación (90 días, zona de negocio). Sin paginación.
+   *       Hereda acceso a la Matriz de Vencimientos (sin permiso propio de REPSE).
+   *       Ordenado por `daysToExpire` ascendente (más urgentes primero).
+   *     tags: [RepseRegistrations]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Unidad de negocio seleccionada (scope multi-tenant)
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           example: es
+   *     responses:
+   *       '200':
+   *         description: Lista de folios por vencer o vencidos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/RepseFolioExpirationsSuccess'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string, example: No autorizado }
+   *                 message: { type: string, example: Usuario no autenticado }
+   *                 errorCode: { type: string, example: REPSE.FORBID.001 }
+   *                 data: { nullable: true }
+   *       '500':
+   *         description: Error inesperado del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string, example: Server error }
+   *                 message: { type: string, example: An unexpected error has occurred on the server }
+   *                 error: { type: string }
+   */
+  async getExpiredAndExpiring({ response, i18n }: HttpContext) {
+    try {
+      const service = new RepseFolioExpirationService()
+      const expirations = await service.getExpiredAndExpiring()
+
+      return response.status(200).json({
+        type: 'success',
+        title: i18n.t('repse_folio_expirations_title', undefined, 'Vencimientos del folio REPSE'),
+        message: i18n.t(
+          'repse_folio_expirations_found_successfully',
+          undefined,
+          'Vencimientos del folio REPSE obtenidos correctamente'
+        ),
+        data: { repseFolioExpirations: expirations },
+      })
+    } catch (error) {
+      const err = error as { message?: string }
+      return response.status(500).json({
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: err?.message ?? 'Unknown error',
+      })
+    }
+  }
+
   async runExpiringCheck(ctx: HttpContext) {
     const { response, i18n } = ctx
     try {
