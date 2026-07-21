@@ -607,10 +607,10 @@ export default class AttendanceFaultHrNotificationService {
         message.subject(subject).htmlView('emails/attendance_fault_hr_batch', emailData)
         // Un solo correo para todo RH: mismo cuerpo con la tabla completa de faltas
         message.to(recipients[0])
-        if (recipients.length > 1) {
+         if (recipients.length > 1) {
           message.bcc(recipients.slice(1))
-        }
-      })
+         }
+       })
 
       const fixedLogs = emailRows.map((r) => {
         const p = pending.find((x) => x.employeeAssistCalendarId === r.employeeAssistCalendarId)!
@@ -618,6 +618,7 @@ export default class AttendanceFaultHrNotificationService {
           employeeAssistCalendarId: r.employeeAssistCalendarId,
           employeeId: p.employeeId,
           systemSettingId: systemSetting.systemSettingId,
+          businessUnitId: employeeById.get(p.employeeId)?.businessUnitId ?? 1,
         }
       })
 
@@ -626,6 +627,7 @@ export default class AttendanceFaultHrNotificationService {
           fixedLogs.map((l) => ({
             employee_assist_calendar_id: l.employeeAssistCalendarId,
             employee_id: l.employeeId,
+            business_unit_id: l.businessUnitId,
             system_setting_id: l.systemSettingId,
             attendance_fault_hr_notification_log_created_at: new Date(),
           }))
