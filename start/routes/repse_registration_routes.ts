@@ -7,6 +7,11 @@ router
       '/repse-registrations',
       '#controllers/repse_registrations_controller.index'
     )
+    // ANTES de `/:id` — el segmento literal `notifications` no debe colisionar con un id.
+    router.post(
+      '/repse-registrations/notifications/run-expiring-check',
+      '#controllers/repse_registrations_controller.runExpiringCheck'
+    )
     router.get(
       '/repse-registrations/:id',
       '#controllers/repse_registrations_controller.show'
