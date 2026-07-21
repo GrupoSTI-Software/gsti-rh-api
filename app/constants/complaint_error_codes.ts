@@ -29,6 +29,8 @@ export const COMPLAINT_ERROR_CODES = {
   REVEAL_FORBIDDEN: 'CMPL.FORB.REVEAL.001',
   /** Rango de fechas invertido o inválido en reporte */
   DATE_RANGE_INVALID: 'CMPL.VAL.DATE.001',
+  /** Slug de categoría inexistente o inactivo en el catálogo */
+  CATEGORY_NOT_FOUND: 'CMPL.VAL.CATEGORY.001',
 } as const
 
 export type ComplaintErrorCode =

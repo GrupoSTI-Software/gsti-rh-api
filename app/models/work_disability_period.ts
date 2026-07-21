@@ -1,11 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import WorkDisability from './work_disability.js'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import WorkDisabilityType from './work_disability_type.js'
 import WorkDisabilityPeriodExpense from './work_disability_period_expense.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
  * @swagger
  * components:
@@ -33,6 +35,9 @@ import WorkDisabilityPeriodExpense from './work_disability_period_expense.js'
  *          workDisabilityId:
  *            type: number
  *            description: Work disability Id
+ *          businessUnitId:
+ *            type: number
+ *            description: Unidad de negocio dueña (hereda de la incapacidad, USRH1784259058498)
  *          workDisabilityTypeId:
  *            type: number
  *            description: Work disability type Id
@@ -47,7 +52,11 @@ import WorkDisabilityPeriodExpense from './work_disability_period_expense.js'
  *            format: date-time
  *            nullable: true
  */
-export default class WorkDisabilityPeriod extends compose(BaseModel, SoftDeletes) {
+export default class WorkDisabilityPeriod extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare workDisabilityPeriodId: number
 
@@ -65,6 +74,20 @@ export default class WorkDisabilityPeriod extends compose(BaseModel, SoftDeletes
 
   @column()
   declare workDisabilityId: number
+
+  /** Marca de pertenencia propia (hereda de la incapacidad, USRH1784259058498). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde la incapacidad padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: WorkDisabilityPeriod) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => WorkDisability.query().where('workDisabilityId', instance.workDisabilityId).first(),
+      'la incapacidad'
+    )
+  }
 
   @column()
   declare workDisabilityTypeId: number
