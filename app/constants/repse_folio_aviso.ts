@@ -26,6 +26,10 @@ export const REPSE_FOLIO_AVISO_TIPO_VALUES = [
 /** Slug del comando ace agendado. Referencia canónica para scheduler y endpoint manual. */
 export const REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND = 'repse:notify-folio-expiring'
 
+/** Motivo auditado para TenantContext.runUnscoped en la corrida batch. */
+export const REPSE_FOLIO_RUN_UNSCOPED_REASON =
+  'Aviso de vigencia del folio REPSE por system setting activo (cross-empresa)'
+
 /** Días de anticipación para aviso de renovación trienal. */
 export const RENEWAL_THRESHOLD_DAYS = 90
 

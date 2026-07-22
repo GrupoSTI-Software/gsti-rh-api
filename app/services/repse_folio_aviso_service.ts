@@ -16,6 +16,8 @@ import {
 import RepseFolioExpiringMail, {
   type RepseFolioExpiringMailRow,
 } from '#mails/repse_folio_expiring_mail'
+import { REPSE_FOLIO_RUN_UNSCOPED_REASON } from '#constants/repse_folio_aviso'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Lista de desarrollo — solo estos correos reciben avisos reales en
@@ -59,12 +61,21 @@ interface CandidateRow {
 /**
  * Servicio de avisos automáticos de vigencia del folio REPSE.
  *
- * Proceso GLOBAL segmentado por empresa (sin TenantContext). Idempotencia
+ * Proceso GLOBAL segmentado por empresa vía `TenantContext.runUnscoped`. Idempotencia
  * vía bitácora `repse_folio_avisos` + UNIQUE + NOT EXISTS.
  */
 export default class RepseFolioAvisoService {
   async runExpiringCheck(
     logger: NotificationServiceLogger = NOOP_LOGGER
+  ): Promise<RunExpiringCheckResult> {
+    return TenantContext.runUnscoped(
+      () => this.executeExpiringCheck(logger),
+      REPSE_FOLIO_RUN_UNSCOPED_REASON
+    )
+  }
+
+  private async executeExpiringCheck(
+    logger: NotificationServiceLogger
   ): Promise<RunExpiringCheckResult> {
     const today = DateTime.now().setZone('America/Mexico_City').startOf('day')
     const todayIso = today.toISODate() as string
