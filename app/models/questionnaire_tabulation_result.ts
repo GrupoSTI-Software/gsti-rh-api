@@ -1,13 +1,23 @@
 import { DateTime } from 'luxon'
+import { compose } from '@adonisjs/core/helpers'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import QuestionnaireApplication from '#models/questionnaire_application'
 import BusinessUnit from '#models/business_unit'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 type RiskLevel = 'nulo' | 'bajo' | 'medio' | 'alto' | 'muy_alto'
 type TabulationScope = 'overall' | 'category' | 'domain'
 
-export default class QuestionnaireTabulationResult extends BaseModel {
+/**
+ * Ya nace con `businessUnitId` poblado en código
+ * (`questionnaire_tabulation_service.ts`). Solo compone el candado
+ * (USRH1784259058521); sin hook — no hay backfill que resolver.
+ */
+export default class QuestionnaireTabulationResult extends compose(
+  BaseModel,
+  withBusinessUnitScope()
+) {
   static table = 'questionnaire_tabulation_results'
 
   @column({ isPrimary: true })

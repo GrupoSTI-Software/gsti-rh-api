@@ -184,4 +184,65 @@ export {}
  *             status: active
  *             repseRegistrationCreatedAt: '2026-06-01T15:00:00.000Z'
  *             repseRegistrationUpdatedAt: '2026-06-01T15:00:00.000Z'
+ *
+ *     RepseFolioExpirationRow:
+ *       type: object
+ *       required:
+ *         - repseRegistrationId
+ *         - businessUnitId
+ *         - folio
+ *         - expiresAt
+ *         - status
+ *         - daysToExpire
+ *       properties:
+ *         repseRegistrationId:
+ *           type: integer
+ *         businessUnitId:
+ *           type: integer
+ *         businessUnitName:
+ *           type: string
+ *           nullable: true
+ *         folio:
+ *           type: string
+ *         expiresAt:
+ *           type: string
+ *           format: date
+ *         status:
+ *           type: string
+ *           enum: [active]
+ *         daysToExpire:
+ *           type: integer
+ *           description: Días hasta el vencimiento; negativo si ya venció
+ *
+ *     RepseFolioExpirationsSuccess:
+ *       type: object
+ *       required: [type, title, message, data]
+ *       properties:
+ *         type:
+ *           type: string
+ *           enum: [success]
+ *         title:
+ *           type: string
+ *         message:
+ *           type: string
+ *         data:
+ *           type: object
+ *           properties:
+ *             repseFolioExpirations:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/RepseFolioExpirationRow'
+ *       example:
+ *         type: success
+ *         title: Vencimientos del folio REPSE
+ *         message: Vencimientos del folio REPSE obtenidos correctamente
+ *         data:
+ *           repseFolioExpirations:
+ *             - repseRegistrationId: 1
+ *               businessUnitId: 1
+ *               businessUnitName: SAE
+ *               folio: REPSE-2026-001
+ *               expiresAt: '2026-04-15'
+ *               status: active
+ *               daysToExpire: 45
  */

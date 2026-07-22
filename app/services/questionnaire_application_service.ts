@@ -154,6 +154,10 @@ export default class QuestionnaireApplicationService {
       if (employeeIds.length > 0) {
         const targetRows = employeeIds.map((employeeId) => ({
           questionnaire_application_id: applicationId,
+          // USRH1784259058521: marca de pertenencia del target — llaveada a la
+          // aplicación (branch.businessUnitId), no al empleado, porque un
+          // empleado prestado puede pertenecer a otra unidad de negocio.
+          business_unit_id: branch.businessUnitId,
           employee_id: employeeId,
           questionnaire_application_target_status: 'pendiente',
           questionnaire_application_target_responded_at: null,
