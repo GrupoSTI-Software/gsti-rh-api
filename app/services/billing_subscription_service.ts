@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
-import Employee from '#models/employee'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
@@ -64,22 +63,22 @@ export default class BillingSubscriptionService {
       return []
     }
 
-    const counts = await Employee.query()
+    // Se usa db.from() en vez de Employee.query() para evitar que el mixin
+    // withBusinessUnitScope() del modelo Employee intercepte la query global.
+    const counts = await db
+      .from('employees')
       .whereIn(
         'business_unit_id',
         businessUnits.map((bu) => bu.businessUnitId)
       )
       .whereNull('employee_deleted_at')
-      .count('* as total')
       .groupBy('business_unit_id')
       .select('business_unit_id')
+      .count('* as total')
 
     const countByBusinessUnitId = new Map<number, number>()
-    for (const row of counts as unknown as Array<{
-      business_unit_id: number
-      total: string | number
-    }>) {
-      countByBusinessUnitId.set(row.business_unit_id, Number(row.total))
+    for (const row of counts as Array<{ business_unit_id: number; total: string | number }>) {
+      countByBusinessUnitId.set(Number(row.business_unit_id), Number(row.total))
     }
 
     return businessUnits.map((bu) => ({
@@ -293,12 +292,13 @@ export default class BillingSubscriptionService {
   }
 
   private async countActiveEmployees(businessUnitId: number): Promise<number> {
-    const result = await Employee.query()
+    const result = await db
+      .from('employees')
       .where('business_unit_id', businessUnitId)
       .whereNull('employee_deleted_at')
       .count('* as total')
       .first()
 
-    return Number((result as unknown as { total: string | number } | null)?.total ?? 0)
+    return Number((result as { total: string | number } | null)?.total ?? 0)
   }
 }
