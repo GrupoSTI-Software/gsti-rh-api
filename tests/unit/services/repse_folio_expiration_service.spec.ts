@@ -80,6 +80,9 @@ test.group('RepseFolioExpirationService — ventana de vencimiento (BD)', (group
     assert.exists(match)
     assert.isAtLeast(match!.daysToExpire, 0)
     assert.isAtMost(match!.daysToExpire, RENEWAL_THRESHOLD_DAYS)
+    assert.property(match!.informativa, 'presentationDate')
+    assert.property(match!.informativa, 'daysRemaining')
+    assert.match(match!.informativa.presentationDate, /^\d{4}-\d{2}-\d{2}$/)
   })
 
   test('excluye folio holgado (más de 90 días)', async ({ assert }) => {

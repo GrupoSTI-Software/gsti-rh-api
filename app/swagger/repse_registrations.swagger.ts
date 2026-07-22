@@ -213,6 +213,17 @@ export {}
  *         daysToExpire:
  *           type: integer
  *           description: Días hasta el vencimiento; negativo si ya venció
+ *         informativa:
+ *           type: object
+ *           required: [presentationDate, daysRemaining]
+ *           properties:
+ *             presentationDate:
+ *               type: string
+ *               format: date
+ *               description: Próxima presentación informativa (17 ene/may/sep)
+ *             daysRemaining:
+ *               type: integer
+ *               description: Días hasta la próxima informativa
  *
  *     RepseFolioExpirationsSuccess:
  *       type: object
@@ -245,4 +256,7 @@ export {}
  *               expiresAt: '2026-04-15'
  *               status: active
  *               daysToExpire: 45
+ *               informativa:
+ *                 presentationDate: '2026-09-17'
+ *                 daysRemaining: 58
  */
