@@ -5,12 +5,14 @@ import hash from '@adonisjs/core/services/hash'
 import db from '@adonisjs/lucid/services/db'
 import type { I18n } from '@adonisjs/i18n'
 import Complaint from '#models/complaint'
+import ComplaintCategoryModel from '#models/complaint_category'
 import Employee from '#models/employee'
 import User from '#models/user'
 import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
 import ComplaintNotificationService from '#services/complaint_notification_service'
 import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
+import ComplaintCategoryService from '#services/complaint_category_service'
 import RetentionGuardService from '#services/retention_guard_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
@@ -46,18 +48,23 @@ const PASSPHRASE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 const COMPLAINT_RESOLVED_STATUSES: ComplaintStatus[] = ['resuelto', 'cerrado']
 
-type CategoryCountRow = { complaint_category: ComplaintCategory; total: string | number }
+type CategoryCountRow = { complaint_category_slug: ComplaintCategory; total: string | number }
 type ResolutionRow = {
   resolved_cases_count: string | number
   average_resolution_hours: string | number | null
 }
 
-/** Serialización admin detalle: nunca expone employeeId ni relaciones de identidad. */
+/** Slug de categoría desde la relación precargada (FK al catálogo). */
+function complaintCategorySlug(complaint: Complaint): ComplaintCategory {
+  return complaint.complaintCategory.complaintCategorySlug as ComplaintCategory
+}
+
+/** Serialización admin: nunca expone employeeId ni relaciones de identidad. */
 function serializeComplaintAdmin(complaint: Complaint): ComplaintAdminResult {
   return {
     complaintId: complaint.complaintId,
     folio: complaint.complaintFolio,
-    category: complaint.complaintCategory,
+    category: complaintCategorySlug(complaint),
     description: complaint.complaintDescription,
     status: complaint.complaintStatus,
     businessUnitId: complaint.businessUnitId,
@@ -70,7 +77,7 @@ function serializeComplaintBoardItem(complaint: Complaint): ComplaintBoardListIt
   return {
     complaintId: complaint.complaintId,
     folio: complaint.complaintFolio,
-    category: complaint.complaintCategory,
+    category: complaintCategorySlug(complaint),
     status: complaint.complaintStatus,
     createdAt: complaint.complaintCreatedAt.toISO()!,
     updatedAt: complaint.complaintUpdatedAt.toISO()!,
@@ -85,7 +92,7 @@ function serializeComplaintDetail(
   return {
     complaintId: complaint.complaintId,
     folio: complaint.complaintFolio,
-    category: complaint.complaintCategory,
+    category: complaintCategorySlug(complaint),
     description: complaint.complaintDescription,
     status: complaint.complaintStatus,
     createdAt: complaint.complaintCreatedAt.toISO()!,
@@ -103,6 +110,7 @@ export default class ComplaintService {
   private readonly attachmentService = new ComplaintAttachmentService()
   private readonly notificationService = new ComplaintNotificationService()
   private readonly identityRevealService = new ComplaintIdentityRevealService()
+  private readonly categoryService = new ComplaintCategoryService()
 
   /**
    * Registra una queja asociada al empleado autenticado.
@@ -134,6 +142,8 @@ export default class ComplaintService {
       )
     }
 
+    const category = await this.categoryService.findActiveBySlugOrFail(input.category)
+
     const plainPassphrase = this.generatePassphrase()
     const complaintPassphraseHash = await hash.make(plainPassphrase)
     const complaintFolio = await this.generateUniqueFolio()
@@ -143,7 +153,7 @@ export default class ComplaintService {
       businessUnitId: employee.businessUnitId,
       complaintFolio,
       complaintPassphraseHash,
-      complaintCategory: input.category,
+      complaintCategoryId: category.complaintCategoryId,
       complaintDescription: input.description.trim(),
       complaintStatus: COMPLAINT_INITIAL_STATUS,
     })
@@ -154,7 +164,7 @@ export default class ComplaintService {
       folio: complaint.complaintFolio,
       passphrase: plainPassphrase,
       status: complaint.complaintStatus,
-      category: complaint.complaintCategory,
+      category: category.complaintCategorySlug as ComplaintCategory,
       createdAt: complaint.complaintCreatedAt.toISO()!,
     }
   }
@@ -162,10 +172,14 @@ export default class ComplaintService {
   /**
    * Consulta el estatus de una queja por folio y passphrase, sin re-identificar al empleado.
    */
-  async consultStatus(input: ConsultComplaintStatusInput): Promise<ComplaintStatusResult> {
+  async consultStatus(
+    input: ConsultComplaintStatusInput,
+    i18n: I18n
+  ): Promise<ComplaintStatusResult> {
     const complaint = await Complaint.query()
       .where('complaint_folio', input.folio.trim())
       .whereNull('complaint_deleted_at')
+      .preload('complaintCategory')
       .first()
 
     const passphraseValid =
@@ -181,10 +195,13 @@ export default class ComplaintService {
       )
     }
 
+    const slug = complaintCategorySlug(complaint!)
+
     return {
       folio: complaint!.complaintFolio,
       status: complaint!.complaintStatus,
-      category: complaint!.complaintCategory,
+      category: slug,
+      categoryLabel: this.categoryService.resolveLabel(slug, i18n),
       createdAt: complaint!.complaintCreatedAt.toISO()!,
       updatedAt: complaint!.complaintUpdatedAt.toISO()!,
     }
@@ -215,10 +232,13 @@ export default class ComplaintService {
     }
 
     if (filters.category) {
-      query.where('complaint_category', filters.category)
+      await this.categoryService.findActiveBySlugOrFail(filters.category)
+      query.whereHas('complaintCategory', (builder) => {
+        builder.where('complaint_category_slug', filters.category!)
+      })
     }
 
-    query.orderBy('complaint_created_at', 'desc')
+    query.preload('complaintCategory').orderBy('complaint_created_at', 'desc')
 
     const paginator = await query.paginate(safePage, safeLimit)
     const pendingNewCount = await this.notificationService.countNewPendingComplaints(
@@ -312,6 +332,7 @@ export default class ComplaintService {
     })
 
     await complaint.refresh()
+    await complaint.load('complaintCategory')
     return serializeComplaintAdmin(complaint)
   }
 
@@ -385,7 +406,7 @@ export default class ComplaintService {
     allowedBusinessUnitIds: number[] = []
   ): Promise<ComplaintReportResult> {
     if (allowedBusinessUnitIds.length === 0) {
-      return this.emptyAggregatedReport(period)
+      return await this.emptyAggregatedReport(period)
     }
 
     const fromSql = period.from.toSQL({ includeOffset: false })!
@@ -525,11 +546,14 @@ export default class ComplaintService {
     return `reporte-quejas_${report.period.from}_${report.period.to}.${extension}`
   }
 
-  private emptyAggregatedReport(period: ParsedComplaintReportDateRange): ComplaintReportResult {
+  private async emptyAggregatedReport(
+    period: ParsedComplaintReportDateRange
+  ): Promise<ComplaintReportResult> {
+    const catalogSlugs = await this.loadReportCatalogSlugs()
     return {
       period: { from: period.fromIso, to: period.toIso },
       totalVolume: 0,
-      byCategory: COMPLAINT_CATEGORIES.map((category) => ({ category, count: 0 })),
+      byCategory: catalogSlugs.map((category) => ({ category, count: 0 })),
       averageResolutionTimeHours: null,
       resolvedCasesCount: 0,
     }
@@ -556,11 +580,17 @@ export default class ComplaintService {
   ): Promise<ComplaintReportCategoryRow[]> {
     const rows = (await this.buildPeriodComplaintsQuery(allowedBusinessUnitIds, fromSql, toSql)
       .clone()
-      .select('complaint_category')
+      .innerJoin(
+        'complaint_categories as cc',
+        'cc.complaint_category_id',
+        'complaints.complaint_category_id'
+      )
+      .select('cc.complaint_category_slug as complaint_category_slug')
       .count('* as total')
-      .groupBy('complaint_category')) as CategoryCountRow[]
+      .groupBy('cc.complaint_category_slug')) as CategoryCountRow[]
 
-    return this.fillReportCategoryRows(rows)
+    const catalogSlugs = await this.loadReportCatalogSlugs()
+    return this.fillReportCategoryRows(rows, catalogSlugs)
   }
 
   private async fetchReportResolutionMetrics(
@@ -616,12 +646,30 @@ export default class ComplaintService {
     return { resolvedCasesCount, averageResolutionTimeHours }
   }
 
-  private fillReportCategoryRows(rows: CategoryCountRow[]): ComplaintReportCategoryRow[] {
-    const map = new Map(rows.map((row) => [row.complaint_category, Number(row.total)]))
-    return COMPLAINT_CATEGORIES.map((category) => ({
+  private fillReportCategoryRows(
+    rows: CategoryCountRow[],
+    catalogSlugs: ComplaintCategory[]
+  ): ComplaintReportCategoryRow[] {
+    const map = new Map(rows.map((row) => [row.complaint_category_slug, Number(row.total)]))
+    return catalogSlugs.map((category) => ({
       category,
       count: map.get(category) ?? 0,
     }))
+  }
+
+  /** Slugs activos del catálogo para filas del reporte (incluye categorías con conteo 0). */
+  private async loadReportCatalogSlugs(): Promise<ComplaintCategory[]> {
+    const rows = await ComplaintCategoryModel.query()
+      .where('complaintCategoryActive', 1)
+      .whereNull('complaint_category_deleted_at')
+      .orderBy('complaintCategoryOrder')
+      .orderBy('complaintCategoryId')
+
+    if (rows.length > 0) {
+      return rows.map((row) => row.complaintCategorySlug as ComplaintCategory)
+    }
+
+    return [...COMPLAINT_CATEGORIES]
   }
 
   private reportCategoryLabel(category: ComplaintCategory, i18n?: I18n): string {
@@ -646,6 +694,7 @@ export default class ComplaintService {
       .where('complaint_id', complaintId)
       .whereNull('complaint_deleted_at')
       .whereIn('business_unit_id', allowedBusinessUnitIds)
+      .preload('complaintCategory')
       .first()
 
     if (!complaint) {

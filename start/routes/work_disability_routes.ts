@@ -12,3 +12,4 @@ router
   })
   .prefix('/api/work-disabilities')
   .use(middleware.auth())
+  .use(middleware.businessScope())

@@ -10,3 +10,4 @@ router
   })
   .prefix('/api/work-disability-notes')
   .use(middleware.auth())
+  .use(middleware.businessScope())

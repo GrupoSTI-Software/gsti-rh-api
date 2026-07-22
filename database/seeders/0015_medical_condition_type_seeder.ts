@@ -8,8 +8,10 @@ export default class extends BaseSeeder {
         medicalConditionTypeId: 1,
         medicalConditionTypeName: 'Tipo de sangre',
         medicalConditionTypeDescription: 'Tipo de sangre',
-        medicalConditionTypeActive: 1
-      }
+        medicalConditionTypeActive: 1,
+        // Catálogo semilla de la unidad principal (ya no es global).
+        businessUnitId: 1,
+      },
     ]
 
     for (const medicalConditionType of medicalConditionTypes) {

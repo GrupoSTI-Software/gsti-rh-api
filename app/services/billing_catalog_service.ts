@@ -183,17 +183,77 @@ export default class BillingCatalogService {
       )
     }
 
-    plan.billingPlanPublishedAt = DateTime.utc()
-    await plan.save()
+    await db.transaction(async (trx) => {
+      // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
+      // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
+      if (plan.billingPlanParentId) {
+        await BillingPlan.query({ client: trx })
+          .where('billing_plan_id', plan.billingPlanParentId)
+          .update({ billing_plan_active: 0 })
+      }
+
+      plan.billingPlanPublishedAt = DateTime.utc()
+      plan.useTransaction(trx)
+      await plan.save()
+    })
+
     return plan
   }
 
   /**
    * Clona un plan publicado como nuevo borrador.
-   * Copia nombre, descripción, precios y tramos.
+   *
+   * Reglas:
+   *  - Solo se puede clonar un plan PUBLICADO (un borrador se edita directo).
+   *  - No se puede clonar un plan DESACTIVADO (la cadena de ofertas parte del vigente).
+   *  - No puede existir más de un clon en borrador vivo por plan origen a la vez.
+   *  - Copia nombre, descripción, únicamente el precio VIGENTE (no el historial completo) y los tramos activos.
+   *  - El clon queda con `billingPlanParentId` apuntando al origen (linaje).
    */
   async clonePlan(planId: number): Promise<BillingPlan> {
     const source = await this.getPlan(planId)
+
+    if (!source.isPublished) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} no está publicado, no se puede clonar`,
+        BILLING_CATALOG_ERROR_CODES.CLONE_SOURCE_MUST_BE_PUBLISHED,
+        422,
+        'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED',
+        'Solo se puede clonar un plan publicado. Un plan en borrador se edita directamente.'
+      )
+    }
+
+    if (source.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} está desactivado, no se puede clonar`,
+        BILLING_CATALOG_ERROR_CODES.CLONE_SOURCE_DEACTIVATED,
+        422,
+        'PLT.CAT.CLONE_SOURCE_DEACTIVATED',
+        'No se puede clonar un plan desactivado. La cadena de ofertas parte siempre del plan vigente publicado.'
+      )
+    }
+
+    const existingDraftClone = await BillingPlan.query()
+      .where('billing_plan_parent_id', planId)
+      .whereNull('billing_plan_published_at')
+      .first()
+
+    if (existingDraftClone) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} ya tiene un borrador clon vivo (plan ${existingDraftClone.billingPlanId})`,
+        BILLING_CATALOG_ERROR_CODES.CLONE_DRAFT_EXISTS,
+        409,
+        'PLT.CAT.CLONE_DRAFT_EXISTS',
+        'Ya existe un borrador de nueva oferta en curso para este plan. Publícalo o descártalo antes de clonar de nuevo.'
+      )
+    }
+
+    const today = toBusinessDateString()
+    const currentPrice = await BillingPlanPrice.query()
+      .where('billing_plan_id', planId)
+      .where('billing_plan_price_effective_from', '<=', today)
+      .orderBy('billing_plan_price_effective_from', 'desc')
+      .first()
 
     const newPlan = await db.transaction(async (trx) => {
       const cloned = await BillingPlan.create(
@@ -204,23 +264,20 @@ export default class BillingCatalogService {
           billingPlanStripeProductId: null,
           billingPlanActive: 1,
           billingPlanPublishedAt: null,
+          billingPlanParentId: source.billingPlanId,
         },
         { client: trx }
       )
 
-      const sourcePrices = await BillingPlanPrice.query({ client: trx })
-        .where('billing_plan_id', planId)
-        .orderBy('billing_plan_price_effective_from', 'asc')
-
-      for (const p of sourcePrices) {
+      if (currentPrice) {
         await BillingPlanPrice.create(
           {
             billingPlanId: cloned.billingPlanId,
-            billingPlanPriceAmount: p.billingPlanPriceAmount,
-            billingPlanPriceCurrency: p.billingPlanPriceCurrency,
-            billingPlanPriceTaxRate: p.billingPlanPriceTaxRate,
-            billingPlanPriceTrialDays: p.billingPlanPriceTrialDays,
-            billingPlanPriceEffectiveFrom: p.billingPlanPriceEffectiveFrom,
+            billingPlanPriceAmount: currentPrice.billingPlanPriceAmount,
+            billingPlanPriceCurrency: currentPrice.billingPlanPriceCurrency,
+            billingPlanPriceTaxRate: currentPrice.billingPlanPriceTaxRate,
+            billingPlanPriceTrialDays: currentPrice.billingPlanPriceTrialDays,
+            billingPlanPriceEffectiveFrom: currentPrice.billingPlanPriceEffectiveFrom,
             billingPlanPriceStripePriceId: null,
             billingPlanPriceProvider: 'manual',
           },
@@ -228,8 +285,10 @@ export default class BillingCatalogService {
         )
       }
 
-      const sourceTiers = await BillingVolumeTier.query({ client: trx })
-        .where('billing_plan_id', planId)
+      const sourceTiers = await BillingVolumeTier.query({ client: trx }).where(
+        'billing_plan_id',
+        planId
+      )
 
       for (const t of sourceTiers) {
         await BillingVolumeTier.create(

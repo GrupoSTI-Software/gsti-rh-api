@@ -5,6 +5,17 @@ import Env from '#start/env'
 import WorkDisabilityPeriodExpense from '#models/work_disability_period_expense'
 import WorkDisabilityPeriodExpenseService from '#services/work_disability_period_expense_service'
 import { createWorkDisabilityPeriodExpenseValidator } from '#validators/work_disability_period_expense'
+import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
+function workDisabilityPeriodExpenseNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: WORK_DISABILITY_ERROR_CODES.NOT_FOUND,
+  })
+}
 
 export default class WorkDisabilityPeriodExpenseController {
   /**
@@ -338,13 +349,7 @@ export default class WorkDisabilityPeriodExpenseController {
         .where('work_disability_period_expense_id', workDisabilityPeriodExpenseId)
         .first()
       if (!currentWorkDisabilityPeriodExpense) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period expense was not found',
-          message: 'The work disability period expense was not found with the entered ID',
-          data: { workDisabilityPeriodExpenseId },
-        }
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
       }
       const workDisabilityPeriodExpenseAmount = request.input('workDisabilityPeriodExpenseAmount')
       const workDisabilityPeriodId = request.input('workDisabilityPeriodId')
@@ -549,13 +554,7 @@ export default class WorkDisabilityPeriodExpenseController {
         workDisabilityPeriodExpenseId
       )
       if (!showWorkDisabilityPeriodExpense) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period expense was not found',
-          message: 'The work disability period expense was not found with the entered ID',
-          data: { workDisabilityPeriodExpenseId },
-        }
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
       } else {
         response.status(200)
         return {
@@ -691,13 +690,7 @@ export default class WorkDisabilityPeriodExpenseController {
         .where('work_disability_period_expense_id', workDisabilityPeriodExpenseId)
         .first()
       if (!currentWorkDisabilityPeriodExpense) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period expense was not found',
-          message: 'The work disability period expense was not found with the entered ID',
-          data: { workDisabilityPeriodExpenseId },
-        }
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
       }
       const workDisabilityPeriodExpenseService = new WorkDisabilityPeriodExpenseService()
       const deleteWorkDisabilityPeriodExpense = await workDisabilityPeriodExpenseService.delete(
