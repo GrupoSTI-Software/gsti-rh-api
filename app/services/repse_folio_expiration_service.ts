@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 import RepseRegistration from '#models/repse_registration'
-import { RENEWAL_THRESHOLD_DAYS } from '#constants/repse_folio_aviso'
+import { RENEWAL_THRESHOLD_DAYS, buildInformativaExpirationSnapshot } from '#constants/repse_folio_aviso'
 import { getAllowedBusinessUnitIds } from '#helpers/repse_tenant_scope'
 import {
   getBusinessTimeZone,
@@ -8,6 +8,12 @@ import {
   toBusinessDateString,
   toCalendarIsoDate,
 } from '#utils/business_date'
+
+/** Próxima informativa cuatrimestral (17 ene/may/sep), calculada en servidor. */
+export type RepseFolioInformativaExpiration = {
+  presentationDate: string
+  daysRemaining: number
+}
 
 /** Fila del listado de vencimientos del folio REPSE para la Matriz de Vencimientos. */
 export type RepseFolioExpirationRow = {
@@ -18,6 +24,7 @@ export type RepseFolioExpirationRow = {
   expiresAt: string
   status: string
   daysToExpire: number
+  informativa: RepseFolioInformativaExpiration
 }
 
 /**
@@ -38,6 +45,7 @@ export default class RepseFolioExpirationService {
     const today = todayInBusinessZone()
     const horizonIso = toBusinessDateString(today.plus({ days: RENEWAL_THRESHOLD_DAYS }))
     const zone = getBusinessTimeZone()
+    const informativa = buildInformativaExpirationSnapshot(today)
 
     const registrations = await RepseRegistration.query()
       .whereNull('repse_registration_deleted_at')
@@ -61,6 +69,7 @@ export default class RepseFolioExpirationService {
         expiresAt: expiresIso,
         status: registration.status,
         daysToExpire,
+        informativa,
       }
     })
 
