@@ -239,6 +239,45 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
   })
 })
 
+test.group('EmployeeBadge - nombre compuesto en E1', (group) => {
+  let root: TestActor | null = null
+  let businessUnit: BusinessUnit | null = null
+  let employee: Employee | null = null
+
+  group.setup(async () => {
+    root = await createTestActor(ROOT_ROLE_ID, 'compound-name')
+    root!.person.personFirstname = 'Luis Miguel'
+    root!.person.personLastname = 'Rodríguez'
+    root!.person.personSecondLastname = 'Veltrán'
+    await root!.person.save()
+
+    businessUnit = await createBusinessUnit('compound')
+    employee = await createEmployee(root!.person, businessUnit)
+  })
+
+  group.teardown(async () => {
+    await cleanupEmployee(employee?.employeeId ?? null)
+    await cleanupTestActor(root)
+    await deleteBusinessUnit(businessUnit)
+  })
+
+  test('GET /:employeeId arma nombreCompleto con nombres y apellidos de la persona', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employee-badges/${employee!.employeeId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.equal(
+      response.body().data.gafete.nombreCompleto,
+      'Luis Miguel Rodríguez Veltrán'
+    )
+  })
+})
+
 test.group('EmployeeBadge - flujo feliz sin registro REPSE (R7 — universal)', (group) => {
   let root: TestActor | null = null
   let businessUnit: BusinessUnit | null = null

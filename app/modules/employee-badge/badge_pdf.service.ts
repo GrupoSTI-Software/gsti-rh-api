@@ -190,18 +190,18 @@ export default class BadgePdfService {
   ) {
     const x = 76
     const width = 96
+    const nameLineGap = 0.5
     const hasPuesto = !!input.puesto?.trim()
     // Con folio el bloque queda más arriba (deja espacio al folio abajo);
     // sin folio se centra verticalmente (regla 12: layout compactado).
     const y = hasFolio ? 34 : hasPuesto ? 46 : 52
 
-    doc
-      .font('Mulish-Bold')
-      .fontSize(9)
-      .fillColor(BRAND_COLORS.text)
-      .text(input.nombreCompleto, x, y, { width, height: 20, ellipsis: true })
+    doc.font('Mulish-Bold').fontSize(9).fillColor(BRAND_COLORS.text)
+    // Sin `height`: PDFKit recorta si el texto necesita más pt que el tope fijo
+    // (p. ej. "Luis Miguel Rodríguez Veltrán" ≈ 22.4 pt en 2 líneas).
+    doc.text(input.nombreCompleto, x, y, { width, lineGap: nameLineGap })
 
-    const empresaY = y + 16
+    const empresaY = doc.y + 3
     doc.font('Mulish').fontSize(6.5).fillColor(BRAND_COLORS.primary)
     doc.text(input.empresa, x, empresaY, { width, lineGap: 0.5 })
 
@@ -320,9 +320,9 @@ export default class BadgePdfService {
     try {
       const parsed = new URL(urlVerificacion)
       const pathBase = parsed.pathname.replace(/\/[^/]+$/, '') || parsed.pathname
-      return `Verifica en ${parsed.host}${pathBase}`
+      return `Escanea el QR · ${parsed.host}${pathBase}`
     } catch {
-      return urlVerificacion.replace(/^https?:\/\//, '')
+      return `Escanea el QR · ${urlVerificacion.replace(/^https?:\/\//, '')}`
     }
   }
 
