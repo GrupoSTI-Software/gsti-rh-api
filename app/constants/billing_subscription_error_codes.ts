@@ -2,7 +2,8 @@
  * Códigos estables para el cliente — suscripciones de la plataforma.
  * Prefijo PLT.SUB = PLaTaforma · SUBscripciones.
  *
- * Contrato fijado por spec-USRH1784574994919.md §6/§12 — no renombrar sin
+ * Contrato fijado por spec-USRH1784574994919.md §6/§12 y extendido por
+ * spec-USRH1784574994920.md §6 — no renombrar sin
  * escalar a Wilvardo (cambio de contrato).
  */
 export const BILLING_SUBSCRIPTION_ERROR_CODES = {
@@ -22,6 +23,8 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   NO_ACTIVE_PRICE: 'PLT.SUB.NO_ACTIVE_PRICE',
   /** La empresa ya tiene una suscripción viva (trialing/active/past_due) */
   ALREADY_LIVE: 'PLT.SUB.ALREADY_LIVE',
+  /** La suscripción está cancelada y no admite operaciones (cambio de plan, cobro) */
+  SUBSCRIPTION_CANCELED: 'PLT.SUB.SUBSCRIPTION_CANCELED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.SUB.SYS_UNHANDLED',
 } as const

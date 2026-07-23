@@ -1,6 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import BillingSubscriptionService from '#services/billing_subscription_service'
-import { createBillingSubscriptionValidator } from '#validators/billing_subscription'
+import {
+  createBillingSubscriptionValidator,
+  changePlanValidator,
+  cancelSubscriptionValidator,
+} from '#validators/billing_subscription'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
 
 /**
@@ -140,6 +144,60 @@ export default class BillingSubscriptionController {
       const data = await request.validateUsing(createBillingSubscriptionValidator)
       const subscription = await this.service.createSubscription(data)
       return response.status(201).json({ type: 'success', data: subscription })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @changePlan
+   * @summary Cambiar plan de suscripción
+   * @description Actualiza el plan contratado de una suscripción viva (trialing/active/past_due),
+   *   recongelando el snapshot de precios desde el catálogo vigente.
+   *   Las suscripciones canceladas rechazan esta operación.
+   * @tag Billing · Subscriptions
+   * @operationId changePlan
+   * @security [{"bearerAuth": []}]
+   * @paramPath id - ID interno de la suscripción - integer
+   * @requestBody {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["billingPlanId"], "properties": {"billingPlanId": {"type": "integer"}}}}}}
+   * @responseBody 200 - {"type": "success", "data": {}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.NOT_FOUND|PLT.SUB.PLAN_NOT_FOUND"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.SUBSCRIPTION_CANCELED|PLT.SUB.PLAN_NOT_PUBLISHED|PLT.SUB.NO_ACTIVE_PRICE|PLT.SUB.VAL_INPUT"}
+   */
+  async changePlan({ params, request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(changePlanValidator)
+      const subscription = await this.service.changePlan(
+        Number(params.id),
+        data.billingPlanId
+      )
+      return response.status(200).json({ type: 'success', data: subscription })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @cancel
+   * @summary Cancelar suscripción
+   * @description Cambia el estado de la suscripción a 'canceled', registra la
+   *   fecha de cancelación y libera el bloqueo de unicidad por empresa.
+   *   Operación idempotente: si ya está cancelada devuelve 422.
+   * @tag Billing · Subscriptions
+   * @operationId cancelSubscription
+   * @security [{"bearerAuth": []}]
+   * @paramPath id - ID interno de la suscripción - integer
+   * @responseBody 200 - {"type": "success", "data": {}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.NOT_FOUND"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.SUBSCRIPTION_CANCELED"}
+   */
+  async cancel({ params, request, response }: HttpContext) {
+    try {
+      await request.validateUsing(cancelSubscriptionValidator)
+      const subscription = await this.service.cancel(Number(params.id))
+      return response.status(200).json({ type: 'success', data: subscription })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

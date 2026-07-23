@@ -13,3 +13,19 @@ export const createBillingSubscriptionValidator = vine.compile(
     contractedEmployees: vine.number().min(1).withoutDecimals().optional(),
   })
 )
+
+/**
+ * Body para `POST /api/platform/billing/subscriptions/:id/change-plan`.
+ * El precio/descuento/importes se resuelven y recongelan server-side.
+ */
+export const changePlanValidator = vine.compile(
+  vine.object({
+    billingPlanId: vine.number().positive().withoutDecimals(),
+  })
+)
+
+/**
+ * Body para `POST /api/platform/billing/subscriptions/:id/cancel`.
+ * No requiere cuerpo; se acepta un objeto vacío para tolerancia del cliente.
+ */
+export const cancelSubscriptionValidator = vine.compile(vine.object({}))

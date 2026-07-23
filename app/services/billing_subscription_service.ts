@@ -280,6 +280,130 @@ export default class BillingSubscriptionService {
     }
   }
 
+  // ─── Cambio de plan ───────────────────────────────────────────────────────
+
+  /**
+   * Cambia el plan de una suscripción existente, recongelando el snapshot
+   * (precio, descuento, importes) desde el catálogo vigente a la fecha efectiva
+   * (hoy en zona CDMX). No recalcula ni toca el histórico ni los pagos asentados.
+   */
+  async changePlan(
+    subscriptionId: number,
+    billingPlanId: number
+  ): Promise<BillingSubscription> {
+    const subscription = await this.getSubscription(subscriptionId)
+
+    if (subscription.billingSubscriptionStatus === 'canceled') {
+      throw new BillingSubscriptionServiceError(
+        `Suscripción ${subscriptionId} está cancelada y no admite cambio de plan`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_CANCELED,
+        422,
+        'suscripcion-cancelada',
+        'La suscripción está cancelada y no admite cambio de plan ni cobro.'
+      )
+    }
+
+    const plan = await BillingPlan.query().where('billing_plan_id', billingPlanId).first()
+
+    if (!plan) {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${billingPlanId} no encontrado`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_FOUND,
+        404,
+        'plan-no-encontrado',
+        'El plan solicitado no existe.'
+      )
+    }
+
+    if (!plan.isPublished) {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${billingPlanId} no está publicado`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
+        422,
+        'plan-no-publicado',
+        'Solo se puede cambiar a un plan publicado del catálogo.'
+      )
+    }
+
+    const today = toBusinessDateString()
+    let resolved
+    try {
+      resolved = await this.catalog.resolvePrice(
+        billingPlanId,
+        subscription.billingSubscriptionContractedEmployees,
+        today
+      )
+    } catch {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${billingPlanId} no tiene precio vigente para ${today}`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.NO_ACTIVE_PRICE,
+        422,
+        'sin-precio-vigente',
+        'El plan no tiene un precio vigente en el catálogo para la fecha de hoy.'
+      )
+    }
+
+    const currentPrice = await this.getCurrentPrice(billingPlanId, today)
+    if (!currentPrice) {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${billingPlanId} no tiene precio vigente para ${today}`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.NO_ACTIVE_PRICE,
+        422,
+        'sin-precio-vigente',
+        'El plan no tiene un precio vigente en el catálogo para la fecha de hoy.'
+      )
+    }
+
+    return db.transaction(async (trx) => {
+      subscription.useTransaction(trx)
+      subscription.billingPlanId = billingPlanId
+      subscription.billingPlanPriceId = currentPrice.billingPlanPriceId
+      subscription.billingSubscriptionContractedUnitAmount = resolved.pricePerEmployee
+      subscription.billingSubscriptionDiscountPercent = resolved.discountPercent
+      subscription.billingSubscriptionContractedSubtotal = resolved.subtotal
+      subscription.billingSubscriptionContractedTaxRate = resolved.taxRate
+      subscription.billingSubscriptionContractedTaxAmount = resolved.taxAmount
+      subscription.billingSubscriptionContractedTotal = resolved.total
+      subscription.billingSubscriptionContractedCurrency = resolved.currency
+      subscription.billingSubscriptionContractedTrialDays = resolved.trialDays
+      subscription.billingSubscriptionContractedEffectiveFrom = DateTime.fromISO(
+        toCalendarIsoDate(resolved.effectiveFrom) ?? today
+      )
+      await subscription.save()
+      return subscription
+    })
+  }
+
+  // ─── Cancelación ─────────────────────────────────────────────────────────
+
+  /**
+   * Cancela una suscripción existente: establece status='canceled', registra
+   * la fecha de cancelación y libera la columna espejo de unicidad.
+   * No realiza borrado físico; la suscripción permanece visible en el listado.
+   */
+  async cancel(subscriptionId: number): Promise<BillingSubscription> {
+    const subscription = await this.getSubscription(subscriptionId)
+
+    if (subscription.billingSubscriptionStatus === 'canceled') {
+      throw new BillingSubscriptionServiceError(
+        `Suscripción ${subscriptionId} ya está cancelada`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_CANCELED,
+        422,
+        'suscripcion-cancelada',
+        'La suscripción ya está cancelada.'
+      )
+    }
+
+    return db.transaction(async (trx) => {
+      subscription.useTransaction(trx)
+      subscription.billingSubscriptionStatus = 'canceled'
+      subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
+      subscription.billingSubscriptionLiveBusinessUnitId = null
+      await subscription.save()
+      return subscription
+    })
+  }
+
   private async getCurrentPrice(
     billingPlanId: number,
     referenceDate: string

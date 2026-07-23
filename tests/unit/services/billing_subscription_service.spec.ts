@@ -73,6 +73,10 @@ test.group('BILLING_SUBSCRIPTION_ERROR_CODES — contrato de namespace PLT.SUB.*
     )
     assert.equal(BILLING_SUBSCRIPTION_ERROR_CODES.NO_ACTIVE_PRICE, 'PLT.SUB.NO_ACTIVE_PRICE')
     assert.equal(BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE, 'PLT.SUB.ALREADY_LIVE')
+    assert.equal(
+      BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_CANCELED,
+      'PLT.SUB.SUBSCRIPTION_CANCELED'
+    )
   })
 
   test('no hay códigos duplicados', ({ assert }) => {
@@ -333,6 +337,57 @@ test.group('BillingSubscriptionService — cálculo del reloj inicial', () => {
     const today = new Date('2026-01-15T00:00:00.000Z')
     const clock = computeInitialClock(today, 30)
     assert.equal(clock.trialEndsAt.toISOString(), '2026-02-14T00:00:00.000Z')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: SUBSCRIPTION_CANCELED — semántica del código de error
+// ---------------------------------------------------------------------------
+
+test.group('BILLING_SUBSCRIPTION_ERROR_CODES — SUBSCRIPTION_CANCELED', () => {
+  test('lanza error con código PLT.SUB.SUBSCRIPTION_CANCELED al intentar cambiar plan en suscripción cancelada', ({
+    assert,
+  }) => {
+    const error = new BillingSubscriptionServiceError(
+      'La suscripción 42 está cancelada y no admite cambio de plan',
+      BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_CANCELED,
+      422,
+      'suscripcion-cancelada',
+      'La suscripción está cancelada y no admite cambio de plan ni cobro.'
+    )
+    assert.equal(error.errorCode, 'PLT.SUB.SUBSCRIPTION_CANCELED')
+    assert.equal(error.httpStatus, 422)
+    assert.equal(error.key, 'suscripcion-cancelada')
+  })
+
+  test('lanza error con código PLT.SUB.SUBSCRIPTION_CANCELED al intentar cancelar una ya cancelada', ({
+    assert,
+  }) => {
+    const error = new BillingSubscriptionServiceError(
+      'La suscripción 42 ya está cancelada',
+      BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_CANCELED,
+      422,
+      'suscripcion-cancelada',
+      'La suscripción ya está cancelada.'
+    )
+    assert.equal(error.errorCode, 'PLT.SUB.SUBSCRIPTION_CANCELED')
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('resolveBillingSubscriptionApiError convierte SUBSCRIPTION_CANCELED a 422', ({ assert }) => {
+    const error = new BillingSubscriptionServiceError(
+      'Cancelada',
+      BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_CANCELED,
+      422,
+      'suscripcion-cancelada',
+      'La suscripción está cancelada.'
+    )
+    const resolved = resolveBillingSubscriptionApiError(error)
+    assert.equal(resolved.status, 422)
+    assert.equal(resolved.code, 'PLT.SUB.SUBSCRIPTION_CANCELED')
+    assert.property(resolved, 'title')
+    assert.property(resolved, 'detail')
+    assert.property(resolved, 'key')
   })
 })
 

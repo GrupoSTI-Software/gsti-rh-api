@@ -28,9 +28,11 @@ import { middleware } from '../kernel.js'
  *   DELETE /api/platform/billing/plans/:planId/tiers/:tierId      → eliminar
  *
  * ─── Suscripciones (alta manual) ──────────────────────────────────────────
- *   GET    /api/platform/billing/subscriptions          → listar
- *   GET    /api/platform/billing/subscriptions/:id      → detalle
- *   POST   /api/platform/billing/subscriptions          → alta manual (congela el trato)
+ *   GET    /api/platform/billing/subscriptions                     → listar
+ *   GET    /api/platform/billing/subscriptions/:id                 → detalle
+ *   POST   /api/platform/billing/subscriptions                     → alta manual (congela el trato)
+ *   POST   /api/platform/billing/subscriptions/:id/change-plan     → cambio de plan (recongela el snapshot)
+ *   POST   /api/platform/billing/subscriptions/:id/cancel          → cancelar suscripción
  *
  * ─── Empresas (picker mínimo para el alta) ────────────────────────────────
  *   GET    /api/platform/billing/business-units         → listar empresas activas
@@ -61,6 +63,8 @@ router
     router.get('/subscriptions', '#controllers/billing_subscription_controller.index')
     router.post('/subscriptions', '#controllers/billing_subscription_controller.store')
     router.get('/subscriptions/:subscriptionId', '#controllers/billing_subscription_controller.show')
+    router.post('/subscriptions/:id/change-plan', '#controllers/billing_subscription_controller.changePlan')
+    router.post('/subscriptions/:id/cancel', '#controllers/billing_subscription_controller.cancel')
 
     // ─── Empresas (picker del alta) ─────────────────────────────────────────
     router.get('/business-units', '#controllers/billing_subscription_controller.businessUnits')
