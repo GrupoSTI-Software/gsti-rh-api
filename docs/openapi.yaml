@@ -10131,6 +10131,81 @@ paths:
                 errorCode: BDG.SYS.001
                 data: null
 
+  /api/employee-badges/{employeeId}/png:
+    get:
+      summary: Descarga el gafete en PNG @300 dpi (1011×638 px)
+      description: |
+        Imagen nítida del mismo gafete que el PDF CR80, generada desde el
+        PNG master en canvas. Sin registro REPSE el bloque de folio se omite
+        y el layout se compacta (regla 12); sin foto se usa un marcador de
+        posición (regla 10). Nunca se persiste en disco ni en S3.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: "Stream del PNG (`Content-Type: image/png`, `Content-Disposition: attachment`, `Cache-Control: private, no-store`)."
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
   /api/employee-badges/me:
     get:
       summary: Gafete propio del usuario autenticado (contrato para la app del empleado)

@@ -17,6 +17,7 @@ router
     router.get('/me', '#modules/employee-badge/badge.controller.me')
     router.get('/:employeeId', '#modules/employee-badge/badge.controller.show')
     router.get('/:employeeId/pdf', '#modules/employee-badge/badge.controller.pdf')
+    router.get('/:employeeId/png', '#modules/employee-badge/badge.controller.png')
   })
   .prefix('/api/employee-badges')
   .use(middleware.auth())

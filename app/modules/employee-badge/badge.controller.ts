@@ -3,13 +3,15 @@ import { resolveEmployeeBadgeApiError } from '#helpers/employee_badge_api_error'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import BadgeService from './badge.service.js'
 import BadgePdfService from './badge_pdf.service.js'
+import BadgeRenderService from './badge_render.service.js'
 import { parseEmployeeIdParam } from './validators/get_badge.validator.js'
 
 /**
  * Controlador REST del gafete del trabajador (USRH1784686362321).
  *
- * Expone E1 (`show`, datos del gafete), E2 (`pdf`, descarga CR80) y E3
- * (`me`, gafete propio del usuario autenticado). Espejo de
+ * Expone E1 (`show`, datos del gafete), E2 (`pdf`, descarga CR80), E5
+ * (`png`, imagen @300 dpi) y E3 (`me`, gafete propio del usuario autenticado).
+ * Espejo de
  * `providers.controller.ts`: `respondError` privado + `StandardResponseFormatter`.
  *
  * Sin permiso de módulo propio (decisión de permisos §16 del spec): E1/E2
@@ -245,6 +247,107 @@ export default class BadgeController {
       const safeName = `gafete-empleado-${employeeId}`.replace(/[^\w.\- ]/g, '_')
       response.header('Content-Type', 'application/pdf')
       response.header('Content-Disposition', `attachment; filename="${safeName}.pdf"`)
+      response.header('Cache-Control', 'private, no-store')
+      response.header('Content-Length', String(buffer.length))
+      response.status(200)
+      return response.send(buffer)
+    } catch (error) {
+      return this.respondError(error, response, 500, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-badges/{employeeId}/png:
+   *   get:
+   *     summary: Descarga el gafete en PNG @300 dpi (1011×638 px)
+   *     description: |
+   *       Imagen nítida del mismo gafete que el PDF CR80, generada desde el
+   *       PNG master en canvas. Sin registro REPSE el bloque de folio se omite
+   *       y el layout se compacta (regla 12); sin foto se usa un marcador de
+   *       posición (regla 10). Nunca se persiste.
+   *     tags: [EmployeeBadge]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Authorization
+   *         required: true
+   *         schema: { type: string }
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema: { type: integer, minimum: 1 }
+   *     responses:
+   *       '200':
+   *         description: "Stream del PNG (`Content-Type: image/png`, `Content-Disposition: attachment`)."
+   *         content:
+   *           image/png:
+   *             schema: { type: string, format: binary }
+   *       '422':
+   *         description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Error
+   *               message: El identificador del empleado es inválido.
+   *               detail: El identificador del empleado es inválido.
+   *               key: entrada-invalida
+   *               errorCode: BDG.VAL.001
+   *               data: null
+   *       '401':
+   *         description: Sin autenticación.
+   *       '404':
+   *         description: Trabajador inexistente, de otro tenant, eliminado o inactivo.
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Gafete no encontrado
+   *               message: El gafete no existe o el trabajador no pertenece al tenant actual.
+   *               detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+   *               key: gafete-no-encontrado
+   *               errorCode: BDG.NF.001
+   *               data: null
+   *       '500':
+   *         description: Error no controlado.
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Error
+   *               message: Error inesperado
+   *               errorCode: BDG.SYS.001
+   *               data: null
+   */
+  async png(ctx: HttpContext) {
+    const { params, response, i18n, businessUnitScope } = ctx
+    try {
+      const employeeId = parseEmployeeIdParam(params.employeeId)
+      const service = new BadgeService()
+      const { dto } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
+
+      const renderService = new BadgeRenderService()
+      const buffer = await renderService.renderBadgePng({
+        employeeId: dto.empleadoId,
+        nombreCompleto: dto.nombreCompleto,
+        fotoUrl: dto.fotoUrl,
+        empresa: dto.empresa,
+        puesto: dto.puesto,
+        logoUrl: dto.logoUrl,
+        folioRepse: dto.folioRepse,
+        folioVigente: dto.folioVigente,
+        urlVerificacion: dto.urlVerificacion,
+      })
+
+      const safeName = `gafete-empleado-${employeeId}`.replace(/[^\w.\- ]/g, '_')
+      response.header('Content-Type', 'image/png')
+      response.header('Content-Disposition', `attachment; filename="${safeName}.png"`)
       response.header('Cache-Control', 'private, no-store')
       response.header('Content-Length', String(buffer.length))
       response.status(200)

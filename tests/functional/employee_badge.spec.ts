@@ -9,7 +9,8 @@ import RepseRegistration from '#models/repse_registration'
 
 /**
  * Tests funcionales — módulo "Gafete del empleado" (USRH1784686362321):
- * E1 (`GET /:employeeId`), E2 (`GET /:employeeId/pdf`), E3 (`GET /me`) y E4
+ * E1 (`GET /:employeeId`), E2 (`GET /:employeeId/pdf`), E5 (`GET /:employeeId/png`),
+ * E3 (`GET /me`) y E4
  * (`GET /api/public/employee-badge/verify/:token`).
  *
  * Convenciones (espejo `repse_providers.spec.ts`):
@@ -148,6 +149,11 @@ test.group('EmployeeBadge - auth (401 sin autenticación)', () => {
     response.assertStatus(401)
   })
 
+  test('GET /api/employee-badges/:employeeId/png responde 401', async ({ client }) => {
+    const response = await client.get('/api/employee-badges/1/png')
+    response.assertStatus(401)
+  })
+
   test('GET /api/employee-badges/me responde 401', async ({ client }) => {
     const response = await client.get('/api/employee-badges/me')
     response.assertStatus(401)
@@ -236,6 +242,30 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
     )
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isAbove(Number(response.header('content-length')), 0)
+  })
+
+  test('GET /:employeeId/png descarga un PNG válido con headers de adjunto', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employee-badges/${employee!.employeeId}/png`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.equal(response.header('content-type'), 'image/png')
+    assert.include(response.header('content-disposition') ?? '', 'attachment')
+    assert.include(
+      response.header('content-disposition') ?? '',
+      `gafete-empleado-${employee!.employeeId}.png`
+    )
+    assert.equal(response.header('cache-control'), 'private, no-store')
+    assert.isAbove(Number(response.header('content-length')), 0)
+
+    const body = response.body()
+    assert.instanceOf(body, Buffer)
+    assert.equal(body.subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
   })
 })
 
@@ -436,6 +466,16 @@ test.group('EmployeeBadge - 404 uniforme (BDG.NF.001)', (group) => {
     response.assertStatus(404)
     assert.equal(response.body().key, 'gafete-no-encontrado')
   })
+
+  test('GET /:employeeId/png inexistente también responde 404', async ({ client, assert }) => {
+    const response = await client
+      .get('/api/employee-badges/999999999/png')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnitA!.businessUnitPublicId)
+
+    response.assertStatus(404)
+    assert.equal(response.body().key, 'gafete-no-encontrado')
+  })
 })
 
 test.group('EmployeeBadge - validación de entrada (422 BDG.VAL.001)', (group) => {
@@ -473,6 +513,20 @@ test.group('EmployeeBadge - validación de entrada (422 BDG.VAL.001)', (group) =
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
 
     response.assertStatus(422)
+    assert.equal(response.body().errorCode, 'BDG.VAL.001')
+  })
+
+  test('GET /:employeeId/png no numérico responde 422 con key entrada-invalida', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get('/api/employee-badges/abc/png')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'entrada-invalida')
     assert.equal(response.body().errorCode, 'BDG.VAL.001')
   })
 })
@@ -550,6 +604,17 @@ test.group('EmployeeBadge - i18n (Accept-Language)', (group) => {
   test('404 en inglés (Accept-Language: en)', async ({ client, assert }) => {
     const response = await client
       .get('/api/employee-badges/999999999')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .header('Accept-Language', 'en')
+
+    response.assertStatus(404)
+    assert.include(response.body().message, 'does not belong to the current tenant')
+  })
+
+  test('GET /:employeeId/png 404 en inglés (Accept-Language: en)', async ({ client, assert }) => {
+    const response = await client
+      .get('/api/employee-badges/999999999/png')
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .header('Accept-Language', 'en')
