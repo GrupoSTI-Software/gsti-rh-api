@@ -1,4 +1,9 @@
 import { DateTime } from 'luxon'
+import {
+  getBusinessTimeZone,
+  todayInBusinessZone,
+  toBusinessDateString,
+} from '#utils/business_date'
 
 /**
  * Catálogo cerrado de tipos de aviso de vigencia del folio REPSE.
@@ -75,4 +80,39 @@ export function getActiveInformativaWindow(today: DateTime): {
   }
 
   return null
+}
+
+/**
+ * Próxima fecha de presentación de informativa (17 ene/may/sep) en zona de negocio.
+ */
+export function getNextInformativaPresentationDate(
+  today: DateTime = todayInBusinessZone()
+): DateTime {
+  const zone = getBusinessTimeZone()
+  const todayStart = today.setZone(zone).startOf('day')
+  const year = todayStart.year
+
+  const candidates = INFORMATIVA_PRESENTATION_DATES.map(({ month, day }) =>
+    todayStart.set({ month, day })
+  ).filter((candidate) => candidate >= todayStart)
+
+  if (candidates.length > 0) {
+    return candidates[0]
+  }
+
+  return todayStart.set({ year: year + 1, month: 1, day: 17 })
+}
+
+/** Snapshot de la próxima informativa cuatrimestral para UI y matriz de vencimientos. */
+export function buildInformativaExpirationSnapshot(today: DateTime = todayInBusinessZone()): {
+  presentationDate: string
+  daysRemaining: number
+} {
+  const zone = getBusinessTimeZone()
+  const ref = today.setZone(zone).startOf('day')
+  const presentation = getNextInformativaPresentationDate(ref)
+  const presentationDate = toBusinessDateString(presentation)
+  const daysRemaining = Math.round(presentation.startOf('day').diff(ref, 'days').days)
+
+  return { presentationDate, daysRemaining }
 }
