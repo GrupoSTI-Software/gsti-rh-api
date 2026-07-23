@@ -41,6 +41,35 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
     return this.toContextIfActive(employee)
   }
 
+  async findActiveEmployeesInTenant(
+    employeeIds: number[],
+    businessUnitIds: number[]
+  ): Promise<BadgeEmployeeContext[]> {
+    if (businessUnitIds.length === 0 || employeeIds.length === 0) return []
+
+    const dedupedIds = [...new Set(employeeIds)]
+
+    const employees = await Employee.query()
+      .whereIn('employee_id', dedupedIds)
+      .whereIn('business_unit_id', businessUnitIds)
+      .whereNull('employee_deleted_at')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('position')
+
+    const byId = new Map<number, BadgeEmployeeContext>()
+    for (const employee of employees) {
+      const context = await this.toContextIfActive(employee)
+      if (context) {
+        byId.set(context.employeeId, context)
+      }
+    }
+
+    return dedupedIds
+      .filter((id) => byId.has(id))
+      .map((id) => byId.get(id)!)
+  }
+
   async findActiveEmployeeByPersonId(
     personId: number,
     businessUnitIds: number[]

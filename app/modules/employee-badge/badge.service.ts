@@ -7,6 +7,7 @@ import BadgeRepositoryMysql from './badge.repository.mysql.js'
 import { isValidBadgeTokenFormat } from './validators/verify_badge.validator.js'
 import type { BadgeRepository } from './badge.repository.js'
 import type { BadgeEmployeeContext, GafeteDto, GafeteVerificacionDto } from './dto/badge.dto.js'
+import type { BadgeRenderContext } from './badge_render.service.js'
 
 /** Fallback espejo de `magic_link_service.ts` cuando `BACKOFFICE_URL` no está definida. */
 const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
@@ -72,6 +73,41 @@ export default class BadgeService {
     }
     const dto = await this.buildGafeteDto(context)
     return { dto, context }
+  }
+
+  /**
+   * Contexto de render para E2/E5/E6 — resuelve token perezoso y campos visuales
+   * sin generar `qrDataUrl` (innecesario para PDF/PNG binario).
+   */
+  async buildRenderContext(
+    context: BadgeEmployeeContext,
+    logoBuffer?: Buffer | null
+  ): Promise<BadgeRenderContext> {
+    const token = await this.repository.resolveOrCreateToken(context.employeeId)
+    const urlVerificacion = this.buildVerificationUrl(token)
+    const { folioRepse, folioVigente } = this.resolveFolio(context.repseFolio, context.repseExpiresAt)
+
+    const renderContext: BadgeRenderContext = {
+      employeeId: context.employeeId,
+      nombreCompleto: this.buildFullName(
+        context.personFirstname,
+        context.personLastname,
+        context.personSecondLastname
+      ),
+      fotoUrl: this.resolvePhotoUrl(context.employeePhoto),
+      empresa: context.businessUnitLegalName || context.businessUnitName,
+      puesto: context.positionName,
+      logoUrl: context.systemSettingLogo ?? null,
+      folioRepse,
+      folioVigente,
+      urlVerificacion,
+    }
+
+    if (logoBuffer !== undefined) {
+      renderContext.logoBuffer = logoBuffer
+    }
+
+    return renderContext
   }
 
   /**

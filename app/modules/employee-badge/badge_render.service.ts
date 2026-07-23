@@ -50,6 +50,8 @@ export interface BadgeRenderContext {
   empresa: string
   puesto: string | null
   logoUrl: string | null
+  /** Si se provee, evita descargar `logoUrl` (reutilización en lote E6). */
+  logoBuffer?: Buffer | null
   folioRepse: string | null
   folioVigente: boolean | null
   urlVerificacion: string
@@ -66,7 +68,9 @@ export default class BadgeRenderService {
 
     const [fotoBuffer, logoBuffer, qrBuffer] = await Promise.all([
       this.fetchImageTolerant(input.fotoUrl),
-      this.fetchImageTolerant(input.logoUrl),
+      input.logoBuffer !== undefined
+        ? Promise.resolve(input.logoBuffer)
+        : this.fetchImageTolerant(input.logoUrl),
       QRCode.toBuffer(input.urlVerificacion, { margin: 0, width: 512 }),
     ])
 
@@ -349,7 +353,7 @@ export default class BadgeRenderService {
   }
 
   /** Descarga tolerante — espejo `position_service.ts:936-944`: nunca bloquea el gafete. */
-  private async fetchImageTolerant(url: string | null): Promise<Buffer | null> {
+  async fetchImageTolerant(url: string | null): Promise<Buffer | null> {
     if (!url) return null
     try {
       const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 })

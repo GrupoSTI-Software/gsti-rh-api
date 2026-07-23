@@ -17,6 +17,16 @@ export interface BadgeRepository {
   ): Promise<BadgeEmployeeContext | null>
 
   /**
+   * Empleados **activos** del scope tenant-safe para un lote (E6). Omite
+   * inexistentes, de otro tenant, eliminados o dados de baja. El orden de
+   * salida sigue el del array deduplicado de entrada.
+   */
+  findActiveEmployeesInTenant(
+    employeeIds: number[],
+    businessUnitIds: number[]
+  ): Promise<BadgeEmployeeContext[]>
+
+  /**
    * Empleado **activo** propio del usuario autenticado (E3, self-scope por
    * `personId`), dentro del scope de `businessUnitIds` permitido.
    */

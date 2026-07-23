@@ -731,3 +731,205 @@ test.group('EmployeeBadge - verificación pública (E4)', (group) => {
     limited.assertStatus(429)
   })
 })
+
+test.group('EmployeeBadge - auth bulk (E6)', () => {
+  test('POST /api/employee-badges/bulk responde 401', async ({ client }) => {
+    const response = await client.post('/api/employee-badges/bulk').json({ empleadoIds: [1] })
+    response.assertStatus(401)
+  })
+})
+
+test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
+  let validationActor: TestActor | null = null
+  let pdfActor: TestActor | null = null
+  let pngActor: TestActor | null = null
+  let rc1Actor: TestActor | null = null
+  let dedupActor: TestActor | null = null
+  let businessUnit: BusinessUnit | null = null
+  let pdfEmployee: Employee | null = null
+  let pngEmployee: Employee | null = null
+  let rc1Employee: Employee | null = null
+  let dedupEmployee: Employee | null = null
+  let otherBu: BusinessUnit | null = null
+  let terminatedEmployee: Employee | null = null
+
+  group.setup(async () => {
+    validationActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-val')
+    pdfActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-pdf')
+    pngActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-png')
+    rc1Actor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-rc1')
+    dedupActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-dedup')
+    businessUnit = await createBusinessUnit('bulk')
+    otherBu = await createBusinessUnit('bulk-other')
+    pdfEmployee = await createEmployee(pdfActor.person, businessUnit)
+    pngEmployee = await createEmployee(pngActor.person, businessUnit)
+    rc1Employee = await createEmployee(rc1Actor.person, businessUnit)
+    dedupEmployee = await createEmployee(dedupActor.person, businessUnit)
+    terminatedEmployee = await createEmployee(rc1Actor.person, businessUnit, {
+      employeeTerminatedDate: DateTime.now().minus({ days: 1 }).toSQLDate(),
+    })
+  })
+
+  group.teardown(async () => {
+    await cleanupEmployee(terminatedEmployee?.employeeId ?? null)
+    await cleanupEmployee(dedupEmployee?.employeeId ?? null)
+    await cleanupEmployee(rc1Employee?.employeeId ?? null)
+    await cleanupEmployee(pngEmployee?.employeeId ?? null)
+    await cleanupEmployee(pdfEmployee?.employeeId ?? null)
+    await cleanupTestActor(dedupActor)
+    await cleanupTestActor(rc1Actor)
+    await cleanupTestActor(pngActor)
+    await cleanupTestActor(pdfActor)
+    await cleanupTestActor(validationActor)
+    await deleteBusinessUnit(otherBu)
+    await deleteBusinessUnit(businessUnit)
+  })
+
+  test('POST /bulk con payload inválido responde 400 BDG.VAL.001', async ({ client, assert }) => {
+    const empty = await client
+      .post('/api/employee-badges/bulk')
+      .json({ empleadoIds: [] })
+      .loginAs(validationActor!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    empty.assertStatus(400)
+    assert.equal(empty.body().errorCode, 'BDG.VAL.001')
+
+    const badFormat = await client
+      .post('/api/employee-badges/bulk')
+      .json({ empleadoIds: [pdfEmployee!.employeeId], formato: 'docx' })
+      .loginAs(validationActor!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    badFormat.assertStatus(400)
+    assert.equal(badFormat.body().errorCode, 'BDG.VAL.001')
+  })
+
+  test('POST /bulk sin ids resueltos responde 404 BDG.NF.001', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-badges/bulk')
+      .json({ empleadoIds: [999999999] })
+      .loginAs(validationActor!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(404)
+    assert.equal(response.body().errorCode, 'BDG.NF.001')
+    assert.equal(response.body().key, 'gafete-no-encontrado')
+  })
+
+  test('POST /bulk PDF devuelve application/pdf en streaming', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-badges/bulk')
+      .json({ empleadoIds: [pdfEmployee!.employeeId], formato: 'pdf' })
+      .loginAs(pdfActor!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.equal(response.header('content-type'), 'application/pdf')
+    assert.include(response.header('content-disposition') ?? '', 'gafetes-empleados-')
+    assert.include(response.header('content-disposition') ?? '', '.pdf')
+    assert.equal(response.header('cache-control'), 'private, no-store')
+    assert.isUndefined(response.header('content-length'))
+    const body = response.body()
+    assert.isTrue(Buffer.isBuffer(body) ? body.length > 100 : String(body).length > 100)
+  })
+
+  test('POST /bulk PNG devuelve application/zip en streaming', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-badges/bulk')
+      .json({ empleadoIds: [pngEmployee!.employeeId], formato: 'png' })
+      .loginAs(pngActor!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.equal(response.header('content-type'), 'application/zip')
+    assert.include(response.header('content-disposition') ?? '', 'gafetes-empleados-')
+    assert.include(response.header('content-disposition') ?? '', '.zip')
+    assert.equal(response.header('cache-control'), 'private, no-store')
+    assert.equal(response.text().slice(0, 2), 'PK')
+  })
+
+  test('POST /bulk omite bajas y ids ajenos en silencio (RC1)', async ({ client, assert }) => {
+    const otherPerson = await createTestActor(ROOT_ROLE_ID, 'bulk-cross')
+    const foreignEmployee = await createEmployee(otherPerson.person, otherBu!)
+
+    try {
+      const response = await client
+        .post('/api/employee-badges/bulk')
+        .json({
+          empleadoIds: [
+            rc1Employee!.employeeId,
+            terminatedEmployee!.employeeId,
+            foreignEmployee.employeeId,
+            999999999,
+          ],
+          formato: 'pdf',
+        })
+        .loginAs(rc1Actor!.user)
+        .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+      response.assertStatus(200)
+      assert.equal(response.header('content-type'), 'application/pdf')
+      assert.isUndefined(response.header('x-excluded-count'))
+    } finally {
+      await cleanupEmployee(foreignEmployee.employeeId)
+      await cleanupTestActor(otherPerson)
+    }
+  })
+
+  test('POST /bulk deduplica ids repetidos', async ({ client, assert }) => {
+    const response = await client
+      .post('/api/employee-badges/bulk')
+      .json({
+        empleadoIds: [dedupEmployee!.employeeId, dedupEmployee!.employeeId, dedupEmployee!.employeeId],
+        formato: 'png',
+      })
+      .loginAs(dedupActor!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.equal(response.header('content-type'), 'application/zip')
+    assert.equal(response.text().slice(0, 2), 'PK')
+  })
+})
+
+test.group('EmployeeBadge - rate limit bulk (E6)', (group) => {
+  let root: TestActor | null = null
+  let businessUnit: BusinessUnit | null = null
+  let employee: Employee | null = null
+
+  group.setup(async () => {
+    root = await createTestActor(ROOT_ROLE_ID, 'root-bulk-limit')
+    businessUnit = await createBusinessUnit('bulk-limit')
+    employee = await createEmployee(root.person, businessUnit)
+  })
+
+  group.teardown(async () => {
+    await cleanupEmployee(employee?.employeeId ?? null)
+    await cleanupTestActor(root)
+    await deleteBusinessUnit(businessUnit)
+  })
+
+  test('POST /bulk responde 429 al superar 3 solicitudes/minuto por usuario', async ({
+    client,
+  }) => {
+    const payload = { empleadoIds: [employee!.employeeId], formato: 'pdf' as const }
+
+    for (let i = 0; i < 3; i += 1) {
+      const ok = await client
+        .post('/api/employee-badges/bulk')
+        .json(payload)
+        .loginAs(root!.user)
+        .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      ok.assertStatus(200)
+    }
+
+    const limited = await client
+      .post('/api/employee-badges/bulk')
+      .json(payload)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    limited.assertStatus(429)
+  })
+})

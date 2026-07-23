@@ -4,13 +4,15 @@ import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import BadgeService from './badge.service.js'
 import BadgePdfService from './badge_pdf.service.js'
 import BadgeRenderService from './badge_render.service.js'
+import BadgeBulkService from './badge_bulk.service.js'
+import { bulkBadgesValidator } from './validators/bulk_badges.validator.js'
 import { parseEmployeeIdParam } from './validators/get_badge.validator.js'
 
 /**
  * Controlador REST del gafete del trabajador (USRH1784686362321).
  *
  * Expone E1 (`show`, datos del gafete), E2 (`pdf`, descarga CR80), E5
- * (`png`, imagen @300 dpi) y E3 (`me`, gafete propio del usuario autenticado).
+ * (`png`, imagen @300 dpi), E6 (`bulk`, descarga masiva) y E3 (`me`, gafete
  * Espejo de
  * `providers.controller.ts`: `respondError` privado + `StandardResponseFormatter`.
  *
@@ -352,6 +354,119 @@ export default class BadgeController {
       response.header('Content-Length', String(buffer.length))
       response.status(200)
       return response.send(buffer)
+    } catch (error) {
+      return this.respondError(error, response, 500, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-badges/bulk:
+   *   post:
+   *     summary: Descarga masiva de gafetes (PDF carta 2×4 o ZIP de PNGs)
+   *     description: |
+   *       Genera un lote de gafetes para los trabajadores activos resueltos
+   *       dentro del tenant. Ids inexistentes, de otro tenant o dados de baja
+   *       se omiten en silencio (RC1). Si ningún id resuelve, responde 404.
+   *
+   *       **PDF:** documento LETTER con cuadrícula 2×4 (8 gafetes/hoja) y
+   *       líneas de corte. **PNG:** ZIP con una imagen por trabajador
+   *       (`{employeeId}-{nombre}.png`). Streaming chunked — sin persistencia.
+   *     tags: [EmployeeBadge]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Authorization
+   *         required: true
+   *         schema: { type: string }
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string }
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema: { type: string, enum: [es, en] }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [empleadoIds]
+   *             properties:
+   *               empleadoIds:
+   *                 type: array
+   *                 minItems: 1
+   *                 items: { type: integer, minimum: 1 }
+   *               formato:
+   *                 type: string
+   *                 enum: [pdf, png]
+   *                 default: pdf
+   *           example:
+   *             empleadoIds: [123, 456, 789]
+   *             formato: pdf
+   *     responses:
+   *       '200':
+   *         description: |
+   *           Stream del lote (`application/pdf` o `application/zip` según
+   *           `formato`; `Content-Disposition: attachment`, chunked).
+   *         content:
+   *           application/pdf:
+   *             schema: { type: string, format: binary }
+   *           application/zip:
+   *             schema: { type: string, format: binary }
+   *       '400':
+   *         description: Payload inválido (array vacío, ids no enteros o formato inválido).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Datos inválidos
+   *               message: Error de validación
+   *               errorCode: BDG.VAL.001
+   *               data: null
+   *       '401':
+   *         description: Sin autenticación.
+   *       '404':
+   *         description: Ningún trabajador del payload resolvió en el tenant (indistinguible).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Gafete no encontrado
+   *               message: El gafete no existe o el trabajador no pertenece al tenant actual.
+   *               detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+   *               key: gafete-no-encontrado
+   *               errorCode: BDG.NF.001
+   *               data: null
+   *       '429':
+   *         description: Más de 3 descargas masivas por minuto del mismo usuario.
+   *       '500':
+   *         description: Error antes del primer byte del stream.
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: error
+   *               title: Error
+   *               message: Error inesperado
+   *               errorCode: BDG.SYS.001
+   *               data: null
+   */
+  async bulk(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
+    try {
+      const body = await request.validateUsing(bulkBadgesValidator)
+      const formato = body.formato ?? 'pdf'
+      const bulkService = new BadgeBulkService()
+
+      await bulkService.streamBulk({
+        empleadoIds: body.empleadoIds,
+        formato,
+        businessUnitIds: businessUnitScope,
+        response,
+      })
     } catch (error) {
       return this.respondError(error, response, 500, i18n)
     }
