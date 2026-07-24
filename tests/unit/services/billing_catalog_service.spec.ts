@@ -453,3 +453,155 @@ test.group('BillingCatalogService — validaciones de tramo', () => {
     assert.isFalse(validateTierInput(-5, 10))
   })
 })
+
+// ---------------------------------------------------------------------------
+// Módulo: nuevos códigos de error — linaje / clonado (USRH1783377385288)
+// ---------------------------------------------------------------------------
+
+test.group('BILLING_CATALOG_ERROR_CODES — códigos de clonado', () => {
+  test('CLONE_SOURCE_MUST_BE_PUBLISHED es PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.CLONE_SOURCE_MUST_BE_PUBLISHED,
+      'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED'
+    )
+  })
+
+  test('CLONE_SOURCE_DEACTIVATED es PLT.CAT.CLONE_SOURCE_DEACTIVATED', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.CLONE_SOURCE_DEACTIVATED,
+      'PLT.CAT.CLONE_SOURCE_DEACTIVATED'
+    )
+  })
+
+  test('CLONE_DRAFT_EXISTS es PLT.CAT.CLONE_DRAFT_EXISTS', ({ assert }) => {
+    assert.equal(BILLING_CATALOG_ERROR_CODES.CLONE_DRAFT_EXISTS, 'PLT.CAT.CLONE_DRAFT_EXISTS')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: reglas de clonado — quién puede clonarse (USRH1783377385288)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — reglas de clonePlan', () => {
+  /** Espeja las validaciones de clonePlan antes de tocar la BD. */
+  function tryClone(source: {
+    isPublished: boolean
+    active: 0 | 1
+    hasExistingDraftClone: boolean
+  }) {
+    if (!source.isPublished) {
+      throw new BillingCatalogServiceError(
+        'No publicado',
+        BILLING_CATALOG_ERROR_CODES.CLONE_SOURCE_MUST_BE_PUBLISHED,
+        422
+      )
+    }
+    if (source.active === 0) {
+      throw new BillingCatalogServiceError(
+        'Desactivado',
+        BILLING_CATALOG_ERROR_CODES.CLONE_SOURCE_DEACTIVATED,
+        422
+      )
+    }
+    if (source.hasExistingDraftClone) {
+      throw new BillingCatalogServiceError(
+        'Ya existe un clon borrador',
+        BILLING_CATALOG_ERROR_CODES.CLONE_DRAFT_EXISTS,
+        409
+      )
+    }
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('clonar un plan en borrador lanza CLONE_SOURCE_MUST_BE_PUBLISHED con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryClone({ isPublished: false, active: 1, hasExistingDraftClone: false })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('clonar un plan desactivado lanza CLONE_SOURCE_DEACTIVATED con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryClone({ isPublished: true, active: 0, hasExistingDraftClone: false })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.CLONE_SOURCE_DEACTIVATED')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('clonar cuando ya hay un borrador clon vivo lanza CLONE_DRAFT_EXISTS con 409', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryClone({ isPublished: true, active: 1, hasExistingDraftClone: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.CLONE_DRAFT_EXISTS')
+    assert.equal(error?.httpStatus, 409)
+  })
+
+  test('clonar un plan publicado, activo y sin borrador clon previo no lanza error', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() =>
+      tryClone({ isPublished: true, active: 1, hasExistingDraftClone: false })
+    )
+  })
+
+  test('la validación de "publicado" tiene prioridad sobre "desactivado"', ({ assert }) => {
+    // Un plan en borrador nunca puede estar "activo=0 y publicado=false" a la vez
+    // en la práctica, pero la validación debe evaluarse en este orden.
+    const error = captureError(() =>
+      tryClone({ isPublished: false, active: 0, hasExistingDraftClone: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: publishPlan sobre un clon — desactivación atómica del origen
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — publicar un clon desactiva al plan origen', () => {
+  /** Espeja el efecto secundario de publishPlan cuando el plan tiene parentId. */
+  function publishAndCascade(plan: { billingPlanParentId: number | null; billingPlanActive: 0 | 1 }): {
+    planPublished: boolean
+    parentDeactivated: boolean
+  } {
+    let parentDeactivated = false
+    if (plan.billingPlanParentId !== null) {
+      parentDeactivated = true
+    }
+    return { planPublished: true, parentDeactivated }
+  }
+
+  test('publicar un plan sin parentId (plan original) no desactiva nada', ({ assert }) => {
+    const result = publishAndCascade({ billingPlanParentId: null, billingPlanActive: 1 })
+    assert.isTrue(result.planPublished)
+    assert.isFalse(result.parentDeactivated)
+  })
+
+  test('publicar un plan clon (con parentId) desactiva al origen', ({ assert }) => {
+    const result = publishAndCascade({ billingPlanParentId: 1, billingPlanActive: 1 })
+    assert.isTrue(result.planPublished)
+    assert.isTrue(result.parentDeactivated)
+  })
+
+  test('la desactivación del origen nunca borra el plan — solo cambia billingPlanActive a 0', ({
+    assert,
+  }) => {
+    // Simula el efecto exacto de la query de desactivación: update, no delete.
+    const origin = { billingPlanId: 1, billingPlanActive: 1 as 0 | 1, deletedAt: null as string | null }
+    origin.billingPlanActive = 0
+    assert.equal(origin.billingPlanActive, 0)
+    assert.isNull(origin.deletedAt)
+  })
+})

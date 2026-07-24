@@ -299,7 +299,7 @@ export default class BillingPlanController {
    *           description: Fecha de referencia YYYY-MM-DD (default = hoy)
    *     responses:
    *       '200':
-   *         description: Precio resuelto
+   *         description: Precio resuelto (incluye `trialDays` del precio vigente, para previsualizar el alta de suscripción)
    *       '404':
    *         description: Plan sin precio vigente para la fecha dada
    */
