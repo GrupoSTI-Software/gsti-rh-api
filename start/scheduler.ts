@@ -1,5 +1,6 @@
 import scheduler from 'adonisjs-scheduler/services/main'
 import { LACTATION_NOTIFY_EXPIRING_COMMAND } from '#constants/employee_lactation_notification'
+import { REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND } from '#constants/repse_folio_aviso'
 
 // scheduler.command('inspire').everyFiveSeconds()
 scheduler.command('sync:assistance').cron('*/5 * * * *')
@@ -15,6 +16,13 @@ scheduler.command('sync:assistance').cron('*/5 * * * *')
  * tipo de aviso para el mismo periodo.
  */
 scheduler.command(LACTATION_NOTIFY_EXPIRING_COMMAND).cron('0 13 * * *')
+
+/**
+ * Aviso diario de vigencia del folio REPSE (renovación trienal e
+ * informativas cuatrimestrales). 13:00 UTC = 07:00 CDMX. Idempotente
+ * vía bitácora `repse_folio_avisos`.
+ */
+scheduler.command(REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND).cron('0 13 * * *')
 
 /**
  * Cierre automático de jornada (USRH1782268640950): corre una vez al día,

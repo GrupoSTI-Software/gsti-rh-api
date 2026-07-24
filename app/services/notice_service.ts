@@ -13,10 +13,11 @@ import path from 'node:path'
 import Env from '#start/env'
 import UserFcmToken from '#models/user_fcm_token'
 import admin from '../../config/firebase.js'
+import { TenantContext } from '#utils/tenant_context'
 
 // Lista de desarrollo para pruebas - solo estos emails recibirán notificaciones en desarrollo
 const DEVELOPMENT_EMAIL_LIST = [
-  'jsoto@siler-mx.com',
+  'jsoto@gruposti.com',
   //'rogelio.jinestas@gmail.com',
   'wramirez@siler-mx.com',
   'wilvardo@gmail.com'
@@ -165,6 +166,12 @@ export default class NoticeService {
     }
 
     newNotice.noticeRecipientEmails = JSON.stringify(recipientEmails)
+
+    // USRH1784316436823: persistir la empresa activa antes de guardar destinatarios
+    // (el hook del recipient resuelve el aviso padre bajo TenantContext).
+    const [activeBusinessUnitId] = TenantContext.getScope()
+    newNotice.businessUnitId = activeBusinessUnitId ?? null
+
     await newNotice.save()
 
     // Crear registros de destinatarios
@@ -410,18 +417,15 @@ export default class NoticeService {
     const subjectPrefix = isUpdate ? `${updatePrefix}: ` : ''
     const fromEmail = env.get('SMTP_USERNAME')
 
-    // Obtener branding del sistema (solo una vez antes del loop)
-    // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`; el
-    // controller resuelve `businessUnitId` desde el header y lo pasa explícito.
-    // Fail-closed silencioso: sin id o sin configuración propia, se conserva
-    // el branding por defecto en vez de filtrar el de otra empresa.
+    // Branding del correo: preferir BU persistida en el aviso; fallback al header (legacy).
+    const brandingBusinessUnitId = notice.businessUnitId ?? businessUnitId
     let tradeName = 'BO'
     let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO') || ''}`
     let systemSettingActive: SystemSetting | null = null
-    if (businessUnitId) {
+    if (brandingBusinessUnitId) {
       const systemSettingService = new SystemSettingService()
       try {
-        systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+        systemSettingActive = await systemSettingService.resolveByBusinessUnitId(brandingBusinessUnitId)
         if (systemSettingActive.systemSettingLogo) {
           backgroundImageLogo = systemSettingActive.systemSettingLogo
         }
@@ -518,7 +522,6 @@ export default class NoticeService {
          }
        }
      }
-
 
      for (const recipient of recipients) {
       try {
