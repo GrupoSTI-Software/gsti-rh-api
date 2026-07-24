@@ -1,8 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
+import { compose } from '@adonisjs/core/helpers'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BranchOffice from './branch_office.js'
 import Shift from './shift.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * Cuota de plantilla por sucursal (sitio de servicio) y turno.
@@ -55,7 +58,7 @@ import Shift from './shift.js'
  *           items:
  *             $ref: '#/components/schemas/BranchOfficeShiftQuotaInputItem'
  */
-export default class BranchOfficeShiftQuota extends BaseModel {
+export default class BranchOfficeShiftQuota extends compose(BaseModel, withBusinessUnitScope()) {
   static table = 'branch_office_shift_quotas'
 
   @column({ isPrimary: true })
@@ -63,6 +66,23 @@ export default class BranchOfficeShiftQuota extends BaseModel {
 
   @column()
   declare branchOfficeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, USRH1784259058555).
+   * Sin borrado lógico en esta tabla: su `replace` borra duro en transacción.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde la sucursal padre, nunca desde el payload. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: BranchOfficeShiftQuota) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => BranchOffice.query().where('branchOfficeId', instance.branchOfficeId).first(),
+      'la sucursal'
+    )
+  }
 
   @column()
   declare shiftId: number
