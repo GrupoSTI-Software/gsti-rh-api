@@ -97,7 +97,14 @@ export default class AccessPointService {
     return currentAccessPoint
   }
 
-  async show(accessPointId: number, allowedBusinessUnitIds?: number[]) {
+  /**
+   * `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
+   * el `whereIn('business_unit_id', allowedBusinessUnitIds)` manual era
+   * exactamente el mismo filtro que ya aplica el mixin bajo contexto activo
+   * — se retiró. `allowedBusinessUnitIds` se conserva en la firma por
+   * compatibilidad del contrato del servicio, aunque ya no se usa aquí.
+   */
+  async show(accessPointId: number, _allowedBusinessUnitIds?: number[]) {
     const selectedColumns = [
       'access_point_id',
       'access_point_name',
@@ -112,15 +119,12 @@ export default class AccessPointService {
       'access_point_status',
       'access_point_last_connection',
     ]
-    const query = AccessPoint.query()
+    const accessPoint = await AccessPoint.query()
       .whereNull('access_point_deleted_at')
       .where('access_point_id', accessPointId)
       .select(selectedColumns)
       .preload('businessUnit')
-    if (allowedBusinessUnitIds && allowedBusinessUnitIds.length > 0) {
-      query.whereIn('business_unit_id', allowedBusinessUnitIds)
-    }
-    const accessPoint = await query.first()
+      .first()
     return accessPoint ? accessPoint : null
   }
 
