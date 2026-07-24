@@ -59,6 +59,8 @@ export interface ResolvedPrice {
   taxRate: number
   taxAmount: number
   total: number
+  /** Días de prueba del precio vigente resuelto (para el preview del alta de suscripción). */
+  trialDays: number
   effectiveFrom: string
   resolvedAt: string
 }
@@ -558,6 +560,7 @@ export default class BillingCatalogService {
       taxRate,
       taxAmount,
       total,
+      trialDays: currentPrice.billingPlanPriceTrialDays,
       effectiveFrom: currentPrice.billingPlanPriceEffectiveFrom,
       resolvedAt: refDate,
     }
