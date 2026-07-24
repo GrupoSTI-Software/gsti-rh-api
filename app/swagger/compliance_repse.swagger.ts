@@ -337,7 +337,14 @@ export {}
  *       required: [businessUnitId, razonSocial, rfc, domicilioFiscal]
  *       properties:
  *         businessUnitId:
- *           type: integer
+ *           oneOf:
+ *             - type: string
+ *               format: uuid
+ *             - type: integer
+ *               minimum: 1
+ *           description: |
+ *             Código público UUID v4 de la empresa prestadora (preferido)
+ *             o ID interno legacy. `businessScope` resuelve el UUID al ID interno.
  *         razonSocial:
  *           type: string
  *           minLength: 3
@@ -363,7 +370,7 @@ export {}
  *           maxLength: 20
  *           nullable: true
  *       example:
- *         businessUnitId: 1
+ *         businessUnitId: 6f851b92-0ebf-4ad8-8a02-63e6ec72de76
  *         razonSocial: Demo CSE - Manufacturas del Norte SA de CV
  *         rfc: DMN900101AA1
  *         domicilioFiscal: Av. Industrial 1200, Parque Industrial Norte, Monterrey, NL, CP 64000
