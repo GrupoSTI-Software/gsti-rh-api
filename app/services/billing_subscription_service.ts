@@ -366,9 +366,9 @@ export default class BillingSubscriptionService {
       subscription.billingSubscriptionContractedTotal = resolved.total
       subscription.billingSubscriptionContractedCurrency = resolved.currency
       subscription.billingSubscriptionContractedTrialDays = resolved.trialDays
-      subscription.billingSubscriptionContractedEffectiveFrom = DateTime.fromISO(
-        toCalendarIsoDate(resolved.effectiveFrom) ?? today
-      )
+      // La fecha efectiva del nuevo trato es HOY (fecha del cambio), no la fecha
+      // de vigencia del precio en el catálogo (que puede ser del pasado).
+      subscription.billingSubscriptionContractedEffectiveFrom = DateTime.fromISO(today)
       await subscription.save()
       return subscription
     })

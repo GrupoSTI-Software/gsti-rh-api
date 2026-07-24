@@ -78,16 +78,24 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
   @column()
   declare billingSubscriptionContractedTotal: number
 
-  @column.date()
+  @column.date({
+    serialize: (value: DateTime | null) => value?.toISODate() ?? null,
+  })
   declare billingSubscriptionContractedEffectiveFrom: DateTime
 
-  @column.dateTime()
+  @column.dateTime({
+    serialize: (value: DateTime | null) => value?.toISODate() ?? null,
+  })
   declare billingSubscriptionTrialEndsAt: DateTime | null
 
-  @column.dateTime()
+  @column.dateTime({
+    serialize: (value: DateTime | null) => value?.toISODate() ?? null,
+  })
   declare billingSubscriptionCurrentPeriodStart: DateTime | null
 
-  @column.dateTime()
+  @column.dateTime({
+    serialize: (value: DateTime | null) => value?.toISODate() ?? null,
+  })
   declare billingSubscriptionCurrentPeriodEnd: DateTime | null
 
   @column()
@@ -96,10 +104,14 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
   @column()
   declare billingSubscriptionStripeSubscriptionId: string | null
 
-  @column.dateTime()
+  @column.dateTime({
+    serialize: (value: DateTime | null) => value?.toISODate() ?? null,
+  })
   declare billingSubscriptionSubscribedAt: DateTime
 
-  @column.dateTime()
+  @column.dateTime({
+    serialize: (value: DateTime | null) => value?.toISODate() ?? null,
+  })
   declare billingSubscriptionCanceledAt: DateTime | null
 
   /**
