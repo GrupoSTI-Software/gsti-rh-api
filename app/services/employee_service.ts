@@ -980,6 +980,7 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('payrollBusinessUnit')
       .preload('spouse')
       .preload('emergencyContact')
       .preload('children')
@@ -1017,6 +1018,7 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('payrollBusinessUnit')
       .preload('activeEmployeeBranchOffice', (q) => {
         q.preload('branchOffice', (bq) => {
           bq.preload('businessUnit')
