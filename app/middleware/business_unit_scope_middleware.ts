@@ -35,10 +35,12 @@ const ERR = {
  *  - Fuera del scope  → 404 `BU.NOT.001` (no revela si la unidad existe).
  *  - Válido           → resuelve al ID interno → `TenantContext.run([internalId])`.
  *
- * ## Validación de `businessUnitId` en query param / body
- * Para compatibilidad con el código existente, el campo `businessUnitId` en query
- * string y body se sigue aceptando como entero positivo (ID interno). Cuando
- * está ausente, se inyecta el ID interno resuelto desde el header.
+ * ## Validación de `businessUnitId` / `payrollBusinessUnitId` en query/body
+ * Para compatibilidad con el código existente, `businessUnitId` en query string
+ * y body se acepta como UUID v4 o entero positivo (ID interno). Cuando está
+ * ausente, se inyecta el ID interno resuelto desde el header.
+ * `payrollBusinessUnitId` en body sigue la misma semántica (requerido en alta
+ * de empleados como FK NOT NULL).
  *
  * Debe colocarse después del middleware `auth` (requiere usuario autenticado).
  */
@@ -113,6 +115,35 @@ export default class BusinessUnitScopeMiddleware {
       // Ausente, nulo o vacío → inyectar el ID interno resuelto desde el header
       ctx.request.updateQs({ ...ctx.request.qs(), businessUnitId: requestedId })
       ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: requestedId })
+    }
+
+    // ── Body payrollBusinessUnitId (misma semántica que businessUnitId) ───────
+    // FK NOT NULL en employees; si llega UUID o ausente, debe resolverse al ID
+    // interno. Sin esto el alta falla en verifyInfoExist con el UUID crudo.
+    const rawPayrollId = ctx.request.body().payrollBusinessUnitId
+    if (rawPayrollId !== undefined && rawPayrollId !== null && rawPayrollId !== '') {
+      const payrollStr = String(rawPayrollId)
+      const resolvedPayroll = await scopeService.resolveInternalId(payrollStr, fullScope)
+      if (resolvedPayroll !== null) {
+        ctx.request.updateBody({
+          ...ctx.request.body(),
+          payrollBusinessUnitId: resolvedPayroll,
+        })
+      } else {
+        const payrollNumber = Number(rawPayrollId)
+        if (!Number.isInteger(payrollNumber) || payrollNumber <= 0 || !fullScope.includes(payrollNumber)) {
+          return ctx.response.status(404).json({
+            title: ERR.NOT_IN_SCOPE.title,
+            detail: 'El recurso solicitado no existe o no tienes acceso a él.',
+            key: ERR.NOT_IN_SCOPE.key,
+          })
+        }
+      }
+    } else {
+      ctx.request.updateBody({
+        ...ctx.request.body(),
+        payrollBusinessUnitId: requestedId,
+      })
     }
 
     ctx.businessUnitScope = [requestedId]
