@@ -325,7 +325,9 @@ test.group('BillingPlanController.publish — publicar plan', () => {
 // ---------------------------------------------------------------------------
 
 test.group('BillingPlanController.clone — clonar como borrador', () => {
-  test('devuelve 201 con nuevo plan en borrador (published_at null)', async ({ assert }) => {
+  test('devuelve 201 con nuevo plan en borrador (published_at null) y billingPlanParentId al origen', async ({
+    assert,
+  }) => {
     const { response, captured } = makeResponse()
     const ctx = {
       params: { planId: '1' },
@@ -340,6 +342,7 @@ test.group('BillingPlanController.clone — clonar como borrador', () => {
           billingPlanId: 10,
           billingPlanName: 'Plan Estándar (copia)',
           billingPlanPublishedAt: null,
+          billingPlanParentId: 1,
         },
       })
     }
@@ -350,6 +353,115 @@ test.group('BillingPlanController.clone — clonar como borrador', () => {
     assert.isNull(data?.billingPlanPublishedAt)
     assert.isString(data?.billingPlanName)
     assert.isTrue((data?.billingPlanName as string).includes('copia'))
+    assert.equal(data?.billingPlanParentId, 1)
+  })
+
+  test('devuelve 422 con code PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED al clonar un plan en borrador', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '2' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.clone = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(422).json({
+        title: 'Catálogo de cobro',
+        detail: 'Solo se puede clonar un plan publicado. Un plan en borrador se edita directamente.',
+        key: 'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED',
+        code: 'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED',
+      })
+    }
+    await controller.clone(ctx)
+
+    assert.equal(captured.status, 422)
+    assert.equal(captured.body?.code, 'PLT.CAT.CLONE_SOURCE_MUST_BE_PUBLISHED')
+  })
+
+  test('devuelve 422 con code PLT.CAT.CLONE_SOURCE_DEACTIVATED al clonar un plan desactivado', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '3' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.clone = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(422).json({
+        title: 'Catálogo de cobro',
+        detail:
+          'No se puede clonar un plan desactivado. La cadena de ofertas parte siempre del plan vigente publicado.',
+        key: 'PLT.CAT.CLONE_SOURCE_DEACTIVATED',
+        code: 'PLT.CAT.CLONE_SOURCE_DEACTIVATED',
+      })
+    }
+    await controller.clone(ctx)
+
+    assert.equal(captured.status, 422)
+    assert.equal(captured.body?.code, 'PLT.CAT.CLONE_SOURCE_DEACTIVATED')
+  })
+
+  test('devuelve 409 con code PLT.CAT.CLONE_DRAFT_EXISTS si ya hay un borrador clon vivo', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '1' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.clone = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(409).json({
+        title: 'Catálogo de cobro',
+        detail:
+          'Ya existe un borrador de nueva oferta en curso para este plan. Publícalo o descártalo antes de clonar de nuevo.',
+        key: 'PLT.CAT.CLONE_DRAFT_EXISTS',
+        code: 'PLT.CAT.CLONE_DRAFT_EXISTS',
+      })
+    }
+    await controller.clone(ctx)
+
+    assert.equal(captured.status, 409)
+    assert.equal(captured.body?.code, 'PLT.CAT.CLONE_DRAFT_EXISTS')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// publish — publicar un clon desactiva al plan origen
+// ---------------------------------------------------------------------------
+
+test.group('BillingPlanController.publish — publicar un clon desactiva al plan origen', () => {
+  test('al publicar un plan con billingPlanParentId, el plan devuelto queda publicado (el origen se desactiva atómicamente en el servicio)', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '10' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.publish = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(200).json({
+        type: 'success',
+        data: {
+          billingPlanId: 10,
+          billingPlanParentId: 1,
+          billingPlanPublishedAt: '2026-07-21T04:00:00.000Z',
+        },
+      })
+    }
+    await controller.publish(ctx)
+
+    assert.equal(captured.status, 200)
+    const data = captured.body?.data as Record<string, unknown>
+    assert.isNotNull(data?.billingPlanPublishedAt)
+    assert.equal(data?.billingPlanParentId, 1)
   })
 })
 

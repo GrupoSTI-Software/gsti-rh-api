@@ -26,6 +26,14 @@ import { middleware } from '../kernel.js'
  *   POST   /api/platform/billing/plans/:planId/tiers              → agregar
  *   PATCH  /api/platform/billing/plans/:planId/tiers/:tierId      → editar descuento
  *   DELETE /api/platform/billing/plans/:planId/tiers/:tierId      → eliminar
+ *
+ * ─── Suscripciones (alta manual) ──────────────────────────────────────────
+ *   GET    /api/platform/billing/subscriptions          → listar
+ *   GET    /api/platform/billing/subscriptions/:id      → detalle
+ *   POST   /api/platform/billing/subscriptions          → alta manual (congela el trato)
+ *
+ * ─── Empresas (picker mínimo para el alta) ────────────────────────────────
+ *   GET    /api/platform/billing/business-units         → listar empresas activas
  */
 router
   .group(() => {
@@ -48,6 +56,14 @@ router
     router.post('/plans/:planId/tiers', '#controllers/billing_tier_controller.store')
     router.patch('/plans/:planId/tiers/:tierId', '#controllers/billing_tier_controller.update')
     router.delete('/plans/:planId/tiers/:tierId', '#controllers/billing_tier_controller.destroy')
+
+    // ─── Suscripciones ──────────────────────────────────────────────────────
+    router.get('/subscriptions', '#controllers/billing_subscription_controller.index')
+    router.post('/subscriptions', '#controllers/billing_subscription_controller.store')
+    router.get('/subscriptions/:subscriptionId', '#controllers/billing_subscription_controller.show')
+
+    // ─── Empresas (picker del alta) ─────────────────────────────────────────
+    router.get('/business-units', '#controllers/billing_subscription_controller.businessUnits')
   })
   .prefix('/api/platform/billing')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
