@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
-import SystemSettingSystemModule from './system_setting_system_module.js'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import SystemSettingsEmployee from './system_settings_employee.js'
 import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
@@ -155,16 +154,6 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column.dateTime({ columnName: 'system_setting_deleted_at' })
   declare deletedAt: DateTime | null
-
-  @hasMany(() => SystemSettingSystemModule, {
-    foreignKey: 'systemSettingId',
-    onQuery(query) {
-      if (!query.isRelatedSubQuery) {
-        query.preload('systemModule')
-      }
-    },
-  })
-  declare systemSettingSystemModules: HasMany<typeof SystemSettingSystemModule>
 
   @hasMany(() => SystemSettingsEmployee, {
     foreignKey: 'systemSettingId',
