@@ -63,6 +63,20 @@ export {}
  *         anexo:
  *           $ref: '#/components/schemas/AddendumAnexo15DRequest'
  *
+ *     VersionDocumentoRespaldoResource:
+ *       type: object
+ *       description: Metadatos del PDF de respaldo del snapshot (sin storage key).
+ *       properties:
+ *         id:
+ *           type: integer
+ *         nombreArchivo:
+ *           type: string
+ *         mimeType:
+ *           type: string
+ *         fechaVencimiento:
+ *           type: string
+ *           format: date
+ *
  *     VersionContratoSnapshotResource:
  *       type: object
  *       properties:
@@ -78,6 +92,11 @@ export {}
  *           $ref: '#/components/schemas/Anexo15DResource'
  *         documentoVigenteId:
  *           type: integer
+ *           nullable: true
+ *           description: ID interno legacy; preferir documentoVigente.
+ *         documentoVigente:
+ *           allOf:
+ *             - $ref: '#/components/schemas/VersionDocumentoRespaldoResource'
  *           nullable: true
  *
  *     VersionContratoEspecializadoResource:

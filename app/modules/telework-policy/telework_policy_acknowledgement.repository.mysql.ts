@@ -4,9 +4,12 @@ import type { TeleworkPolicyAcknowledgementRepository } from './telework_policy_
 export default class TeleworkPolicyAcknowledgementRepositoryMysql
   implements TeleworkPolicyAcknowledgementRepository
 {
-  async listByBusinessUnit(businessUnitId: number): Promise<TeleworkPolicyAcknowledgement[]> {
-    return TeleworkPolicyAcknowledgement.query()
-      .where('business_unit_id', businessUnitId)
-      .preload('policy')
+  /**
+   * `TeleworkPolicyAcknowledgement` ya compone `withBusinessUnitScope()`
+   * desde su creación — el `where('business_unit_id', ...)` manual era
+   * redundante bajo contexto activo; se retiró (USRH1784259058567).
+   */
+  async listByBusinessUnit(_businessUnitId: number): Promise<TeleworkPolicyAcknowledgement[]> {
+    return TeleworkPolicyAcknowledgement.query().preload('policy')
   }
 }

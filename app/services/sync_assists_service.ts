@@ -29,6 +29,7 @@ import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_ser
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import Department from '#models/department'
 import BusinessUnit from '#models/business_unit'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import DepartmentService from './department_service.js'
 import { I18n } from '@adonisjs/i18n'
 import EmployeeService from './employee_service.js'
@@ -618,6 +619,16 @@ export default class SyncAssistsService {
 
   async setDateCalendar(filters: SyncAssistsServiceIndexInterface) {
     if (filters.employeeID !== undefined) {
+      // Defensa en profundidad (USRH1784259058544): resolvemos la unidad de
+      // negocio del empleado UNA SOLA VEZ por lote (esta llamada cubre todos
+      // los dias de un mismo empleado), nunca por fila. El guard del hook
+      // `EmployeeAssistCalendar.assignBusinessUnitId` (`if (instance.businessUnitId)
+      // return`) respeta el valor ya asignado y no dispara una query por fila
+      // — evita el N+1 sobre el volumen de la sincronizacion masiva.
+      const businessUnitId = await resolveParentBusinessUnitId(
+        () => Employee.query().where('employeeId', filters.employeeID as number).first(),
+        'el empleado'
+      )
       const empCalendar = await this.index(filters)
       if (empCalendar && empCalendar.status === 200 && empCalendar.data) {
         const calendarDayRes = empCalendar.data as any
@@ -640,6 +651,8 @@ export default class SyncAssistsService {
 
           employeeAssistCalendar.day = calendarObject.day
           employeeAssistCalendar.employeeId = filters.employeeID as number
+          // Marca resuelta por lote (arriba), no vía hook por fila.
+          employeeAssistCalendar.businessUnitId = businessUnitId
           employeeAssistCalendar.checkInAssistId = calendarObject.assist.checkIn ? calendarObject.assist.checkIn.assistId : null
           employeeAssistCalendar.checkInDateTime = calendarObject.assist.checkInDateTime?.toISO() || null
           employeeAssistCalendar.checkInStatus = calendarObject.assist.checkInStatus
@@ -685,6 +698,8 @@ export default class SyncAssistsService {
               const employeeAssistCalendar = new EmployeeAssistCalendar()
               employeeAssistCalendar.day = day
               employeeAssistCalendar.employeeId = filters.employeeID as number
+              // Marca resuelta por lote (arriba), no vía hook por fila.
+              employeeAssistCalendar.businessUnitId = businessUnitId
               employeeAssistCalendar.checkInAssistId = null
               employeeAssistCalendar.checkInDateTime = null
               employeeAssistCalendar.checkInStatus = ''
@@ -711,8 +726,8 @@ export default class SyncAssistsService {
               employeeAssistCalendar.hasAssitFlatList = false
               await employeeAssistCalendar.save()
             }
+            current = current.plus({ days: 1 })
           }
-          current = current.plus({ days: 1 })
         }
       }
     }

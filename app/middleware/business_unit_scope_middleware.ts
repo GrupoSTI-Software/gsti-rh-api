@@ -1,6 +1,7 @@
 import type { NextFn } from '@adonisjs/core/types/http'
 import type { HttpContext } from '@adonisjs/core/http'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import { resolveLegacyCompanyIdParam } from '#helpers/resolve_legacy_company_id_param'
 import { TenantContext } from '#utils/tenant_context'
 
 /** Header que el cliente envía para seleccionar la unidad de negocio activa. */
@@ -117,32 +118,13 @@ export default class BusinessUnitScopeMiddleware {
       ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: requestedId })
     }
 
-    // ── Body payrollBusinessUnitId (misma semántica que businessUnitId) ───────
-    // FK NOT NULL en employees; si llega UUID o ausente, debe resolverse al ID
-    // interno. Sin esto el alta falla en verifyInfoExist con el UUID crudo.
-    const rawPayrollId = ctx.request.body().payrollBusinessUnitId
-    if (rawPayrollId !== undefined && rawPayrollId !== null && rawPayrollId !== '') {
-      const payrollStr = String(rawPayrollId)
-      const resolvedPayroll = await scopeService.resolveInternalId(payrollStr, fullScope)
-      if (resolvedPayroll !== null) {
-        ctx.request.updateBody({
-          ...ctx.request.body(),
-          payrollBusinessUnitId: resolvedPayroll,
-        })
-      } else {
-        const payrollNumber = Number(rawPayrollId)
-        if (!Number.isInteger(payrollNumber) || payrollNumber <= 0 || !fullScope.includes(payrollNumber)) {
-          return ctx.response.status(404).json({
-            title: ERR.NOT_IN_SCOPE.title,
-            detail: 'El recurso solicitado no existe o no tienes acceso a él.',
-            key: ERR.NOT_IN_SCOPE.key,
-          })
-        }
-      }
-    } else {
-      ctx.request.updateBody({
-        ...ctx.request.body(),
-        payrollBusinessUnitId: requestedId,
+    // Alias legacy NOM035: `companyId` también puede llegar como UUID v4.
+    const companyResolved = await resolveLegacyCompanyIdParam(ctx, scopeService, fullScope)
+    if (companyResolved === 'not-in-scope') {
+      return ctx.response.status(404).json({
+        title: ERR.NOT_IN_SCOPE.title,
+        detail: 'El recurso solicitado no existe o no tienes acceso a él.',
+        key: ERR.NOT_IN_SCOPE.key,
       })
     }
 

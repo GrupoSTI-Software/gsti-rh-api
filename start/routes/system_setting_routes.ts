@@ -5,7 +5,6 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
-    router.post('/assign-system-modules/:systemSettingId', '#controllers/system_setting_controller.assignSystemModules').use(middleware.auth())
     router.put('/:systemSettingId/birthday-emails', '#controllers/system_setting_controller.updateBirthdayEmailsStatus').use(middleware.auth())
     router.put('/:systemSettingId/anniversary-emails', '#controllers/system_setting_controller.updateAnniversaryEmailsStatus').use(middleware.auth())
     router.put('/:systemSettingId/attendance-fault-hr-emails', '#controllers/system_setting_controller.updateAttendanceFaultHrEmailsStatus').use(middleware.auth())
