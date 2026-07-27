@@ -1,6 +1,13 @@
 import scheduler from 'adonisjs-scheduler/services/main'
 import { LACTATION_NOTIFY_EXPIRING_COMMAND } from '#constants/employee_lactation_notification'
 import { REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND } from '#constants/repse_folio_aviso'
+import {
+  ANNIVERSARY_DAY_EMAIL_COMMAND,
+  ANNIVERSARY_REMINDER_EMAIL_COMMAND,
+  BIRTH_DAY_EMAIL_COMMAND,
+  BIRTHDAY_REMINDER_EMAIL_COMMAND,
+  EMPLOYEE_CELEBRATION_EMAIL_CRON,
+} from '#constants/employee_celebration_email'
 
 // scheduler.command('inspire').everyFiveSeconds()
 scheduler.command('sync:assistance').cron('*/5 * * * *')
@@ -23,6 +30,20 @@ scheduler.command(LACTATION_NOTIFY_EXPIRING_COMMAND).cron('0 13 * * *')
  * vía bitácora `repse_folio_avisos`.
  */
 scheduler.command(REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND).cron('0 13 * * *')
+
+/**
+ * Correos de celebración (cumpleaños y aniversario laboral): felicitación al
+ * empleado y recordatorio a RH, por cada system setting activo con su flag.
+ * 13:00 UTC = 07:00 CDMX. Fuera de producción el servicio aplica
+ * DEVELOPMENT_EMAIL_LIST; en producción solo clientes con la opción encendida.
+ *
+ * Coordinar con infra el retiro de crons externos en Forge al liberar, para
+ * evitar doble envío durante la transición.
+ */
+scheduler.command(BIRTH_DAY_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+scheduler.command(BIRTHDAY_REMINDER_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+scheduler.command(ANNIVERSARY_DAY_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+scheduler.command(ANNIVERSARY_REMINDER_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
 
 /**
  * Cierre automático de jornada (USRH1782268640950): corre una vez al día,

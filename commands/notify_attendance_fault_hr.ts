@@ -1,6 +1,8 @@
 import { BaseCommand, flags } from '@adonisjs/core/ace'
 import type { CommandOptions } from '@adonisjs/core/types/ace'
+import { ATTENDANCE_FAULT_HR_RUN_UNSCOPED_REASON } from '#constants/attendance_fault_hr_notification'
 import AttendanceFaultHrNotificationService from '#services/attendance_fault_hr_notification_service'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Envía correo a usuarios activos con roles configurados (y empleado asociado por person_id),
@@ -35,13 +37,17 @@ export default class NotifyAttendanceFaultHr extends BaseCommand {
         : 'Inicio: notificación de faltas por asistencia a RH'
     )
     const service = new AttendanceFaultHrNotificationService()
-    const result = await service.run(
-      {
-        info: (m) => this.logger.info(m),
-        error: (m) => this.logger.error(m),
-        warning: (m) => this.logger.warning(m),
-      },
-      { test: isTest }
+    const result = await TenantContext.runUnscoped(
+      () =>
+        service.run(
+          {
+            info: (m) => this.logger.info(m),
+            error: (m) => this.logger.error(m),
+            warning: (m) => this.logger.warning(m),
+          },
+          { test: isTest }
+        ),
+      ATTENDANCE_FAULT_HR_RUN_UNSCOPED_REASON
     )
     if (result.sent) {
       const companiesLabel =

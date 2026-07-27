@@ -3504,6 +3504,126 @@ components:
         detail: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
         data: null
 
+    EmployeeBadge:
+      type: object
+      description: |
+        Gafete universal (USRH1784686362321, R7): se genera para cualquier
+        trabajador activo, tenga o no registro REPSE su empresa. `folioRepse`
+        y `folioVigente` viajan en `null` cuando la empresa no tiene registro
+        (regla 12) — nunca es un error. Nunca incluye CURP/NSS/salario.
+      properties:
+        empleadoId:
+          type: integer
+        nombreCompleto:
+          type: string
+        fotoUrl:
+          type: string
+          nullable: true
+        fotoFaltante:
+          type: boolean
+          description: "`true` cuando `fotoUrl` es `null` (regla 10 — no bloquea la generación)."
+        empresa:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        folioRepse:
+          type: string
+          nullable: true
+        folioVigente:
+          type: boolean
+          nullable: true
+        vinculoVigente:
+          type: boolean
+          description: "Siempre `true` en las superficies de generación (E1/E2/E3): el empleado consultable ya está activo por construcción."
+        urlVerificacion:
+          type: string
+          description: "`${BACKOFFICE_URL}/badge-verification/<token>` (R8) — el token nunca viaja como campo suelto."
+        qrDataUrl:
+          type: string
+          description: "`data:image/png;base64,...` — `QRCode.toDataURL(urlVerificacion)`."
+
+    EmployeeBadgeSuccess:
+      type: object
+      description: |
+        Respuesta exitosa de E1/E3. `title`/`message` varían con `Accept-Language`;
+        la clave de payload es estable: `data.gafete`.
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [gafete]
+          properties:
+            gafete:
+              $ref: '#/components/schemas/EmployeeBadge'
+
+    EmployeeBadgeVerification:
+      type: object
+      description: |
+        Superficie mínima de la verificación pública (E4) — 5 campos, los dos
+        de folio nullables. Nunca CURP/NSS/ids internos/foto/fechas/token.
+      properties:
+        trabajador:
+          type: string
+        empresa:
+          type: string
+        vinculoVigente:
+          type: boolean
+          description: "`false` si el trabajador fue dado de baja o la empresa está desactivada (regla 11) — nunca 404 en ese caso."
+        folioRepse:
+          type: string
+          nullable: true
+        folioVigente:
+          type: boolean
+          nullable: true
+
+    EmployeeBadgeVerificationSuccess:
+      type: object
+      description: Respuesta exitosa de E4. Clave estable `data.verificacion`.
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [verificacion]
+          properties:
+            verificacion:
+              $ref: '#/components/schemas/EmployeeBadgeVerification'
+
+    EmployeeBadgeApiError:
+      type: object
+      description: Contrato de error del módulo `employee-badge` (prefijo de código `BDG`).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        key:
+          type: string
+        detail:
+          type: string
+        errorCode:
+          type: string
+        data:
+          type: object
+          nullable: true
+
 paths:
   /api/employees/{employeeId}/temporary-assignments:
     post:
@@ -9812,4 +9932,536 @@ paths:
                 key: documento-no-encontrado
                 errorCode: REXP.NF.001
                 detail: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                data: null
+
+  /api/employee-badges/{employeeId}:
+    get:
+      summary: Datos del gafete del trabajador (foto, empresa, QR, folio si aplica)
+      description: |
+        Gafete universal (USRH1784686362321, R7): se genera para cualquier
+        trabajador activo de la empresa del usuario, tenga o no registro
+        REPSE. El folio y su vigencia viajan en `null` cuando la empresa no
+        tiene registro (regla 12) — nunca es un error. Genera el código de
+        verificación de forma perezosa si aún no existe (regla 6).
+
+        Sin permiso de módulo propio (decisión de permisos, §16 del spec):
+        solo requiere `auth()` + `businessScope()`.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string, enum: [es, en] }
+          description: Traduce title/message; no altera la clave data.gafete.
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Gafete obtenido (con o sin folio REPSE, según registro de la empresa).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeSuccess'
+              examples:
+                conFolio:
+                  summary: Empresa con registro REPSE
+                  value:
+                    type: success
+                    title: Gafete del empleado
+                    message: Gafete obtenido correctamente
+                    data:
+                      gafete:
+                        empleadoId: 123
+                        nombreCompleto: "Juan Pérez García"
+                        fotoUrl: "https://cdn.example.com/employees/123.jpg"
+                        fotoFaltante: false
+                        empresa: "Seguridad Integral SA de CV"
+                        logoUrl: "https://cdn.example.com/logo.png"
+                        folioRepse: "REPSE-12345-2024"
+                        folioVigente: true
+                        vinculoVigente: true
+                        urlVerificacion: "https://bo.example.com/badge-verification/abc123"
+                        qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
+                sinFolio:
+                  summary: Empresa sin registro REPSE (R7 — no es error)
+                  value:
+                    type: success
+                    title: Gafete del empleado
+                    message: Gafete obtenido correctamente
+                    data:
+                      gafete:
+                        empleadoId: 456
+                        nombreCompleto: "Carlos Méndez Ruiz"
+                        fotoUrl: null
+                        fotoFaltante: true
+                        empresa: "Distribuidora El Roble S. de R.L."
+                        logoUrl: null
+                        folioRepse: null
+                        folioVigente: null
+                        vinculoVigente: true
+                        urlVerificacion: "https://bo.example.com/badge-verification/def456"
+                        qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo (indistinguibles).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/{employeeId}/pdf:
+    get:
+      summary: Descarga el gafete en PDF tamaño credencial CR80
+      description: |
+        PDF CR80 (85.6 × 53.98 mm) listo para imprimir. Sin registro REPSE el
+        bloque de folio se omite y el layout se compacta (regla 12); sin foto
+        se usa un marcador de posición (regla 10). Nunca se persiste en disco
+        ni en S3.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: "Stream del PDF (`Content-Type: application/pdf`, `Content-Disposition: attachment`, `Cache-Control: private, no-store`)."
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/{employeeId}/png:
+    get:
+      summary: Descarga el gafete en PNG @300 dpi (1011×638 px)
+      description: |
+        Imagen nítida del mismo gafete que el PDF CR80, generada desde el
+        PNG master en canvas. Sin registro REPSE el bloque de folio se omite
+        y el layout se compacta (regla 12); sin foto se usa un marcador de
+        posición (regla 10). Nunca se persiste en disco ni en S3.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: "Stream del PNG (`Content-Type: image/png`, `Content-Disposition: attachment`, `Cache-Control: private, no-store`)."
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/bulk:
+    post:
+      summary: Descarga masiva de gafetes (PDF carta 2×4 o ZIP de PNGs)
+      description: |
+        Genera un lote de gafetes para los trabajadores activos resueltos
+        dentro del tenant. Ids inexistentes, de otro tenant o dados de baja
+        se omiten en silencio (RC1). Si ningún id resuelve, responde 404.
+
+        **PDF:** documento LETTER con cuadrícula 2×4 (8 gafetes/hoja) y
+        líneas de corte. **PNG:** ZIP con una imagen por trabajador
+        (`{employeeId}-{nombre}.png`). Streaming chunked — sin persistencia.
+
+        Limitado a 3 solicitudes/minuto por usuario autenticado.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string, enum: [es, en] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [empleadoIds]
+              properties:
+                empleadoIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: integer
+                    minimum: 1
+                formato:
+                  type: string
+                  enum: [pdf, png]
+                  default: pdf
+            example:
+              empleadoIds: [123, 456, 789]
+              formato: pdf
+      responses:
+        '200':
+          description: |
+            Stream del lote (`application/pdf` o `application/zip` según
+            `formato`; `Content-Disposition: attachment`, chunked).
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Payload inválido (array vacío, ids no enteros o formato inválido).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: Error de validación
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Ningún trabajador del payload resolvió en el tenant (indistinguible).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '429':
+          description: Más de 3 descargas masivas por minuto del mismo usuario.
+        '500':
+          description: Error antes del primer byte del stream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/me:
+    get:
+      summary: Gafete propio del usuario autenticado (contrato para la app del empleado)
+      description: |
+        Resuelve el empleado por `personId` del usuario autenticado; jamás
+        acepta un `employeeId` del cliente. Se registra ANTES de
+        `/:employeeId` en el router (Adonis resuelve en orden de registro).
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Gafete propio obtenido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeSuccess'
+              example:
+                type: success
+                title: Gafete del empleado
+                message: Gafete obtenido correctamente
+                data:
+                  gafete:
+                    empleadoId: 123
+                    nombreCompleto: "Juan Pérez García"
+                    fotoUrl: "https://cdn.example.com/employees/123.jpg"
+                    fotoFaltante: false
+                    empresa: "Seguridad Integral SA de CV"
+                    logoUrl: "https://cdn.example.com/logo.png"
+                    folioRepse: "REPSE-12345-2024"
+                    folioVigente: true
+                    vinculoVigente: true
+                    urlVerificacion: "https://bo.example.com/badge-verification/abc123"
+                    qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '422':
+          description: Usuario autenticado sin empleado activo asociado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El usuario autenticado no tiene un empleado activo asociado.
+                detail: El usuario autenticado no tiene un empleado activo asociado.
+                key: sin-empleado-asociado
+                errorCode: BDG.NF.EMP.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/public/employee-badge/verify/{token}:
+    get:
+      summary: Verificación pública del gafete (sin cuenta ni sesión)
+      description: |
+        El QR del gafete codifica `${BACKOFFICE_URL}/badge-verification/<token>`;
+        esta ruta es la que consume esa página. Un token inexistente, con
+        formato inválido o revocado responde siempre el mismo 404
+        (indistinguibles, regla 7). Un trabajador dado de baja o una empresa
+        desactivada responde `200` con `vinculoVigente: false` (regla 11) —
+        nunca 404. Limitada a 10 solicitudes/minuto por IP (regla 8).
+      tags: [EmployeeBadgePublic]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+          description: "Código de verificación de 43 caracteres (`randomBytes(32).toString('base64url')`)."
+      responses:
+        '200':
+          description: Verificación resuelta (con o sin folio REPSE, según registro de la empresa).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeVerificationSuccess'
+              examples:
+                conFolio:
+                  summary: Empresa con registro REPSE, vínculo vigente
+                  value:
+                    type: success
+                    title: Verificación de gafete
+                    message: Gafete verificado
+                    data:
+                      verificacion:
+                        trabajador: "Juan Pérez García"
+                        empresa: "Seguridad Integral SA de CV"
+                        vinculoVigente: true
+                        folioRepse: "REPSE-12345-2024"
+                        folioVigente: true
+                vinculoNoVigente:
+                  summary: Trabajador dado de baja o empresa desactivada (regla 11)
+                  value:
+                    type: success
+                    title: Verificación de gafete
+                    message: Gafete verificado
+                    data:
+                      verificacion:
+                        trabajador: "María López Hernández"
+                        empresa: "Limpieza Corporativa del Bajío S.A."
+                        vinculoVigente: false
+                        folioRepse: "REPSE-90871-2022"
+                        folioVigente: false
+        '404':
+          description: Token inexistente, con formato inválido o revocado (indistinguibles, regla 7).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El código de verificación no existe, es inválido o fue revocado.
+                detail: El código de verificación no existe, es inválido o fue revocado.
+                key: verificacion-no-encontrada
+                errorCode: BDG.NF.002
+                data: null
+        '429':
+          description: Límite de 10 solicitudes/minuto por IP excedido (formato estándar de `@adonisjs/limiter`, sin personalizar).
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
                 data: null
