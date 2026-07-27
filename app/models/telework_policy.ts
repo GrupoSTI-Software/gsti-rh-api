@@ -6,6 +6,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from '#models/business_unit'
 import User from '#models/user'
 import type { TeleworkPolicyComponent } from '#models/telework_policy_template'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 export type TeleworkPolicyStatus = 'draft' | 'published'
 
@@ -15,11 +16,18 @@ export type TeleworkPolicyStatus = 'draft' | 'published'
  * `retention_policy.ts`. Cada fila es una versión; en esta HU solo se opera
  * el borrador (`teleworkPolicyStatus = 'draft'`).
  *
- * Sin `withBusinessUnitScope()` mixin: el filtro por `businessUnitId` se hace
- * explícito en el repository (igual que `retention_policy`), para controlar
- * con precisión "a lo sumo un borrador activo por empresa a la vez".
+ * Compone `withBusinessUnitScope()` (USRH1784259058567, defensa en
+ * profundidad): la columna `businessUnitId` ya existía NOT NULL poblada. El
+ * repository sigue pasando `businessUnitId` explícito para seleccionar "la
+ * política de ESTA empresa" (regla de negocio, no de aislamiento — controla
+ * "a lo sumo un borrador activo por empresa"); el candado cross-tenant
+ * manual redundante bajo contexto activo se retiró de sus queries.
  */
-export default class TeleworkPolicy extends compose(BaseModel, SoftDeletes) {
+export default class TeleworkPolicy extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'telework_policies'
 
   @column({ isPrimary: true })

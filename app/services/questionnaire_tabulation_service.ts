@@ -159,6 +159,10 @@ export default class QuestionnaireTabulationService {
 
       const employeeRows = result.employees.map((employee) => ({
         questionnaire_application_id: application.questionnaireApplicationId,
+        // USRH1784259058521: marca de pertenencia del resultado por empleado —
+        // llaveada a la aplicación (application.businessUnitId), no al
+        // empleado, coherente con cómo ya se llavea el resultado agregado.
+        business_unit_id: application.businessUnitId,
         employee_id: employee.employeeId,
         questionnaire_tabulation_employee_result_score: employee.score,
         questionnaire_tabulation_employee_result_risk_level: employee.riskLevel,

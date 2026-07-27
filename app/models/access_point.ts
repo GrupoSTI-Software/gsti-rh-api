@@ -4,6 +4,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import BusinessUnit from './business_unit.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * @swagger
@@ -57,7 +58,14 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *         accessPointDeletedAt:
  *           type: string
  */
-export default class AccessPoint extends compose(BaseModel, SoftDeletes) {
+/**
+ * Compone `withBusinessUnitScope()` (USRH1784259058567, defensa en
+ * profundidad): la columna `businessUnitId` ya existía NOT NULL poblada. Su
+ * ruta (`access_point_routes.ts`) ya montaba `businessScope()` de una HU
+ * anterior — el mixin refuerza el filtro que hoy se hacía a mano en el
+ * service/controller.
+ */
+export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare accessPointId: number
 

@@ -30,6 +30,18 @@ test.group('REPSE — rutas con scope central obligatorio', () => {
       assert.include(content, 'middleware.auth()')
       assert.include(content, 'middleware.businessScope()')
     })
+
+    if (fileName === 'repse_registration_routes.ts') {
+      test(`${fileName} declara get-expired-and-expiring antes de /:id`, ({ assert }) => {
+        const content = readFileSync(join(ROUTES_DIR, fileName), 'utf-8')
+        const expiredIdx = content.indexOf('get-expired-and-expiring')
+        const idRouteIdx = content.indexOf('/repse-registrations/:id')
+
+        assert.isAbove(expiredIdx, -1)
+        assert.isAbove(idRouteIdx, -1)
+        assert.isBelow(expiredIdx, idRouteIdx)
+      })
+    }
   }
 })
 

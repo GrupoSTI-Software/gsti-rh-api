@@ -9,7 +9,7 @@ const UUID_V4_RE =
  * Resolvedor central del alcance de unidades de negocio accesibles para un usuario.
  *
  * Centraliza la lógica que determina qué business_unit_id puede ver un usuario,
- * reemplazando el patrón disperso de SYSTEM_BUSINESS + filtros manuales.
+ * reemplazando filtros manuales dispersos por unidad de negocio.
  *
  * Regla:
  *  - Rol "root"     → todas las unidades activas y no eliminadas.

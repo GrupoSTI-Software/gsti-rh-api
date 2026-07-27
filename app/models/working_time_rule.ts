@@ -64,6 +64,20 @@ import WorkingTimeRuleError from '#exceptions/working_time_rule_error'
  *            type: string
  *
  */
+/**
+ * Excepción intencional al mixin `withBusinessUnitScope()` (USRH1784259058567,
+ * BLOCKER documentado — espejo del patrón en `repse_specialized_service.ts:19`):
+ * las reglas federales de esta tabla viven con `business_unit_id` **NULL** y
+ * son visibles a **todos** los clientes (jornada efectiva, horas extra,
+ * sellado de `work_journal`, nómina). Componer el mixin agregaría
+ * `whereIn('business_unit_id', scope)`, y `NULL AND IN(...)` evalúa a un
+ * conjunto vacío bajo contexto activo — ocultaría las reglas federales y
+ * rompería la jornada efectiva. El aislamiento de los overrides por empresa
+ * ya lo garantiza `assertNoOverlap()` (compara explícitamente contra
+ * `business_unit_id` o `whereNull` para lo federal). Un candado NULL-aware
+ * (que respete filas con `business_unit_id IS NULL` como "visibles a todos")
+ * sería una historia aparte; no se construye aquí.
+ */
 export default class WorkingTimeRule extends compose(BaseModel, SoftDeletes) {
   @column({ isPrimary: true })
   declare workingTimeRuleId: number

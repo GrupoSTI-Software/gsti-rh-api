@@ -6,10 +6,23 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from '#models/business_unit'
 import Regulation from '#models/regulation'
 import QuestionnaireApplication from '#models/questionnaire_application'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 export type AttentionProgramStatus = 'borrador' | 'vigente' | 'cerrado'
 
-export default class AttentionProgram extends compose(BaseModel, SoftDeletes) {
+/**
+ * Compone `withBusinessUnitScope()` (USRH1784259058567, defensa en
+ * profundidad): la columna `businessUnitId` ya existía NOT NULL con FK
+ * RESTRICT. CAVEAT: las lecturas de `attention_program_service.ts` usan
+ * `db.from` crudo con `whereIn` manual (load-bearing, el mixin NO cubre
+ * queries crudas) — esos filtros NO se retiran; el compose solo cubre
+ * queries de modelo (`AttentionProgram.query()`) futuras.
+ */
+export default class AttentionProgram extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'attention_programs'
 
   @column({ isPrimary: true })
