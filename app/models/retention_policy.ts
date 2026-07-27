@@ -6,6 +6,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from '#models/business_unit'
 import User from '#models/user'
 import { RetentionPolicyEvidenceType } from '#constants/retention_policy'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * @swagger
@@ -57,7 +58,16 @@ import { RetentionPolicyEvidenceType } from '#constants/retention_policy'
  *           format: date-time
  *           nullable: true
  */
-export default class RetentionPolicy extends compose(BaseModel, SoftDeletes) {
+/**
+ * Compone `withBusinessUnitScope()` (USRH1784259058567, defensa en
+ * profundidad): la columna `businessUnitId` ya existía NOT NULL poblada
+ * (una política por empresa, `unique(business_unit_id)`).
+ */
+export default class RetentionPolicy extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'retention_policies'
 
   @column({ isPrimary: true })

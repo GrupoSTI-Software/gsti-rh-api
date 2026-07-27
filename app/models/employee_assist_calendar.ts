@@ -1,10 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Shift from './shift.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Assist from './assist.js'
+import Employee from './employee.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -110,13 +113,36 @@ import Assist from './assist.js'
  *           nullable: true
  *           description: "Date deleted at"
  */
-export default class EmployeeAssistCalendar extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeAssistCalendar extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
 
   @column({ isPrimary: true })
   declare employeeAssistCalendarId: number
 
   @column()
   declare employeeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, USRH1784259058544).
+   * En la sincronización masiva de checadores se resuelve una sola vez por
+   * lote y se asigna antes de `save()` — el guard de este hook la respeta y
+   * no dispara una consulta por fila (evita N+1, ver `sync_assists_service.ts`).
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre, nunca desde el payload. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeAssistCalendar) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare day: string
