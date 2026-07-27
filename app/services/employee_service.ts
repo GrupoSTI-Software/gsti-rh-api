@@ -14,6 +14,10 @@ import User from '#models/user'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
+import type {
+  EmployeeImportResult,
+  EmployeeImportRowError,
+} from '../interfaces/employee_import_result_interface.js'
 import DepartmentService from './department_service.js'
 import PersonService from './person_service.js'
 import PositionService from './position_service.js'
@@ -585,7 +589,7 @@ export default class EmployeeService {
    *
    * @param rowNumber - Número de fila del Excel (1-based) donde se detectó el intento.
    * @param mode - `'update'` cuando el empleado ya existía; `'create'` cuando es alta nueva.
-   * @returns Cadena bilingüe formateada para el listado `results.errors[]` del importador.
+   * @returns Cadena bilingüe formateada para el listado `warnings[]` del importador.
    */
   private buildHybridFromExcelWarning(rowNumber: number, mode: 'update' | 'create'): string {
     if (mode === 'update') {
@@ -602,6 +606,70 @@ export default class EmployeeService {
       + `· Row ${rowNumber} · The employee was created as Onsite (0%). Hybrid work modality must be configured from the `
       + 'backoffice system after an active shift is assigned: it requires criteria that Excel cannot validate.'
     )
+  }
+
+  private buildEmployeeImportLegacyErrors(
+    rowErrors: EmployeeImportRowError[],
+    warnings: string[]
+  ): string[] {
+    const fromRows = rowErrors.map((item) => `Fila ${item.row}: ${item.message}`)
+    return [...fromRows, ...warnings]
+  }
+
+  private finalizeEmployeeImportResult(params: {
+    totalRows: number
+    processed: number
+    created: number
+    updated: number
+    skipped: number
+    limitReached: boolean
+    rowErrors: EmployeeImportRowError[]
+    warnings: string[]
+  }): EmployeeImportResult {
+    const failed = new Set(params.rowErrors.map((item) => item.row)).size
+    return {
+      summary: {
+        totalRows: params.totalRows,
+        processed: params.processed,
+        created: params.created,
+        updated: params.updated,
+        failed,
+        skipped: params.skipped,
+        limitReached: params.limitReached,
+      },
+      rowErrors: params.rowErrors,
+      warnings: params.warnings,
+      errors: this.buildEmployeeImportLegacyErrors(params.rowErrors, params.warnings),
+    }
+  }
+
+  private collectMissingRequiredImportFields(employeeData: {
+    employeeNumber?: unknown
+    businessUnit?: unknown
+    payrollBusinessUnit?: unknown
+    firstName?: unknown
+    lastName?: unknown
+  }): string[] {
+    const missing: string[] = []
+    if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
+      missing.push('Identificador de nómina')
+    }
+    if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
+      missing.push('Unidad de negocio de trabajo')
+    }
+    if (
+      !employeeData.payrollBusinessUnit ||
+      employeeData.payrollBusinessUnit.toString().trim() === ''
+    ) {
+      missing.push('Unidad de negocio de nómina')
+    }
+    if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
+      missing.push('Nombre del empleado')
+    }
+    if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
+      missing.push('Apellido paterno del empleado')
+    }
+    return missing
   }
 
   async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
@@ -2599,7 +2667,10 @@ export default class EmployeeService {
   /**
    * Import employees from Excel file
    */
-  async importFromExcel(file: any, allowedBusinessUnitIds: number[] = []) {
+  async importFromExcel(
+    file: any,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<EmployeeImportResult> {
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -2664,15 +2735,14 @@ export default class EmployeeService {
 
       // Verificar límite de empleados (se verificará por unidad de negocio individual)
 
-      const results = {
-        totalRows: 0,
-        processed: 0,
-        created: 0,
-        updated: 0,
-        skipped: 0,
-        limitReached: false,
-        errors: [] as string[]
-      }
+      let totalRows = 0
+      let processed = 0
+      let created = 0
+      let updated = 0
+      let skipped = 0
+      let limitReached = false
+      const rowErrors: EmployeeImportRowError[] = []
+      const warnings: string[] = []
 
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
@@ -2711,71 +2781,51 @@ export default class EmployeeService {
         )
       }
 
-      // Primero, validar que TODOS los registros tengan los campos requeridos
-      // Si falta alguno, invalidar todo el archivo
-      for (const { row, rowNumber } of rows) {
-        const employeeData = this.extractEmployeeDataFromRow(row, headers)
-
-        // Validar campos requeridos
-        const requiredFieldsErrors: string[] = []
-
-        if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
-          requiredFieldsErrors.push('Identificador de nómina')
-        }
-        if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
-          requiredFieldsErrors.push('Unidad de negocio de trabajo')
-        }
-        if (!employeeData.payrollBusinessUnit || employeeData.payrollBusinessUnit.toString().trim() === '') {
-          requiredFieldsErrors.push('Unidad de negocio de nómina')
-        }
-        if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
-          requiredFieldsErrors.push('Nombre del empleado')
-        }
-        if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
-          requiredFieldsErrors.push('Apellido paterno del empleado')
-        }
-
-        // Si falta algún campo requerido, invalidar todo el archivo inmediatamente
-        if (requiredFieldsErrors.length > 0) {
-          throw this.createHeaderValidationError(
-            'El archivo Excel contiene registros con campos requeridos faltantes. ' +
-            `Fila ${rowNumber} falta: ${requiredFieldsErrors.join(', ')}. ` +
-            'Todos los registros deben tener los campos requeridos completos.'
-          )
-        }
-      }
-
-      // Si llegamos aquí, todos los registros tienen los campos requeridos
-      // Ahora procesar todas las filas para validar y contar empleados nuevos
+      // Procesar filas: errores por fila no abortan el archivo completo
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
       for (const { row, rowNumber } of rows) {
-        results.totalRows++
+        totalRows++
 
         try {
           const employeeData = this.extractEmployeeDataFromRow(row, headers)
 
+          const missingRequiredFields = this.collectMissingRequiredImportFields(employeeData)
+          if (missingRequiredFields.length > 0) {
+            skipped++
+            for (const field of missingRequiredFields) {
+              rowErrors.push({ row: rowNumber, field, message: 'Falta el campo obligatorio' })
+            }
+            continue
+          }
+
           // Validar que los datos básicos estén presentes
           if (!employeeData.firstName && !employeeData.lastName) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: Fila vacía o sin datos de empleado`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'Fila vacía o sin datos de empleado' })
             continue
           }
 
           // Validar datos del empleado
           const employeeValidation = this.validateEmployeeData(employeeData)
           if (!employeeValidation.isValid) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${employeeValidation.errors.join(', ')}`)
+            skipped++
+            rowErrors.push({
+              row: rowNumber,
+              message: employeeValidation.errors.join(', '),
+            })
             continue
           }
 
           // Validar datos de la persona
           const personValidation = this.validatePersonData(employeeData)
           if (!personValidation.isValid) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${personValidation.errors.join(', ')}`)
+            skipped++
+            rowErrors.push({
+              row: rowNumber,
+              message: personValidation.errors.join(', '),
+            })
             continue
           }
 
@@ -2799,8 +2849,8 @@ export default class EmployeeService {
           const finalPayrollBusinessUnitId = payrollBusinessUnitId || businessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
 
           if (finalBusinessUnitId === null) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: No se pudo determinar la unidad de negocio`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'No se pudo determinar la unidad de negocio' })
             continue
           }
 
@@ -2812,8 +2862,11 @@ export default class EmployeeService {
             if (existingEmployee) {
               validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: true })
             } else {
-              results.skipped++
-              results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeData.employeeId} no encontrado`)
+              skipped++
+              rowErrors.push({
+                row: rowNumber,
+                message: `Empleado con ID ${employeeData.employeeId} no encontrado`,
+              })
             }
           } else {
             newEmployeesCount++
@@ -2821,8 +2874,8 @@ export default class EmployeeService {
           }
 
         } catch (error: any) {
-          results.skipped++
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          skipped++
+          rowErrors.push({ row: rowNumber, message: error.message })
         }
       }
 
@@ -2839,18 +2892,22 @@ export default class EmployeeService {
           const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
 
           if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
-            results.limitReached = true
-            results.errors.push(`Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`)
+            limitReached = true
+            warnings.push(
+              `Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`
+            )
           }
         }
       }
 
       // Si se alcanzó el límite, no procesar más empleados nuevos
-      if (results.limitReached) {
+      if (limitReached) {
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           if (!isUpdate) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+            skipped++
+            warnings.push(
+              `Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`
+            )
             continue
           }
           const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
@@ -2858,13 +2915,13 @@ export default class EmployeeService {
           try {
             await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
             if (employeeData.employeeWorkScheduleHybridAttempt) {
-              results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
             }
-            results.updated++
-            results.processed++
+            updated++
+            processed++
           } catch (error: any) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: error.message })
           }
         }
       } else {
@@ -2877,10 +2934,10 @@ export default class EmployeeService {
               if (existingEmployee) {
                 await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
                 if (employeeData.employeeWorkScheduleHybridAttempt) {
-                  results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+                  warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
                 }
-                results.updated++
-                results.processed++
+                updated++
+                processed++
               }
               continue
             }
@@ -2889,8 +2946,8 @@ export default class EmployeeService {
             if (this.hasImportCellValue(employeeData.curp)) {
               const curpExists = await this.personWithCurpExists(employeeData.curp)
               if (curpExists) {
-                results.skipped++
-                results.errors.push(`Fila ${rowNumber}: CURP duplicado - ${employeeData.curp?.toString().trim()}`)
+                skipped++
+                rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
                 continue
               }
             }
@@ -2909,7 +2966,7 @@ export default class EmployeeService {
             if (employeeData.employeeWorkScheduleHybridAttempt) {
               // El empleado nuevo queda con Onsite (default de `createEmployee`).
               // Se avisa a RH para que ajuste la modalidad desde el sistema.
-              results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
             }
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
             await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
@@ -2939,11 +2996,11 @@ export default class EmployeeService {
             }
 
             createdEmployees.push(newEmployee)
-            results.created++
-            results.processed++
+            created++
+            processed++
           } catch (error: any) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: error.message })
           }
         }
 
@@ -2952,15 +3009,24 @@ export default class EmployeeService {
           try {
             const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
             if (!biometricResult.success) {
-              results.errors.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
+              warnings.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
             }
           } catch (error: any) {
-            results.errors.push(`Error al sincronizar con biométricos: ${error.message}`)
+            warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
           }
         }
       }
 
-      return results
+      return this.finalizeEmployeeImportResult({
+        totalRows,
+        processed,
+        created,
+        updated,
+        skipped,
+        limitReached,
+        rowErrors,
+        warnings,
+      })
 
     } catch (error: any) {
       // Si es un error de validación de cabeceras, propagarlo tal cual
@@ -2972,7 +3038,8 @@ export default class EmployeeService {
   }
 
   /**
-   * Buscar empleado existente para importación solo por ID (columna oculta).
+   * Buscar empleado existente para importación solo por ID (columna oculta `ID Empleado`).
+   * Decisión de negocio: actualización únicamente con identificador interno; sin ID siempre es alta nueva.
    * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
    */
   private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
