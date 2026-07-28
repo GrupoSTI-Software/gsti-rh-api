@@ -38,7 +38,7 @@ export default class SyncAssistance extends BaseCommand {
 
       logger.info(`LOG SYNC ASSIST TIME (${startLogTime.setZone('UTC-6').toFormat('ff')}) => ${startLogTime.diffNow().milliseconds * -1} ms`)
     } catch (error) {
-      this.sentMailStatus('Error during assistance synchronization: ' + error.message)
+      // this.sentMailStatus('Error during assistance synchronization: ' + (error as Error).message || 'Unknown error')
       logger.info(`LOG SYNC ASSIST TIME => ${startLogTime.diffNow().milliseconds * -1} ms >> Error during assistance synchronization:`, error)
     }
   }
