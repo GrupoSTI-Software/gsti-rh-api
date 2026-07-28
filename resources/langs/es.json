@@ -167,6 +167,8 @@
   "employee_import_val_file_too_large_message": "El archivo del campo «file» supera el tamaño máximo permitido (10 MB).",
   "employee_import_val_headers_title": "Cabeceras del archivo inválidas",
   "employee_import_val_headers_message": "Las cabeceras del archivo Excel no son correctas.",
+  "employee_import_val_rows_title": "Demasiadas filas en el archivo",
+  "employee_import_val_rows_message": "El archivo supera el número máximo de filas de datos permitido por importación. Divide el archivo en lotes más pequeños.",
   "employee_import_server_title": "Error del servidor",
   "employee_import_server_message": "Ocurrió un error inesperado durante la importación.",
   "repse_specialized_services_title": "Repse Specialized Services",

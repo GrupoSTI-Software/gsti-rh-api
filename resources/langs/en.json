@@ -167,6 +167,8 @@
   "employee_import_val_file_too_large_message": "The «file» upload exceeds the maximum allowed size (10 MB).",
   "employee_import_val_headers_title": "Invalid file headers",
   "employee_import_val_headers_message": "The Excel file headers are not valid.",
+  "employee_import_val_rows_title": "Too many rows in the file",
+  "employee_import_val_rows_message": "The file exceeds the maximum number of data rows allowed per import. Split the file into smaller batches.",
   "employee_import_server_title": "Server error",
   "employee_import_server_message": "An unexpected error occurred during import.",
   "repse_specialized_services_title": "Repse Specialized Services",

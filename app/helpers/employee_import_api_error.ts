@@ -95,6 +95,7 @@ export function resolveEmployeeImportApiError(
 ): ResolvedEmployeeImportError {
   const err = error as {
     isHeaderValidationError?: boolean
+    isRowLimitError?: boolean
     statusCode?: number
     message?: string
   }
@@ -114,6 +115,28 @@ export function resolveEmployeeImportApiError(
       status: 400,
       errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_HEADERS,
       key: 'cabeceras-invalidas',
+    }
+  }
+
+  if (err?.isRowLimitError) {
+    // `err.message` ya trae el número real de filas y el tope vigente
+    // (interpolados en `createRowLimitValidationError`); el fallback i18n es
+    // deliberadamente genérico (sin el número) para que subir/bajar
+    // `EMPLOYEE_IMPORT_UPLOAD.maxDataRows` no requiera tocar los locales.
+    const detail =
+      err.message ??
+      translate(
+        i18n,
+        'employee_import_val_rows_message',
+        'El archivo supera el número máximo de filas de datos permitido por importación. Divide el archivo en lotes más pequeños.'
+      )
+    return {
+      title: translate(i18n, 'employee_import_val_rows_title', 'Demasiadas filas en el archivo'),
+      message: detail,
+      detail,
+      status: 400,
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_ROWS,
+      key: 'filas-excedidas',
     }
   }
 

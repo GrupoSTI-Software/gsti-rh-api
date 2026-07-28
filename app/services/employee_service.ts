@@ -3,6 +3,7 @@ import {
   isSensitiveExportPlaceholder,
   SENSITIVE_EXPORT_PLACEHOLDER,
 } from '#constants/sensitive_export_placeholder'
+import { EMPLOYEE_IMPORT_UPLOAD } from '#constants/employee_import_error_codes'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -98,6 +99,15 @@ export interface ApplyWorkScheduleResult {
   code?: EmployeeWorkScheduleErrorCode
   percentage?: number
 }
+
+/**
+ * Cuántos empleados se sincronizan en paralelo por lote contra dispositivos
+ * ZKTeco durante `importFromExcel` (ver `syncCreatedEmployeesToZkDevices`).
+ * Cada sincronización individual puede tardar hasta 10s (timeout de
+ * `Ws.emitZkCreateEmployee`); sin lotes, un archivo de miles de altas
+ * corre esas esperas una por una dentro de una sola petición HTTP.
+ */
+const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
 
 export default class EmployeeService {
 
@@ -2733,6 +2743,15 @@ export default class EmployeeService {
         emp.employeeCode.toString()
       )
 
+      // Índice O(1) por ID para `findExistingEmployeeForImport`: se llama una
+      // vez por fila (hasta dos veces si hay reintento por límite alcanzado),
+      // así que un `.find()` lineal sobre `existingEmployees` degrada a
+      // O(filas × empleados existentes) — costoso desde unos pocos miles de
+      // filas. Se construye una sola vez antes de procesar el archivo.
+      const existingEmployeesById = new Map<number, Employee>(
+        existingEmployees.map((emp) => [emp.employeeId, emp])
+      )
+
       // Verificar límite de empleados (se verificará por unidad de negocio individual)
 
       let totalRows = 0
@@ -2749,6 +2768,16 @@ export default class EmployeeService {
         if (rowNumber <= headerRowNumber) return
         rows.push({ row, rowNumber })
       })
+
+      // Tope de filas por archivo: por encima de este número, el
+      // procesamiento secuencial (queries por fila + sincronización ZKTeco
+      // en lotes) arriesga superar el timeout del proxy/gateway delante de
+      // esta API dentro de una sola petición HTTP. Se corta ANTES de
+      // procesar ninguna fila. Ver `EMPLOYEE_IMPORT_UPLOAD.maxDataRows`
+      // (único valor a cambiar para ajustar el tope).
+      if (rows.length > EMPLOYEE_IMPORT_UPLOAD.maxDataRows) {
+        throw this.createRowLimitValidationError(rows.length)
+      }
 
       // Encabezados requeridos para validación
       const requiredHeaders = [
@@ -2856,7 +2885,7 @@ export default class EmployeeService {
 
           // Referencia principal: ID de empleado (columna oculta). Con ID = actualizar; sin ID = crear.
           const hasEmployeeId = employeeData.employeeId && Number(employeeData.employeeId) > 0
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
 
           if (hasEmployeeId) {
             if (existingEmployee) {
@@ -2910,7 +2939,7 @@ export default class EmployeeService {
             )
             continue
           }
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
           if (!existingEmployee) continue
           try {
             await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
@@ -2930,7 +2959,7 @@ export default class EmployeeService {
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           try {
             if (isUpdate) {
-              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
               if (existingEmployee) {
                 await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
                 if (employeeData.employeeWorkScheduleHybridAttempt) {
@@ -2971,30 +3000,6 @@ export default class EmployeeService {
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
             await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
 
-            // Sincronizar con dispositivo ZKTeco
-            if (newEmployee) {
-              try {
-                const response: any = await Ws.emitZkCreateEmployee(undefined, {
-                  name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
-                  card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
-                  privilege: 0,
-                  device_sn: 'SYZ8252101326,SYZ8252101498',
-                  online_emp_id: newEmployee.employeeId
-                }, 10000)
-
-                if (response && response.success) {
-                  newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
-                  await newEmployee.save()
-                  await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
-                }
-                // eslint-disable-next-line no-console
-                console.log('Respuesta del dispositivo ZKTeco:', response)
-              } catch (error: any) {
-                // eslint-disable-next-line no-console
-                console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
-              }
-            }
-
             createdEmployees.push(newEmployee)
             created++
             processed++
@@ -3002,6 +3007,16 @@ export default class EmployeeService {
             skipped++
             rowErrors.push({ row: rowNumber, message: error.message })
           }
+        }
+
+        // Sincronizar con dispositivos ZKTeco: se corre DESPUÉS del loop de
+        // creación (no dentro), en lotes de concurrencia acotada — antes era
+        // un `await` secuencial por fila con hasta 10s de timeout cada uno,
+        // lo que en un archivo de miles de altas podía tomar horas dentro de
+        // una sola petición HTTP. Una falla de sincronización individual no
+        // aborta el import (mismo comportamiento de antes, ver `syncEmployeeToZkDevice`).
+        if (createdEmployees.length > 0) {
+          await this.syncCreatedEmployeesToZkDevices(createdEmployees)
         }
 
         // Enviar empleados creados a la API de biométricos
@@ -3029,8 +3044,10 @@ export default class EmployeeService {
       })
 
     } catch (error: any) {
-      // Si es un error de validación de cabeceras, propagarlo tal cual
-      if (error.isHeaderValidationError) {
+      // Errores de validación (cabeceras inválidas o tope de filas) se
+      // propagan tal cual — ya traen `statusCode`/mensaje listos para el
+      // controlador, no son fallos internos que deban enmascararse.
+      if (error.isHeaderValidationError || error.isRowLimitError) {
         throw error
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
@@ -3041,15 +3058,62 @@ export default class EmployeeService {
    * Buscar empleado existente para importación solo por ID (columna oculta `ID Empleado`).
    * Decisión de negocio: actualización únicamente con identificador interno; sin ID siempre es alta nueva.
    * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
+   * Recibe el índice `Map` (O(1)) ya construido, no el arreglo — ver nota en `importFromExcel`.
    */
-  private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
+  private findExistingEmployeeForImport(employeeData: any, existingEmployeesById: Map<number, any>): any {
     if (employeeData.employeeId) {
       const id = Number(employeeData.employeeId)
       if (!Number.isNaN(id) && id > 0) {
-        return existingEmployees.find((emp) => emp.employeeId === id) ?? null
+        return existingEmployeesById.get(id) ?? null
       }
     }
     return null
+  }
+
+  /**
+   * Sincroniza empleados recién creados con los dispositivos ZKTeco en
+   * lotes de concurrencia acotada (`EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY`),
+   * en vez de uno por uno. Pensado para `importFromExcel`: con miles de
+   * altas, un `await` secuencial por empleado (hasta 10s de timeout cada
+   * uno, ver `syncEmployeeToZkDevice`) escala a horas dentro de una sola
+   * petición HTTP; en lotes paralelos, el tiempo total se divide entre la
+   * concurrencia configurada.
+   */
+  private async syncCreatedEmployeesToZkDevices(employees: Employee[]): Promise<void> {
+    for (let i = 0; i < employees.length; i += EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY) {
+      const batch = employees.slice(i, i + EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY)
+      await Promise.all(batch.map((employee) => this.syncEmployeeToZkDevice(employee)))
+    }
+  }
+
+  /**
+   * Sincroniza un empleado con el dispositivo ZKTeco. Nunca lanza: una
+   * falla de sincronización (dispositivo no conectado, timeout, etc.) se
+   * registra con `console.warn` y no debe abortar el import ni afectar a
+   * los demás empleados del lote (mismo comportamiento que tenía este
+   * bloque cuando vivía dentro del loop de creación de `importFromExcel`).
+   */
+  private async syncEmployeeToZkDevice(newEmployee: Employee): Promise<void> {
+    try {
+      const response: any = await Ws.emitZkCreateEmployee(undefined, {
+        name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+        card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+        privilege: 0,
+        device_sn: 'SYZ8252101326,SYZ8252101498',
+        online_emp_id: newEmployee.employeeId
+      }, 10000)
+
+      if (response && response.success) {
+        newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
+        await newEmployee.save()
+        await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
+      }
+      // eslint-disable-next-line no-console
+      console.log('Respuesta del dispositivo ZKTeco:', response)
+    } catch (error: any) {
+      // eslint-disable-next-line no-console
+      console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+    }
   }
 
   /**
@@ -3071,6 +3135,22 @@ export default class EmployeeService {
   private createHeaderValidationError(message: string): Error {
     const error = new Error(message)
     ;(error as any).isHeaderValidationError = true
+    ;(error as any).statusCode = 400
+    return error
+  }
+
+  /**
+   * Error cuando el archivo trae más filas de datos que
+   * `EMPLOYEE_IMPORT_UPLOAD.maxDataRows`. El mensaje interpola el tope y el
+   * conteo real vigentes (no hay número duplicado en otro archivo); el
+   * `resolveEmployeeImportApiError` del controlador prioriza este mensaje
+   * sobre el fallback i18n genérico.
+   */
+  private createRowLimitValidationError(rowCount: number): Error {
+    const error = new Error(
+      `El archivo tiene ${rowCount} filas de datos, por encima del máximo permitido (${EMPLOYEE_IMPORT_UPLOAD.maxDataRows}). Divide el archivo en lotes más pequeños.`
+    )
+    ;(error as any).isRowLimitError = true
     ;(error as any).statusCode = 400
     return error
   }

@@ -37,6 +37,21 @@ test.group('employee_import_api_error', () => {
     assert.equal(resolved.detail, 'Faltan encabezados')
   })
 
+  test('resolveEmployeeImportApiError mapea tope de filas excedido', ({ assert }) => {
+    const rowLimitError = Object.assign(
+      new Error('El archivo tiene 800 filas de datos, por encima del máximo permitido (500). Divide el archivo en lotes más pequeños.'),
+      { isRowLimitError: true, statusCode: 400 }
+    )
+
+    const resolved = resolveEmployeeImportApiError(rowLimitError, 400, undefined)
+
+    assert.equal(resolved.status, 400)
+    assert.equal(resolved.errorCode, EMPLOYEE_IMPORT_ERROR_CODES.VAL_ROWS)
+    assert.equal(resolved.key, 'filas-excedidas')
+    assert.include(resolved.detail ?? '', '800')
+    assert.include(resolved.detail ?? '', '500')
+  })
+
   test('resolveEmployeeImportApiError no expone mensaje interno en 500', ({ assert }) => {
     const internal = new Error('SQL connection leaked /tmp/secret')
 
