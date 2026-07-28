@@ -237,8 +237,8 @@ export default class RepseCoverageReportService {
           }
         })
         .filter((company) => {
-          if (filters.companyId === undefined) return true
-          return company.companyId === filters.companyId
+          if (filters.contractingCompanyId === undefined) return true
+          return company.companyId === filters.contractingCompanyId
         })
         .sort((a, b) => a.companyName.localeCompare(b.companyName, 'es'))
 

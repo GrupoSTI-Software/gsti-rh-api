@@ -3895,7 +3895,7 @@ paths:
           schema:
             type: string
             format: date
-        - name: companyId
+        - name: contractingCompanyId
           in: query
           required: false
           schema:
@@ -4059,7 +4059,7 @@ paths:
           schema:
             type: string
             format: date
-        - name: companyId
+        - name: contractingCompanyId
           in: query
           required: false
           schema:

@@ -1,7 +1,7 @@
 export interface RepseCoverageReportFilters {
   from: string
   to: string
-  companyId?: number
+  contractingCompanyId?: number
   employeeId?: number
   page: number
   perPage: number
@@ -10,7 +10,7 @@ export interface RepseCoverageReportFilters {
 export interface RepseCoverageReportExportFilters {
   from: string
   to: string
-  companyId?: number
+  contractingCompanyId?: number
   employeeId?: number
 }
 
