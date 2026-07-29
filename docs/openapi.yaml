@@ -3625,6 +3625,175 @@ components:
           nullable: true
 
 paths:
+  /api/employees/import-excel:
+    post:
+      summary: Importar empleados desde archivo Excel
+      description: |
+        Carga masiva de empleados. Requiere Bearer token y header X-Business-Unit-Id.
+        La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado.
+      tags: [Employees]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Identificador de unidad de negocio
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Importación procesada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success, warning]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          totalRows:
+                            type: integer
+                          processed:
+                            type: integer
+                          created:
+                            type: integer
+                          updated:
+                            type: integer
+                          failed:
+                            type: integer
+                          skipped:
+                            type: integer
+                          limitReached:
+                            type: boolean
+                      rowErrors:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            row:
+                              type: integer
+                            field:
+                              type: string
+                            message:
+                              type: string
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                      errors:
+                        type: array
+                        description: Alias legado deprecado
+                        items:
+                          type: string
+              example:
+                type: warning
+                title: Importación completada con advertencias
+                message: Se procesaron 7 empleados
+                data:
+                  summary:
+                    totalRows: 10
+                    processed: 7
+                    created: 5
+                    updated: 2
+                    failed: 3
+                    skipped: 3
+                    limitReached: false
+                  rowErrors:
+                    - row: 5
+                      field: Nombre del empleado
+                      message: Falta el campo obligatorio
+                  warnings: []
+                  errors:
+                    - 'Fila 5: Falta el campo obligatorio'
+        '400':
+          description: Archivo inválido o cabeceras faltantes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                cabecerasInvalidas:
+                  value:
+                    type: error
+                    title: Cabeceras del archivo inválidas
+                    message: 'Faltan los siguientes encabezados requeridos: Identificador de nómina'
+                    detail: 'Faltan los siguientes encabezados requeridos: Identificador de nómina'
+                    key: cabeceras-invalidas
+                    code: EMP.IMPORT.VAL_HEADERS
+                    data: null
+                archivoInvalido:
+                  value:
+                    type: error
+                    title: Archivo inválido
+                    message: El archivo del campo «file» debe ser un Excel válido (.xlsx, .xls).
+                    detail: El archivo del campo «file» debe ser un Excel válido (.xlsx, .xls).
+                    key: archivo-invalido
+                    code: EMP.IMPORT.VAL_FILE
+                    data:
+                      multipartField: file
+                      acceptedExtensions: ['.xlsx', '.xls']
+                      contentType: multipart/form-data
+                archivoFaltante:
+                  value:
+                    type: error
+                    title: Archivo inválido
+                    message: Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).
+                    detail: Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).
+                    key: archivo-invalido
+                    code: EMP.IMPORT.VAL_FILE
+                    data:
+                      multipartField: file
+                      acceptedExtensions: ['.xlsx', '.xls']
+                      contentType: multipart/form-data
+        '500':
+          description: Error inesperado del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado durante la importación.
+                detail: Ocurrió un error inesperado durante la importación.
+                key: error-importacion
+                code: EMP.IMPORT.SERVER
+                data: null
+
   /api/employees/{employeeId}/temporary-assignments:
     post:
       summary: Crear préstamo temporal para un empleado

@@ -2,6 +2,11 @@ import app from '@adonisjs/core/services/app'
 import { HttpContext, ExceptionHandler } from '@adonisjs/core/http'
 import AuthTokenService from '#services/auth_token_service'
 import { respondAccessTokenUnauthorized } from '../helpers/auth_token_response.js'
+import { isEmployeeImportExcelPath } from '../constants/employee_import_error_codes.js'
+import {
+  isRequestEntityTooLarge,
+  respondEmployeeImportValFileError,
+} from '../helpers/employee_import_request_errors.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -29,6 +34,13 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       const code = result.status === 'error' ? result.code : 'token_invalid'
       await respondAccessTokenUnauthorized(ctx.response, code)
       return
+    }
+
+    if (
+      isRequestEntityTooLarge(error) &&
+      isEmployeeImportExcelPath(ctx.request.url())
+    ) {
+      return respondEmployeeImportValFileError(ctx, ctx.response, 'too_large')
     }
 
     return super.handle(error, ctx)
