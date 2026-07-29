@@ -273,10 +273,13 @@ export default class AccessPointController {
           data: {},
         }
       }
+      // `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
+      // el `whereIn('business_unit_id', businessUnitScope)` manual era
+      // redundante bajo contexto activo (mismo filtro que ya aplica el
+      // mixin) y se retiró.
       const currentAccessPoint = await AccessPoint.query()
         .whereNull('access_point_deleted_at')
         .where('access_point_id', accessPointId)
-        .whereIn('business_unit_id', businessUnitScope)
         .first()
       if (!currentAccessPoint) {
         response.status(404)
@@ -397,7 +400,7 @@ export default class AccessPointController {
    *       default:
    *         description: Unexpected error
    */
-  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPointId = Number(request.param('accessPointId'))
@@ -410,10 +413,13 @@ export default class AccessPointController {
           data: { accessPointId },
         }
       }
+      // `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
+      // el `whereIn('business_unit_id', businessUnitScope)` manual era
+      // redundante bajo contexto activo (mismo filtro que ya aplica el
+      // mixin) y se retiró.
       const currentAccessPoint = await AccessPoint.query()
         .whereNull('access_point_deleted_at')
         .where('access_point_id', accessPointId)
-        .whereIn('business_unit_id', businessUnitScope)
         .first()
       if (!currentAccessPoint) {
         response.status(404)
