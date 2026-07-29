@@ -3,6 +3,13 @@ import { rfcSatField } from '../../shared/validators/rfc.validator.js'
 
 const positiveIdField = vine.number().min(1)
 
+/**
+ * Validadores del catálogo de empresas contratantes.
+ *
+ * `businessUnitId` se valida como entero interno porque el middleware
+ * `businessScope` ya resolvió el UUID v4 (header / query / body) al ID
+ * numérico antes de llegar al controller.
+ */
 export const createEmpresaContratanteValidator = vine.compile(
   vine.object({
     businessUnitId: positiveIdField,

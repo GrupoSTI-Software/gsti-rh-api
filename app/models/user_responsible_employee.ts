@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import User from './user.js'
 import Employee from './employee.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
  * @swagger
  * components:
@@ -38,7 +40,11 @@ import Employee from './employee.js'
  *            format: date-time
  *            nullable: true
  */
-export default class UserResponsibleEmployee extends compose(BaseModel, SoftDeletes) {
+export default class UserResponsibleEmployee extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare userResponsibleEmployeeId: number
 
@@ -47,6 +53,23 @@ export default class UserResponsibleEmployee extends compose(BaseModel, SoftDele
 
   @column()
   declare employeeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, USRH1784259058533).
+   * Se ancla en el empleado, no en el usuario responsable.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre, nunca desde el payload. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: UserResponsibleEmployee) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare userResponsibleEmployeeReadonly: number

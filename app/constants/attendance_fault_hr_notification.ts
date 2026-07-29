@@ -13,3 +13,10 @@ export const ATTENDANCE_FAULT_HR_ROLE_SLUGS: string[] = [
  * Comparación case-insensitive contra `role_slug` en base de datos.
  */
 export const ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG = 'TESTER'
+
+/** Slug del comando ace (cron externo o manual). */
+export const NOTIFY_ATTENDANCE_FAULT_HR_COMMAND = 'notify:attendance-fault-hr'
+
+/** Motivo auditado para TenantContext.runUnscoped en la corrida batch. */
+export const ATTENDANCE_FAULT_HR_RUN_UNSCOPED_REASON =
+  'Notificación de faltas de asistencia a RH por system setting activo (cross-empresa)'

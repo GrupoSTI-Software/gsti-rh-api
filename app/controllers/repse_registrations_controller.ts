@@ -3,6 +3,8 @@ import RepseRegistrationService, {
   type RepseRegistrationCreatePayload,
   type RepseRegistrationUpdatePayload,
 } from '#services/repse_registration_service'
+import RepseFolioAvisoService from '#services/repse_folio_aviso_service'
+import RepseFolioExpirationService from '#services/repse_folio_expiration_service'
 import {
   createRepseRegistrationValidator,
   repseRegistrationListValidator,
@@ -306,6 +308,219 @@ export default class RepseRegistrationsController {
       )
     } catch (error) {
       return this.respondError(error, response, 404, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/repse-registrations/notifications/run-expiring-check:
+   *   post:
+   *     summary: Ejecuta manualmente la verificación de avisos de vigencia del folio REPSE
+   *     description: |
+   *       Endpoint de **prueba/reproceso** que dispara la misma rutina que el
+   *       comando agendado `repse:notify-folio-expiring`. Detecta registros
+   *       REPSE activos con avisos de renovación (90 días antes de expiresAt)
+   *       o informativa (15 días antes del 17 ene/may/sep) pendientes, agrupa
+   *       por empresa y envía un correo a los destinatarios configurados en
+   *       `system_setting_notification_emails`.
+   *
+   *       Es **idempotente** y **global segmentado por empresa** (no acotado
+   *       a la unidad seleccionada en el header). Requiere permiso `update`
+   *       en el módulo `repse-registrations`.
+   *     tags: [RepseRegistrations]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       '200':
+   *         description: Verificación ejecutada correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: success }
+   *                 title: { type: string }
+   *                 message: { type: string }
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     sentCount:
+   *                       type: integer
+   *                       description: Avisos para los que SÍ se registró un envío.
+   *                     skippedAlreadyNotified:
+   *                       type: integer
+   *                       description: Avisos elegibles omitidos por idempotencia.
+   *                     companiesWithoutRecipients:
+   *                       type: array
+   *                       items: { type: integer }
+   *                       description: IDs de SystemSetting sin destinatarios configurados.
+   *                     companiesWithMailErrors:
+   *                       type: array
+   *                       items: { type: integer }
+   *                       description: IDs de SystemSetting donde el envío del correo falló.
+   *                     companiesNotified:
+   *                       type: integer
+   *                       description: Empresas que recibieron al menos un correo.
+   *                     candidatesScanned:
+   *                       type: integer
+   *                       description: Avisos elegibles antes del filtro de idempotencia.
+   *                     ranAt:
+   *                       type: string
+   *                       format: date-time
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string }
+   *                 message: { type: string }
+   *                 errorCode: { type: string }
+   *                 data: { nullable: true }
+   *       '403':
+   *         description: Sin permiso update en repse-registrations
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string }
+   *                 message: { type: string }
+   *                 detail: { type: string }
+   *                 key: { type: string, example: sin-permiso }
+   *                 errorCode: { type: string, example: REPSE.FORBID.001 }
+   *                 data: { nullable: true }
+   *       '500':
+   *         description: Error no clasificado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string }
+   *                 message: { type: string }
+   *                 errorCode: { type: string, example: REPSE.SYS.001 }
+   *                 data: { nullable: true }
+   */
+  /**
+   * @swagger
+   * /api/repse-registrations/get-expired-and-expiring:
+   *   get:
+   *     summary: Folios REPSE vencidos y por vencer (próximos 90 días)
+   *     description: |
+   *       Lista registros REPSE activos del tenant con `expiresAt` vencido o dentro
+   *       del umbral de renovación (90 días, zona de negocio). Sin paginación.
+   *       Hereda acceso a la Matriz de Vencimientos (sin permiso propio de REPSE).
+   *       Ordenado por `daysToExpire` ascendente (más urgentes primero).
+   *     tags: [RepseRegistrations]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Unidad de negocio seleccionada (scope multi-tenant)
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           example: es
+   *     responses:
+   *       '200':
+   *         description: Lista de folios por vencer o vencidos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/RepseFolioExpirationsSuccess'
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string, example: No autorizado }
+   *                 message: { type: string, example: Usuario no autenticado }
+   *                 errorCode: { type: string, example: REPSE.FORBID.001 }
+   *                 data: { nullable: true }
+   *       '500':
+   *         description: Error inesperado del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: error }
+   *                 title: { type: string, example: Server error }
+   *                 message: { type: string, example: An unexpected error has occurred on the server }
+   *                 error: { type: string }
+   */
+  async getExpiredAndExpiring({ response, i18n }: HttpContext) {
+    try {
+      const service = new RepseFolioExpirationService()
+      const expirations = await service.getExpiredAndExpiring()
+
+      return response.status(200).json({
+        type: 'success',
+        title: i18n.t('repse_folio_expirations_title', undefined, 'Vencimientos del folio REPSE'),
+        message: i18n.t(
+          'repse_folio_expirations_found_successfully',
+          undefined,
+          'Vencimientos del folio REPSE obtenidos correctamente'
+        ),
+        data: { repseFolioExpirations: expirations },
+      })
+    } catch (error) {
+      const err = error as { message?: string }
+      return response.status(500).json({
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: err?.message ?? 'Unknown error',
+      })
+    }
+  }
+
+  async runExpiringCheck(ctx: HttpContext) {
+    const { response, i18n } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const service = new RepseFolioAvisoService()
+      const result = await service.runExpiringCheck({
+        info: (m, meta) =>
+          // eslint-disable-next-line no-console
+          console.info(`[repse:notify-folio-expiring] ${m}`, meta ?? ''),
+        warn: (m, meta) =>
+          // eslint-disable-next-line no-console
+          console.warn(`[repse:notify-folio-expiring] ${m}`, meta ?? ''),
+        error: (m, meta) =>
+          // eslint-disable-next-line no-console
+          console.error(`[repse:notify-folio-expiring] ${m}`, meta ?? ''),
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.t('repse_registration_title', undefined, 'Repse Registration'),
+        i18n.t(
+          'repse_folio_expiring_notification_run_success',
+          undefined,
+          'Verificación de avisos de vigencia del folio REPSE ejecutada correctamente'
+        )
+      )
+    } catch (error) {
+      return this.respondError(error, response, 500, i18n)
     }
   }
 

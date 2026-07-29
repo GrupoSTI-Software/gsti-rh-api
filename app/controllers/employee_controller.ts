@@ -38,6 +38,10 @@ import {
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PiiExportService from '#services/pii_export_service'
+import logger from '@adonisjs/core/services/logger'
+import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
+import { respondEmployeeImportValFileError } from '../helpers/employee_import_request_errors.js'
+import { EMPLOYEE_IMPORT_UPLOAD } from '../constants/employee_import_error_codes.js'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 import {
@@ -6594,8 +6598,29 @@ export default class EmployeeController {
    *       - bearerAuth: []
    *     tags:
    *       - Employees
-   *     summary: Import employees from Excel file
-   *     description: Import employees from Excel file. The business unit and payroll business unit are automatically detected from the Excel file content using similarity matching.
+   *     summary: Importar empleados desde archivo Excel
+   *     description: |
+   *       Carga masiva de empleados. Requiere autenticación y alcance de unidad de negocio.
+   *       La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado de la plantilla.
+   *     parameters:
+   *       - in: header
+   *         name: Authorization
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Bearer access token
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Identificador de unidad de negocio (tenant)
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema:
+   *           type: string
+   *           enum: [es, en]
    *     produces:
    *       - application/json
    *     requestBody:
@@ -6607,12 +6632,12 @@ export default class EmployeeController {
    *               file:
    *                 type: string
    *                 format: binary
-   *                 description: Excel file with employee data. Must contain columns for business unit names, department names, and position names.
+   *                 description: Archivo Excel con datos de empleados
    *             required:
    *               - file
    *     responses:
    *       200:
-   *         description: Employees imported successfully
+   *         description: Importación procesada (éxito o con advertencias/errores por fila)
    *         content:
    *           application/json:
    *             schema:
@@ -6620,42 +6645,53 @@ export default class EmployeeController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Response type (success, warning, error)
+   *                   enum: [success, warning]
    *                 title:
    *                   type: string
-   *                   description: Response title
    *                 message:
    *                   type: string
-   *                   description: Response message
    *                 data:
    *                   type: object
-   *                   description: Import results
    *                   properties:
-   *                     totalRows:
-   *                       type: number
-   *                       description: Total rows processed
-   *                     processed:
-   *                       type: number
-   *                       description: Successfully processed rows
-   *                     created:
-   *                       type: number
-   *                       description: New employees created
-   *                     updated:
-   *                       type: number
-   *                       description: Existing employees updated
-   *                     skipped:
-   *                       type: number
-   *                       description: Rows skipped due to errors
-   *                     limitReached:
-   *                       type: boolean
-   *                       description: Whether employee limit was reached
-   *                     errors:
+   *                     summary:
+   *                       type: object
+   *                       properties:
+   *                         totalRows:
+   *                           type: integer
+   *                         processed:
+   *                           type: integer
+   *                         created:
+   *                           type: integer
+   *                         updated:
+   *                           type: integer
+   *                         failed:
+   *                           type: integer
+   *                         skipped:
+   *                           type: integer
+   *                         limitReached:
+   *                           type: boolean
+   *                     rowErrors:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           row:
+   *                             type: integer
+   *                           field:
+   *                             type: string
+   *                           message:
+   *                             type: string
+   *                     warnings:
    *                       type: array
    *                       items:
    *                         type: string
-   *                       description: List of error messages
+   *                     errors:
+   *                       type: array
+   *                       description: Alias legado deprecado
+   *                       items:
+   *                         type: string
    *       400:
-   *         description: Bad request - Invalid file or validation errors
+   *         description: Archivo inválido o cabeceras faltantes
    *         content:
    *           application/json:
    *             schema:
@@ -6663,15 +6699,31 @@ export default class EmployeeController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Error type
+   *                   example: error
    *                 title:
    *                   type: string
-   *                   description: Error title
    *                 message:
    *                   type: string
-   *                   description: Error message
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                 data:
+   *                   nullable: true
+   *             examples:
+   *               cabecerasInvalidas:
+   *                 value:
+   *                   type: error
+   *                   title: Cabeceras del archivo inválidas
+   *                   message: "Faltan los siguientes encabezados requeridos: Identificador de nómina"
+   *                   detail: "Faltan los siguientes encabezados requeridos: Identificador de nómina"
+   *                   key: cabeceras-invalidas
+   *                   code: EMP.IMPORT.VAL_HEADERS
+   *                   data: null
    *       500:
-   *         description: Server error
+   *         description: Error inesperado del servidor
    *         content:
    *           application/json:
    *             schema:
@@ -6679,32 +6731,36 @@ export default class EmployeeController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Error type
+   *                   example: error
    *                 title:
    *                   type: string
-   *                   description: Error title
    *                 message:
    *                   type: string
-   *                   description: Error message
-   *                 error:
+   *                 detail:
    *                   type: string
-   *                   description: Detailed error information
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER
+   *                 data:
+   *                   nullable: true
    */
   async importFromExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const file = request.file('file')
 
       if (!file) {
-        response.status(400)
-        return {
-          type: 'error',
-          title: 'Validation error',
-          message: 'Excel file is required',
-        }
+        return respondEmployeeImportValFileError({ i18n }, response, 'missing')
+      }
+
+      if (typeof file.size === 'number' && file.size > EMPLOYEE_IMPORT_UPLOAD.maxFileBytes) {
+        return respondEmployeeImportValFileError({ i18n }, response, 'too_large')
       }
 
       // Validar que el archivo sea un Excel
-      const allowedExtensions = ['.xlsx', '.xls']
+      const allowedExtensions = [...EMPLOYEE_IMPORT_UPLOAD.acceptedExtensions]
       const allowedMimeTypes = [
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
         'application/vnd.ms-excel', // .xls
@@ -6718,8 +6774,13 @@ export default class EmployeeController {
       // Verificar por MIME type
       const mimeType = file.type || ''
 
-      const isValidExtension = allowedExtensions.includes(fileExtension)
+      const isValidExtension = (allowedExtensions as readonly string[]).includes(fileExtension)
       const isValidMimeType = allowedMimeTypes.includes(mimeType.toLowerCase())
+
+      const blockedExtensions = ['.sql', '.pdf', '.zip', '.csv', '.txt']
+      if (fileExtension && blockedExtensions.includes(fileExtension)) {
+        return respondEmployeeImportValFileError({ i18n }, response, 'invalid_type')
+      }
 
       // Si no pasa la validación básica, intentar validar por contenido
       if (!isValidExtension && !isValidMimeType) {
@@ -6731,34 +6792,32 @@ export default class EmployeeController {
 
           await workbook.xlsx.readFile(file.tmpPath || '')
           // Si llega aquí, es un archivo Excel válido
-        } catch (excelError: any) {
-          response.status(400)
-          return {
-            type: 'error',
-            title: 'Validation error',
-            message: `El archivo debe ser un Excel válido (.xlsx o .xls). Extensión detectada: ${fileExtension}, MIME type: ${mimeType}. Error: ${excelError.message}`,
-          }
+        } catch (excelError: unknown) {
+          logger.warn({ err: excelError }, 'Archivo de importación de empleados inválido')
+          return respondEmployeeImportValFileError({ i18n }, response, 'invalid_type')
         }
       }
 
       const employeeService = new EmployeeService(i18n)
       const result = await employeeService.importFromExcel(file, businessUnitScope)
 
+      const { summary, rowErrors, warnings } = result
+
       // Determinar el tipo de respuesta basado en los resultados
       let responseType = 'success'
       let title = 'Importación completada'
       let message = ''
 
-      if (result.limitReached) {
+      if (summary.limitReached) {
         responseType = 'warning'
         title = 'Límite de empleados alcanzado'
-        message = `Se alcanzó el límite de empleados. Se crearon ${result.created} empleados, se actualizaron ${result.updated} empleados, y ${result.skipped} no se pudieron procesar.`
-      } else if (result.errors.length > 0) {
+        message = `Se alcanzó el límite de empleados. Se crearon ${summary.created} empleados, se actualizaron ${summary.updated} empleados, y ${summary.skipped} no se pudieron procesar.`
+      } else if (rowErrors.length > 0 || warnings.length > 0) {
         responseType = 'warning'
         title = 'Importación completada con advertencias'
-        message = `Se procesaron ${result.processed} empleados: ${result.created} creados, ${result.updated} actualizados. ${result.errors.length} errores encontrados.`
+        message = `Se procesaron ${summary.processed} empleados: ${summary.created} creados, ${summary.updated} actualizados. ${summary.failed} filas con error.`
       } else {
-        message = `Importación exitosa: ${result.created} empleados creados, ${result.updated} empleados actualizados.`
+        message = `Importación exitosa: ${summary.created} empleados creados, ${summary.updated} empleados actualizados.`
       }
 
       response.status(200)
@@ -6768,23 +6827,36 @@ export default class EmployeeController {
         message: message,
         data: result,
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Detectar errores de validación de cabeceras
-      if (error.isHeaderValidationError || error.statusCode === 400) {
-        response.status(400)
+      if (
+        (error as { isHeaderValidationError?: boolean }).isHeaderValidationError ||
+        (error as { statusCode?: number }).statusCode === 400
+      ) {
+        const resolved = resolveEmployeeImportApiError(error, 400, i18n)
+        response.status(resolved.status)
         return {
           type: 'error',
-          title: 'Error de validación de cabeceras',
-          message: error.message || 'Las cabeceras del archivo Excel no son correctas',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: null,
         }
       }
 
-      response.status(500)
+      logger.error({ err: error }, 'Error inesperado en importación de empleados por Excel')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n)
+      response.status(resolved.status)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred during import',
-        error: error.message,
+        title: resolved.title,
+        message: resolved.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
+        data: null,
       }
     }
   }

@@ -16,9 +16,19 @@ export default class TeleworkPolicyRepositoryMysql implements TeleworkPolicyRepo
       .first()
   }
 
-  async findActiveByBusinessUnit(businessUnitId: number): Promise<TeleworkPolicy | null> {
+  /**
+   * `businessUnitId` sigue siendo el parámetro con el que el caller pide "la
+   * política de ESTA empresa" (regla de negocio: a lo sumo un borrador
+   * activo por empresa). El `where('business_unit_id', businessUnitId)`
+   * manual se retiró (USRH1784259058567): `TeleworkPolicy` ya compone
+   * `withBusinessUnitScope()`, y `businessUnitId` aquí siempre es
+   * exactamente la única unidad activa en `TenantContext`
+   * (`business_unit_scope_middleware.ts` resuelve `TenantContext.run([requestedId], ...)`
+   * — un solo elemento, jamás una lista de varias empresas) — el mixin
+   * produce el mismo resultado sin el filtro manual.
+   */
+  async findActiveByBusinessUnit(_businessUnitId: number): Promise<TeleworkPolicy | null> {
     return TeleworkPolicy.query()
-      .where('business_unit_id', businessUnitId)
       .whereNull('telework_policy_deleted_at')
       .orderBy('telework_policy_version', 'desc')
       .preload('publisher', (userQuery) => userQuery.preload('person'))
@@ -26,31 +36,28 @@ export default class TeleworkPolicyRepositoryMysql implements TeleworkPolicyRepo
   }
 
   async findActiveByBusinessUnitForUpdate(
-    businessUnitId: number,
+    _businessUnitId: number,
     trx: TransactionClientContract
   ): Promise<TeleworkPolicy | null> {
     return TeleworkPolicy.query({ client: trx })
-      .where('business_unit_id', businessUnitId)
       .whereNull('telework_policy_deleted_at')
       .orderBy('telework_policy_version', 'desc')
       .forUpdate()
       .first()
   }
 
-  async findCurrentByBusinessUnit(businessUnitId: number): Promise<TeleworkPolicy | null> {
+  async findCurrentByBusinessUnit(_businessUnitId: number): Promise<TeleworkPolicy | null> {
     return TeleworkPolicy.query()
-      .where('business_unit_id', businessUnitId)
       .where('telework_policy_is_current', true)
       .preload('publisher', (userQuery) => userQuery.preload('person'))
       .first()
   }
 
   async findCurrentByBusinessUnitForUpdate(
-    businessUnitId: number,
+    _businessUnitId: number,
     trx: TransactionClientContract
   ): Promise<TeleworkPolicy | null> {
     return TeleworkPolicy.query({ client: trx })
-      .where('business_unit_id', businessUnitId)
       .where('telework_policy_is_current', true)
       .forUpdate()
       .first()
@@ -66,13 +73,12 @@ export default class TeleworkPolicyRepositoryMysql implements TeleworkPolicyRepo
     await record.save()
   }
 
-  async findMaxVersion(businessUnitId: number): Promise<number> {
+  async findMaxVersion(_businessUnitId: number): Promise<number> {
     // `withTrashed()`: la versión nunca se reutiliza, ni siquiera tras
     // descartar (soft delete) un borrador — mantiene válido el
     // `unique(business_unit_id, telework_policy_version)` de BD.
     const result = await TeleworkPolicy.query()
       .withTrashed()
-      .where('business_unit_id', businessUnitId)
       .max('telework_policy_version as maxVersion')
       .first()
 
@@ -145,9 +151,8 @@ export default class TeleworkPolicyRepositoryMysql implements TeleworkPolicyRepo
     return record
   }
 
-  async listVersions(businessUnitId: number): Promise<TeleworkPolicy[]> {
+  async listVersions(_businessUnitId: number): Promise<TeleworkPolicy[]> {
     return TeleworkPolicy.query()
-      .where('business_unit_id', businessUnitId)
       .whereNull('telework_policy_deleted_at')
       .preload('publisher', (userQuery) => userQuery.preload('person'))
       .orderBy('telework_policy_version', 'desc')
