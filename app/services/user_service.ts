@@ -82,10 +82,10 @@ export default class UserService {
     ]
     const users = await User.query()
       .whereNull('user_deleted_at')
-        // Filtro adicional opcional del frontend para una BU específica
+      // Filtro adicional opcional del frontend para una BU específica
       .whereHas('businessUnits', (subQuery) => {
-          subQuery.where('business_units.business_unit_id', filters.businessUnitId)
-        })
+        subQuery.where('business_units.business_unit_id', filters.businessUnitId)
+      })
       .whereIn('role_id', rolesIds)
       .if(filters.search, (query) => {
         query.andWhere((searchQuery) => {
@@ -342,7 +342,7 @@ export default class UserService {
   async saveActionOnLog(logAssist: LogUser) {
     try {
       await LogStore.set('log_users', logAssist)
-    } catch (err) {}
+    } catch (err) { }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {
@@ -448,8 +448,8 @@ export default class UserService {
         }
         employeeQuery.if(
           filters.userResponsibleId &&
-            typeof filters.userResponsibleId &&
-            filters.userResponsibleId > 0,
+          typeof filters.userResponsibleId &&
+          filters.userResponsibleId > 0,
           (query) => {
             query.where((subQuery) => {
               subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
@@ -471,7 +471,7 @@ export default class UserService {
                 `%${filters.search.toUpperCase()}%`,
               ])
               .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-              // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
           })
         })
         employeeQuery.if(filters.departmentId, (query) => {

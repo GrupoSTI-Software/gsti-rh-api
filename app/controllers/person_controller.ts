@@ -338,14 +338,23 @@ export default class PersonController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error.code === 'E_VALIDATION_ERROR') {
+        const messageError = error.messages?.[0]?.message ?? 'Validation error'
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: 'Validation error',
+          message: 'The provided data is invalid',
+          error: messageError,
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: error.message,
       }
     }
   }
@@ -602,14 +611,23 @@ export default class PersonController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error.code === 'E_VALIDATION_ERROR') {
+        const messageError = error.messages?.[0]?.message ?? 'Validation error'
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: 'Validation error',
+          message: 'The provided data is invalid',
+          error: messageError,
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: error.message,
       }
     }
   }
