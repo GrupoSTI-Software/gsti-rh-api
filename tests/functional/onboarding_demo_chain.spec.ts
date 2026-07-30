@@ -1,3 +1,5 @@
+import { execSync } from 'node:child_process'
+import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
 import i18nManager from '@adonisjs/i18n/services/main'
 import db from '@adonisjs/lucid/services/db'
@@ -23,15 +25,15 @@ function seedService(): DemoSeedService {
   return new DemoSeedService(i18nManager.locale(i18nManager.defaultLocale))
 }
 
-async function createAdminUser(): Promise<{ user: User; person: Person }> {
+async function createAdminUser(suffix: string = 'chain'): Promise<{ user: User; person: Person }> {
   const person = new Person()
   person.personFirstname = 'OnboardingDemo'
   person.personLastname = 'Admin'
-  person.personSecondLastname = 'Chain'
+  person.personSecondLastname = suffix
   await person.save()
 
   const user = new User()
-  user.userEmail = `onboarding-demo-admin-${STAMP}@gsti-tests.local`
+  user.userEmail = `onboarding-demo-admin-${suffix}-${STAMP}@gsti-tests.local`
   user.userPassword = 'OnboardingDemoChain123!'
   user.userActive = 1
   user.roleId = 2
@@ -40,6 +42,12 @@ async function createAdminUser(): Promise<{ user: User; person: Person }> {
   await user.save()
 
   return { user, person }
+}
+
+async function removeAdminUser(userId: number, personId: number): Promise<void> {
+  await db.from('onboarding_user_states').where('user_id', userId).delete()
+  await db.from('users').where('user_id', userId).delete()
+  await db.from('people').where('person_id', personId).delete()
 }
 
 async function countDemoLeftovers(employeeId: number, userId: number) {
@@ -74,9 +82,7 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
   group.teardown(async () => {
     // Al llegar aquí el wipe final ya limpió el paquete; solo se retira el
     // admin de prueba y su estado.
-    await db.from('onboarding_user_states').where('user_id', adminUserId).delete()
-    await db.from('users').where('user_id', adminUserId).delete()
-    await db.from('people').where('person_id', adminPersonId).delete()
+    await removeAdminUser(adminUserId, adminPersonId)
   })
 
   test('la siembra crea el paquete completo con tracking y credencial en claro una vez', async ({
@@ -273,5 +279,96 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
     )
     assert.equal(leftovers.employees, 0)
     assert.equal(leftovers.trackedRecords, 0)
+  })
+})
+
+test.group('Onboarding demo — purga de abandonadas (USRH1785438247062)', (group) => {
+  let abandonedUserId = 0
+  let abandonedPersonId = 0
+  let freshUserId = 0
+  let freshPersonId = 0
+  let freshEmployeeId = 0
+
+  group.setup(async () => {
+    const abandoned = await createAdminUser('purga-abandonada')
+    abandonedUserId = abandoned.user.userId
+    abandonedPersonId = abandoned.person.personId
+    const fresh = await createAdminUser('purga-fresca')
+    freshUserId = fresh.user.userId
+    freshPersonId = fresh.person.personId
+  })
+
+  group.teardown(async () => {
+    // Cualquier siembra restante se limpia con el propio wipe ANTES de borrar
+    // los estados (borrar el estado primero perdería el tracking por CASCADE).
+    for (const userId of [abandonedUserId, freshUserId]) {
+      const state = await OnboardingUserState.query().where('user_id', userId).first()
+      if (state) {
+        await new DemoWipeService().wipeDemoSeed({
+          onboardingUserStateId: state.onboardingUserStateId,
+        })
+      }
+    }
+    await removeAdminUser(abandonedUserId, abandonedPersonId)
+    await removeAdminUser(freshUserId, freshPersonId)
+  })
+
+  test('sin --force fuera de producción el command sale sin tocar nada', async ({ assert }) => {
+    // El guard sale con exitCode 1 (patrón billing:tick-subscriptions), por lo
+    // que execSync lanza: el aviso se lee del stdout del error.
+    let output = ''
+    try {
+      output = execSync('node ace onboarding:purge-abandoned-demo', {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+      })
+    } catch (error) {
+      output = String((error as { stdout?: string }).stdout ?? '')
+    }
+    assert.include(output, 'se omite')
+  })
+
+  test('la corrida limpia solo las siembras con más de 30 días y no cierra recorridos', async ({
+    assert,
+  }) => {
+    // Siembra abandonada (retro-fechada 31 días) y siembra fresca de control.
+    const abandonedSeed = await seedService().seed(abandonedUserId, BUSINESS_UNIT_ID)
+    const freshSeed = await seedService().seed(freshUserId, BUSINESS_UNIT_ID)
+    freshEmployeeId = freshSeed.result.package.employee.employeeId
+
+    const retroDate = DateTime.now().minus({ days: 31 }).toSQL({ includeOffset: false })!
+    await db
+      .from('onboarding_user_states')
+      .where('user_id', abandonedUserId)
+      .update({ onboarding_user_state_demo_seeded_at: retroDate })
+
+    const output = execSync('node ace onboarding:purge-abandoned-demo --force', {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+    assert.include(output, 'limpiadas=1')
+
+    // La abandonada amanece limpia y su recorrido sigue abierto (regla 3).
+    const abandonedState = await OnboardingUserState.query()
+      .where('user_id', abandonedUserId)
+      .firstOrFail()
+    assert.isNotNull(abandonedState.demoCleanedAt)
+    assert.equal(abandonedState.onboardingUserStateStatus, 'in_progress')
+    const abandonedEmployee = await db
+      .from('employees')
+      .where('employee_id', abandonedSeed.result.package.employee.employeeId)
+      .count('* as total')
+    assert.equal(Number(abandonedEmployee[0].total), 0)
+
+    // La fresca no se toca (NO-a).
+    const freshState = await OnboardingUserState.query()
+      .where('user_id', freshUserId)
+      .firstOrFail()
+    assert.isNull(freshState.demoCleanedAt)
+    const freshEmployee = await db
+      .from('employees')
+      .where('employee_id', freshEmployeeId)
+      .count('* as total')
+    assert.equal(Number(freshEmployee[0].total), 1)
   })
 })
