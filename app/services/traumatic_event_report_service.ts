@@ -81,20 +81,27 @@ function serializeReport(report: TraumaticEventReport) {
   }
 }
 
+/** Zona horaria de negocio para fechas de ocurrencia (alineada con parseDate). */
+const TRAUMATIC_EVENT_REPORT_TIMEZONE = 'UTC-6'
+
 /**
  * Convierte entrada de fecha a `DateTime` zona UTC-6. Lanza ETR si inválido.
  */
 function parseDate(value: string | Date | DateTime): DateTime {
   if (DateTime.isDateTime(value)) {
     const iso = (value as DateTime).toISODate()
-    return iso ? DateTime.fromISO(iso, { zone: 'UTC-6' }) : (value as DateTime)
+    return iso
+      ? DateTime.fromISO(iso, { zone: TRAUMATIC_EVENT_REPORT_TIMEZONE })
+      : (value as DateTime)
   }
   if (value instanceof Date) {
     const iso = DateTime.fromJSDate(value, { zone: 'utc' }).toISODate()
-    return iso ? DateTime.fromISO(iso, { zone: 'UTC-6' }) : DateTime.fromJSDate(value)
+    return iso
+      ? DateTime.fromISO(iso, { zone: TRAUMATIC_EVENT_REPORT_TIMEZONE })
+      : DateTime.fromJSDate(value)
   }
   const head = String(value).length >= 10 ? String(value).substring(0, 10) : String(value)
-  const parsed = DateTime.fromISO(head, { zone: 'UTC-6' })
+  const parsed = DateTime.fromISO(head, { zone: TRAUMATIC_EVENT_REPORT_TIMEZONE })
   if (!parsed.isValid) {
     throw new TraumaticEventReportError(
       'La fecha del evento es inválida.',
@@ -351,8 +358,9 @@ export default class TraumaticEventReportService {
 
   /** Rechaza fechas de ocurrencia futuras (NOM-035 §6.5: fecha en que ocurrió). */
   private assertNotFuture(date: DateTime) {
-    const today = DateTime.now().startOf('day')
-    if (date.startOf('day') > today) {
+    const today = DateTime.now().setZone(TRAUMATIC_EVENT_REPORT_TIMEZONE).startOf('day')
+    const occurredDay = date.setZone(TRAUMATIC_EVENT_REPORT_TIMEZONE).startOf('day')
+    if (occurredDay > today) {
       throw new TraumaticEventReportError(
         'La fecha de ocurrencia no puede ser una fecha futura.',
         ETR_ERROR_CODES.OCCURRED_AT_FUTURE,

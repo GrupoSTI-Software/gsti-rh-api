@@ -17,17 +17,23 @@ export default class RoleService {
       slugs = units.map((bu) => bu.businessUnitSlug)
     }
 
+    // Roles de sistema siempre visibles (p. ej. onboarding de tenants nuevos
+    // cuyo slug aún no está en role_business_access de los seeders).
+    const SYSTEM_ROLE_SLUGS = ['empleado'] as const
+
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
         if (slugs.length === 0) {
-          query.whereRaw('1 = 0')
           return
         }
-        query.whereNotNull('role_business_access')
-        query.andWhere((subQuery) => {
-          slugs.forEach((slug) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
+        query.orWhere((accessQuery) => {
+          accessQuery.whereNotNull('role_business_access')
+          accessQuery.andWhere((subQuery) => {
+            slugs.forEach((slug) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
+            })
           })
         })
       })
@@ -329,29 +335,29 @@ export default class RoleService {
 
   async verifyInfo(role: Role) {
     const action = role.roleId > 0 ? 'updated' : 'created'
-  
+
     const query = Role.query()
       .where('role_name', role.roleName)
       .whereNull('role_deleted_at')
-  
+
     if (role.roleId > 0) {
       query.whereNot('role_id', role.roleId)
     }
-  
+
     const rolesWithSameName = await query
-  
+
     const inputAccess = role.roleBusinessAccess
       ? role.roleBusinessAccess.split(',').map(e => e.trim())
       : []
-  
+
     const hasConflict = rolesWithSameName.some(existingRole => {
       const existingAccess = existingRole.roleBusinessAccess
         ? existingRole.roleBusinessAccess.split(',').map(e => e.trim())
         : []
-  
+
       return inputAccess.some(company => existingAccess.includes(company))
     })
-  
+
     if (hasConflict && role.roleName) {
       return {
         status: 400,
@@ -361,7 +367,7 @@ export default class RoleService {
         data: { ...role },
       }
     }
-  
+
     return {
       status: 200,
       type: 'success',

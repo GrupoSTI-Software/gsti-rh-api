@@ -17,9 +17,14 @@ export default class RetentionPolicyService {
    * Si no existe registro en BD responde el default virtual sin crear nada (regla 2).
    * Nunca lanza error por ausencia de política.
    */
+  /**
+   * `RetentionPolicy` ya compone `withBusinessUnitScope()`
+   * (USRH1784259058567): el `where('business_unit_id', ...)` manual era
+   * redundante bajo contexto activo (una política por empresa,
+   * `unique(business_unit_id)`) y se retiró.
+   */
   async getByBusinessUnit(businessUnitId: number): Promise<RetentionPolicyResult> {
     const policy = await RetentionPolicy.query()
-      .where('business_unit_id', businessUnitId)
       .whereNull('retention_policy_deleted_at')
       .first()
 
@@ -50,7 +55,6 @@ export default class RetentionPolicyService {
     }
 
     const existing = await RetentionPolicy.query()
-      .where('business_unit_id', businessUnitId)
       .whereNull('retention_policy_deleted_at')
       .first()
 

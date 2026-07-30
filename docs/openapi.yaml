@@ -3181,8 +3181,26 @@ components:
           maximum: 60
           description: Si cambia, `nextReviewAt` se recalcula a partir de la última validación registrada.
 
+    RepseProvidersResponseI18nContract:
+      type: object
+      description: |
+        Contrato i18n del módulo REPSE (proveedores, validaciones y expediente).
+        `title` y `message` varían según el header `Accept-Language` (`es` default, `en`).
+        Las claves de `data` son **estables** (camelCase) y **no cambian** con el idioma:
+        | Operación | Clave en `data` |
+        |-----------|-----------------|
+        | GET listado proveedores | `proveedoresRepse` |
+        | GET/POST/PUT/DELETE proveedor | `proveedorRepse` |
+        | GET validaciones | `validaciones` |
+        | POST validación | `validacion` |
+        | GET expediente | `expediente` |
+        | POST documento expediente | `documentoExpediente` |
+
     RepseProviderSuccess:
       type: object
+      description: |
+        Respuesta exitosa de un proveedor REPSE. Ver `RepseProvidersResponseI18nContract`
+        para el contrato i18n; la clave de payload es siempre `data.proveedorRepse`.
       required: [type, title, message, data]
       properties:
         type:
@@ -3190,16 +3208,22 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [proveedorRepse]
           properties:
             proveedorRepse:
               $ref: '#/components/schemas/RepseProvider'
 
     RepseProvidersListSuccess:
       type: object
+      description: |
+        Listado paginado de proveedores REPSE. Ver `RepseProvidersResponseI18nContract`;
+        la clave de payload es siempre `data.proveedoresRepse` (también con `Accept-Language: en`).
       required: [type, title, message, data]
       properties:
         type:
@@ -3207,10 +3231,13 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language` (p. ej. "Proveedores REPSE" / "REPSE Providers").
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [proveedoresRepse]
           properties:
             proveedoresRepse:
               type: object
@@ -3280,6 +3307,9 @@ components:
 
     RepseProviderValidationSuccess:
       type: object
+      description: |
+        Alta de validación periódica. Clave estable `data.validacion`
+        (ver `RepseProvidersResponseI18nContract`).
       required: [type, title, message, data]
       properties:
         type:
@@ -3287,16 +3317,22 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [validacion]
           properties:
             validacion:
               $ref: '#/components/schemas/RepseProviderValidation'
 
     RepseProviderValidationsListSuccess:
       type: object
+      description: |
+        Bitácora de validaciones. Clave estable `data.validaciones`
+        (ver `RepseProvidersResponseI18nContract`).
       required: [type, title, message, data]
       properties:
         type:
@@ -3304,10 +3340,13 @@ components:
           enum: [success]
         title:
           type: string
+          description: Traducido según `Accept-Language`.
         message:
           type: string
+          description: Traducido según `Accept-Language`.
         data:
           type: object
+          required: [validaciones]
           properties:
             validaciones:
               type: array
@@ -3335,7 +3374,426 @@ components:
           type: object
           nullable: true
 
+    RepseExpedienteDocumento:
+      type: object
+      properties:
+        repseExpedienteDocumentoId:
+          type: integer
+        proveedorRepseId:
+          type: integer
+        businessUnitId:
+          type: integer
+        tipo:
+          type: string
+          enum: [contrato, anexo-15d, cfdi, comprobante-imss, comprobante-infonavit, declaracion-isr, declaracion-iva, retencion-isr]
+        anio:
+          type: integer
+        mes:
+          type: integer
+          nullable: true
+        cuatrimestre:
+          type: integer
+          nullable: true
+        fechaDocumento:
+          type: string
+          format: date
+          nullable: true
+        conservarHasta:
+          type: string
+          format: date
+        nombreArchivo:
+          type: string
+        mimeType:
+          type: string
+        tamanoBytes:
+          type: integer
+        subidoPorUserId:
+          type: integer
+          nullable: true
+        repseExpedienteDocumentoCreatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    RepseExpedienteDocumentoSuccess:
+      type: object
+      description: |
+        Alta de documento del expediente. Clave estable `data.documentoExpediente`
+        (ver `RepseProvidersResponseI18nContract`).
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+          description: Traducido según `Accept-Language`.
+        message:
+          type: string
+          description: Traducido según `Accept-Language`.
+        data:
+          type: object
+          required: [documentoExpediente]
+          properties:
+            documentoExpediente:
+              $ref: '#/components/schemas/RepseExpedienteDocumento'
+
+    RepseExpedienteListSuccess:
+      type: object
+      description: |
+        Listado paginado del expediente. Clave estable `data.expediente`
+        (ver `RepseProvidersResponseI18nContract`).
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+          description: Traducido según `Accept-Language`.
+        message:
+          type: string
+          description: Traducido según `Accept-Language`.
+        data:
+          type: object
+          required: [expediente]
+          properties:
+            expediente:
+              type: object
+              properties:
+                meta:
+                  type: object
+                  properties:
+                    total: { type: integer }
+                    perPage: { type: integer }
+                    currentPage: { type: integer }
+                    lastPage: { type: integer }
+                    page: { type: integer }
+                    firstPage: { type: integer }
+                data:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RepseExpedienteDocumento'
+
+    RepseExpedienteApiError:
+      type: object
+      description: Contrato de error del expediente REPSE (prefijo `REXP`).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        key:
+          type: string
+        detail:
+          type: string
+        errorCode:
+          type: string
+        data:
+          type: object
+          nullable: true
+      example:
+        type: error
+        title: Documento inválido
+        message: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+        key: documento-invalido
+        errorCode: REXP.VAL.DOC.001
+        detail: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+        data: null
+
+    EmployeeBadge:
+      type: object
+      description: |
+        Gafete universal (USRH1784686362321, R7): se genera para cualquier
+        trabajador activo, tenga o no registro REPSE su empresa. `folioRepse`
+        y `folioVigente` viajan en `null` cuando la empresa no tiene registro
+        (regla 12) — nunca es un error. Nunca incluye CURP/NSS/salario.
+      properties:
+        empleadoId:
+          type: integer
+        nombreCompleto:
+          type: string
+        fotoUrl:
+          type: string
+          nullable: true
+        fotoFaltante:
+          type: boolean
+          description: "`true` cuando `fotoUrl` es `null` (regla 10 — no bloquea la generación)."
+        empresa:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        folioRepse:
+          type: string
+          nullable: true
+        folioVigente:
+          type: boolean
+          nullable: true
+        vinculoVigente:
+          type: boolean
+          description: "Siempre `true` en las superficies de generación (E1/E2/E3): el empleado consultable ya está activo por construcción."
+        urlVerificacion:
+          type: string
+          description: "`${BACKOFFICE_URL}/badge-verification/<token>` (R8) — el token nunca viaja como campo suelto."
+        qrDataUrl:
+          type: string
+          description: "`data:image/png;base64,...` — `QRCode.toDataURL(urlVerificacion)`."
+
+    EmployeeBadgeSuccess:
+      type: object
+      description: |
+        Respuesta exitosa de E1/E3. `title`/`message` varían con `Accept-Language`;
+        la clave de payload es estable: `data.gafete`.
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [gafete]
+          properties:
+            gafete:
+              $ref: '#/components/schemas/EmployeeBadge'
+
+    EmployeeBadgeVerification:
+      type: object
+      description: |
+        Superficie mínima de la verificación pública (E4) — 5 campos, los dos
+        de folio nullables. Nunca CURP/NSS/ids internos/foto/fechas/token.
+      properties:
+        trabajador:
+          type: string
+        empresa:
+          type: string
+        vinculoVigente:
+          type: boolean
+          description: "`false` si el trabajador fue dado de baja o la empresa está desactivada (regla 11) — nunca 404 en ese caso."
+        folioRepse:
+          type: string
+          nullable: true
+        folioVigente:
+          type: boolean
+          nullable: true
+
+    EmployeeBadgeVerificationSuccess:
+      type: object
+      description: Respuesta exitosa de E4. Clave estable `data.verificacion`.
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [verificacion]
+          properties:
+            verificacion:
+              $ref: '#/components/schemas/EmployeeBadgeVerification'
+
+    EmployeeBadgeApiError:
+      type: object
+      description: Contrato de error del módulo `employee-badge` (prefijo de código `BDG`).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        key:
+          type: string
+        detail:
+          type: string
+        errorCode:
+          type: string
+        data:
+          type: object
+          nullable: true
+
 paths:
+  /api/employees/import-excel:
+    post:
+      summary: Importar empleados desde archivo Excel
+      description: |
+        Carga masiva de empleados. Requiere Bearer token y header X-Business-Unit-Id.
+        La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado.
+      tags: [Employees]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Identificador de unidad de negocio
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Importación procesada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success, warning]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      summary:
+                        type: object
+                        properties:
+                          totalRows:
+                            type: integer
+                          processed:
+                            type: integer
+                          created:
+                            type: integer
+                          updated:
+                            type: integer
+                          failed:
+                            type: integer
+                          skipped:
+                            type: integer
+                          limitReached:
+                            type: boolean
+                      rowErrors:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            row:
+                              type: integer
+                            field:
+                              type: string
+                            message:
+                              type: string
+                      warnings:
+                        type: array
+                        items:
+                          type: string
+                      errors:
+                        type: array
+                        description: Alias legado deprecado
+                        items:
+                          type: string
+              example:
+                type: warning
+                title: Importación completada con advertencias
+                message: Se procesaron 7 empleados
+                data:
+                  summary:
+                    totalRows: 10
+                    processed: 7
+                    created: 5
+                    updated: 2
+                    failed: 3
+                    skipped: 3
+                    limitReached: false
+                  rowErrors:
+                    - row: 5
+                      field: Nombre del empleado
+                      message: Falta el campo obligatorio
+                  warnings: []
+                  errors:
+                    - 'Fila 5: Falta el campo obligatorio'
+        '400':
+          description: Archivo inválido o cabeceras faltantes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                cabecerasInvalidas:
+                  value:
+                    type: error
+                    title: Cabeceras del archivo inválidas
+                    message: 'Faltan los siguientes encabezados requeridos: Identificador de nómina'
+                    detail: 'Faltan los siguientes encabezados requeridos: Identificador de nómina'
+                    key: cabeceras-invalidas
+                    code: EMP.IMPORT.VAL_HEADERS
+                    data: null
+                archivoInvalido:
+                  value:
+                    type: error
+                    title: Archivo inválido
+                    message: El archivo del campo «file» debe ser un Excel válido (.xlsx, .xls).
+                    detail: El archivo del campo «file» debe ser un Excel válido (.xlsx, .xls).
+                    key: archivo-invalido
+                    code: EMP.IMPORT.VAL_FILE
+                    data:
+                      multipartField: file
+                      acceptedExtensions: ['.xlsx', '.xls']
+                      contentType: multipart/form-data
+                archivoFaltante:
+                  value:
+                    type: error
+                    title: Archivo inválido
+                    message: Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).
+                    detail: Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).
+                    key: archivo-invalido
+                    code: EMP.IMPORT.VAL_FILE
+                    data:
+                      multipartField: file
+                      acceptedExtensions: ['.xlsx', '.xls']
+                      contentType: multipart/form-data
+        '500':
+          description: Error inesperado del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error del servidor
+                message: Ocurrió un error inesperado durante la importación.
+                detail: Ocurrió un error inesperado durante la importación.
+                key: error-importacion
+                code: EMP.IMPORT.SERVER
+                data: null
+
   /api/employees/{employeeId}/temporary-assignments:
     post:
       summary: Crear préstamo temporal para un empleado
@@ -3606,7 +4064,7 @@ paths:
           schema:
             type: string
             format: date
-        - name: companyId
+        - name: contractingCompanyId
           in: query
           required: false
           schema:
@@ -3770,7 +4228,7 @@ paths:
           schema:
             type: string
             format: date
-        - name: companyId
+        - name: contractingCompanyId
           in: query
           required: false
           schema:
@@ -8662,10 +9120,31 @@ paths:
         Lado contratante (USRH1784259105646): el tenant cataloga a SUS
         proveedores REPSE y consulta el indicador de próxima revisión
         (`nextReviewAt` + `reviewStatus`).
+
+        **Contrato i18n:** `title` y `message` dependen de `Accept-Language`;
+        el payload siempre va en `data.proveedoresRepse` (ver
+        `RepseProvidersResponseI18nContract`).
       tags: [RepseProviders]
       security:
         - bearerAuth: []
       parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+          description: |
+            Idioma de `title` y `message`. No altera las claves de `data`
+            (`proveedoresRepse` permanece estable).
         - name: page
           in: query
           required: true
@@ -8685,6 +9164,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseProvidersListSuccess'
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Proveedores REPSE
+                    message: Proveedores REPSE obtenidos correctamente
+                    data:
+                      proveedoresRepse:
+                        meta:
+                          total: 1
+                          perPage: 10
+                          currentPage: 1
+                          lastPage: 1
+                          firstPage: 1
+                          firstPageUrl: "/?page=1"
+                          lastPageUrl: "/?page=1"
+                          nextPageUrl: null
+                          previousPageUrl: null
+                        data:
+                          - proveedorRepseId: 1
+                            businessUnitId: 1
+                            razonSocial: Proveedor Demo Expediente REPSE SA de CV
+                            rfc: DEM850101016
+                            folio: DEMO-EXPEDIENTE-001
+                            objetoRegistrado: Servicios especializados de limpieza y mantenimiento
+                            folioVencimiento: "2027-12-31"
+                            periodicidadMeses: 1
+                            nextReviewAt: null
+                            reviewStatus: pending_first_validation
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave proveedoresRepse"
+                  value:
+                    type: success
+                    title: REPSE Providers
+                    message: REPSE providers retrieved successfully
+                    data:
+                      proveedoresRepse:
+                        meta:
+                          total: 1
+                          perPage: 10
+                          currentPage: 1
+                          lastPage: 1
+                          firstPage: 1
+                          firstPageUrl: "/?page=1"
+                          lastPageUrl: "/?page=1"
+                          nextPageUrl: null
+                          previousPageUrl: null
+                        data:
+                          - proveedorRepseId: 1
+                            businessUnitId: 1
+                            razonSocial: Proveedor Demo Expediente REPSE SA de CV
+                            rfc: DEM850101016
+                            folio: DEMO-EXPEDIENTE-001
+                            objetoRegistrado: Servicios especializados de limpieza y mantenimiento
+                            folioVencimiento: "2027-12-31"
+                            periodicidadMeses: 1
+                            nextReviewAt: null
+                            reviewStatus: pending_first_validation
         '400':
           description: Validación de filtros
           content:
@@ -8764,6 +9302,9 @@ paths:
   /api/repse-providers/{id}:
     get:
       summary: Obtener un proveedor REPSE por id
+      description: |
+        Clave estable del payload: `data.proveedorRepse`
+        (ver `RepseProvidersResponseI18nContract`).
       tags: [RepseProviders]
       security:
         - bearerAuth: []
@@ -8893,11 +9434,27 @@ paths:
   /api/repse-providers/{providerId}/validations:
     get:
       summary: Bitácora completa de validaciones de un proveedor REPSE
-      description: Listado append-only, más reciente primero. No se pagina.
+      description: |
+        Listado append-only, más reciente primero. No se pagina.
+        Clave estable del payload: `data.validaciones` (ver `RepseProvidersResponseI18nContract`).
       tags: [RepseProviderValidations]
       security:
         - bearerAuth: []
       parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
         - name: providerId
           in: path
           required: true
@@ -8909,6 +9466,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseProviderValidationsListSuccess'
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Validaciones de Proveedor REPSE
+                    message: Validaciones obtenidas correctamente
+                    data:
+                      validaciones: []
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave validaciones"
+                  value:
+                    type: success
+                    title: REPSE Provider Validations
+                    message: Validations retrieved successfully
+                    data:
+                      validaciones: []
         '401':
           description: No autenticado
           content:
@@ -8935,6 +9509,7 @@ paths:
         cuándo (`fecha`) y con qué evidencia (`archivo`) se comprobó el
         estatus del folio en el padrón REPSE de la STPS. Tras guardar,
         recalcula `nextReviewAt` del proveedor (`fecha + periodicidadMeses`).
+        Clave estable del payload: `data.validacion`.
       tags: [RepseProviderValidations]
       security:
         - bearerAuth: []
@@ -9030,3 +9605,1032 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RepseProviderApiError'
+
+  /api/repse-providers/{providerId}/expediente:
+    get:
+      summary: Listar documentos del expediente de un proveedor REPSE
+      description: |
+        Lista paginada filtrable por tipo/periodo. Registra consulta en bitácora.
+        Clave estable del payload: `data.expediente` (ver `RepseProvidersResponseI18nContract`).
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: tipo
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [contrato, anexo-15d, cfdi, comprobante-imss, comprobante-infonavit, declaracion-isr, declaracion-iva, retencion-isr]
+        - name: anio
+          in: query
+          schema: { type: integer }
+        - name: mes
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12 }
+        - name: cuatrimestre
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 3 }
+        - name: page
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - name: limit
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: Listado paginado (registra consulta en bitácora)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteListSuccess'
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Expediente de Proveedor REPSE
+                    message: Documentos del expediente obtenidos correctamente
+                    data:
+                      expediente:
+                        meta:
+                          total: 1
+                          perPage: 20
+                          currentPage: 1
+                          lastPage: 1
+                          page: 1
+                          firstPage: 1
+                        data:
+                          - repseExpedienteDocumentoId: 1
+                            proveedorRepseId: 1
+                            businessUnitId: 1
+                            tipo: contrato
+                            anio: 2024
+                            mes: null
+                            cuatrimestre: null
+                            fechaDocumento: "2024-01-15"
+                            conservarHasta: "2029-01-15"
+                            nombreArchivo: contrato-proveedor.pdf
+                            mimeType: application/pdf
+                            tamanoBytes: 245678
+                            subidoPorUserId: 5
+                            repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave expediente"
+                  value:
+                    type: success
+                    title: REPSE Provider File
+                    message: File documents retrieved successfully
+                    data:
+                      expediente:
+                        meta:
+                          total: 1
+                          perPage: 20
+                          currentPage: 1
+                          lastPage: 1
+                          page: 1
+                          firstPage: 1
+                        data:
+                          - repseExpedienteDocumentoId: 1
+                            proveedorRepseId: 1
+                            businessUnitId: 1
+                            tipo: contrato
+                            anio: 2024
+                            mes: null
+                            cuatrimestre: null
+                            fechaDocumento: "2024-01-15"
+                            conservarHasta: "2029-01-15"
+                            nombreArchivo: contrato-proveedor.pdf
+                            mimeType: application/pdf
+                            tamanoBytes: 245678
+                            subidoPorUserId: 5
+                            repseExpedienteDocumentoCreatedAt: "2026-07-20T12:00:00.000-06:00"
+        '400':
+          description: Query inválido (key `entrada-invalida`, errorCode `REXP.VAL.001`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: El valor del campo page debe ser mayor o igual a 1
+                errorCode: REXP.VAL.001
+                key: entrada-invalida
+                detail: El valor del campo page debe ser mayor o igual a 1
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso, errorCode REXP.FORBID.001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Sin permiso de consulta
+                message: No tienes permiso para consultar el expediente.
+                key: sin-permiso
+                errorCode: REXP.FORBID.001
+                data: null
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Proveedor REPSE no encontrado
+                message: El proveedor REPSE no existe o no pertenece al tenant actual.
+                key: proveedor-repse-no-encontrado
+                errorCode: REXP.NF.001
+                detail: El proveedor REPSE no existe o no pertenece al tenant actual.
+                data: null
+
+    post:
+      summary: Subir un documento al expediente del proveedor REPSE
+      description: |
+        Multipart obligatorio. Campo **`archivo`** (File): solo PDF, máximo 10 MB.
+        Campo **`tipo`**: catálogo cerrado. Calcula `conservarHasta` (+5 años).
+        Clave estable del payload: `data.documentoExpediente`.
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [tipo, anio, archivo]
+              properties:
+                tipo:
+                  type: string
+                  enum: [contrato, anexo-15d, cfdi, comprobante-imss, comprobante-infonavit, declaracion-isr, declaracion-iva, retencion-isr]
+                anio: { type: integer, minimum: 2000, maximum: 2100 }
+                mes: { type: integer, minimum: 1, maximum: 12 }
+                cuatrimestre: { type: integer, minimum: 1, maximum: 3 }
+                fechaDocumento: { type: string, format: date }
+                archivo:
+                  type: string
+                  format: binary
+                  description: PDF obligatorio, máximo 10 MB (clave multipart `archivo`)
+      responses:
+        '201':
+          description: Documento registrado con conservarHasta calculada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteDocumentoSuccess'
+              examples:
+                spanishDefault:
+                  summary: Español (default)
+                  value:
+                    type: success
+                    title: Documento del expediente REPSE
+                    message: Documento del expediente registrado correctamente
+                    data:
+                      documentoExpediente:
+                        repseExpedienteDocumentoId: 1
+                        proveedorRepseId: 1
+                        businessUnitId: 1
+                        tipo: contrato
+                        anio: 2024
+                        mes: null
+                        cuatrimestre: null
+                        fechaDocumento: "2024-01-15"
+                        conservarHasta: "2029-01-15"
+                        nombreArchivo: contrato-proveedor.pdf
+                        mimeType: application/pdf
+                        tamanoBytes: 245678
+                        subidoPorUserId: 5
+                englishAcceptLanguage:
+                  summary: "Inglés (Accept-Language en) — misma clave documentoExpediente"
+                  value:
+                    type: success
+                    title: REPSE provider file document
+                    message: File document registered successfully
+                    data:
+                      documentoExpediente:
+                        repseExpedienteDocumentoId: 1
+                        proveedorRepseId: 1
+                        businessUnitId: 1
+                        tipo: contrato
+                        anio: 2024
+                        mes: null
+                        cuatrimestre: null
+                        fechaDocumento: "2024-01-15"
+                        conservarHasta: "2029-01-15"
+                        nombreArchivo: contrato-proveedor.pdf
+                        mimeType: application/pdf
+                        tamanoBytes: 245678
+                        subidoPorUserId: 5
+        '400':
+          description: Metadatos inválidos VineJS (key entrada-invalida, errorCode REXP.VAL.001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: "El tipo de documento seleccionado no es válido. Las opciones válidas son: 'contrato', 'anexo-15d', 'cfdi', 'comprobante-imss', 'comprobante-infonavit', 'declaracion-isr', 'declaracion-iva', 'retencion-isr'."
+                errorCode: REXP.VAL.001
+                key: entrada-invalida
+                detail: "El tipo de documento seleccionado no es válido. Las opciones válidas son: 'contrato', 'anexo-15d', 'cfdi', 'comprobante-imss', 'comprobante-infonavit', 'declaracion-isr', 'declaracion-iva', 'retencion-isr'."
+                data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Sin permiso
+                message: No tienes permiso para realizar esta operación.
+                key: sin-permiso
+                errorCode: REXP.FORBID.001
+                data: null
+        '404':
+          description: Proveedor inexistente o ajeno al tenant (key proveedor-repse-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Proveedor REPSE no encontrado
+                message: El proveedor REPSE no existe o no pertenece al tenant actual.
+                key: proveedor-repse-no-encontrado
+                errorCode: REXP.NF.001
+                detail: El proveedor REPSE no existe o no pertenece al tenant actual.
+                data: null
+        '422':
+          description: Archivo inválido (key documento-invalido) o fallo S3 (REXP.S3.001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              examples:
+                archivoFaltante:
+                  summary: Falta campo multipart archivo
+                  value:
+                    type: error
+                    title: Documento inválido
+                    message: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+                    key: documento-invalido
+                    errorCode: REXP.VAL.DOC.001
+                    detail: "No se recibió el parámetro 'archivo' (tipo File) en la petición multipart/form-data. Adjunte un PDF de hasta 10 MB con la clave 'archivo'."
+                    data: null
+                tamanoExcedido:
+                  summary: PDF mayor a 10 MB
+                  value:
+                    type: error
+                    title: Documento inválido
+                    message: "El archivo enviado en 'archivo' excede el tamaño máximo de 10 MB."
+                    key: documento-invalido
+                    errorCode: REXP.VAL.DOC.001
+                    detail: "El archivo enviado en 'archivo' excede el tamaño máximo de 10 MB."
+                    data: null
+
+  /api/repse-providers/{providerId}/expediente/{docId}/download:
+    get:
+      summary: Descargar un documento del expediente REPSE
+      description: Stream PDF privado. Registra descarga en bitácora.
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: docId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Stream del PDF (Content-Disposition attachment, Cache-Control private no-store)
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Sin permiso read o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Sin permiso de consulta
+                message: No tienes permiso para consultar el expediente.
+                key: sin-permiso
+                errorCode: REXP.FORBID.001
+                data: null
+        '404':
+          description: Proveedor o documento inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              examples:
+                documentoNoEncontrado:
+                  summary: Documento inexistente
+                  value:
+                    type: error
+                    title: Documento no encontrado
+                    message: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                    key: documento-no-encontrado
+                    errorCode: REXP.NF.001
+                    detail: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                    data: null
+
+  /api/repse-providers/{providerId}/expediente/{docId}:
+    delete:
+      summary: Baja lógica de un documento del expediente
+      description: Soft delete. Bloqueado en retención vigente salvo rol elevado.
+      tags: [RepseExpediente]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: docId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Documento eliminado lógicamente (sin body; registra eliminacion en bitácora)
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: No autorizado
+                message: Usuario no autenticado
+                errorCode: REXP.FORBID.001
+                data: null
+        '403':
+          description: Retención vigente (key retencion-vigente) o sin permiso delete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              examples:
+                retencionVigente:
+                  summary: Retención normativa activa
+                  value:
+                    type: error
+                    title: Retención vigente
+                    message: No se puede eliminar el documento mientras esté vigente su periodo de retención normativa.
+                    key: retencion-vigente
+                    errorCode: REXP.FORBID.RET.001
+                    detail: No se puede eliminar el documento mientras esté vigente su periodo de retención normativa.
+                    data: null
+        '404':
+          description: Documento inexistente (key documento-no-encontrado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepseExpedienteApiError'
+              example:
+                type: error
+                title: Documento no encontrado
+                message: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                key: documento-no-encontrado
+                errorCode: REXP.NF.001
+                detail: El documento del expediente no existe o no pertenece a este proveedor REPSE.
+                data: null
+
+  /api/employee-badges/{employeeId}:
+    get:
+      summary: Datos del gafete del trabajador (foto, empresa, QR, folio si aplica)
+      description: |
+        Gafete universal (USRH1784686362321, R7): se genera para cualquier
+        trabajador activo de la empresa del usuario, tenga o no registro
+        REPSE. El folio y su vigencia viajan en `null` cuando la empresa no
+        tiene registro (regla 12) — nunca es un error. Genera el código de
+        verificación de forma perezosa si aún no existe (regla 6).
+
+        Sin permiso de módulo propio (decisión de permisos, §16 del spec):
+        solo requiere `auth()` + `businessScope()`.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string, enum: [es, en] }
+          description: Traduce title/message; no altera la clave data.gafete.
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Gafete obtenido (con o sin folio REPSE, según registro de la empresa).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeSuccess'
+              examples:
+                conFolio:
+                  summary: Empresa con registro REPSE
+                  value:
+                    type: success
+                    title: Gafete del empleado
+                    message: Gafete obtenido correctamente
+                    data:
+                      gafete:
+                        empleadoId: 123
+                        nombreCompleto: "Juan Pérez García"
+                        fotoUrl: "https://cdn.example.com/employees/123.jpg"
+                        fotoFaltante: false
+                        empresa: "Seguridad Integral SA de CV"
+                        logoUrl: "https://cdn.example.com/logo.png"
+                        folioRepse: "REPSE-12345-2024"
+                        folioVigente: true
+                        vinculoVigente: true
+                        urlVerificacion: "https://bo.example.com/badge-verification/abc123"
+                        qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
+                sinFolio:
+                  summary: Empresa sin registro REPSE (R7 — no es error)
+                  value:
+                    type: success
+                    title: Gafete del empleado
+                    message: Gafete obtenido correctamente
+                    data:
+                      gafete:
+                        empleadoId: 456
+                        nombreCompleto: "Carlos Méndez Ruiz"
+                        fotoUrl: null
+                        fotoFaltante: true
+                        empresa: "Distribuidora El Roble S. de R.L."
+                        logoUrl: null
+                        folioRepse: null
+                        folioVigente: null
+                        vinculoVigente: true
+                        urlVerificacion: "https://bo.example.com/badge-verification/def456"
+                        qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo (indistinguibles).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/{employeeId}/pdf:
+    get:
+      summary: Descarga el gafete en PDF tamaño credencial CR80
+      description: |
+        PDF CR80 (85.6 × 53.98 mm) listo para imprimir. Sin registro REPSE el
+        bloque de folio se omite y el layout se compacta (regla 12); sin foto
+        se usa un marcador de posición (regla 10). Nunca se persiste en disco
+        ni en S3.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: "Stream del PDF (`Content-Type: application/pdf`, `Content-Disposition: attachment`, `Cache-Control: private, no-store`)."
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/{employeeId}/png:
+    get:
+      summary: Descarga el gafete en PNG @300 dpi (1011×638 px)
+      description: |
+        Imagen nítida del mismo gafete que el PDF CR80, generada desde el
+        PNG master en canvas. Sin registro REPSE el bloque de folio se omite
+        y el layout se compacta (regla 12); sin foto se usa un marcador de
+        posición (regla 10). Nunca se persiste en disco ni en S3.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: employeeId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: "Stream del PNG (`Content-Type: image/png`, `Content-Disposition: attachment`, `Cache-Control: private, no-store`)."
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: "`employeeId` no es un entero positivo (key `entrada-invalida`)."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El identificador del empleado es inválido.
+                detail: El identificador del empleado es inválido.
+                key: entrada-invalida
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Trabajador inexistente, de otro tenant, eliminado o inactivo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/bulk:
+    post:
+      summary: Descarga masiva de gafetes (PDF carta 2×4 o ZIP de PNGs)
+      description: |
+        Genera un lote de gafetes para los trabajadores activos resueltos
+        dentro del tenant. Ids inexistentes, de otro tenant o dados de baja
+        se omiten en silencio (RC1). Si ningún id resuelve, responde 404.
+
+        **PDF:** documento LETTER con cuadrícula 2×4 (8 gafetes/hoja) y
+        líneas de corte. **PNG:** ZIP con una imagen por trabajador
+        (`{employeeId}-{nombre}.png`). Streaming chunked — sin persistencia.
+
+        Limitado a 3 solicitudes/minuto por usuario autenticado.
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Accept-Language
+          in: header
+          required: false
+          schema: { type: string, enum: [es, en] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [empleadoIds]
+              properties:
+                empleadoIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: integer
+                    minimum: 1
+                formato:
+                  type: string
+                  enum: [pdf, png]
+                  default: pdf
+            example:
+              empleadoIds: [123, 456, 789]
+              formato: pdf
+      responses:
+        '200':
+          description: |
+            Stream del lote (`application/pdf` o `application/zip` según
+            `formato`; `Content-Disposition: attachment`, chunked).
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Payload inválido (array vacío, ids no enteros o formato inválido).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Datos inválidos
+                message: Error de validación
+                errorCode: BDG.VAL.001
+                data: null
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '404':
+          description: Ningún trabajador del payload resolvió en el tenant (indistinguible).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Gafete no encontrado
+                message: El gafete no existe o el trabajador no pertenece al tenant actual.
+                detail: El gafete no existe o el trabajador no pertenece al tenant actual.
+                key: gafete-no-encontrado
+                errorCode: BDG.NF.001
+                data: null
+        '429':
+          description: Más de 3 descargas masivas por minuto del mismo usuario.
+        '500':
+          description: Error antes del primer byte del stream.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/employee-badges/me:
+    get:
+      summary: Gafete propio del usuario autenticado (contrato para la app del empleado)
+      description: |
+        Resuelve el empleado por `personId` del usuario autenticado; jamás
+        acepta un `employeeId` del cliente. Se registra ANTES de
+        `/:employeeId` en el router (Adonis resuelve en orden de registro).
+      tags: [EmployeeBadge]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Gafete propio obtenido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeSuccess'
+              example:
+                type: success
+                title: Gafete del empleado
+                message: Gafete obtenido correctamente
+                data:
+                  gafete:
+                    empleadoId: 123
+                    nombreCompleto: "Juan Pérez García"
+                    fotoUrl: "https://cdn.example.com/employees/123.jpg"
+                    fotoFaltante: false
+                    empresa: "Seguridad Integral SA de CV"
+                    logoUrl: "https://cdn.example.com/logo.png"
+                    folioRepse: "REPSE-12345-2024"
+                    folioVigente: true
+                    vinculoVigente: true
+                    urlVerificacion: "https://bo.example.com/badge-verification/abc123"
+                    qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
+        '401':
+          description: Sin autenticación (contrato estándar de access tokens).
+        '422':
+          description: Usuario autenticado sin empleado activo asociado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El usuario autenticado no tiene un empleado activo asociado.
+                detail: El usuario autenticado no tiene un empleado activo asociado.
+                key: sin-empleado-asociado
+                errorCode: BDG.NF.EMP.001
+                data: null
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null
+
+  /api/public/employee-badge/verify/{token}:
+    get:
+      summary: Verificación pública del gafete (sin cuenta ni sesión)
+      description: |
+        El QR del gafete codifica `${BACKOFFICE_URL}/badge-verification/<token>`;
+        esta ruta es la que consume esa página. Un token inexistente, con
+        formato inválido o revocado responde siempre el mismo 404
+        (indistinguibles, regla 7). Un trabajador dado de baja o una empresa
+        desactivada responde `200` con `vinculoVigente: false` (regla 11) —
+        nunca 404. Limitada a 10 solicitudes/minuto por IP (regla 8).
+      tags: [EmployeeBadgePublic]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+          description: "Código de verificación de 43 caracteres (`randomBytes(32).toString('base64url')`)."
+      responses:
+        '200':
+          description: Verificación resuelta (con o sin folio REPSE, según registro de la empresa).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeVerificationSuccess'
+              examples:
+                conFolio:
+                  summary: Empresa con registro REPSE, vínculo vigente
+                  value:
+                    type: success
+                    title: Verificación de gafete
+                    message: Gafete verificado
+                    data:
+                      verificacion:
+                        trabajador: "Juan Pérez García"
+                        empresa: "Seguridad Integral SA de CV"
+                        vinculoVigente: true
+                        folioRepse: "REPSE-12345-2024"
+                        folioVigente: true
+                vinculoNoVigente:
+                  summary: Trabajador dado de baja o empresa desactivada (regla 11)
+                  value:
+                    type: success
+                    title: Verificación de gafete
+                    message: Gafete verificado
+                    data:
+                      verificacion:
+                        trabajador: "María López Hernández"
+                        empresa: "Limpieza Corporativa del Bajío S.A."
+                        vinculoVigente: false
+                        folioRepse: "REPSE-90871-2022"
+                        folioVigente: false
+        '404':
+          description: Token inexistente, con formato inválido o revocado (indistinguibles, regla 7).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: El código de verificación no existe, es inválido o fue revocado.
+                detail: El código de verificación no existe, es inválido o fue revocado.
+                key: verificacion-no-encontrada
+                errorCode: BDG.NF.002
+                data: null
+        '429':
+          description: Límite de 10 solicitudes/minuto por IP excedido (formato estándar de `@adonisjs/limiter`, sin personalizar).
+        '500':
+          description: Error no controlado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeBadgeApiError'
+              example:
+                type: error
+                title: Error
+                message: Error inesperado
+                errorCode: BDG.SYS.001
+                data: null

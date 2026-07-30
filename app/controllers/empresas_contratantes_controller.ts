@@ -39,6 +39,11 @@ export default class EmpresasContratantesController {
    *     security:
    *       - bearerAuth: []
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string, format: uuid }
+   *         description: Código público UUID v4 de la empresa activa
    *       - in: query
    *         name: page
    *         schema: { type: integer, minimum: 1, default: 1 }
@@ -50,7 +55,11 @@ export default class EmpresasContratantesController {
    *         schema: { type: string }
    *       - in: query
    *         name: businessUnitId
-   *         schema: { type: integer }
+   *         schema:
+   *           oneOf:
+   *             - { type: string, format: uuid }
+   *             - { type: integer, minimum: 1 }
+   *         description: UUID v4 (preferido) o ID interno legacy; businessScope lo resuelve
    *     responses:
    *       '200':
    *         description: Listado paginado de empresas contratantes

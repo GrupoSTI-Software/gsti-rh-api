@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
 import Employee from './employee.js'
 import ExceptionType from './exception_type.js'
 import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
@@ -9,6 +9,8 @@ import VacationSetting from './vacation_setting.js'
 import VacationAuthorizationSignature from './vacation_authorization_signature.js'
 import EmployeeVacationArchiveContent from './employee_vacation_archive_content.js'
 import EmployeeLactationPeriod from './employee_lactation_period.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
  * @swagger
  * components:
@@ -116,15 +118,29 @@ import EmployeeLactationPeriod from './employee_lactation_period.js'
  *         vacattionSetting:
  *           # Example ExceptionType object
  */
-export default class ShiftException extends compose(BaseModel, SoftDeletes) {
+export default class ShiftException extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare shiftExceptionId: number
 
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (cierre de fuga IDOR, USRH1784259058577). */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare exceptionTypeId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1784259058577). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: ShiftException) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare shiftExceptionsDate: Date | string

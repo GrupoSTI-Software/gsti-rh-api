@@ -7,8 +7,6 @@ export const BRANCH_OFFICE_ERROR_CODES = {
   VAL_INPUT: 'BRCH.VAL.001',
   /** Sucursal inexistente, eliminada o fuera del scope del usuario autenticado */
   NOT_FOUND: 'BRCH.NOT.001',
-  /** El usuario no tiene unidades de negocio accesibles en su scope */
-  CFG_SYSTEM_BUSINESS: 'BRCH.CFG.001',
   /** businessUnitId no pertenece al scope de unidades de negocio del usuario */
   BU_NOT_ALLOWED: 'BRCH.BU.001',
   /** Sucursal ya ligada a otra empresa contratante */

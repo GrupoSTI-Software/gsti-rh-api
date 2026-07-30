@@ -1,11 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
 import BranchOffice from './branch_office.js'
 import Shift from './shift.js'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -70,7 +72,11 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *           format: date-time
  *           nullable: true
  */
-export default class EmployeeTemporaryAssignment extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeTemporaryAssignment extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'employee_temporary_assignments'
 
   @column({ isPrimary: true })
@@ -78,6 +84,23 @@ export default class EmployeeTemporaryAssignment extends compose(BaseModel, Soft
 
   @column()
   declare employeeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, USRH1784259058533).
+   * Se ancla en el empleado prestado, nunca en las sucursales de origen/destino.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre, nunca desde el payload ni las sucursales. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeTemporaryAssignment) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare sourceBranchId: number

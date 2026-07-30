@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
@@ -9,6 +9,8 @@ import CareerPathOverrideReason from './career_path_override_reason.js'
 import User from './user.js'
 import CareerPathCandidateStatusHistory from './career_path_candidate_status_history.js'
 import Employee from './employee.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
  * @swagger
  * components:
@@ -105,12 +107,31 @@ import Employee from './employee.js'
  *         careerPathTemplateDeletedAt: null
  */
 
-export default class CareerPathCandidate extends compose(BaseModel, SoftDeletes) {
+export default class CareerPathCandidate extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare careerPathCandidateId: number
 
+  /**
+   * Marca de pertenencia, ya poblada desde una migración previa
+   * (`1776968002402`). Aquí solo se compone el candado automático
+   * (defensa en profundidad, USRH1784259058533).
+   */
   @column()
   declare businessUnitId: number
+
+  /** Guard defensivo: no resuelve nada nuevo, solo blinda un futuro create() sin la marca. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: CareerPathCandidate) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare employeeId: number
