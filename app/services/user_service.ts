@@ -10,6 +10,7 @@ import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
 import env from '../../start/env.js'
 import Role from '#models/role'
+import { SYSTEM_ROLE_SLUGS } from '#constants/system_roles'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
@@ -56,17 +57,23 @@ export default class UserService {
       allowedSlugs = buUnits.map((bu) => bu.businessUnitSlug)
     }
 
+    // USRH1785436961936: los usuarios con rol de sistema (owner, empleado)
+    // también aparecen en el listado del tenant — mismo criterio que
+    // `RoleService.index`. El aislamiento entre empresas lo garantiza el
+    // filtro `whereHas('businessUnits')` de abajo, no este armado de roles.
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
         if (allowedSlugs.length === 0) {
-          query.whereRaw('1 = 0')
           return
         }
-        query.whereNotNull('role_business_access')
-        query.andWhere((subQuery) => {
-          allowedSlugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+        query.orWhere((accessQuery) => {
+          accessQuery.whereNotNull('role_business_access')
+          accessQuery.andWhere((subQuery) => {
+            allowedSlugs.forEach((business) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+            })
           })
         })
       })
