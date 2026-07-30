@@ -1,0 +1,267 @@
+import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import BillingSubscription from '#models/billing_subscription'
+import BillingPayment from '#models/billing_payment'
+import type { BillingPaymentMethod } from '#models/billing_payment'
+import UploadService from '#services/upload_service'
+import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
+import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
+import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
+import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
+
+// ─── Carpeta S3 de comprobantes ───────────────────────────────────────────────
+const RECEIPT_S3_FOLDER = 'billing/payments/receipts'
+
+// ─── Cotas de monto (centavos): mínimo $1 MXN, máximo $999,999.99 MXN ────────
+const AMOUNT_MIN_CENTS = 100
+const AMOUNT_MAX_CENTS = 99_999_999
+
+// ─── Tipos internos ───────────────────────────────────────────────────────────
+
+export interface RegisterPaymentInput {
+  amountCents: number
+  method: BillingPaymentMethod
+  reference?: string | null
+  paidAt: string
+}
+
+export interface ReceiptFile {
+  tmpPath: string
+  clientName: string
+  size: number
+  headers: { 'content-type'?: string }
+}
+
+export interface RegisterPaymentResult {
+  billingPaymentId: number
+  billingSubscriptionId: number
+  amountCents: number
+  method: BillingPaymentMethod
+  reference: string | null
+  paidAt: string
+  periodStart: string
+  periodEnd: string
+  hasReceipt: boolean
+  subscription: {
+    billingSubscriptionId: number
+    status: string
+    currentPeriodStart: string | null
+    currentPeriodEnd: string | null
+  }
+}
+
+// ─── Servicio ─────────────────────────────────────────────────────────────────
+
+/**
+ * Servicio de pagos de suscripción (USRH1784574994922).
+ *
+ * Registrar un pago es un acto atómico:
+ *   1. Sube el comprobante a S3 privado (fuera de la trx — S3 no es transaccional).
+ *   2. Abre db.transaction: inserta el pago, avanza el periodo y pone status='active'.
+ *   3. Si la trx falla → compensa borrando el objeto S3 subido.
+ *
+ * El módulo NUNCA expone la URL del comprobante (solo la Key queda en BD).
+ * La descarga firmada es responsabilidad de USRH1784574994923.
+ */
+export default class BillingPaymentService {
+  /**
+   * Registra un pago sobre una suscripción existente y no cancelada.
+   *
+   * @throws {BillingPaymentServiceError} si la suscripción no existe, está
+   *   cancelada, el monto es inválido o el comprobante no pasa validación.
+   */
+  async registerPayment(
+    subscriptionId: number,
+    input: RegisterPaymentInput,
+    receipt: ReceiptFile
+  ): Promise<RegisterPaymentResult> {
+    // ── 1. Validar suscripción ────────────────────────────────────────────────
+    const subscription = await BillingSubscription.query()
+      .where('billingSubscriptionId', subscriptionId)
+      .whereNull('billing_subscription_deleted_at')
+      .first()
+
+    if (!subscription) {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscriptionId} no encontrada`,
+        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_NOT_FOUND,
+        404,
+        'suscripcion-no-encontrada',
+        'La suscripción solicitada no existe.'
+      )
+    }
+
+    if (subscription.billingSubscriptionStatus === 'canceled') {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscriptionId} está cancelada`,
+        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_CANCELED,
+        422,
+        'suscripcion-cancelada',
+        'No se puede registrar un pago sobre una suscripción cancelada.'
+      )
+    }
+
+    // ── 2. Validar monto ─────────────────────────────────────────────────────
+    if (
+      !Number.isInteger(input.amountCents) ||
+      input.amountCents < AMOUNT_MIN_CENTS ||
+      input.amountCents > AMOUNT_MAX_CENTS
+    ) {
+      throw new BillingPaymentServiceError(
+        `Monto inválido: ${input.amountCents} centavos`,
+        BILLING_PAYMENT_ERROR_CODES.AMOUNT_INVALID,
+        422,
+        'monto-invalido',
+        `El monto debe ser un entero positivo entre ${AMOUNT_MIN_CENTS} y ${AMOUNT_MAX_CENTS} centavos.`
+      )
+    }
+
+    // ── 3. Validar y subir comprobante (antes de la trx — S3 no es transaccional) ──
+    this.validateReceipt(receipt)
+
+    const receiptMime = receipt.headers['content-type'] ?? 'application/octet-stream'
+    const ext = this.extFromMime(receiptMime)
+    const s3RelativeKey = `${RECEIPT_S3_FOLDER}/${subscriptionId}/${Date.now()}-receipt.${ext}`
+
+    const uploadService = new UploadService()
+    const { default: fs } = await import('node:fs/promises')
+    const buffer = await fs.readFile(receipt.tmpPath)
+
+    const s3Key = await uploadService.uploadPrivateBuffer(s3RelativeKey, buffer, receiptMime)
+
+    if (!s3Key) {
+      throw new BillingPaymentServiceError(
+        'Fallo al subir el comprobante a S3',
+        BILLING_PAYMENT_ERROR_CODES.RECEIPT_UPLOAD_FAILED,
+        500,
+        'comprobante-upload-fallido',
+        'No se pudo guardar el comprobante. Intenta de nuevo.'
+      )
+    }
+
+    // ── 4. Calcular avance de periodo (CDMX) ─────────────────────────────────
+    const today = todayInBusinessZone()
+    const rawPeriodEnd = subscription.billingSubscriptionCurrentPeriodEnd
+    const periodEndIso = rawPeriodEnd ? toCalendarIsoDate(rawPeriodEnd) : null
+
+    // anchor = current_period_end si ≥ hoy, si no hoy (spec regla 3)
+    const anchor =
+      periodEndIso && periodEndIso >= today.toISODate()!
+        ? DateTime.fromISO(periodEndIso, { zone: today.zone })
+        : today
+
+    const newPeriodStart = anchor
+    const newPeriodEnd = anchor.plus({ months: 1 })
+
+    // ── 5. Transacción atómica ────────────────────────────────────────────────
+    let payment: BillingPayment
+    try {
+      payment = await db.transaction(async (trx) => {
+        const paidAtDt = DateTime.fromISO(input.paidAt)
+
+        const newPayment = await BillingPayment.create(
+          {
+            billingSubscriptionId: subscriptionId,
+            billingPaymentAmountCents: input.amountCents,
+            billingPaymentMethod: input.method,
+            billingPaymentReference: input.reference ?? null,
+            billingPaymentReceiptPath: s3Key,
+            billingPaymentReceiptMime: receiptMime,
+            billingPaymentProvider: 'manual',
+            billingPaymentPaidAt: paidAtDt,
+            billingPaymentPeriodStart: newPeriodStart,
+            billingPaymentPeriodEnd: newPeriodEnd,
+          },
+          { client: trx }
+        )
+
+        subscription.useTransaction(trx)
+        subscription.billingSubscriptionStatus = 'active'
+        subscription.billingSubscriptionCurrentPeriodStart = newPeriodStart
+        subscription.billingSubscriptionCurrentPeriodEnd = newPeriodEnd
+        // Sincronizar columna espejo si venía de un estado a reactivar
+        if (!subscription.billingSubscriptionLiveBusinessUnitId) {
+          subscription.billingSubscriptionLiveBusinessUnitId = subscription.businessUnitId
+        }
+        await subscription.save()
+
+        return newPayment
+      })
+    } catch (error) {
+      // Compensación: borrar el objeto S3 subido antes de la trx
+      await uploadService.deleteFile(s3Key).catch(() => null)
+      throw error
+    }
+
+    return this.toResult(payment, subscription)
+  }
+
+  // ─── Validación del comprobante ───────────────────────────────────────────
+
+  private validateReceipt(receipt: ReceiptFile): void {
+    if (!receipt?.tmpPath) {
+      throw new BillingPaymentServiceError(
+        'Comprobante ausente',
+        BILLING_PAYMENT_ERROR_CODES.RECEIPT_INVALID,
+        422,
+        'comprobante-ausente',
+        'El comprobante es obligatorio.'
+      )
+    }
+
+    const mime = receipt.headers['content-type'] ?? ''
+    if (!(RECEIPT_ALLOWED_MIMES as readonly string[]).includes(mime)) {
+      throw new BillingPaymentServiceError(
+        `Tipo de comprobante no permitido: ${mime}`,
+        BILLING_PAYMENT_ERROR_CODES.RECEIPT_INVALID,
+        422,
+        'comprobante-tipo-invalido',
+        'El comprobante debe ser PDF, JPG o PNG.'
+      )
+    }
+
+    if (typeof receipt.size === 'number' && receipt.size > RECEIPT_MAX_BYTES) {
+      throw new BillingPaymentServiceError(
+        `Comprobante excede el tope: ${receipt.size} bytes`,
+        BILLING_PAYMENT_ERROR_CODES.RECEIPT_INVALID,
+        422,
+        'comprobante-muy-grande',
+        `El comprobante no puede superar ${RECEIPT_MAX_BYTES / 1024 / 1024} MB.`
+      )
+    }
+  }
+
+  private extFromMime(mime: string): string {
+    const map: Record<string, string> = {
+      'application/pdf': 'pdf',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+    }
+    return map[mime] ?? 'bin'
+  }
+
+  // ─── Serialización de respuesta ───────────────────────────────────────────
+
+  private toResult(
+    payment: BillingPayment,
+    subscription: BillingSubscription
+  ): RegisterPaymentResult {
+    return {
+      billingPaymentId: payment.billingPaymentId,
+      billingSubscriptionId: payment.billingSubscriptionId,
+      amountCents: payment.billingPaymentAmountCents,
+      method: payment.billingPaymentMethod,
+      reference: payment.billingPaymentReference,
+      paidAt: (payment.billingPaymentPaidAt as DateTime).toISO()!,
+      periodStart: (payment.billingPaymentPeriodStart as DateTime).toISODate()!,
+      periodEnd: (payment.billingPaymentPeriodEnd as DateTime).toISODate()!,
+      hasReceipt: !!payment.billingPaymentReceiptPath,
+      subscription: {
+        billingSubscriptionId: subscription.billingSubscriptionId,
+        status: subscription.billingSubscriptionStatus,
+        currentPeriodStart: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodStart),
+        currentPeriodEnd: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd),
+      },
+    }
+  }
+}

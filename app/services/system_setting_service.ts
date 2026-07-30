@@ -403,7 +403,11 @@ export default class SystemSettingService {
     businessUnitSlug: string,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
+    // El registro base es plantilla fundacional: se lee con withTrashed porque
+    // un soft-delete accidental del id 1 no debe bloquear el alta de tenants
+    // (el filtro SoftDeletes ocultaría la fila y fallaría con SGNP.SETTINGS.001).
     const base = await SystemSetting.query({ client: trx })
+      .withTrashed()
       .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
       .first()
 

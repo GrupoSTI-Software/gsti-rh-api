@@ -7,7 +7,7 @@ export const getRepseCoverageReportValidator = vine.compile(
   vine.object({
     from: isoDateField,
     to: isoDateField,
-    companyId: positiveIdField.optional(),
+    contractingCompanyId: positiveIdField.optional(),
     employeeId: positiveIdField.optional(),
     page: vine.number().min(1).optional(),
     perPage: vine.number().min(1).max(500).optional(),
@@ -18,7 +18,7 @@ export const getRepseCoverageReportExportValidator = vine.compile(
   vine.object({
     from: isoDateField,
     to: isoDateField,
-    companyId: positiveIdField.optional(),
+    contractingCompanyId: positiveIdField.optional(),
     employeeId: positiveIdField.optional(),
     format: vine.string().trim().in(['xlsx']).optional(),
   })

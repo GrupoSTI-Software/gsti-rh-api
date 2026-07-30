@@ -1,5 +1,5 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
-import Shift from '../../app/models/shift.js'
+import Shift from '#models/shift'
 
 export default class extends BaseSeeder {
   async run() {
@@ -13,8 +13,9 @@ export default class extends BaseSeeder {
         shiftRestDays: '0',
         shiftAccumulatedFault: 1,
         shiftBusinessUnits: 'gsti-rh',
-        shiftTemp: 0
-      }
+        businessUnitId: 1,
+        shiftTemp: 0,
+      },
     ]
 
     for (const shift of shifts) {

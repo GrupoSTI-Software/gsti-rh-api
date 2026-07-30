@@ -81,6 +81,46 @@ test.group('SystemSettingService.createForTenant', (group) => {
     assert.lengthOf(rows, 1, 'Un reintento no debe crear una segunda fila para el mismo tenant')
   })
 
+  test('usa el registro base aunque esté soft-deleted (plantilla fundacional)', async ({ assert }) => {
+    if (!businessUnit) {
+      assert.fail('El setup del grupo no preparó la unidad de negocio de prueba')
+      return
+    }
+
+    const base = await SystemSetting.query()
+      .withTrashed()
+      .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
+      .firstOrFail()
+    const wasDeleted = !!base.deletedAt
+    if (!wasDeleted) {
+      await base.delete()
+    }
+
+    try {
+      const created = await db.transaction(async (trx) => {
+        return service.createForTenant(
+          businessUnit!.businessUnitId,
+          businessUnit!.businessUnitSlug,
+          trx
+        )
+      })
+
+      assert.equal(created.businessUnitId, businessUnit.businessUnitId)
+      assert.equal(created.systemSettingTradeName, base.systemSettingTradeName)
+    } finally {
+      // Restaura el base solo si este test lo soft-deleteó (no altera un base ya borrado en el entorno).
+      if (!wasDeleted) {
+        const current = await SystemSetting.query()
+          .withTrashed()
+          .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
+          .firstOrFail()
+        if (current.deletedAt) {
+          await current.restore()
+        }
+      }
+    }
+  })
+
   test('revive el registro tras soft-delete en vez de bloquear la reprovisión', async ({ assert }) => {
     if (!businessUnit) {
       assert.fail('El setup del grupo no preparó la unidad de negocio de prueba')
