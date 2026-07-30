@@ -7,6 +7,17 @@ export const RECEIPT_MAX_BYTES = 10 * 1024 * 1024
 export const RECEIPT_ALLOWED_MIMES = ['application/pdf', 'image/jpeg', 'image/png'] as const
 
 /**
+ * Query params para `GET /api/platform/billing/subscriptions/:id/payments`.
+ * page y limit son opcionales; por defecto page=1, limit=20.
+ */
+export const listBillingPaymentsValidator = vine.compile(
+  vine.object({
+    page: vine.number().positive().withoutDecimals().optional(),
+    limit: vine.number().positive().withoutDecimals().max(100).optional(),
+  })
+)
+
+/**
  * Body multipart para `POST /api/platform/billing/subscriptions/:id/payments`.
  *
  * El cliente envía el monto en centavos (amountCents); el avance del periodo
