@@ -2592,21 +2592,23 @@ export default class EmployeeService {
    */
   async cleanupOrphanPersons(): Promise<number> {
     try {
-      // Buscar personas que no tienen empleados asociados
+      // Buscar personas que no tienen empleados asociados. La tabla del
+      // modelo Person es `people`: referenciarla como `persons` hacía tronar
+      // la consulta (Unknown column) y el catch regresaba 0 en silencio.
       const orphanPersons = await Person.query()
         .whereNotExists((query) => {
           query.from('employees')
-            .whereRaw('employees.person_id = persons.person_id')
+            .whereRaw('employees.person_id = people.person_id')
             .whereNull('employees.employee_deleted_at')
         })
         .whereNotExists((query) => {
           query.from('customers')
-            .whereRaw('customers.person_id = persons.person_id')
+            .whereRaw('customers.person_id = people.person_id')
             .whereNull('customers.customer_deleted_at')
         })
         .whereNotExists((query) => {
           query.from('users')
-            .whereRaw('users.person_id = persons.person_id')
+            .whereRaw('users.person_id = people.person_id')
             .whereNull('users.user_deleted_at')
         })
 
