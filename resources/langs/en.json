@@ -2383,5 +2383,7 @@
   "system_role_locked_title": "System role",
   "system_role_locked_detail": "The owner and employee roles belong to the platform: they cannot be edited, deleted, or reconfigured from a company.",
   "system_role_name_reserved_title": "Reserved role name",
-  "system_role_name_reserved_detail": "The role name matches a platform system role; choose a different name."
+  "system_role_name_reserved_detail": "The role name matches a platform system role; choose a different name.",
+  "system_setting_trade_name_taken_title": "Trade name already in use",
+  "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name."
 }
