@@ -12,5 +12,6 @@ router
   })
   .prefix('/api/career-path-candidates')
   .use(middleware.auth())
+  .use(middleware.businessScope())
 
 

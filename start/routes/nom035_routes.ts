@@ -3,14 +3,22 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
-    router.get(
-      '/nom035/questionnaire-applicability',
-      '#controllers/questionnaire_applicability_controller.index'
-    )
-    router.get(
-      '/nom035/questionnaire-applicability/:branchOfficeId',
-      '#controllers/questionnaire_applicability_controller.show'
-    )
+    // Mismo patrón que empresas-contratantes: businessScope resuelve UUID → id interno
+    // en header/query antes de Vine (`businessUnitId` / alias legacy `companyId`).
+    router
+      .group(() => {
+        router.get(
+          '/',
+          '#controllers/questionnaire_applicability_controller.index'
+        )
+        router.get(
+          '/:branchOfficeId',
+          '#controllers/questionnaire_applicability_controller.show'
+        )
+      })
+      .prefix('/nom035/questionnaire-applicability')
+      .use(middleware.businessScope())
+
     router.get(
       '/nom035/attention-program-catalog',
       '#controllers/attention_program_controller.catalog'

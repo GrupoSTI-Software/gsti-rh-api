@@ -1,6 +1,7 @@
 import type { NextFn } from '@adonisjs/core/types/http'
 import type { HttpContext } from '@adonisjs/core/http'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import { resolveLegacyCompanyIdParam } from '#helpers/resolve_legacy_company_id_param'
 import { TenantContext } from '#utils/tenant_context'
 
 /** Header que el cliente envía para seleccionar la unidad de negocio activa. */
@@ -35,10 +36,12 @@ const ERR = {
  *  - Fuera del scope  → 404 `BU.NOT.001` (no revela si la unidad existe).
  *  - Válido           → resuelve al ID interno → `TenantContext.run([internalId])`.
  *
- * ## Validación de `businessUnitId` en query param / body
- * Para compatibilidad con el código existente, el campo `businessUnitId` en query
- * string y body se sigue aceptando como entero positivo (ID interno). Cuando
- * está ausente, se inyecta el ID interno resuelto desde el header.
+ * ## Validación de `businessUnitId` / `payrollBusinessUnitId` en query/body
+ * Para compatibilidad con el código existente, `businessUnitId` en query string
+ * y body se acepta como UUID v4 o entero positivo (ID interno). Cuando está
+ * ausente, se inyecta el ID interno resuelto desde el header.
+ * `payrollBusinessUnitId` en body sigue la misma semántica (requerido en alta
+ * de empleados como FK NOT NULL).
  *
  * Debe colocarse después del middleware `auth` (requiere usuario autenticado).
  */
@@ -113,6 +116,16 @@ export default class BusinessUnitScopeMiddleware {
       // Ausente, nulo o vacío → inyectar el ID interno resuelto desde el header
       ctx.request.updateQs({ ...ctx.request.qs(), businessUnitId: requestedId })
       ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: requestedId })
+    }
+
+    // Alias legacy NOM035: `companyId` también puede llegar como UUID v4.
+    const companyResolved = await resolveLegacyCompanyIdParam(ctx, scopeService, fullScope)
+    if (companyResolved === 'not-in-scope') {
+      return ctx.response.status(404).json({
+        title: ERR.NOT_IN_SCOPE.title,
+        detail: 'El recurso solicitado no existe o no tienes acceso a él.',
+        key: ERR.NOT_IN_SCOPE.key,
+      })
     }
 
     ctx.businessUnitScope = [requestedId]

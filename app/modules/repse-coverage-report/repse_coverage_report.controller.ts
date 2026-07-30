@@ -38,7 +38,7 @@ export default class RepseCoverageReportController {
    *         required: true
    *         schema: { type: string, format: date }
    *       - in: query
-   *         name: companyId
+   *         name: contractingCompanyId
    *         schema: { type: integer }
    *       - in: query
    *         name: employeeId
@@ -116,7 +116,7 @@ export default class RepseCoverageReportController {
       const report = await service.getReport({
         from: from.iso,
         to: to.iso,
-        companyId: payload.companyId,
+        contractingCompanyId: payload.contractingCompanyId,
         employeeId: payload.employeeId,
         page: payload.page ?? 1,
         perPage: payload.perPage ?? 20,
@@ -155,7 +155,7 @@ export default class RepseCoverageReportController {
    *         required: true
    *         schema: { type: string, format: date }
    *       - in: query
-   *         name: companyId
+   *         name: contractingCompanyId
    *         schema: { type: integer }
    *       - in: query
    *         name: employeeId
@@ -190,7 +190,7 @@ export default class RepseCoverageReportController {
       const rows = await service.getExportRows({
         from: from.iso,
         to: to.iso,
-        companyId: payload.companyId,
+        contractingCompanyId: payload.contractingCompanyId,
         employeeId: payload.employeeId,
       })
 

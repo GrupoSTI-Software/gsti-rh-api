@@ -21,6 +21,7 @@ import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import logger from '@adonisjs/core/services/logger'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * Slug del tipo de excepción que representa una jornada reducida por lactancia.
@@ -812,6 +813,18 @@ export default class ShiftExceptionService {
       this.getOfficialHolidayDatesInRange(firstIso, lastIso, allowedBusinessUnitSlugs),
     ])
 
+    // BU una sola vez por lote (un solo empleado en este rango). El guard
+    // del hook `@beforeCreate` respeta el valor y evita N+1 al createMany
+    // (USRH1784259058577). En applyExceptionGeneral (multi-empleado) se
+    // deja que el hook resuelva por fila.
+    const businessUnitId = await resolveParentBusinessUnitId(
+      () =>
+        (trx ? Employee.query({ client: trx }) : Employee.query())
+          .where('employeeId', period.employeeId)
+          .first(),
+      'el empleado'
+    )
+
     let current = rangeStart.setZone('UTC-6').startOf('day')
     const end = rangeEnd.setZone('UTC-6').startOf('day')
 
@@ -848,6 +861,7 @@ export default class ShiftExceptionService {
 
       rows.push({
         employeeId: period.employeeId,
+        businessUnitId,
         exceptionTypeId,
         shiftExceptionsDate: isoDate,
         shiftExceptionsDescription: this.buildLactationDescription(period),

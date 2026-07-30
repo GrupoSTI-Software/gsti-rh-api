@@ -1,6 +1,5 @@
 import SystemSetting from '#models/system_setting'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
-import SystemSettingSystemModule from '#models/system_setting_system_module'
 import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -115,7 +114,6 @@ export default class SystemSettingService {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
-      .preload('systemSettingSystemModules')
       .preload('systemSettingPayrollConfigs')
       .first()
     return systemSetting ? systemSetting : null
@@ -294,40 +292,6 @@ export default class SystemSettingService {
     }
   }
 
-  async assignSystemModules(systemSettingId: number, systemModules: Array<number>) {
-    let systemSettingSystemModules = await SystemSettingSystemModule.query()
-      .whereNull('system_setting_system_module_deleted_at')
-      .where('system_setting_id', systemSettingId)
-    if (systemSettingSystemModules) {
-      if (systemModules === undefined) {
-        systemModules = []
-      }
-      for await (const item of systemSettingSystemModules) {
-        const existSystemModule = systemModules.find(
-          (a: number) => Number.parseInt(a.toString()) === item.systemModuleId
-        )
-        if (!existSystemModule) {
-          await item.delete()
-        }
-      }
-    }
-    for await (const systemModuleId of systemModules) {
-      const existSystemSettingSystemModules = systemSettingSystemModules.find(
-        (a) => a.systemModuleId === Number.parseInt(systemModuleId.toString())
-      )
-      if (!existSystemSettingSystemModules) {
-        const newSystemSettingSystemModules = new SystemSettingSystemModule()
-        newSystemSettingSystemModules.systemSettingId = systemSettingId
-        newSystemSettingSystemModules.systemModuleId = systemModuleId
-        await newSystemSettingSystemModules.save()
-      }
-    }
-    systemSettingSystemModules = await SystemSettingSystemModule.query()
-      .whereNull('system_setting_system_module_deleted_at')
-      .where('system_setting_id', systemSettingId)
-    return systemSettingSystemModules
-  }
-
   async updateBirthdayEmailsStatus(systemSettingId: number, birthdayEmailsEnabled: boolean) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
@@ -439,7 +403,11 @@ export default class SystemSettingService {
     businessUnitSlug: string,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
+    // El registro base es plantilla fundacional: se lee con withTrashed porque
+    // un soft-delete accidental del id 1 no debe bloquear el alta de tenants
+    // (el filtro SoftDeletes ocultaría la fila y fallaría con SGNP.SETTINGS.001).
     const base = await SystemSetting.query({ client: trx })
+      .withTrashed()
       .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
       .first()
 

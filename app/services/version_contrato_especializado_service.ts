@@ -18,11 +18,21 @@ import { VersionContratoEspecializadoError } from '../exceptions/version_contrat
 import { serializeAnexo15d } from '../helpers/anexo_15d_serializer.js'
 import { findContratoInTenantOrFail } from '../helpers/repse_tenant_scope.js'
 
+/** Metadatos útiles del PDF de respaldo congelado en el snapshot (sin storage key). */
+export type VersionDocumentoRespaldoSerialized = {
+  id: number
+  nombreArchivo: string
+  mimeType: string
+  fechaVencimiento: string
+}
+
 export type VersionContratoSnapshotSerialized = {
   fechaInicio: string | null
   fechaFin: string | null
   anexo15d: Anexo15dSnapshot
+  /** @deprecated Preferir `documentoVigente`; se conserva por compatibilidad. */
   documentoVigenteId: number | null
+  documentoVigente: VersionDocumentoRespaldoSerialized | null
 }
 
 export type VersionContratoSerialized = {
@@ -120,7 +130,7 @@ export default class VersionContratoEspecializadoService {
 
     return {
       contrato,
-      version: this.serializeVersion(versionRow),
+      version: await this.serializeVersion(versionRow),
     }
   }
 
@@ -181,7 +191,7 @@ export default class VersionContratoEspecializadoService {
 
     return {
       anexo15d: serializeAnexo15d(contratoRow.clausula15d!),
-      version: this.serializeVersion(versionRow),
+      version: await this.serializeVersion(versionRow),
     }
   }
 
@@ -251,7 +261,7 @@ export default class VersionContratoEspecializadoService {
       .where('contrato_servicio_especializado_id', contratoId)
       .orderBy('version_contrato_especializado_numero', 'desc')
 
-    return rows.map((row) => this.serializeVersion(row))
+    return this.serializeVersions(rows)
   }
 
   async obtenerVersion(
@@ -278,7 +288,53 @@ export default class VersionContratoEspecializadoService {
     return this.serializeVersion(row)
   }
 
-  private serializeVersion(row: VersionContratoEspecializado): VersionContratoSerialized {
+  /**
+   * Serializa varias versiones resolviendo documentos de respaldo en un solo query
+   * (incluye soft-deleted: el PDF puede haberse archivado tras un reemplazo).
+   */
+  private async serializeVersions(
+    rows: VersionContratoEspecializado[]
+  ): Promise<VersionContratoSerialized[]> {
+    const documentById = await this.loadDocumentosRespaldo(rows)
+    return rows.map((row) => this.toSerializedVersion(row, documentById))
+  }
+
+  private async serializeVersion(
+    row: VersionContratoEspecializado
+  ): Promise<VersionContratoSerialized> {
+    const [serialized] = await this.serializeVersions([row])
+    return serialized
+  }
+
+  private async loadDocumentosRespaldo(
+    rows: VersionContratoEspecializado[]
+  ): Promise<Map<number, DocumentoContratoEspecializado>> {
+    const ids = [
+      ...new Set(
+        rows
+          .map((row) => row.documentoVigenteId)
+          .filter((id): id is number => typeof id === 'number' && id > 0)
+      ),
+    ]
+
+    if (ids.length === 0) {
+      return new Map()
+    }
+
+    const docs = await DocumentoContratoEspecializado.query()
+      .withTrashed()
+      .whereIn('documento_contrato_especializado_id', ids)
+
+    return new Map(docs.map((doc) => [doc.documentoContratoEspecializadoId, doc]))
+  }
+
+  private toSerializedVersion(
+    row: VersionContratoEspecializado,
+    documentById: Map<number, DocumentoContratoEspecializado>
+  ): VersionContratoSerialized {
+    const documento =
+      row.documentoVigenteId !== null ? (documentById.get(row.documentoVigenteId) ?? null) : null
+
     return {
       numeroVersion: row.numero,
       tipoCambio: row.tipoCambio,
@@ -289,6 +345,14 @@ export default class VersionContratoEspecializadoService {
         fechaFin: row.snapshotFechaFin?.toISODate() ?? null,
         anexo15d: row.anexo15dSnapshot,
         documentoVigenteId: row.documentoVigenteId,
+        documentoVigente: documento
+          ? {
+              id: documento.documentoContratoEspecializadoId,
+              nombreArchivo: documento.nombreArchivo,
+              mimeType: documento.mimeType,
+              fechaVencimiento: documento.fechaVencimiento.toISODate()!,
+            }
+          : null,
       },
       creadoPor: row.creadoPor,
       createdAt: row.createdAt.toISO()!,

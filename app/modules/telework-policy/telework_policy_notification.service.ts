@@ -169,14 +169,19 @@ export default class TeleworkPolicyNotificationService {
    * Branding por empresa (tradeName + logo) para el correo. Espejo
    * módulo-local de `complaint_notification_service.resolveBrandingForBusinessUnit`
    * (esa es `private`; no se refactoriza complaint aquí).
+   *
+   * `BusinessUnit` ya compone `withBusinessUnitScope()` sobre su propia
+   * columna `business_unit_id` (su PK). El `where('business_unit_id', ...)`
+   * manual aquí era redundante bajo contexto activo — `TenantContext` en
+   * este flujo siempre resuelve a exactamente esa misma unidad
+   * (`business_unit_scope_middleware.ts`: `TenantContext.run([requestedId], ...)`),
+   * así que el mixin ya acota a la unidad correcta; se retiró
+   * (USRH1784259058567).
    */
   private async resolveBrandingForBusinessUnit(
-    businessUnitId: number
+    _businessUnitId: number
   ): Promise<{ tradeName: string; backgroundImageLogo: string }> {
-    const businessUnit = await BusinessUnit.query()
-      .where('business_unit_id', businessUnitId)
-      .whereNull('business_unit_deleted_at')
-      .first()
+    const businessUnit = await BusinessUnit.query().whereNull('business_unit_deleted_at').first()
 
     const slug = businessUnit?.businessUnitSlug?.trim().toLowerCase() ?? ''
     const settings = await SystemSetting.query()

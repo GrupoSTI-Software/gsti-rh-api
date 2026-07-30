@@ -209,6 +209,13 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
   @column()
   declare employeePhoto: string | null
 
+  /**
+   * Código de verificación del gafete (USRH1784686362321). Se genera de
+   * forma perezosa al primer gafete solicitado; revocar = poner en NULL.
+   */
+  @column()
+  declare employeeBadgeToken: string | null
+
   @column.date()
   declare employeeHireDate: DateTime | null
 

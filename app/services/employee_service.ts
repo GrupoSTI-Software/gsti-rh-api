@@ -3,6 +3,7 @@ import {
   isSensitiveExportPlaceholder,
   SENSITIVE_EXPORT_PLACEHOLDER,
 } from '#constants/sensitive_export_placeholder'
+import { EMPLOYEE_IMPORT_UPLOAD } from '#constants/employee_import_error_codes'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -14,6 +15,10 @@ import User from '#models/user'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
+import type {
+  EmployeeImportResult,
+  EmployeeImportRowError,
+} from '../interfaces/employee_import_result_interface.js'
 import DepartmentService from './department_service.js'
 import PersonService from './person_service.js'
 import PositionService from './position_service.js'
@@ -94,6 +99,15 @@ export interface ApplyWorkScheduleResult {
   code?: EmployeeWorkScheduleErrorCode
   percentage?: number
 }
+
+/**
+ * Cuántos empleados se sincronizan en paralelo por lote contra dispositivos
+ * ZKTeco durante `importFromExcel` (ver `syncCreatedEmployeesToZkDevices`).
+ * Cada sincronización individual puede tardar hasta 10s (timeout de
+ * `Ws.emitZkCreateEmployee`); sin lotes, un archivo de miles de altas
+ * corre esas esperas una por una dentro de una sola petición HTTP.
+ */
+const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
 
 export default class EmployeeService {
 
@@ -585,7 +599,7 @@ export default class EmployeeService {
    *
    * @param rowNumber - Número de fila del Excel (1-based) donde se detectó el intento.
    * @param mode - `'update'` cuando el empleado ya existía; `'create'` cuando es alta nueva.
-   * @returns Cadena bilingüe formateada para el listado `results.errors[]` del importador.
+   * @returns Cadena bilingüe formateada para el listado `warnings[]` del importador.
    */
   private buildHybridFromExcelWarning(rowNumber: number, mode: 'update' | 'create'): string {
     if (mode === 'update') {
@@ -602,6 +616,70 @@ export default class EmployeeService {
       + `· Row ${rowNumber} · The employee was created as Onsite (0%). Hybrid work modality must be configured from the `
       + 'backoffice system after an active shift is assigned: it requires criteria that Excel cannot validate.'
     )
+  }
+
+  private buildEmployeeImportLegacyErrors(
+    rowErrors: EmployeeImportRowError[],
+    warnings: string[]
+  ): string[] {
+    const fromRows = rowErrors.map((item) => `Fila ${item.row}: ${item.message}`)
+    return [...fromRows, ...warnings]
+  }
+
+  private finalizeEmployeeImportResult(params: {
+    totalRows: number
+    processed: number
+    created: number
+    updated: number
+    skipped: number
+    limitReached: boolean
+    rowErrors: EmployeeImportRowError[]
+    warnings: string[]
+  }): EmployeeImportResult {
+    const failed = new Set(params.rowErrors.map((item) => item.row)).size
+    return {
+      summary: {
+        totalRows: params.totalRows,
+        processed: params.processed,
+        created: params.created,
+        updated: params.updated,
+        failed,
+        skipped: params.skipped,
+        limitReached: params.limitReached,
+      },
+      rowErrors: params.rowErrors,
+      warnings: params.warnings,
+      errors: this.buildEmployeeImportLegacyErrors(params.rowErrors, params.warnings),
+    }
+  }
+
+  private collectMissingRequiredImportFields(employeeData: {
+    employeeNumber?: unknown
+    businessUnit?: unknown
+    payrollBusinessUnit?: unknown
+    firstName?: unknown
+    lastName?: unknown
+  }): string[] {
+    const missing: string[] = []
+    if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
+      missing.push('Identificador de nómina')
+    }
+    if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
+      missing.push('Unidad de negocio de trabajo')
+    }
+    if (
+      !employeeData.payrollBusinessUnit ||
+      employeeData.payrollBusinessUnit.toString().trim() === ''
+    ) {
+      missing.push('Unidad de negocio de nómina')
+    }
+    if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
+      missing.push('Nombre del empleado')
+    }
+    if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
+      missing.push('Apellido paterno del empleado')
+    }
+    return missing
   }
 
   async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
@@ -980,6 +1058,7 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('payrollBusinessUnit')
       .preload('spouse')
       .preload('emergencyContact')
       .preload('children')
@@ -1017,6 +1096,7 @@ export default class EmployeeService {
       .preload('position')
       .preload('person')
       .preload('businessUnit')
+      .preload('payrollBusinessUnit')
       .preload('activeEmployeeBranchOffice', (q) => {
         q.preload('branchOffice', (bq) => {
           bq.preload('businessUnit')
@@ -2599,7 +2679,10 @@ export default class EmployeeService {
   /**
    * Import employees from Excel file
    */
-  async importFromExcel(file: any, allowedBusinessUnitIds: number[] = []) {
+  async importFromExcel(
+    file: any,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<EmployeeImportResult> {
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -2662,23 +2745,41 @@ export default class EmployeeService {
         emp.employeeCode.toString()
       )
 
+      // Índice O(1) por ID para `findExistingEmployeeForImport`: se llama una
+      // vez por fila (hasta dos veces si hay reintento por límite alcanzado),
+      // así que un `.find()` lineal sobre `existingEmployees` degrada a
+      // O(filas × empleados existentes) — costoso desde unos pocos miles de
+      // filas. Se construye una sola vez antes de procesar el archivo.
+      const existingEmployeesById = new Map<number, Employee>(
+        existingEmployees.map((emp) => [emp.employeeId, emp])
+      )
+
       // Verificar límite de empleados (se verificará por unidad de negocio individual)
 
-      const results = {
-        totalRows: 0,
-        processed: 0,
-        created: 0,
-        updated: 0,
-        skipped: 0,
-        limitReached: false,
-        errors: [] as string[]
-      }
+      let totalRows = 0
+      let processed = 0
+      let created = 0
+      let updated = 0
+      let skipped = 0
+      let limitReached = false
+      const rowErrors: EmployeeImportRowError[] = []
+      const warnings: string[] = []
 
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
         if (rowNumber <= headerRowNumber) return
         rows.push({ row, rowNumber })
       })
+
+      // Tope de filas por archivo: por encima de este número, el
+      // procesamiento secuencial (queries por fila + sincronización ZKTeco
+      // en lotes) arriesga superar el timeout del proxy/gateway delante de
+      // esta API dentro de una sola petición HTTP. Se corta ANTES de
+      // procesar ninguna fila. Ver `EMPLOYEE_IMPORT_UPLOAD.maxDataRows`
+      // (único valor a cambiar para ajustar el tope).
+      if (rows.length > EMPLOYEE_IMPORT_UPLOAD.maxDataRows) {
+        throw this.createRowLimitValidationError(rows.length)
+      }
 
       // Encabezados requeridos para validación
       const requiredHeaders = [
@@ -2711,71 +2812,51 @@ export default class EmployeeService {
         )
       }
 
-      // Primero, validar que TODOS los registros tengan los campos requeridos
-      // Si falta alguno, invalidar todo el archivo
-      for (const { row, rowNumber } of rows) {
-        const employeeData = this.extractEmployeeDataFromRow(row, headers)
-
-        // Validar campos requeridos
-        const requiredFieldsErrors: string[] = []
-
-        if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
-          requiredFieldsErrors.push('Identificador de nómina')
-        }
-        if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
-          requiredFieldsErrors.push('Unidad de negocio de trabajo')
-        }
-        if (!employeeData.payrollBusinessUnit || employeeData.payrollBusinessUnit.toString().trim() === '') {
-          requiredFieldsErrors.push('Unidad de negocio de nómina')
-        }
-        if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
-          requiredFieldsErrors.push('Nombre del empleado')
-        }
-        if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
-          requiredFieldsErrors.push('Apellido paterno del empleado')
-        }
-
-        // Si falta algún campo requerido, invalidar todo el archivo inmediatamente
-        if (requiredFieldsErrors.length > 0) {
-          throw this.createHeaderValidationError(
-            'El archivo Excel contiene registros con campos requeridos faltantes. ' +
-            `Fila ${rowNumber} falta: ${requiredFieldsErrors.join(', ')}. ` +
-            'Todos los registros deben tener los campos requeridos completos.'
-          )
-        }
-      }
-
-      // Si llegamos aquí, todos los registros tienen los campos requeridos
-      // Ahora procesar todas las filas para validar y contar empleados nuevos
+      // Procesar filas: errores por fila no abortan el archivo completo
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
       for (const { row, rowNumber } of rows) {
-        results.totalRows++
+        totalRows++
 
         try {
           const employeeData = this.extractEmployeeDataFromRow(row, headers)
 
+          const missingRequiredFields = this.collectMissingRequiredImportFields(employeeData)
+          if (missingRequiredFields.length > 0) {
+            skipped++
+            for (const field of missingRequiredFields) {
+              rowErrors.push({ row: rowNumber, field, message: 'Falta el campo obligatorio' })
+            }
+            continue
+          }
+
           // Validar que los datos básicos estén presentes
           if (!employeeData.firstName && !employeeData.lastName) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: Fila vacía o sin datos de empleado`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'Fila vacía o sin datos de empleado' })
             continue
           }
 
           // Validar datos del empleado
           const employeeValidation = this.validateEmployeeData(employeeData)
           if (!employeeValidation.isValid) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${employeeValidation.errors.join(', ')}`)
+            skipped++
+            rowErrors.push({
+              row: rowNumber,
+              message: employeeValidation.errors.join(', '),
+            })
             continue
           }
 
           // Validar datos de la persona
           const personValidation = this.validatePersonData(employeeData)
           if (!personValidation.isValid) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${personValidation.errors.join(', ')}`)
+            skipped++
+            rowErrors.push({
+              row: rowNumber,
+              message: personValidation.errors.join(', '),
+            })
             continue
           }
 
@@ -2799,21 +2880,24 @@ export default class EmployeeService {
           const finalPayrollBusinessUnitId = payrollBusinessUnitId || businessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
 
           if (finalBusinessUnitId === null) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: No se pudo determinar la unidad de negocio`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'No se pudo determinar la unidad de negocio' })
             continue
           }
 
           // Referencia principal: ID de empleado (columna oculta). Con ID = actualizar; sin ID = crear.
           const hasEmployeeId = employeeData.employeeId && Number(employeeData.employeeId) > 0
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
 
           if (hasEmployeeId) {
             if (existingEmployee) {
               validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: true })
             } else {
-              results.skipped++
-              results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeData.employeeId} no encontrado`)
+              skipped++
+              rowErrors.push({
+                row: rowNumber,
+                message: `Empleado con ID ${employeeData.employeeId} no encontrado`,
+              })
             }
           } else {
             newEmployeesCount++
@@ -2821,8 +2905,8 @@ export default class EmployeeService {
           }
 
         } catch (error: any) {
-          results.skipped++
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          skipped++
+          rowErrors.push({ row: rowNumber, message: error.message })
         }
       }
 
@@ -2839,32 +2923,36 @@ export default class EmployeeService {
           const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
 
           if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
-            results.limitReached = true
-            results.errors.push(`Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`)
+            limitReached = true
+            warnings.push(
+              `Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`
+            )
           }
         }
       }
 
       // Si se alcanzó el límite, no procesar más empleados nuevos
-      if (results.limitReached) {
+      if (limitReached) {
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           if (!isUpdate) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+            skipped++
+            warnings.push(
+              `Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`
+            )
             continue
           }
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
           if (!existingEmployee) continue
           try {
             await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
             if (employeeData.employeeWorkScheduleHybridAttempt) {
-              results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
             }
-            results.updated++
-            results.processed++
+            updated++
+            processed++
           } catch (error: any) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: error.message })
           }
         }
       } else {
@@ -2873,14 +2961,14 @@ export default class EmployeeService {
         for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           try {
             if (isUpdate) {
-              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
               if (existingEmployee) {
                 await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
                 if (employeeData.employeeWorkScheduleHybridAttempt) {
-                  results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+                  warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
                 }
-                results.updated++
-                results.processed++
+                updated++
+                processed++
               }
               continue
             }
@@ -2889,8 +2977,8 @@ export default class EmployeeService {
             if (this.hasImportCellValue(employeeData.curp)) {
               const curpExists = await this.personWithCurpExists(employeeData.curp)
               if (curpExists) {
-                results.skipped++
-                results.errors.push(`Fila ${rowNumber}: CURP duplicado - ${employeeData.curp?.toString().trim()}`)
+                skipped++
+                rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
                 continue
               }
             }
@@ -2909,42 +2997,28 @@ export default class EmployeeService {
             if (employeeData.employeeWorkScheduleHybridAttempt) {
               // El empleado nuevo queda con Onsite (default de `createEmployee`).
               // Se avisa a RH para que ajuste la modalidad desde el sistema.
-              results.errors.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
             }
             await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
             await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
 
-            // Sincronizar con dispositivo ZKTeco
-            if (newEmployee) {
-              try {
-                const response: any = await Ws.emitZkCreateEmployee(undefined, {
-                  name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
-                  card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
-                  privilege: 0,
-                  device_sn: 'SYZ8252101326,SYZ8252101498',
-                  online_emp_id: newEmployee.employeeId
-                }, 10000)
-
-                if (response && response.success) {
-                  newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
-                  await newEmployee.save()
-                  await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
-                }
-                // eslint-disable-next-line no-console
-                console.log('Respuesta del dispositivo ZKTeco:', response)
-              } catch (error: any) {
-                // eslint-disable-next-line no-console
-                console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
-              }
-            }
-
             createdEmployees.push(newEmployee)
-            results.created++
-            results.processed++
+            created++
+            processed++
           } catch (error: any) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: error.message })
           }
+        }
+
+        // Sincronizar con dispositivos ZKTeco: se corre DESPUÉS del loop de
+        // creación (no dentro), en lotes de concurrencia acotada — antes era
+        // un `await` secuencial por fila con hasta 10s de timeout cada uno,
+        // lo que en un archivo de miles de altas podía tomar horas dentro de
+        // una sola petición HTTP. Una falla de sincronización individual no
+        // aborta el import (mismo comportamiento de antes, ver `syncEmployeeToZkDevice`).
+        if (createdEmployees.length > 0) {
+          await this.syncCreatedEmployeesToZkDevices(createdEmployees)
         }
 
         // Enviar empleados creados a la API de biométricos
@@ -2952,19 +3026,30 @@ export default class EmployeeService {
           try {
             const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
             if (!biometricResult.success) {
-              results.errors.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
+              warnings.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
             }
           } catch (error: any) {
-            results.errors.push(`Error al sincronizar con biométricos: ${error.message}`)
+            warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
           }
         }
       }
 
-      return results
+      return this.finalizeEmployeeImportResult({
+        totalRows,
+        processed,
+        created,
+        updated,
+        skipped,
+        limitReached,
+        rowErrors,
+        warnings,
+      })
 
     } catch (error: any) {
-      // Si es un error de validación de cabeceras, propagarlo tal cual
-      if (error.isHeaderValidationError) {
+      // Errores de validación (cabeceras inválidas o tope de filas) se
+      // propagan tal cual — ya traen `statusCode`/mensaje listos para el
+      // controlador, no son fallos internos que deban enmascararse.
+      if (error.isHeaderValidationError || error.isRowLimitError) {
         throw error
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
@@ -2972,17 +3057,65 @@ export default class EmployeeService {
   }
 
   /**
-   * Buscar empleado existente para importación solo por ID (columna oculta).
+   * Buscar empleado existente para importación solo por ID (columna oculta `ID Empleado`).
+   * Decisión de negocio: actualización únicamente con identificador interno; sin ID siempre es alta nueva.
    * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
+   * Recibe el índice `Map` (O(1)) ya construido, no el arreglo — ver nota en `importFromExcel`.
    */
-  private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
+  private findExistingEmployeeForImport(employeeData: any, existingEmployeesById: Map<number, any>): any {
     if (employeeData.employeeId) {
       const id = Number(employeeData.employeeId)
       if (!Number.isNaN(id) && id > 0) {
-        return existingEmployees.find((emp) => emp.employeeId === id) ?? null
+        return existingEmployeesById.get(id) ?? null
       }
     }
     return null
+  }
+
+  /**
+   * Sincroniza empleados recién creados con los dispositivos ZKTeco en
+   * lotes de concurrencia acotada (`EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY`),
+   * en vez de uno por uno. Pensado para `importFromExcel`: con miles de
+   * altas, un `await` secuencial por empleado (hasta 10s de timeout cada
+   * uno, ver `syncEmployeeToZkDevice`) escala a horas dentro de una sola
+   * petición HTTP; en lotes paralelos, el tiempo total se divide entre la
+   * concurrencia configurada.
+   */
+  private async syncCreatedEmployeesToZkDevices(employees: Employee[]): Promise<void> {
+    for (let i = 0; i < employees.length; i += EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY) {
+      const batch = employees.slice(i, i + EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY)
+      await Promise.all(batch.map((employee) => this.syncEmployeeToZkDevice(employee)))
+    }
+  }
+
+  /**
+   * Sincroniza un empleado con el dispositivo ZKTeco. Nunca lanza: una
+   * falla de sincronización (dispositivo no conectado, timeout, etc.) se
+   * registra con `console.warn` y no debe abortar el import ni afectar a
+   * los demás empleados del lote (mismo comportamiento que tenía este
+   * bloque cuando vivía dentro del loop de creación de `importFromExcel`).
+   */
+  private async syncEmployeeToZkDevice(newEmployee: Employee): Promise<void> {
+    try {
+      const response: any = await Ws.emitZkCreateEmployee(undefined, {
+        name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+        card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+        privilege: 0,
+        device_sn: 'SYZ8252101326,SYZ8252101498',
+        online_emp_id: newEmployee.employeeId
+      }, 10000)
+
+      if (response && response.success) {
+        newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
+        await newEmployee.save()
+        await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
+      }
+      // eslint-disable-next-line no-console
+      console.log('Respuesta del dispositivo ZKTeco:', response)
+    } catch (error: any) {
+      // eslint-disable-next-line no-console
+      console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+    }
   }
 
   /**
@@ -3004,6 +3137,22 @@ export default class EmployeeService {
   private createHeaderValidationError(message: string): Error {
     const error = new Error(message)
     ;(error as any).isHeaderValidationError = true
+    ;(error as any).statusCode = 400
+    return error
+  }
+
+  /**
+   * Error cuando el archivo trae más filas de datos que
+   * `EMPLOYEE_IMPORT_UPLOAD.maxDataRows`. El mensaje interpola el tope y el
+   * conteo real vigentes (no hay número duplicado en otro archivo); el
+   * `resolveEmployeeImportApiError` del controlador prioriza este mensaje
+   * sobre el fallback i18n genérico.
+   */
+  private createRowLimitValidationError(rowCount: number): Error {
+    const error = new Error(
+      `El archivo tiene ${rowCount} filas de datos, por encima del máximo permitido (${EMPLOYEE_IMPORT_UPLOAD.maxDataRows}). Divide el archivo en lotes más pequeños.`
+    )
+    ;(error as any).isRowLimitError = true
     ;(error as any).statusCode = 400
     return error
   }

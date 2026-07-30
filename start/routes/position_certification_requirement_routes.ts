@@ -18,3 +18,4 @@ router
   })
   .prefix('/api/positions')
   .use(middleware.auth())
+  .use(middleware.businessScope())

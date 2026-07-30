@@ -8,3 +8,4 @@ router
   })
   .prefix('/api/position-approval-histories')
   .use(middleware.auth())
+  .use(middleware.businessScope())
