@@ -2318,10 +2318,22 @@ export default class EmployeeService {
     usersResponsible: User[],
     trx?: TransactionClientContract
   ) {
+    if (usersResponsible.length === 0) {
+      return
+    }
+    // Bajo transacción, el hook beforeCreate de UserResponsibleEmployee no
+    // vería al empleado recién creado (consulta fuera del trx): la BU se
+    // resuelve aquí desde el padre leído con el mismo cliente.
+    const employee = await Employee.query({ client: trx })
+      .where('employee_id', employeeId)
+      .first()
     for await (const user of usersResponsible) {
       const userResponsibleEmployee = new UserResponsibleEmployee
       userResponsibleEmployee.userId = user.userId
       userResponsibleEmployee.employeeId = employeeId
+      if (employee) {
+        userResponsibleEmployee.businessUnitId = employee.businessUnitId
+      }
       if (user.role.roleSlug === 'nominas') {
         userResponsibleEmployee.userResponsibleEmployeeReadonly = 1
       }

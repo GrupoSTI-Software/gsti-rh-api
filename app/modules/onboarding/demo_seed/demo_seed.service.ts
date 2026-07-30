@@ -80,6 +80,7 @@ export default class DemoSeedService {
       const entities = await this.repository.createSeededPackage(
         {
           onboardingUserStateId: state.onboardingUserStateId,
+          adminUserId: userId,
           businessUnitId,
           businessUnitSlug: businessUnit.businessUnitSlug,
           demoEmail,

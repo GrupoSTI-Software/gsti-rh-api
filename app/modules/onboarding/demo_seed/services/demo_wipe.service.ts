@@ -29,6 +29,7 @@ import ShiftException from '#models/shift_exception'
 import ShiftExceptionEvidence from '#models/shift_exception_evidence'
 import User from '#models/user'
 import UserFcmToken from '#models/user_fcm_token'
+import UserResponsibleEmployee from '#models/user_responsible_employee'
 import UploadService from '#services/upload_service'
 import Ws from '#services/ws'
 import type { OnboardingSeededEntityType } from '#modules/onboarding/onboarding.constants'
@@ -56,6 +57,7 @@ export interface WipeCounts {
   employeeProceedingFiles: number
   employeeVacationArchives: number
   employeeDevices: number
+  userResponsibleEmployees: number
   apiTokens: number
   userFcmTokens: number
   businessUnitUsers: number
@@ -270,6 +272,13 @@ export default class DemoWipeService {
         // para ligarse a un empleado real después.
         counts.employeeDevices += await this.hardDeleteCount(
           EmployeeDevice.query({ client: trx }).where('employee_id', demoEmployeeId).delete()
+        )
+        // Responsables del empleado demo (el admin que sembró, y cualquier
+        // asignación hecha durante el tour).
+        counts.userResponsibleEmployees += await this.hardDeleteCount(
+          UserResponsibleEmployee.query({ client: trx })
+            .where('employee_id', demoEmployeeId)
+            .delete()
         )
         counts.employeeShifts += await this.hardDeleteCount(
           EmployeeShift.query({ client: trx }).where('employee_id', demoEmployeeId).delete()
@@ -527,6 +536,7 @@ export default class DemoWipeService {
       employeeProceedingFiles: 0,
       employeeVacationArchives: 0,
       employeeDevices: 0,
+      userResponsibleEmployees: 0,
       apiTokens: 0,
       userFcmTokens: 0,
       businessUnitUsers: 0,

@@ -51,6 +51,7 @@ export const ONBOARDING_SEEDED_ENTITY_TYPES = [
   'person',
   'employee',
   'user',
+  'user_responsible_employee',
   'shift',
   'employee_shift',
   'assist',

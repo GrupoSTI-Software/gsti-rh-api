@@ -138,7 +138,7 @@ test.group('EmployeeService.create — alta todo-o-nada (USRH1785436961832)', ()
     assert.isNull(personRow.person_deleted_at)
   })
 
-  test('el alta válida se conserva: empleado creado con slug y persona intacta', async ({
+  test('el alta válida se conserva: empleado creado con slug, responsable y persona intacta', async ({
     assert,
     cleanup,
   }) => {
@@ -148,13 +148,32 @@ test.group('EmployeeService.create — alta todo-o-nada (USRH1785436961832)', ()
     const template = await getTemplateEmployee()
     const payload = buildEmployeePayload(template, person, 'ok')
 
+    // Responsable real dentro de la transacción: cubre el hook beforeCreate de
+    // user_responsible_employee, que no ve al empleado no commiteado y exige
+    // la BU estampada desde el padre (regresión detectada en la siembra demo).
+    const responsibleUser = await User.query()
+      .whereNull('user_deleted_at')
+      .preload('role')
+      .firstOrFail()
+
     const service = getService()
-    const created = await service.create(payload, [])
+    const created = await service.create(payload, [responsibleUser])
     cleanup(async () => {
+      await db
+        .from('user_responsible_employees')
+        .where('employee_id', created.employeeId)
+        .delete()
       await db.from('employees').where('employee_id', created.employeeId).delete()
     })
 
     assert.isTrue(created.employeeId > 0)
+
+    const responsibleRows = await db
+      .from('user_responsible_employees')
+      .where('employee_id', created.employeeId)
+      .where('user_id', responsibleUser.userId)
+      .count('* as total')
+    assert.equal(Number(responsibleRows[0].total), 1)
 
     // El slug se persistió dentro de la misma transacción del alta.
     const employeeRow = await db

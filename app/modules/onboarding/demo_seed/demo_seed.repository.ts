@@ -10,6 +10,8 @@ import type User from '#models/user'
 /** Insumos de la creación del paquete demo (todo bajo la transacción del seed). */
 export interface CreateSeededPackageInput {
   onboardingUserStateId: number
+  /** Admin que siembra: queda como responsable del empleado demo para poder verlo. */
+  adminUserId: number
   businessUnitId: number
   businessUnitSlug: string
   demoEmail: string

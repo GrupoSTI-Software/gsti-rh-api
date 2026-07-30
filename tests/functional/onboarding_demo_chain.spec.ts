@@ -7,6 +7,7 @@ import OnboardingError from '#exceptions/onboarding_error'
 import OnboardingUserState from '#models/onboarding_user_state'
 import Person from '#models/person'
 import User from '#models/user'
+import EmployeeService from '#services/employee_service'
 import DemoSeedService from '#modules/onboarding/demo_seed/demo_seed.service'
 import DemoWipeService from '#modules/onboarding/demo_seed/services/demo_wipe.service'
 
@@ -50,13 +51,27 @@ async function removeAdminUser(userId: number, personId: number): Promise<void> 
   await db.from('people').where('person_id', personId).delete()
 }
 
-async function countDemoLeftovers(employeeId: number, userId: number) {
+/**
+ * Conteos acotados a LA SIEMBRA DEL TEST (por código de empleado y estado del
+ * admin de prueba): la BD de desarrollo es compartida y puede tener siembras
+ * demo vivas de otros usuarios que este spec no debe contar ni tocar.
+ */
+async function countDemoLeftovers(
+  employeeId: number,
+  employeeCode: string,
+  demoUserId: number,
+  adminUserId: number
+) {
+  const state = await OnboardingUserState.query().where('user_id', adminUserId).first()
   const [employees, assists, exceptions, users, states] = await Promise.all([
     db.from('employees').where('employee_id', employeeId).count('* as total'),
-    db.from('assists').where('assist_emp_code', 'like', 'DEMO-%').count('* as total'),
+    db.from('assists').where('assist_emp_code', employeeCode).count('* as total'),
     db.from('shift_exceptions').where('employee_id', employeeId).count('* as total'),
-    db.from('users').where('user_id', userId).count('* as total'),
-    db.from('onboarding_seeded_records').count('* as total'),
+    db.from('users').where('user_id', demoUserId).count('* as total'),
+    db
+      .from('onboarding_seeded_records')
+      .where('onboarding_user_state_id', state?.onboardingUserStateId ?? 0)
+      .count('* as total'),
   ])
   return {
     employees: Number(employees[0].total),
@@ -71,6 +86,7 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
   let adminUserId = 0
   let adminPersonId = 0
   let firstEmployeeId = 0
+  let firstEmployeeCode = ''
   let firstDemoUserId = 0
 
   group.setup(async () => {
@@ -90,6 +106,7 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
   }) => {
     const { result, created } = await seedService().seed(adminUserId, BUSINESS_UNIT_ID)
     firstEmployeeId = result.package.employee.employeeId
+    firstEmployeeCode = result.package.employee.employeeCode
 
     assert.isTrue(created)
     assert.isFalse(result.alreadySeeded)
@@ -118,6 +135,14 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
       (row) => row.onboarding_seeded_record_entity_type === 'user'
     )
     firstDemoUserId = Number(demoUserRecord?.onboarding_seeded_record_entity_id ?? 0)
+
+    // El admin (no-root) VE al empleado demo: getById filtra por responsables
+    // (user_responsible_employee) — sin el vínculo, el tour del BO moría en
+    // 404 al abrir el monitor del empleado de práctica.
+    const visible = await new EmployeeService(
+      i18nManager.locale(i18nManager.defaultLocale)
+    ).getById(firstEmployeeId, adminUserId)
+    assert.isNotNull(visible)
 
     // La persona demo no lleva RFC/CURP/NSS (regla 8).
     const personRecord = records.find(
@@ -193,7 +218,12 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
       assert.equal((error as OnboardingError).key, 'siembra-demo-unidad-invalida')
     }
 
-    const leftovers = await countDemoLeftovers(firstEmployeeId, firstDemoUserId)
+    const leftovers = await countDemoLeftovers(
+      firstEmployeeId,
+      firstEmployeeCode,
+      firstDemoUserId,
+      adminUserId
+    )
     assert.equal(leftovers.employees, 1)
     assert.equal(leftovers.users, 1)
   })
@@ -210,6 +240,7 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
     assert.isFalse(result.alreadyWiped)
     assert.equal(result.wiped.employees, 1)
     assert.equal(result.wiped.users, 1)
+    assert.equal(result.wiped.userResponsibleEmployees, 1)
     assert.equal(result.wiped.people, 1)
     assert.equal(result.wiped.departments, 1)
     assert.equal(result.wiped.positions, 1)
@@ -217,7 +248,12 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
     assert.isTrue(result.wiped.assists >= 8)
     assert.equal(result.wiped.shiftExceptions, 2)
 
-    const leftovers = await countDemoLeftovers(firstEmployeeId, firstDemoUserId)
+    const leftovers = await countDemoLeftovers(
+      firstEmployeeId,
+      firstEmployeeCode,
+      firstDemoUserId,
+      adminUserId
+    )
     assert.equal(leftovers.employees, 0)
     assert.equal(leftovers.assists, 0)
     assert.equal(leftovers.exceptions, 0)
@@ -275,7 +311,9 @@ test.group('Onboarding demo — cadena siembra/limpieza/purga', (group) => {
 
     const leftovers = await countDemoLeftovers(
       fresh.result.package.employee.employeeId,
-      firstDemoUserId
+      fresh.result.package.employee.employeeCode,
+      firstDemoUserId,
+      adminUserId
     )
     assert.equal(leftovers.employees, 0)
     assert.equal(leftovers.trackedRecords, 0)

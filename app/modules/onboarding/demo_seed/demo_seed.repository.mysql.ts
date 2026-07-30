@@ -14,6 +14,7 @@ import Position from '#models/position'
 import Shift from '#models/shift'
 import ShiftException from '#models/shift_exception'
 import User from '#models/user'
+import UserResponsibleEmployee from '#models/user_responsible_employee'
 import VacationSetting from '#models/vacation_setting'
 import EmployeeService from '#services/employee_service'
 import PersonService from '#services/person_service'
@@ -185,6 +186,23 @@ export default class DemoSeedRepositoryMysql implements DemoSeedRepository {
     const employeeService = new EmployeeService(this.i18n)
     await employeeService.updateEmployeeSlug(employee, trx)
     tracked.push({ type: 'employee', id: employee.employeeId })
+
+    // El admin que siembra queda como responsable del empleado demo: sin este
+    // vínculo, los usuarios no-root (el owner) no lo ven en el módulo de
+    // empleados ni en el monitor (EmployeeService.getById filtra por
+    // user_responsible_employee) y el tour muere en 404.
+    const responsible = new UserResponsibleEmployee()
+    responsible.userId = input.adminUserId
+    responsible.employeeId = employee.employeeId
+    // BU estampada aquí: el hook beforeCreate la resolvería consultando al
+    // empleado FUERA de la transacción y no vería la fila recién creada.
+    responsible.businessUnitId = input.businessUnitId
+    responsible.useTransaction(trx)
+    await responsible.save()
+    tracked.push({
+      type: 'user_responsible_employee',
+      id: responsible.userResponsibleEmployeeId,
+    })
 
     // 4. Usuario demo para la app del empleado (rol de sistema `empleado`,
     //    JAMÁS root; UserService.create hace el attach de business_unit_users
