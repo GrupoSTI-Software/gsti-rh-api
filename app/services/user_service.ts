@@ -767,6 +767,18 @@ export default class UserService {
         .whereNull('employee_type_deleted_at')
         .first()
 
+      if (!employeeType) {
+        return {
+          status: 404,
+          type: 'error',
+          title: 'Tipo de empleado no encontrado',
+          detail:
+            'No existe el tipo de empleado global con slug "employee" en el catálogo del sistema.',
+          key: 'employee-type-default-not-found',
+          data: null,
+        }
+      }
+
       let shift = await Shift.query()
         .where('shift_name', '08:00 to 17:00 - Rest (Sat, Sun)')
         .whereNull('shift_deleted_at')
@@ -856,7 +868,7 @@ export default class UserService {
         employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
         employee.departmentSyncId = 0
         employee.positionSyncId = 0
-        employee.employeeTypeId = employeeType?.employeeTypeId || 1
+        employee.employeeTypeId = employeeType.employeeTypeId
         await employee.save()
 
         const employeeShift = new EmployeeShift()

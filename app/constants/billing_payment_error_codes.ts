@@ -7,6 +7,8 @@ export const BILLING_PAYMENT_ERROR_CODES = {
   VAL_INPUT: 'PLT.PAY.VAL_INPUT',
   /** Suscripción no encontrada o fuera del guard */
   SUBSCRIPTION_NOT_FOUND: 'PLT.PAY.SUBSCRIPTION_NOT_FOUND',
+  /** Pago no encontrado o sin comprobante asociado */
+  NOT_FOUND: 'PLT.PAY.NOT_FOUND',
   /** La suscripción está cancelada y no admite pagos */
   SUBSCRIPTION_CANCELED: 'PLT.PAY.SUBSCRIPTION_CANCELED',
   /** Monto inválido (≤ 0 o fuera de cotas razonables) */

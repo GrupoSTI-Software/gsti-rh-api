@@ -1,10 +1,64 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import BillingPaymentService from '#services/billing_payment_service'
-import { registerBillingPaymentValidator } from '#validators/billing_payment'
+import { listBillingPaymentsValidator, registerBillingPaymentValidator } from '#validators/billing_payment'
 import { resolveBillingPaymentApiError } from '../helpers/billing_payment_api_error.js'
 
 export default class BillingPaymentController {
   private readonly service = new BillingPaymentService()
+
+  /**
+   * @index
+   * @summary Histórico de pagos de una suscripción
+   * @description Devuelve el histórico paginado de pagos de una suscripción,\
+   *   ordenado por fecha de pago descendente. Solo lectura.\
+   *   La respuesta nunca incluye la URL pública del comprobante:\
+   *   usa el endpoint de descarga para obtener el enlace temporal firmado.
+   * @tag Billing · Payments
+   * @operationId listBillingPayments
+   * @security [{"bearerAuth": []}]
+   * @paramPath subscriptionId - ID interno de la suscripción - integer
+   * @paramQuery page - Página (default 1) - integer
+   * @paramQuery limit - Resultados por página, máx 100 (default 20) - integer
+   * @responseBody 200 - {"type": "success", "data": [], "meta": {"total": 0, "page": 1, "limit": 20, "lastPage": 1}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_NOT_FOUND"}
+   */
+  async index({ params, request, response }: HttpContext) {
+    try {
+      const { page, limit } = await request.validateUsing(listBillingPaymentsValidator)
+      const result = await this.service.listPayments(
+        Number(params.subscriptionId),
+        page ?? 1,
+        limit ?? 20
+      )
+      return response.status(200).json({ type: 'success', ...result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingPaymentApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @download
+   * @summary Enlace de descarga del comprobante
+   * @description Genera un enlace temporal firmado para descargar el comprobante\
+   *   de un pago. El enlace caduca en 24 horas y nunca es una URL pública.\
+   *   El comprobante se obtuvo de forma privada al registrar el pago (04-03).
+   * @tag Billing · Payments
+   * @operationId downloadBillingPaymentReceipt
+   * @security [{"bearerAuth": []}]
+   * @paramPath paymentId - ID interno del pago - integer
+   * @responseBody 200 - {"type": "success", "data": {"url": "https://...", "expiresIn": 86400}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.NOT_FOUND"}
+   */
+  async download({ params, response }: HttpContext) {
+    try {
+      const result = await this.service.getDownloadUrl(Number(params.paymentId))
+      return response.status(200).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingPaymentApiError(error)
+      return response.status(status).json(body)
+    }
+  }
 
   /**
    * @store

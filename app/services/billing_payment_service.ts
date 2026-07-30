@@ -32,6 +32,17 @@ export interface ReceiptFile {
   headers: { 'content-type'?: string }
 }
 
+export interface PaymentListItem {
+  billingPaymentId: number
+  amountCents: number
+  method: BillingPaymentMethod
+  reference: string | null
+  paidAt: string
+  periodStart: string
+  periodEnd: string
+  receiptAvailable: boolean
+}
+
 export interface RegisterPaymentResult {
   billingPaymentId: number
   billingSubscriptionId: number
@@ -228,6 +239,112 @@ export default class BillingPaymentService {
         'comprobante-muy-grande',
         `El comprobante no puede superar ${RECEIPT_MAX_BYTES / 1024 / 1024} MB.`
       )
+    }
+  }
+
+  // ─── Listado de pagos (histórico) ────────────────────────────────────────
+
+  /**
+   * Devuelve el histórico paginado de pagos de una suscripción,
+   * ordenado por fecha de pago descendente.
+   *
+   * @throws {BillingPaymentServiceError} si la suscripción no existe.
+   */
+  async listPayments(
+    subscriptionId: number,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<{
+    data: PaymentListItem[]
+    meta: { total: number; page: number; limit: number; lastPage: number }
+  }> {
+    const subscription = await BillingSubscription.query()
+      .where('billingSubscriptionId', subscriptionId)
+      .whereNull('billing_subscription_deleted_at')
+      .first()
+
+    if (!subscription) {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscriptionId} no encontrada`,
+        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_NOT_FOUND,
+        404,
+        'suscripcion-no-encontrada',
+        'La suscripción solicitada no existe.'
+      )
+    }
+
+    const paginated = await BillingPayment.query()
+      .where('billingSubscriptionId', subscriptionId)
+      .orderBy('billingPaymentPaidAt', 'desc')
+      .paginate(page, limit)
+
+    const json = paginated.toJSON()
+
+    return {
+      data: (json.data as BillingPayment[]).map((p) => this.toListItem(p)),
+      meta: {
+        total: json.meta.total,
+        page: json.meta.currentPage,
+        limit: json.meta.perPage,
+        lastPage: json.meta.lastPage,
+      },
+    }
+  }
+
+  // ─── Descarga firmada del comprobante ─────────────────────────────────────
+
+  /**
+   * Genera un enlace temporal firmado para descargar el comprobante de un pago.
+   * La URL caduca en 24 horas (valor por defecto de `getDownloadLink`).
+   *
+   * @throws {BillingPaymentServiceError} si el pago no existe o no tiene comprobante.
+   */
+  async getDownloadUrl(paymentId: number): Promise<{ url: string; expiresIn: number }> {
+    const payment = await BillingPayment.find(paymentId)
+
+    if (!payment?.billingPaymentReceiptPath) {
+      throw new BillingPaymentServiceError(
+        `Pago ${paymentId} no encontrado o sin comprobante`,
+        BILLING_PAYMENT_ERROR_CODES.NOT_FOUND,
+        404,
+        'pago-no-encontrado',
+        'No existe un pago con comprobante para el identificador indicado.'
+      )
+    }
+
+    const uploadService = new UploadService()
+    const expireSeconds = 60 * 60 * 24
+    const result = await uploadService.getDownloadLink(
+      payment.billingPaymentReceiptPath,
+      expireSeconds
+    )
+
+    // getDownloadLink devuelve string en éxito u objeto {status,...} en error
+    if (typeof result !== 'string') {
+      throw new BillingPaymentServiceError(
+        `No se pudo generar el enlace de descarga para el pago ${paymentId}`,
+        BILLING_PAYMENT_ERROR_CODES.NOT_FOUND,
+        404,
+        'pago-no-encontrado',
+        'No fue posible generar el enlace de descarga del comprobante.'
+      )
+    }
+
+    return { url: result, expiresIn: expireSeconds }
+  }
+
+  // ─── Serialización del listado ────────────────────────────────────────────
+
+  private toListItem(payment: BillingPayment): PaymentListItem {
+    return {
+      billingPaymentId: payment.billingPaymentId,
+      amountCents: payment.billingPaymentAmountCents,
+      method: payment.billingPaymentMethod,
+      reference: payment.billingPaymentReference,
+      paidAt: (payment.billingPaymentPaidAt as DateTime).toISO()!,
+      periodStart: (payment.billingPaymentPeriodStart as DateTime).toISODate()!,
+      periodEnd: (payment.billingPaymentPeriodEnd as DateTime).toISODate()!,
+      receiptAvailable: !!payment.billingPaymentReceiptPath,
     }
   }
 
