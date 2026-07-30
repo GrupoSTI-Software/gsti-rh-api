@@ -35,6 +35,18 @@ export default class OnboardingUserState extends BaseModel {
   @column.dateTime({ columnName: 'completed_at' })
   declare completedAt: DateTime | null
 
+  /**
+   * Marcas de la siembra demo (USRH1785438246847). Siembra activa :=
+   * demoSeededAt NOT NULL y demoCleanedAt NULL. La limpieza
+   * (USRH1785438246903) marca demoCleanedAt; una re-siembra posterior
+   * resetea ambas.
+   */
+  @column.dateTime({ columnName: 'onboarding_user_state_demo_seeded_at' })
+  declare demoSeededAt: DateTime | null
+
+  @column.dateTime({ columnName: 'onboarding_user_state_demo_cleaned_at' })
+  declare demoCleanedAt: DateTime | null
+
   @column.dateTime({ autoCreate: true, columnName: 'onboarding_user_state_created_at' })
   declare onboardingUserStateCreatedAt: DateTime
 

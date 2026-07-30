@@ -991,7 +991,11 @@ export default class EmployeeService {
     return currentEmployee
   }
 
-  private async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
+  /**
+   * Público desde USRH1785438246847: la siembra demo del onboarding lo reusa
+   * para poblar el slug del empleado de práctica dentro de su transacción.
+   */
+  async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
     if (!employee.employeeId) {
       return
     }

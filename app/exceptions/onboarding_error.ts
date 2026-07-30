@@ -7,6 +7,9 @@ export type OnboardingErrorKey =
   | 'intencion-de-onboarding-invalida'
   | 'paso-de-onboarding-no-omitible'
   | 'status-de-onboarding-invalido'
+  | 'siembra-demo-no-encontrada'
+  | 'siembra-demo-unidad-invalida'
+  | 'siembra-demo-limite-empleados'
 
 export default class OnboardingError extends Error {
   readonly key: OnboardingErrorKey
