@@ -22,6 +22,17 @@ import ShiftExceptionService from './shift_exception_service.js'
 import VacationSetting from '#models/vacation_setting'
 import VacationDeduction from '#models/vacation_deduction'
 
+/**
+ * Tope de filas de datos por archivo (sin contar cabecera), igual que
+ * `EMPLOYEE_IMPORT_UPLOAD.maxDataRows` en `employee_import_error_codes.ts`.
+ * Por encima de este número, el procesamiento secuencial (una query
+ * `Employee.query()` por fila) arriesga superar el timeout del
+ * proxy/gateway dentro de una sola petición HTTP síncrona — y una tabla de
+ * miles de `rowErrors` en el frontend degrada la UI. Se corta ANTES de
+ * procesar ninguna fila (`EmployeeVacationService#importVacationExcel`).
+ */
+const MAX_VACATION_IMPORT_DATA_ROWS = 500
+
 export default class EmployeeVacationService {
 
   private i18n: I18n
@@ -1396,6 +1407,15 @@ export default class EmployeeVacationService {
         type: 'warning',
         title: 'Sin datos',
         message: 'El archivo no contiene filas de datos.',
+      }
+    }
+
+    if (dataRows.length > MAX_VACATION_IMPORT_DATA_ROWS) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Demasiadas filas en el archivo',
+        message: `El archivo tiene ${dataRows.length} filas de datos, por encima del máximo permitido (${MAX_VACATION_IMPORT_DATA_ROWS}). Divide el archivo en lotes más pequeños.`,
       }
     }
 
