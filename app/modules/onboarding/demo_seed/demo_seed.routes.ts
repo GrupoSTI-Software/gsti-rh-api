@@ -35,6 +35,10 @@ router
         '#modules/onboarding/demo_seed/demo_seed.controller.regenerateCredentials'
       )
       .use(demoCredentialsLimit)
+    // POST con sufijo de acción (espejo de steps/:slug/complete|skip): se evita
+    // DELETE con body. FIN y OMITIR del tour disparan esta limpieza
+    // (USRH1785438246903).
+    router.post('/me/demo-seed/wipe', '#modules/onboarding/demo_seed/demo_seed.controller.wipe')
   })
   .prefix('/api/onboarding')
   .use(middleware.auth())

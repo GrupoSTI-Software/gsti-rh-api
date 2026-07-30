@@ -2,7 +2,10 @@ import { HttpContext } from '@adonisjs/core/http'
 import OnboardingError from '#exceptions/onboarding_error'
 import type { OnboardingErrorKey } from '#exceptions/onboarding_error'
 import { ONBOARDING_ERROR_STATUS } from '#modules/onboarding/onboarding.constants'
+import StateService from '#modules/onboarding/state/state.service'
 import DemoSeedService from './demo_seed.service.js'
+import DemoWipeService from './services/demo_wipe.service.js'
+import { wipeDemoSeedValidator } from './validators/wipe_demo_seed.validator.js'
 
 /**
  * Controller de la siembra demo del onboarding (USRH1785438246847).
@@ -124,6 +127,81 @@ export default class DemoSeedController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/onboarding/me/demo-seed/wipe:
+   *   post:
+   *     summary: Borra todos los datos de práctica y cierra el recorrido
+   *     description: |
+   *       Limpieza todo-o-nada (USRH1785438246903): borra lo registrado por la
+   *       siembra más lo colgado del empleado/usuario demo, apaga la credencial
+   *       (tokens + logout WS) y desliga el celular. Primero se borra y solo
+   *       después se cierra el recorrido con el outcome pedido (completed = FIN,
+   *       dismissed = OMITIR). Sin siembra activa responde alreadyWiped y aplica
+   *       el outcome igualmente. Los consentimientos jamás se tocan.
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Onboarding]
+   *     parameters:
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         schema: { type: string }
+   *         description: Código público (UUID v4) de la unidad de negocio activa
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [outcome]
+   *             properties:
+   *               outcome:
+   *                 type: string
+   *                 enum: [completed, dismissed]
+   *     responses:
+   *       200:
+   *         description: Datos de práctica eliminados; recorrido cerrado
+   *       409:
+   *         description: Siembra de otra unidad de negocio (no se borra nada)
+   *       422:
+   *         description: Body inválido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 key: { type: string, example: entrada-invalida }
+   */
+  async wipe(ctx: HttpContext) {
+    const { auth, request, businessUnitScope } = ctx
+    const userId = auth.user!.userId
+
+    let payload
+    try {
+      payload = await wipeDemoSeedValidator.validate(request.all())
+    } catch (error) {
+      return this.validationError(ctx, error)
+    }
+
+    try {
+      const result = await new DemoWipeService().wipeDemoSeed({
+        adminUserId: userId,
+        expectedBusinessUnitId: businessUnitScope[0],
+        outcome: payload.outcome,
+      })
+      const onboarding = await new StateService().getOnboardingMe(userId)
+      return ctx.response.status(200).json({
+        type: 'success',
+        title: 'Onboarding',
+        message: 'Datos de práctica eliminados correctamente.',
+        data: { ...result, onboarding },
+      })
+    } catch (error) {
+      return this.domainError(ctx, error)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers de respuesta de error (patrón del área — state.controller)
   // ---------------------------------------------------------------------------
@@ -145,6 +223,19 @@ export default class DemoSeedController {
       title: 'Error del servidor',
       message: 'Ocurrió un error inesperado en el servidor.',
       error: message,
+    })
+  }
+
+  private validationError(ctx: HttpContext, error: unknown) {
+    const messages = (error as { messages?: unknown })?.messages
+    const detail = 'La entrada no es válida.'
+    return ctx.response.status(422).json({
+      type: 'error',
+      title: 'Parámetros inválidos',
+      message: detail,
+      detail,
+      key: 'entrada-invalida',
+      details: messages,
     })
   }
 }
