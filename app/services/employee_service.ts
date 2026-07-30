@@ -1,3 +1,5 @@
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Department from '#models/department'
 import {
   isSensitiveExportPlaceholder,
@@ -683,8 +685,10 @@ export default class EmployeeService {
   }
 
   async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
-    // Guardar el personId que viene del frontend
-    const personIdToDelete = employee.personId || null
+    // Persona del mismo acto de alta (creada por el BO en el request previo):
+    // si el alta falla se libera solo si quedó huérfana, para que el reintento
+    // no choque con "personEmail has already been taken" (USRH1785436961832).
+    const personIdCandidate = employee.personId || null
 
     try {
       // Verificar límite de empleados dentro del try-catch
@@ -741,45 +745,48 @@ export default class EmployeeService {
       newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
       newEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
 
-      // Guardar empleado
-      await newEmployee.save()
+      // Alta todo-o-nada (USRH1785436961832): empleado, slug y responsables
+      // en una sola transacción — un fallo en cualquier paso revierte todo.
+      await db.transaction(async (trx) => {
+        newEmployee.useTransaction(trx)
+        await newEmployee.save()
+        await this.updateEmployeeSlug(newEmployee, trx)
+        await this.setUserResponsible(
+          newEmployee.employeeId,
+          usersResponsible ? usersResponsible : [],
+          trx
+        )
+      })
 
-      if (newEmployee) {
-        try {
-          const response: any = await Ws.emitZkCreateEmployee(undefined, {
-            name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
-            card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
-            privilege: 0,
-            online_emp_id: newEmployee.employeeId,
-            device_sn: SNDeviceList
-          }, 10000)
+      // Sincronización con el checador DESPUÉS del commit: es un efecto externo
+      // tolerante a fallo que no debe sostener la transacción abierta (timeout
+      // de 10s) ni dejar al empleado dado de alta en el dispositivo si la
+      // transacción se revierte. El slug no depende del código que reescribe
+      // ZKTeco (usa payroll code + id), así que el orden no altera el resultado.
+      try {
+        const response: any = await Ws.emitZkCreateEmployee(undefined, {
+          name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+          card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+          privilege: 0,
+          online_emp_id: newEmployee.employeeId,
+          device_sn: SNDeviceList
+        }, 10000)
 
-          if (response && response.success) {
-            newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
-            await newEmployee.save()
-            await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
-          }
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+        if (response && response.success) {
+          newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
+          await newEmployee.save()
+          await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
         }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
       }
-
-      await this.updateEmployeeSlug(newEmployee)
-
-      // Asignar usuarios responsables
-      await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
 
       await newEmployee.load('businessUnit')
       return newEmployee
     } catch (error) {
-      // Si hay error y tenemos un personId, eliminarlo
-      if (personIdToDelete) {
-        try {
-          await this.deletePersonById(personIdToDelete)
-        } catch (deleteError) {
-          console.error('Error eliminando persona huérfana:', deleteError)
-        }
+      if (personIdCandidate) {
+        await this.releasePersonIfOrphan(personIdCandidate)
       }
       throw error
     }
@@ -984,13 +991,13 @@ export default class EmployeeService {
     return currentEmployee
   }
 
-  private async updateEmployeeSlug(employee: Employee) {
+  private async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
     if (!employee.employeeId) {
       return
     }
 
     const slug = this.generateEmployeeSlug(employee)
-    await Employee.query()
+    await Employee.query({ client: trx })
       .where('employee_id', employee.employeeId)
       .update({ employee_slug: slug })
     employee.employeeSlug = slug
@@ -2302,13 +2309,20 @@ export default class EmployeeService {
     return userResponsibleEmployees ? userResponsibleEmployees : []
   }
 
-  async setUserResponsible(employeeId: number, usersResponsible: User[]) {
+  async setUserResponsible(
+    employeeId: number,
+    usersResponsible: User[],
+    trx?: TransactionClientContract
+  ) {
     for await (const user of usersResponsible) {
       const userResponsibleEmployee = new UserResponsibleEmployee
       userResponsibleEmployee.userId = user.userId
       userResponsibleEmployee.employeeId = employeeId
       if (user.role.roleSlug === 'nominas') {
         userResponsibleEmployee.userResponsibleEmployeeReadonly = 1
+      }
+      if (trx) {
+        userResponsibleEmployee.useTransaction(trx)
       }
       await userResponsibleEmployee.save()
     }
@@ -2510,6 +2524,47 @@ export default class EmployeeService {
       .trim()
   }
 
+
+  /**
+   * Libera (soft-delete) la persona de un intento de alta fallido para que el
+   * reintento del formulario no choque con los únicos de persona (correo,
+   * CURP, RFC — sus validadores ignoran filas eliminadas). Solo procede si la
+   * persona quedó huérfana: sin empleado, usuario ni cliente activos. Una
+   * persona preexistente ligada a algo más no se toca — el sistema queda como
+   * antes del intento (USRH1785436961832, reglas 2 y 3).
+   */
+  async releasePersonIfOrphan(personId: number): Promise<boolean> {
+    try {
+      const orphan = await Person.query()
+        .where('person_id', personId)
+        .whereNotExists((query) => {
+          query.from('employees')
+            .whereRaw('employees.person_id = people.person_id')
+            .whereNull('employees.employee_deleted_at')
+        })
+        .whereNotExists((query) => {
+          query.from('users')
+            .whereRaw('users.person_id = people.person_id')
+            .whereNull('users.user_deleted_at')
+        })
+        .whereNotExists((query) => {
+          query.from('customers')
+            .whereRaw('customers.person_id = people.person_id')
+            .whereNull('customers.customer_deleted_at')
+        })
+        .first()
+
+      if (!orphan) {
+        return false
+      }
+
+      await orphan.delete()
+      return true
+    } catch (error) {
+      console.error('Error liberando persona huérfana del alta fallida:', error)
+      return false
+    }
+  }
 
   /**
    * Eliminar una persona por su ID

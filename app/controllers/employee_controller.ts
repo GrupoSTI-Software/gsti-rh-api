@@ -1052,21 +1052,34 @@ export default class EmployeeController {
       const data = await request.validateUsing(createEmployeeValidator)
       const exist = await employeeService.verifyInfoExist(employee)
       if (exist.status !== 200) {
+        // USRH1785436961832: el alta se rechaza (p. ej. catálogo faltante) —
+        // se libera la persona creada para este acto, si quedó huérfana, para
+        // que el reintento no choque con "personEmail has already been taken".
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(personId)
+        }
         response.status(exist.status)
         return {
           type: exist.type,
           title: exist.title,
           message: exist.message,
+          detail: exist.message,
+          key: 'alta-empleado-invalida',
           data: { ...data },
         }
       }
       const verifyInfo = await employeeService.verifyInfo(employee)
       if (verifyInfo.status !== 200) {
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(personId)
+        }
         response.status(verifyInfo.status)
         return {
           type: verifyInfo.type,
           title: verifyInfo.title,
           message: verifyInfo.message,
+          detail: verifyInfo.message,
+          key: 'alta-empleado-invalida',
           data: { ...data },
         }
       }
@@ -1101,6 +1114,15 @@ export default class EmployeeController {
         }
       }
     } catch (error) {
+      // USRH1785436961832: cualquier fallo del intento (validación, modalidad
+      // híbrida o error inesperado) libera la persona huérfana del acto para
+      // que el reintento proceda sin residuos. `EmployeeService.create` ya
+      // liberó la suya si el fallo vino de ahí (la operación es idempotente).
+      const failedPersonId = Number(request.input('personId')) || 0
+      if (failedPersonId > 0) {
+        const employeeService = new EmployeeService(i18n)
+        await employeeService.releasePersonIfOrphan(failedPersonId)
+      }
       // Errores de negocio de la modalidad híbrida se traducen a 400 con el
       // código para que el cliente muestre el mensaje correcto (i18n).
       const workScheduleError = this.mapWorkScheduleErrorMessage(error?.message, i18n)
@@ -1115,6 +1137,8 @@ export default class EmployeeController {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
+        detail: messageError,
+        key: 'alta-empleado-fallida',
         error: messageError,
       }
     }
