@@ -14,7 +14,7 @@ export type ResolvedContratoServicioEspecializadoApiError = {
   detail?: string
 }
 
-const ERROR_CODE_TO_I18N_BASE: Record<ContratoServicioEspecializadoErrorCode, string> = {
+const ERROR_CODE_TO_I18N_BASE: Partial<Record<ContratoServicioEspecializadoErrorCode, string>> = {
   [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.VAL_INPUT]: 'contrato_servicio_especializado_val_input',
   [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.VAL_FECHAS]: 'contrato_servicio_especializado_val_fechas',
   [CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.NOT_FOUND]: 'contrato_servicio_especializado_not_found',

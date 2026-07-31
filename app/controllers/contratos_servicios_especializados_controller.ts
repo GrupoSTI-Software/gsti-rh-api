@@ -6,6 +6,7 @@ import ContratoServicioEspecializadoService, {
   type ContratoServicioEspecializadoCreatePayload,
   type ContratoServicioEspecializadoUpdatePayload,
 } from '#services/contrato_servicio_especializado_service'
+import ContratoServicioEspecializadoImportService from '#services/contrato_servicio_especializado_import_service'
 import {
   createContratoServicioEspecializadoValidator,
   listContratosServiciosEspecializadosValidator,
@@ -18,6 +19,7 @@ import {
   assertComplianceRepsePermission,
   type ComplianceRepseAction,
 } from '../helpers/compliance_repse_rbac.js'
+import { resolveContratoImportGlobalErrorTitle } from '../helpers/contrato_import_request_errors.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import type { ContratoServicioEspecializadoEstatus } from '#models/contrato_servicio_especializado'
 
@@ -392,6 +394,280 @@ export default class ContratosServiciosEspecializadosController {
       )
     } catch (error) {
       return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/contratos-servicios-especializados/plantilla-importacion:
+   *   get:
+   *     summary: Descarga la plantilla Excel de importación masiva de contratos
+   *     description: |
+   *       Hoja "Contratos" con las 14 cabeceras canónicas + 1 fila de ejemplo, y hoja
+   *       "Instrucciones" con el formato de celdas compuestas (compromisos documentales
+   *       y servicios registrados), enums permitidos y ejemplos (USRH1785509296682).
+   *     tags: [ContratosServiciosEspecializados]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Authorization
+   *         required: true
+   *         schema: { type: string }
+   *         description: Bearer access token
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: integer }
+   *         description: Identificador de unidad de negocio
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema: { type: string, enum: [es, en] }
+   *     responses:
+   *       '200':
+   *         description: Archivo xlsx adjunto (plantilla-importacion-contratos-servicios-especializados.xlsx)
+   *         content:
+   *           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso create o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   */
+  async downloadImportTemplate(ctx: HttpContext) {
+    const { response, i18n } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
+
+      const importService = new ContratoServicioEspecializadoImportService(i18n)
+      const buffer = await importService.generateImportTemplate()
+
+      response.header(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      )
+      response.header(
+        'Content-Disposition',
+        'attachment; filename=plantilla-importacion-contratos-servicios-especializados.xlsx'
+      )
+      response.status(200)
+      return response.send(buffer)
+    } catch (error) {
+      return this.respondError(error, response, 500, i18n)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/contratos-servicios-especializados/importacion:
+   *   post:
+   *     summary: Importa contratos de servicios especializados desde un archivo Excel
+   *     description: |
+   *       Valida que el archivo sea un Excel real y que sus cabeceras se emparejen con la
+   *       plantilla; procesa cada fila de datos de forma secuencial (sin transacción global)
+   *       resolviendo el contratante por RFC (índice ciego) y los servicios registrados por
+   *       nombre, y reúsa `create` para dar de alta cada fila válida. Las filas inválidas se
+   *       reportan con su número y motivo sin detener el procesamiento de las demás
+   *       (USRH1785509296682). Máximo 500 filas de datos por archivo. Limitada por intentos por usuario.
+   *     tags: [ContratosServiciosEspecializados]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: Authorization
+   *         required: true
+   *         schema: { type: string }
+   *         description: Bearer access token
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: integer }
+   *         description: Identificador de unidad de negocio
+   *       - in: header
+   *         name: Accept-Language
+   *         required: false
+   *         schema: { type: string, enum: [es, en] }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             required: [archivo]
+   *             properties:
+   *               archivo:
+   *                 type: string
+   *                 format: binary
+   *                 description: Archivo Excel (.xlsx) de máximo 10 MB
+   *     responses:
+   *       '200':
+   *         description: Importación procesada (filas válidas creadas, filas inválidas reportadas)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ContratoServicioEspecializadoImportacionSuccess'
+   *             example:
+   *               type: warning
+   *               title: Importación de Contratos de Servicios Especializados
+   *               message: 'Importación completada: 3 contrato(s) creado(s), 2 fila(s) rechazada(s).'
+   *               data:
+   *                 summary: { totalRows: 5, created: 3, rejected: 2 }
+   *                 rowErrors:
+   *                   - row: 4
+   *                     motivo: El contratante con RFC XAXX010101000 no existe en su catálogo.
+   *                     key: contratante-rfc-no-encontrado
+   *                     code: CSE.IMP.CONTRATANTE.001
+   *                   - row: 7
+   *                     motivo: Ya existe un contrato con ese número en su tenant.
+   *                     key: numero-contrato-duplicado
+   *                     code: CSE.CONFLICT.NUMERO.001
+   *                 warnings: []
+   *       '400':
+   *         description: Archivo ausente/no es Excel válido, cabeceras no emparejables (key archivo-no-excel / cabeceras-invalidas) o más de 500 filas de datos (key filas-excedidas); ninguna fila se procesa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *             example:
+   *               type: error
+   *               title: Cabeceras inválidas
+   *               message: No se pudieron emparejar las cabeceras del archivo con la plantilla. Descargue la plantilla vigente y no modifique la fila 1.
+   *               key: cabeceras-invalidas
+   *               errorCode: CSE.IMP.HEADERS.001
+   *               data: null
+   *       '401':
+   *         description: Sin autenticación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '403':
+   *         description: Sin permiso create o gestion (key sin-permiso)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ComplianceRepseApiError'
+   *       '429':
+   *         description: >-
+   *           Límite de 10 intentos de importación / 15 minutos por usuario excedido
+   *           (key importacion-rate-limit, errorCode CSE.IMP.RATE.001).
+   */
+  async importFromExcel(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'create'))) return
+
+      const file = request.file('archivo', { extnames: ['xlsx'], size: '10mb' })
+
+      if (!file) {
+        return this.respondImportFileError(
+          response,
+          i18n,
+          'contrato_servicio_especializado_importacion_archivo_ausente_title',
+          'Archivo requerido',
+          'contrato_servicio_especializado_importacion_archivo_ausente_message',
+          'Debe adjuntar un archivo Excel (.xlsx) en el campo "archivo".',
+          'archivo-no-excel'
+        )
+      }
+
+      if (file.hasErrors) {
+        const sizeError = file.errors.some((err) => err.type === 'size')
+        return sizeError
+          ? this.respondImportFileError(
+              response,
+              i18n,
+              'contrato_servicio_especializado_importacion_archivo_muy_grande_title',
+              'Archivo demasiado grande',
+              'contrato_servicio_especializado_importacion_archivo_muy_grande_message',
+              'El archivo supera el tamaño máximo permitido de 10 MB.',
+              'archivo-no-excel'
+            )
+          : this.respondImportFileError(
+              response,
+              i18n,
+              'contrato_servicio_especializado_importacion_archivo_invalido_title',
+              'Archivo inválido',
+              'contrato_servicio_especializado_importacion_archivo_invalido_message',
+              'El archivo no es un Excel (.xlsx) válido.',
+              'archivo-no-excel'
+            )
+      }
+
+      const importService = new ContratoServicioEspecializadoImportService(i18n)
+      const result = await importService.importFromExcel(file.tmpPath!)
+
+      const responseType = result.summary.rejected > 0 ? 'warning' : 'success'
+      const title = i18n.t(
+        'contrato_servicio_especializado_importacion_title',
+        undefined,
+        'Importación de Contratos de Servicios Especializados'
+      )
+      const message =
+        responseType === 'warning'
+          ? i18n.t(
+              'contrato_servicio_especializado_importacion_warning_message',
+              { created: result.summary.created, rejected: result.summary.rejected },
+              `Importación completada: ${result.summary.created} contrato(s) creado(s), ${result.summary.rejected} fila(s) rechazada(s).`
+            )
+          : i18n.t(
+              'contrato_servicio_especializado_importacion_success_message',
+              { created: result.summary.created },
+              `Importación completada: ${result.summary.created} contrato(s) creado(s).`
+            )
+
+      response.status(200)
+      return { type: responseType, title, message, data: result }
+    } catch (error) {
+      if (ContratoServicioEspecializadoImportService.isGlobalImportError(error)) {
+        const body = ContratoServicioEspecializadoImportService.toGlobalErrorBody(error)
+        response.status(400)
+        return {
+          type: 'error',
+          title: resolveContratoImportGlobalErrorTitle(i18n, body.key),
+          message: body.motivo,
+          detail: body.motivo,
+          key: body.key,
+          errorCode: body.code,
+          data: null,
+        }
+      }
+      return this.respondError(error, response, 500, i18n)
+    }
+  }
+
+  private respondImportFileError(
+    response: HttpContext['response'],
+    i18n: HttpContext['i18n'],
+    titleKey: string,
+    titleFallback: string,
+    messageKey: string,
+    messageFallback: string,
+    key: string
+  ) {
+    const message = i18n.t(messageKey, undefined, messageFallback)
+    response.status(400)
+    return {
+      type: 'error',
+      title: i18n.t(titleKey, undefined, titleFallback),
+      message,
+      detail: message,
+      key,
+      errorCode: CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.IMP_ARCHIVO,
+      data: null,
     }
   }
 
