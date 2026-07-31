@@ -10,6 +10,7 @@ import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
 import env from '../../start/env.js'
 import Role from '#models/role'
+import { SYSTEM_ROLE_SLUGS } from '#constants/system_roles'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
@@ -56,17 +57,23 @@ export default class UserService {
       allowedSlugs = buUnits.map((bu) => bu.businessUnitSlug)
     }
 
+    // USRH1785436961936: los usuarios con rol de sistema (owner, empleado)
+    // también aparecen en el listado del tenant — mismo criterio que
+    // `RoleService.index`. El aislamiento entre empresas lo garantiza el
+    // filtro `whereHas('businessUnits')` de abajo, no este armado de roles.
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
         if (allowedSlugs.length === 0) {
-          query.whereRaw('1 = 0')
           return
         }
-        query.whereNotNull('role_business_access')
-        query.andWhere((subQuery) => {
-          allowedSlugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+        query.orWhere((accessQuery) => {
+          accessQuery.whereNotNull('role_business_access')
+          accessQuery.andWhere((subQuery) => {
+            allowedSlugs.forEach((business) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
+            })
           })
         })
       })
@@ -82,10 +89,10 @@ export default class UserService {
     ]
     const users = await User.query()
       .whereNull('user_deleted_at')
-        // Filtro adicional opcional del frontend para una BU específica
+      // Filtro adicional opcional del frontend para una BU específica
       .whereHas('businessUnits', (subQuery) => {
-          subQuery.where('business_units.business_unit_id', filters.businessUnitId)
-        })
+        subQuery.where('business_units.business_unit_id', filters.businessUnitId)
+      })
       .whereIn('role_id', rolesIds)
       .if(filters.search, (query) => {
         query.andWhere((searchQuery) => {
@@ -342,7 +349,7 @@ export default class UserService {
   async saveActionOnLog(logAssist: LogUser) {
     try {
       await LogStore.set('log_users', logAssist)
-    } catch (err) {}
+    } catch (err) { }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {
@@ -448,8 +455,8 @@ export default class UserService {
         }
         employeeQuery.if(
           filters.userResponsibleId &&
-            typeof filters.userResponsibleId &&
-            filters.userResponsibleId > 0,
+          typeof filters.userResponsibleId &&
+          filters.userResponsibleId > 0,
           (query) => {
             query.where((subQuery) => {
               subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
@@ -471,7 +478,7 @@ export default class UserService {
                 `%${filters.search.toUpperCase()}%`,
               ])
               .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-              // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
           })
         })
         employeeQuery.if(filters.departmentId, (query) => {
@@ -767,6 +774,18 @@ export default class UserService {
         .whereNull('employee_type_deleted_at')
         .first()
 
+      if (!employeeType) {
+        return {
+          status: 404,
+          type: 'error',
+          title: 'Tipo de empleado no encontrado',
+          detail:
+            'No existe el tipo de empleado global con slug "employee" en el catálogo del sistema.',
+          key: 'employee-type-default-not-found',
+          data: null,
+        }
+      }
+
       let shift = await Shift.query()
         .where('shift_name', '08:00 to 17:00 - Rest (Sat, Sun)')
         .whereNull('shift_deleted_at')
@@ -856,7 +875,7 @@ export default class UserService {
         employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
         employee.departmentSyncId = 0
         employee.positionSyncId = 0
-        employee.employeeTypeId = employeeType?.employeeTypeId || 1
+        employee.employeeTypeId = employeeType.employeeTypeId
         await employee.save()
 
         const employeeShift = new EmployeeShift()

@@ -507,6 +507,20 @@
   "report": "Reporte",
   "totals": "Totales",
   "vacation_day": "Día de vacaciones",
+  "vacation_summary_report_title": "Resumen de control de vacaciones, {start} a {end}",
+  "vacation_summary_report_sheet_name": "Resumen vacaciones",
+  "vacation_summary_report_id": "ID",
+  "vacation_summary_report_hire_date": "Fecha de ingreso",
+  "vacation_summary_report_years": "Años",
+  "vacation_summary_report_vac": "Vac.",
+  "vacation_summary_report_used": "Usados",
+  "vacation_summary_report_rest": "Rest.",
+  "vacation_summary_report_acc_disp": "Acum. disp.",
+  "vacation_excel_report_employer_company": "Razón social empleadora",
+  "vacation_excel_report_years": "Años",
+  "vacation_excel_report_vac": "Vac.",
+  "vacation_excel_report_used": "Usados",
+  "vacation_excel_report_rest": "Rest.",
   "next": "Siguiente",
   "company": "Empresa",
   "work_business_unit": "Unidad de negocio de trabajo",
@@ -2368,5 +2382,11 @@
         "detail": "No fue posible completar la simulación de reforma de jornada."
       }
     }
-  }
+  },
+  "system_role_locked_title": "Rol de sistema",
+  "system_role_locked_detail": "Los roles owner y empleado son de la plataforma: no pueden editarse, eliminarse ni reconfigurarse desde una empresa.",
+  "system_role_name_reserved_title": "Nombre de rol reservado",
+  "system_role_name_reserved_detail": "El nombre del rol coincide con un rol de sistema de la plataforma; elige un nombre distinto.",
+  "system_setting_trade_name_taken_title": "Nombre comercial en uso",
+  "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto."
 }

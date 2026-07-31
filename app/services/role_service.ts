@@ -1,5 +1,6 @@
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
+import { SYSTEM_ROLE_SLUGS, isSystemRoleSlug } from '#constants/system_roles'
 import Role from '#models/role'
 import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -17,17 +18,21 @@ export default class RoleService {
       slugs = units.map((bu) => bu.businessUnitSlug)
     }
 
+    // Roles de sistema (owner, empleado) siempre visibles en todo tenant
+    // (USRH1785436961936); el resto se filtra por role_business_access.
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
+        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
         if (slugs.length === 0) {
-          query.whereRaw('1 = 0')
           return
         }
-        query.whereNotNull('role_business_access')
-        query.andWhere((subQuery) => {
-          slugs.forEach((slug) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
+        query.orWhere((accessQuery) => {
+          accessQuery.whereNotNull('role_business_access')
+          accessQuery.andWhere((subQuery) => {
+            slugs.forEach((slug) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
+            })
           })
         })
       })
@@ -329,29 +334,29 @@ export default class RoleService {
 
   async verifyInfo(role: Role) {
     const action = role.roleId > 0 ? 'updated' : 'created'
-  
+
     const query = Role.query()
       .where('role_name', role.roleName)
       .whereNull('role_deleted_at')
-  
+
     if (role.roleId > 0) {
       query.whereNot('role_id', role.roleId)
     }
-  
+
     const rolesWithSameName = await query
-  
+
     const inputAccess = role.roleBusinessAccess
       ? role.roleBusinessAccess.split(',').map(e => e.trim())
       : []
-  
+
     const hasConflict = rolesWithSameName.some(existingRole => {
       const existingAccess = existingRole.roleBusinessAccess
         ? existingRole.roleBusinessAccess.split(',').map(e => e.trim())
         : []
-  
+
       return inputAccess.some(company => existingAccess.includes(company))
     })
-  
+
     if (hasConflict && role.roleName) {
       return {
         status: 400,
@@ -361,7 +366,7 @@ export default class RoleService {
         data: { ...role },
       }
     }
-  
+
     return {
       status: 200,
       type: 'success',
@@ -384,6 +389,20 @@ export default class RoleService {
    * @returns Rol encontrado o null
    */
   async findRoleBySlug(roleSlug: string, allowedBusinessUnitIds: number[] = []): Promise<Role | null> {
+    // Los roles de sistema resuelven directo, sin depender del CSV
+    // role_business_access: son asignables en todo tenant (USRH1785436961936).
+    // `orderBy` fija la fila sembrada (la más antigua) ante cualquier residuo
+    // histórico con slug duplicado.
+    if (isSystemRoleSlug(roleSlug)) {
+      return (
+        (await Role.query()
+          .where('role_slug', roleSlug)
+          .whereNull('role_deleted_at')
+          .orderBy('role_id', 'asc')
+          .first()) || null
+      )
+    }
+
     let slugs: string[]
     if (allowedBusinessUnitIds.length === 0) {
       const allUnits = await BusinessUnit.query()

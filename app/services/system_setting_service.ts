@@ -63,26 +63,57 @@ export default class SystemSettingService {
     return { data: systemSettingsList }
   }
 
+  /**
+   * USRH1785436961868 (regla 3): si la empresa eliminó su configuración y crea
+   * una nueva desde el BO, se reactiva la fila soft-deleted con el contenido
+   * nuevo (espejo del criterio de `createForTenant`) — insertar otra fila
+   * chocaría con el `UNIQUE(business_unit_id)` plano de la migración
+   * 1783968970000.
+   */
   async create(systemSetting: SystemSetting) {
+    const trashed = systemSetting.businessUnitId
+      ? await SystemSetting.query()
+          .withTrashed()
+          .where('business_unit_id', systemSetting.businessUnitId)
+          .whereNotNull('system_setting_deleted_at')
+          .first()
+      : null
+
+    if (trashed) {
+      this.assignManualContent(trashed, systemSetting)
+      // `restore()` limpia `deletedAt` y persiste el contenido recién asignado
+      // (ya marcado como dirty) en una sola escritura.
+      await trashed.restore()
+      return trashed
+    }
+
     const newSystemSetting = new SystemSetting()
     newSystemSetting.businessUnitId = systemSetting.businessUnitId
-    newSystemSetting.systemSettingTradeName = systemSetting.systemSettingTradeName
-    newSystemSetting.systemSettingSidebarColor = systemSetting.systemSettingSidebarColor
-    newSystemSetting.systemSettingLogo = systemSetting.systemSettingLogo
-    newSystemSetting.systemSettingBanner = systemSetting.systemSettingBanner
-    newSystemSetting.systemSettingFavicon = systemSetting.systemSettingFavicon
-    newSystemSetting.systemSettingActive = systemSetting.systemSettingActive
-    newSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
-    newSystemSetting.systemSettingToleranceCountPerAbsence = systemSetting.systemSettingToleranceCountPerAbsence
-    newSystemSetting.systemSettingRestrictFutureVacation = systemSetting.systemSettingRestrictFutureVacation
-    newSystemSetting.systemSettingMaxAbsencesBeforeAttendanceLock = systemSetting.systemSettingMaxAbsencesBeforeAttendanceLock
-    newSystemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock
-    newSystemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock = systemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock
-    newSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
-    newSystemSetting.systemSettingMonthlyConversionFactor =
-      systemSetting.systemSettingMonthlyConversionFactor ?? 30.4
+    this.assignManualContent(newSystemSetting, systemSetting)
     await newSystemSetting.save()
     return newSystemSetting
+  }
+
+  /**
+   * Contenido que el alta manual escribe en la fila (nueva o reactivada).
+   * Excluye `businessUnitId`: la fila reactivada ya pertenece a la empresa y
+   * la nueva lo recibe del scope en el call-site.
+   */
+  private assignManualContent(target: SystemSetting, source: SystemSetting) {
+    target.systemSettingTradeName = source.systemSettingTradeName
+    target.systemSettingSidebarColor = source.systemSettingSidebarColor
+    target.systemSettingLogo = source.systemSettingLogo
+    target.systemSettingBanner = source.systemSettingBanner
+    target.systemSettingFavicon = source.systemSettingFavicon
+    target.systemSettingActive = source.systemSettingActive
+    target.systemSettingBusinessUnits = source.systemSettingBusinessUnits
+    target.systemSettingToleranceCountPerAbsence = source.systemSettingToleranceCountPerAbsence
+    target.systemSettingRestrictFutureVacation = source.systemSettingRestrictFutureVacation
+    target.systemSettingMaxAbsencesBeforeAttendanceLock = source.systemSettingMaxAbsencesBeforeAttendanceLock
+    target.systemSettingMaxLateArrivalsBeforeAttendanceLock = source.systemSettingMaxLateArrivalsBeforeAttendanceLock
+    target.systemSettingPeriodAbsencesBeforeAttendanceLock = source.systemSettingPeriodAbsencesBeforeAttendanceLock
+    target.systemSettingPeriodLateArrivalsBeforeAttendanceLock = source.systemSettingPeriodLateArrivalsBeforeAttendanceLock
+    target.systemSettingMonthlyConversionFactor = source.systemSettingMonthlyConversionFactor ?? 30.4
   }
 
   async update(currentSystemSetting: SystemSetting, systemSetting: SystemSetting) {
@@ -193,13 +224,22 @@ export default class SystemSettingService {
     return systemSettingPayrollConfig
   }
 
-  async verifyInfo(systemSetting: SystemSetting) {
+  /**
+   * USRH1785436961868: la unicidad del nombre comercial se evalúa POR EMPRESA
+   * (`business_unit_id` del scope del middleware), nunca globalmente — dos
+   * empresas pueden compartir nombre comercial sin chocar y la validación no
+   * revela nada de otras empresas. Sin `businessUnitId` no compara contra
+   * nada (fail-closed, mismo patrón que `verifyActiveStore`).
+   */
+  async verifyInfo(systemSetting: SystemSetting, businessUnitId?: number) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     const existTradeName = await SystemSetting.query()
       .if(systemSetting.systemSettingId > 0, (query) => {
         query.whereNot('system_setting_id', systemSetting.systemSettingId)
       })
       .whereNull('system_setting_deleted_at')
+      .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+      .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
       .where('system_setting_trade_name', systemSetting.systemSettingTradeName)
       .first()
 
@@ -403,7 +443,11 @@ export default class SystemSettingService {
     businessUnitSlug: string,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
+    // El registro base es plantilla fundacional: se lee con withTrashed porque
+    // un soft-delete accidental del id 1 no debe bloquear el alta de tenants
+    // (el filtro SoftDeletes ocultaría la fila y fallaría con SGNP.SETTINGS.001).
     const base = await SystemSetting.query({ client: trx })
+      .withTrashed()
       .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
       .first()
 

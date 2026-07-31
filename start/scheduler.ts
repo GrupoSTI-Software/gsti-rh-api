@@ -52,3 +52,24 @@ scheduler.command(ANNIVERSARY_REMINDER_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_
  * nómina que vencieron. Reintenta lo fallido en corridas previas.
  */
 scheduler.command('work-journal:seal-period').cron('0 7 * * *')
+
+/**
+ * Reloj de suscripción (USRH1784574994921): evalúa cada suscripción no
+ * cancelada y mueve su estado según sus fechas de prueba y periodo
+ * (trialing → active/past_due, active → past_due). Barrido idempotente.
+ *
+ * Se programa a las 13:00 UTC (07:00 CDMX), misma ventana que
+ * `lactation_notify_expiring`, para que los estados queden actualizados
+ * al inicio del día de negocio. Confirmar hora con Wilvardo en review.
+ */
+scheduler.command('billing:tick-subscriptions').cron('0 13 * * *')
+
+/**
+ * Purga diaria de siembras demo abandonadas del onboarding
+ * (USRH1785438247062): limpia las siembras con más de 30 días sin recorrido
+ * terminado u omitido, con el mismo borrado del wipe en modo purga (no cierra
+ * recorridos; el administrador que vuelve re-siembra fresco). 13:00 UTC =
+ * 07:00 CDMX, misma franja del resto de barridos diarios. Cierra además una
+ * superficie de seguridad: credenciales de práctica olvidadas.
+ */
+scheduler.command('onboarding:purge-abandoned-demo').cron('0 13 * * *')

@@ -62,7 +62,7 @@ export default class SyncAssistsService {
    * @private
    * @type {Function}
    */
-  private t: (key: string,params?: { [key: string]: string | number }) => string
+  private t: (key: string, params?: { [key: string]: string | number }) => string
 
   /**
    * Instancia de internacionalización para traducción de mensajes.
@@ -194,14 +194,14 @@ export default class SyncAssistsService {
 
     // Contar total de registros
     const totalRecords = (hasCheckIn ? 1 : 0) + (hasEatCheckIn ? 1 : 0) +
-                        (hasEatCheckOut ? 1 : 0) + (hasCheckOut ? 1 : 0)
+      (hasEatCheckOut ? 1 : 0) + (hasCheckOut ? 1 : 0)
 
     // Si hay 4 registros, significa que SÍ hubo checkIn real, ignorar excepción
     if (totalRecords === 4) {
 
     }
 
-      // Si solo hay 1 registro, NO aplicar excepción (se marcará como falta)
+    // Si solo hay 1 registro, NO aplicar excepción (se marcará como falta)
     if (totalRecords === 1) {
       // Guardar valores actuales
       const currentCheckIn = JSON.parse(JSON.stringify(checkAssist.assist.checkIn))
@@ -350,7 +350,7 @@ export default class SyncAssistsService {
           assistStatusSync.dateRequestSync.toJSDate(),
           lastPageSync.pageNumber
         )
-      } catch (error) {}
+      } catch (error) { }
 
       return new AssistStatusResponseDto(
         assistStatusSync,
@@ -617,7 +617,7 @@ export default class SyncAssistsService {
     return assists
   }
 
-  async setDateCalendar (filters: SyncAssistsServiceIndexInterface) {
+  async setDateCalendar(filters: SyncAssistsServiceIndexInterface) {
     if (filters.employeeID !== undefined) {
       // Defensa en profundidad (USRH1784259058544): resolvemos la unidad de
       // negocio del empleado UNA SOLA VEZ por lote (esta llamada cubre todos
@@ -641,8 +641,8 @@ export default class SyncAssistsService {
         for (const calendarObject of calendarDay) {
           const existEmployeeAssistCalendar = await EmployeeAssistCalendar.query()
             .whereNull('employee_assist_calendar_deleted_at')
-            .where('employee_id' , filters.employeeID as number)
-            .where('day' , calendarObject.day)
+            .where('employee_id', filters.employeeID as number)
+            .where('day', calendarObject.day)
             .first()
           let employeeAssistCalendar = new EmployeeAssistCalendar()
           if (existEmployeeAssistCalendar) {
@@ -686,48 +686,48 @@ export default class SyncAssistsService {
         let current = start
 
         while (current <= end) {
-         if (current) {
-          const day = current.toFormat('yyyy-MM-dd')
-          const existEmployeeAssistCalendar = await EmployeeAssistCalendar.query()
-            .whereNull('employee_assist_calendar_deleted_at')
-            .where('employee_id' , filters.employeeID as number)
-            .where('day' , day)
-            .first()
+          if (current) {
+            const day = current.toFormat('yyyy-MM-dd')
+            const existEmployeeAssistCalendar = await EmployeeAssistCalendar.query()
+              .whereNull('employee_assist_calendar_deleted_at')
+              .where('employee_id', filters.employeeID as number)
+              .where('day', day)
+              .first()
 
-          if (!existEmployeeAssistCalendar) {
-            const employeeAssistCalendar = new EmployeeAssistCalendar()
-            employeeAssistCalendar.day = day
-            employeeAssistCalendar.employeeId = filters.employeeID as number
-            // Marca resuelta por lote (arriba), no vía hook por fila.
-            employeeAssistCalendar.businessUnitId = businessUnitId
-            employeeAssistCalendar.checkInAssistId = null
-            employeeAssistCalendar.checkInDateTime = null
-            employeeAssistCalendar.checkInStatus = ''
-            employeeAssistCalendar.checkOutAssistId = null
-            employeeAssistCalendar.checkOutDateTime = null
-            employeeAssistCalendar.checkOutStatus = ''
-            employeeAssistCalendar.checkEatInAssistId = null
-            employeeAssistCalendar.checkEatOutAssistId = null
-            employeeAssistCalendar.shiftId = null
-            employeeAssistCalendar.shiftIsChange = false
-            employeeAssistCalendar.hasExceptions = false
-            employeeAssistCalendar.holidayId = null
-            employeeAssistCalendar.isBirthday = false
-            employeeAssistCalendar.isCheckInEatNextDay = false
-            employeeAssistCalendar.isCheckOutEatNextDay = false
-            employeeAssistCalendar.isCheckOutNextDay = false
-            employeeAssistCalendar.isFutureDay = false
-            employeeAssistCalendar.isHoliday = false
-            employeeAssistCalendar.isRestDay = false
-            employeeAssistCalendar.isSundayBonus = false
-            employeeAssistCalendar.isVacationDate = false
-            employeeAssistCalendar.isWorkDisabilityDate = false
-            employeeAssistCalendar.shiftCalculateFlag = null
-            employeeAssistCalendar.hasAssitFlatList = false
-            await employeeAssistCalendar.save()
+            if (!existEmployeeAssistCalendar) {
+              const employeeAssistCalendar = new EmployeeAssistCalendar()
+              employeeAssistCalendar.day = day
+              employeeAssistCalendar.employeeId = filters.employeeID as number
+              // Marca resuelta por lote (arriba), no vía hook por fila.
+              employeeAssistCalendar.businessUnitId = businessUnitId
+              employeeAssistCalendar.checkInAssistId = null
+              employeeAssistCalendar.checkInDateTime = null
+              employeeAssistCalendar.checkInStatus = ''
+              employeeAssistCalendar.checkOutAssistId = null
+              employeeAssistCalendar.checkOutDateTime = null
+              employeeAssistCalendar.checkOutStatus = ''
+              employeeAssistCalendar.checkEatInAssistId = null
+              employeeAssistCalendar.checkEatOutAssistId = null
+              employeeAssistCalendar.shiftId = null
+              employeeAssistCalendar.shiftIsChange = false
+              employeeAssistCalendar.hasExceptions = false
+              employeeAssistCalendar.holidayId = null
+              employeeAssistCalendar.isBirthday = false
+              employeeAssistCalendar.isCheckInEatNextDay = false
+              employeeAssistCalendar.isCheckOutEatNextDay = false
+              employeeAssistCalendar.isCheckOutNextDay = false
+              employeeAssistCalendar.isFutureDay = false
+              employeeAssistCalendar.isHoliday = false
+              employeeAssistCalendar.isRestDay = false
+              employeeAssistCalendar.isSundayBonus = false
+              employeeAssistCalendar.isVacationDate = false
+              employeeAssistCalendar.isWorkDisabilityDate = false
+              employeeAssistCalendar.shiftCalculateFlag = null
+              employeeAssistCalendar.hasAssitFlatList = false
+              await employeeAssistCalendar.save()
+            }
+            current = current.plus({ days: 1 })
           }
-         }
-         current = current.plus({ days: 1 })
         }
       }
     }
@@ -924,7 +924,7 @@ export default class SyncAssistsService {
    * 6. Cálculo del calendario con todas las validaciones
    * 7. Retorno del calendario completo
    */
-  async index (bodyParams: SyncAssistsServiceIndexInterface, paginator?: { page: number; limit: number }) {
+  async index(bodyParams: SyncAssistsServiceIndexInterface, paginator?: { page: number; limit: number }) {
     const intialSyncDate = '2024-01-01T00:00:00.000-06:00'
     const stringDate = `${bodyParams.date}T00:00:00.000-06:00`
     const time = DateTime.fromISO(stringDate, { setZone: true })
@@ -991,7 +991,7 @@ export default class SyncAssistsService {
     }
     const employeeShifts: ShiftRecordInterface[] = dailyShifts[0].employeeShifts as ShiftRecordInterface[]
     const assistList = await query.paginate(paginator?.page || 1, paginator?.limit || 500)
-    const assistListFlat  = assistList.toJSON().data as AssistInterface[]
+    const assistListFlat = assistList.toJSON().data as AssistInterface[]
 
     // OPTIMIZACIÓN: Agrupar assists por día usando Map en lugar de buscar en cada iteración (O(n) vs O(n²))
     const assistsByDay = new Map<string, AssistInterface[]>()
@@ -1520,7 +1520,7 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  private setCheckInDateTime (checkAssist: AssistDayInterface) {
+  private setCheckInDateTime(checkAssist: AssistDayInterface) {
     if (!checkAssist?.assist?.dateShift) {
       return checkAssist
     }
@@ -1537,7 +1537,7 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  private setCheckOutDateTime (checkAssist: AssistDayInterface) {
+  private setCheckOutDateTime(checkAssist: AssistDayInterface) {
     if (!checkAssist?.assist?.dateShift) {
       return checkAssist
     }
@@ -1652,7 +1652,7 @@ export default class SyncAssistsService {
     let isStartWorkday = calendarDayStatus.isStartWorkday
     let isRestWorkday = calendarDayStatus.isRestWorkday
 
-    if (isRestWorkday !==  dateAssistItem.assist.isRestDay &&  dateAssistItem.assist.dateShift?.shiftIsChange) {
+    if (isRestWorkday !== dateAssistItem.assist.isRestDay && dateAssistItem.assist.dateShift?.shiftIsChange) {
       isRestWorkday = dateAssistItem.assist.isRestDay
     }
     dateAssistItem.assist.isFutureDay = calendarDayStatus.isNextDay
@@ -1873,8 +1873,8 @@ export default class SyncAssistsService {
 
     const existeWorkBreak = dateAssistItem.assist.exceptions.some(
       exception => exception.exceptionType?.exceptionTypeSlug === 'descanso-laborado' &&
-      exception.shiftExceptionEnjoymentOfSalary &&
-      exception.shiftExceptionEnjoymentOfSalary === 1
+        exception.shiftExceptionEnjoymentOfSalary &&
+        exception.shiftExceptionEnjoymentOfSalary === 1
     )
 
     if (isRestWorkday) {
@@ -1883,12 +1883,12 @@ export default class SyncAssistsService {
       dateAssistItem.assist.checkOutStatus = ''
 
       if (dateAssistItem.assist.checkIn) {
-          if (!existeWorkBreak) {
-            dateAssistItem.assist.checkIn = null
-            dateAssistItem.assist.checkEatIn = null
-            dateAssistItem.assist.checkEatOut = null
-            dateAssistItem.assist.checkOut = null
-          }
+        if (!existeWorkBreak) {
+          dateAssistItem.assist.checkIn = null
+          dateAssistItem.assist.checkEatIn = null
+          dateAssistItem.assist.checkEatOut = null
+          dateAssistItem.assist.checkOut = null
+        }
       }
     }
 
@@ -2053,151 +2053,158 @@ export default class SyncAssistsService {
   }
 
   private checkOutStatus(checkAssist: AssistDayInterface, discriminated?: Boolean) {
-  if (!checkAssist?.assist?.dateShift) {
-    return checkAssist
-  }
+    if (!checkAssist?.assist?.dateShift) {
+      return checkAssist
+    }
 
-  // Verificar si hay excepción skip-checkout
-  const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
-    (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
-  )
+    // Verificar si hay excepción skip-checkout
+    const hasSkipCheckoutException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkout'
+    )
 
-  // Verificar si hay excepción skip-checkin
-  const hasSkipCheckinException = checkAssist.assist.exceptions.some(
-    (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
-  )
+    // Verificar si hay excepción skip-checkin
+    const hasSkipCheckinException = checkAssist.assist.exceptions.some(
+      (exception) => exception.exceptionType?.exceptionTypeSlug === 'skip-checkin'
+    )
 
-  if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
-    // Si hay excepción skip-checkout, marcar como ontime
+    if (!checkAssist?.assist?.checkOut?.assistPunchTimeUtc) {
+      // Si hay excepción skip-checkout, marcar como ontime
+      if (hasSkipCheckoutException) {
+        checkAssist.assist.checkOutStatus = 'ontime'
+        return checkAssist
+      }
+
+      // Si hay skip-checkin pero no hay checkout, verificar si hay registros "subidos"
+      if (hasSkipCheckinException) {
+        // Buscar el primer registro disponible (ahora en eatCheckIn o eatCheckOut).
+        // La checada se interpreta con el offset del biométrico del día para no
+        // adelantarla 1 h en verano (USRH1785436961903).
+        let firstRecordTime: DateTime | null = null
+
+        if (checkAssist.assist.checkEatIn) {
+          firstRecordTime = this.biometricPunchWallTime(checkAssist.assist.checkEatIn.assistPunchTimeUtc.toString(), checkAssist.day)
+        } else if (checkAssist.assist.checkEatOut) {
+          firstRecordTime = this.biometricPunchWallTime(checkAssist.assist.checkEatOut.assistPunchTimeUtc.toString(), checkAssist.day)
+        }
+
+        if (firstRecordTime) {
+          // Calcular hora esperada de checkout
+          const hourStart = checkAssist.assist.dateShift.shiftTimeStart
+          const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
+          const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
+          const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
+          const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
+          const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
+          const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+
+          // Si el primer registro es antes de la hora esperada de checkout, es salida anticipada
+          const diffTime = timeToEnd.diff(firstRecordTime, 'minutes').minutes
+          if (diffTime > 0) {
+            checkAssist.assist.checkOutStatus = 'delay' // Salida anticipada
+            return checkAssist
+          }
+        }
+
+        checkAssist.assist.checkOutStatus = ''
+        return checkAssist
+      }
+
+      checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
+      return checkAssist
+    }
+
+    // Si hay skip-checkout exception y hay checkOut, siempre marcar como ontime
     if (hasSkipCheckoutException) {
       checkAssist.assist.checkOutStatus = 'ontime'
       return checkAssist
     }
 
-    // Si hay skip-checkin pero no hay checkout, verificar si hay registros "subidos"
-    if (hasSkipCheckinException) {
-      // Buscar el primer registro disponible (ahora en eatCheckIn o eatCheckOut)
-      let firstRecordTime: DateTime | null = null
+    // Calcular hora esperada de checkout
+    const hourStart = checkAssist.assist.dateShift.shiftTimeStart
+    const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
+    const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
+    const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
+    const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
+    const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
+    const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
 
-      if (checkAssist.assist.checkEatIn) {
-        firstRecordTime = DateTime.fromISO(checkAssist.assist.checkEatIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
-      } else if (checkAssist.assist.checkEatOut) {
-        firstRecordTime = DateTime.fromISO(checkAssist.assist.checkEatOut.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
-      }
+    const currentNowTime = DateTime.now().setZone('UTC-6')
 
-      if (firstRecordTime) {
-        // Calcular hora esperada de checkout
-        const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-        const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-        const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-        const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-        const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-        const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
-        const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+    // Obtener hora real de checkout: se interpreta con el offset del biométrico
+    // del día evaluado (+5 verano / +6 resto) — misma referencia que la entrada
+    // ya corregida en attendance-stats; con `-6` fijo una salida puntual se leía
+    // 1 h antes y se marcaba anticipada en la ventana de verano (USRH1785436961903).
+    const checkTime = this.biometricPunchWallTime(
+      `${checkAssist.assist.checkOut.assistPunchTimeUtc}`,
+      checkAssist.day
+    )
 
-        // Si el primer registro es antes de la hora esperada de checkout, es salida anticipada
-        const diffTime = timeToEnd.diff(firstRecordTime, 'minutes').minutes
-        if (diffTime > 0) {
-          checkAssist.assist.checkOutStatus = 'delay' // Salida anticipada
-          return checkAssist
-        }
-      }
+    // Si el checkout es del día siguiente, ajustar la comparación
+    const checkOutDay = checkTime.toFormat('yyyy-LL-dd')
+    const expectedDay = checkAssist.day
 
-      checkAssist.assist.checkOutStatus = ''
-      return checkAssist
+    let timeToCheckOut: DateTime
+    if (checkOutDay > expectedDay) {
+      // Checkout es del día siguiente, usar la hora del checkout directamente
+      // y comparar con la hora esperada del día actual
+      timeToCheckOut = checkTime
+    } else {
+      // Checkout es del mismo día, usar formato normal
+      const checkTimeDateYear = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
+      const checkTimeStringDate = `${checkTime.toFormat('yyyy-LL-dd')}T${checkTimeDateYear}.000-06:00`
+      timeToCheckOut = DateTime.fromISO(checkTimeStringDate, { setZone: true }).setZone('UTC-6')
     }
 
-    checkAssist.assist.checkOutStatus = checkAssist.assist.checkInStatus === 'fault' ? 'fault' : ''
-    return checkAssist
-  }
+    // Calcular diferencia: tiempo esperado - tiempo real
+    // Si diffTime > 0: salió antes (delay)
+    // Si diffTime <= 0: salió a tiempo o después (ontime)
+    const diffTime = timeToEnd.diff(timeToCheckOut, 'minutes').minutes
+    const diffTimeNow = currentNowTime.diff(timeToEnd, 'minutes').minutes
 
-  // Si hay skip-checkout exception y hay checkOut, siempre marcar como ontime
-  if (hasSkipCheckoutException) {
-    checkAssist.assist.checkOutStatus = 'ontime'
-    return checkAssist
-  }
+    // Si hay skip-checkin exception, usar lógica especial
+    if (hasSkipCheckinException) {
+      // Si el checkout es después de la hora esperada (diffTime negativo o cero), es ontime
+      if (diffTime <= 0) {
+        checkAssist.assist.checkOutStatus = 'ontime'
+        return checkAssist
+      }
+      // Si el checkout es antes de la hora esperada (diffTime positivo), es delay (salida anticipada)
+      if (diffTime > 0) {
+        checkAssist.assist.checkOutStatus = 'delay'
+        return checkAssist
+      }
+    }
 
-  // Calcular hora esperada de checkout
-  const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-  const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-  const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-  const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-  const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-  const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
-  const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+    if (diffTime > 0 && diffTimeNow > 0) {
+      if (checkAssist.assist.assitFlatList?.length === 3) {
+        checkAssist.assist.checkEatOut = null
+      }
 
-  const currentNowTime = DateTime.now().setZone('UTC-6')
+      if (checkAssist.assist.assitFlatList?.length === 2) {
+        checkAssist.assist.checkEatIn = null
+      }
+    }
 
-  // Obtener hora real de checkout
-  const DayTime = DateTime.fromISO(`${checkAssist.assist.checkOut.assistPunchTimeUtc}`, { setZone: true })
-  const checkTime = DayTime.setZone('UTC-6')
+    if (diffTime > 10 && (currentNowTime > timeToEnd)) {
+      checkAssist.assist.checkOutStatus = 'delay'
+    }
 
-  // Si el checkout es del día siguiente, ajustar la comparación
-  const checkOutDay = checkTime.toFormat('yyyy-LL-dd')
-  const expectedDay = checkAssist.day
+    if (diffTime <= 10) {
+      checkAssist.assist.checkOutStatus = 'tolerance'
+    }
 
-  let timeToCheckOut: DateTime
-  if (checkOutDay > expectedDay) {
-    // Checkout es del día siguiente, usar la hora del checkout directamente
-    // y comparar con la hora esperada del día actual
-    timeToCheckOut = checkTime
-  } else {
-    // Checkout es del mismo día, usar formato normal
-    const checkTimeDateYear = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
-    const checkTimeStringDate = `${checkTime.toFormat('yyyy-LL-dd')}T${checkTimeDateYear}.000-06:00`
-    timeToCheckOut = DateTime.fromISO(checkTimeStringDate, { setZone: true }).setZone('UTC-6')
-  }
-
-  // Calcular diferencia: tiempo esperado - tiempo real
-  // Si diffTime > 0: salió antes (delay)
-  // Si diffTime <= 0: salió a tiempo o después (ontime)
-  const diffTime = timeToEnd.diff(timeToCheckOut, 'minutes').minutes
-  const diffTimeNow = currentNowTime.diff(timeToEnd, 'minutes').minutes
-
-  // Si hay skip-checkin exception, usar lógica especial
-  if (hasSkipCheckinException) {
-    // Si el checkout es después de la hora esperada (diffTime negativo o cero), es ontime
     if (diffTime <= 0) {
       checkAssist.assist.checkOutStatus = 'ontime'
-      return checkAssist
-    }
-    // Si el checkout es antes de la hora esperada (diffTime positivo), es delay (salida anticipada)
-    if (diffTime > 0) {
-      checkAssist.assist.checkOutStatus = 'delay'
-      return checkAssist
-    }
-  }
-
-  if (diffTime > 0 && diffTimeNow > 0) {
-    if (checkAssist.assist.assitFlatList?.length === 3) {
-      checkAssist.assist.checkEatOut = null
     }
 
-    if (checkAssist.assist.assitFlatList?.length === 2) {
-      checkAssist.assist.checkEatIn = null
+    if (discriminated) {
+      checkAssist.assist.checkOutStatus = ''
     }
+
+    return checkAssist
   }
 
-  if (diffTime > 10 && (currentNowTime > timeToEnd)) {
-    checkAssist.assist.checkOutStatus = 'delay'
-  }
-
-  if (diffTime <= 10) {
-    checkAssist.assist.checkOutStatus = 'tolerance'
-  }
-
-  if (diffTime <= 0) {
-    checkAssist.assist.checkOutStatus = 'ontime'
-  }
-
-  if (discriminated) {
-    checkAssist.assist.checkOutStatus = ''
-  }
-
-  return checkAssist
-}
-
-  private setNexCalendarDayCheckIns (assitFlatList: AssistInterface[], checkInDateTime: DateTime): AssistInterface[] {
+  private setNexCalendarDayCheckIns(assitFlatList: AssistInterface[], checkInDateTime: DateTime): AssistInterface[] {
     const calendarDay: AssistInterface[] = []
     assitFlatList.forEach((checkItem) => {
       const punchTime = DateTime.fromISO(`${checkItem.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
@@ -2215,7 +2222,7 @@ export default class SyncAssistsService {
     return calendarDay
   }
 
-  private setNexCalendarDayCheckOuts (evaluatedDay: DateTime, assistList: AssistDayInterface[], checkOutDateTime: DateTime): AssistInterface[] {
+  private setNexCalendarDayCheckOuts(evaluatedDay: DateTime, assistList: AssistDayInterface[], checkOutDateTime: DateTime): AssistInterface[] {
     const calendarDay: AssistInterface[] = []
     const nextEvaluatedDay = evaluatedDay.plus({ days: 1 }).toFormat('yyyy-LL-dd')
     const nextDay = assistList.find((assistDate) => assistDate.day === nextEvaluatedDay)
@@ -2240,7 +2247,7 @@ export default class SyncAssistsService {
     return calendarDay
   }
 
-  private setCheckOnNextDayFlags (dateAssistItem: AssistDayInterface, checkInDateTime: DateTime): AssistDayInterface {
+  private setCheckOnNextDayFlags(dateAssistItem: AssistDayInterface, checkInDateTime: DateTime): AssistDayInterface {
     if (dateAssistItem.assist.checkOut) {
       const punchTimeOut = DateTime.fromISO(`${dateAssistItem.assist.checkOut.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
       if (punchTimeOut.toFormat('yyyy-LL-dd') > checkInDateTime.toFormat('yyyy-LL-dd')) {
@@ -2265,11 +2272,45 @@ export default class SyncAssistsService {
     return dateAssistItem
   }
 
-  private getShiftCheckInTimeToStart (day: string, dateShift: ShiftInterface) {
+  private getShiftCheckInTimeToStart(day: string, dateShift: ShiftInterface) {
     const hourStart = dateShift.shiftTimeStart
     const stringDate = `${day}T${hourStart}.000-06:00`
     const timeToStart = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: 1 })
     return timeToStart
+  }
+
+  /**
+   * Offset del biométrico para un día (USRH1785436961903): el checador guarda
+   * `assist_punch_time_utc` como hora de pared + offset, aplicando SU horario
+   * de verano (primer domingo de abril → último domingo de octubre → +5; el
+   * resto del año → +6) aunque el DST civil ya no exista en México. Misma
+   * convención que `attendance-stats` (utc_offset del SQL) y
+   * `simulate_attendance`; unificarla en una sola fuente de verdad de zona
+   * horaria es trabajo aparte (ESB-04-02-04-03).
+   */
+  private biometricUtcOffsetHours(dayIso: string): number {
+    const year = Number(dayIso.slice(0, 4))
+    const aprilFirst = new Date(Date.UTC(year, 3, 1))
+    const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirst.getUTCDay()) % 7)))
+    const octLast = new Date(Date.UTC(year, 9, 31))
+    const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLast.getUTCDay()))
+    const dstStart = dstStartDate.toISOString().slice(0, 10)
+    const dstEnd = dstEndDate.toISOString().slice(0, 10)
+    return dayIso >= dstStart && dayIso <= dstEnd ? 5 : 6
+  }
+
+  /**
+   * Hora de pared real de una checada del biométrico, expresada en -06:00 para
+   * compararse con las horas civiles del turno del día evaluado. La marca
+   * almacenada = pared + offset del día; interpretarla con `-6` fijo (la
+   * convención vieja) la adelanta 1 h dentro de la ventana de verano del
+   * checador y hacía ver anticipada una salida puntual (USRH1785436961903).
+   */
+  private biometricPunchWallTime(punchUtc: string, dayIso: string): DateTime {
+    const offset = this.biometricUtcOffsetHours(dayIso)
+    return DateTime.fromISO(punchUtc, { setZone: true })
+      .setZone('UTC-6')
+      .plus({ hours: 6 - offset })
   }
 
   /**
@@ -2317,7 +2358,7 @@ export default class SyncAssistsService {
       let data = [] as Tolerance[]
 
       if (systemSettingActive) {
-         data = await new ToleranceService().index(systemSettingActive.systemSettingId)
+        data = await new ToleranceService().index(systemSettingActive.systemSettingId)
       }
 
       const delayTolerance = data.find((t) => t.toleranceName === 'Delay') ?? null
@@ -2576,7 +2617,7 @@ export default class SyncAssistsService {
     return assist
   }
 
-  private getMexicoDSTChangeDates (year: number) {
+  private getMexicoDSTChangeDates(year: number) {
     const startDST = new Date(year, 3, 1)
     startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
 
@@ -2587,7 +2628,7 @@ export default class SyncAssistsService {
     return { startDST, endDST }
   }
 
-  private checkDSTSummerTime (date: Date): boolean {
+  private checkDSTSummerTime(date: Date): boolean {
     // México dejó de aplicar horario de verano en la mayor parte del territorio.
     // Mantener el ajuste +1h en fixedCSTSummerTime para 2023+ corregía como si
     // aún hubiera DST y desplazaba entradas/salidas válidas (mayo–octubre vs febrero).
@@ -2607,7 +2648,7 @@ export default class SyncAssistsService {
     }
   }
 
-  private fixedCSTSummerTime (evaluatedDay: Date, assitFlatList: AssistInterface[]) {
+  private fixedCSTSummerTime(evaluatedDay: Date, assitFlatList: AssistInterface[]) {
     const isSummerTime = this.checkDSTSummerTime(evaluatedDay)
     const fixedList = assitFlatList.map((checkItem: any) => {
       if (isSummerTime) {
@@ -2621,7 +2662,7 @@ export default class SyncAssistsService {
     return fixedList
   }
 
-  private calendarDayStatus (dateAssistItem: AssistDayInterface, evaluatedDay: DateTime, startDay: DateTime, flag: string) {
+  private calendarDayStatus(dateAssistItem: AssistDayInterface, evaluatedDay: DateTime, startDay: DateTime, flag: string) {
     let daysBettweenStart = 0
     let isStartWorkday = true
     let isEndWorkday = false
@@ -2704,7 +2745,7 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    if (checkAssist.assist.checkIn?.assistId === checkAssist.assist.checkOut?.assistId ) {
+    if (checkAssist.assist.checkIn?.assistId === checkAssist.assist.checkOut?.assistId) {
       checkAssist.assist.checkOut = null
     }
 

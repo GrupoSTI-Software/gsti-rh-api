@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Employee from '#models/employee'
 import Shift from '#models/shift'
 import Assist from '#models/assist'
 import type { SimulateAttendancePayload } from './validators/simulate_attendance.validator.js'
 
 const TIMEZONE = 'America/Mexico_City'
+const SIMULATED_AREA_ALIAS = 'Onboarding Simulado'
 
 export interface SimulatedAttendanceResult {
   date: string
@@ -12,13 +14,31 @@ export interface SimulatedAttendanceResult {
   checkIn: string
   checkOut: string
   disclaimer: string
+  /** Ids de las checadas creadas (tracking de la siembra demo, USRH1785438246847). */
+  assistIds: number[]
 }
 
+/**
+ * Genera checadas de entrada/salida para el paso de onboarding.
+ *
+ * Las horas se persisten en el mismo “UTC de biométrico” que consume
+ * `attendance-stats`: offset +5 dentro del horario de verano del checador
+ * (abr–oct) y +6 el resto del año. No se usa `America/Mexico_City.toUTC()`
+ * (UTC civil fijo +6), porque en verano el KPI marcaría el día como falta
+ * (~60 min de desfase vs el turno esperado).
+ */
 export default class SimulateAttendanceService {
-  async simulate(payload: SimulateAttendancePayload): Promise<SimulatedAttendanceResult> {
+  /**
+   * `trx` opcional (USRH1785438246847): la siembra demo genera las checadas
+   * dentro de su transacción todo-o-nada. Sin `trx` se comporta igual que antes.
+   */
+  async simulate(
+    payload: SimulateAttendancePayload,
+    trx?: TransactionClientContract
+  ): Promise<SimulatedAttendanceResult> {
     const { employeeId, shiftId, date } = payload
 
-    const employee = await Employee.query()
+    const employee = await Employee.query({ client: trx })
       .where('employee_id', employeeId)
       .whereNull('employee_deleted_at')
       .first()
@@ -29,7 +49,7 @@ export default class SimulateAttendanceService {
 
     const employeeCode = String(employee.employeeCode ?? '')
 
-    const shift = await Shift.query()
+    const shift = await Shift.query({ client: trx })
       .where('shift_id', shiftId)
       .first()
 
@@ -39,6 +59,7 @@ export default class SimulateAttendanceService {
 
     const [yyyy, mm, dd] = date.split('-').map(Number)
     const [startHour, startMinute] = shift.shiftTimeStart.split(':').map(Number)
+    const utcOffsetHours = this.biometricUtcOffsetHours(date)
 
     const checkInLocal = DateTime.fromObject(
       { year: yyyy, month: mm, day: dd, hour: startHour, minute: startMinute, second: 0 },
@@ -46,28 +67,39 @@ export default class SimulateAttendanceService {
     )
     const checkOutLocal = checkInLocal.plus({ hours: shift.shiftActiveHours })
 
-    const checkInUtc  = checkInLocal.toUTC()
-    const checkOutUtc = checkOutLocal.toUTC()
+    const checkInBiometricUtc = this.toBiometricUtc(checkInLocal, utcOffsetHours)
+    const checkOutBiometricUtc = this.toBiometricUtc(checkOutLocal, utcOffsetHours)
 
-    for (const punchTime of [checkInUtc, checkOutUtc]) {
-      await Assist.create({
-        assistEmpCode: employeeCode,
-        assistTerminalSn: '',
-        assistTerminalAlias: '',
-        assistAreaAlias: 'Onboarding Simulado',
-        assistLongitude: 0,
-        assistLatitude: 0,
-        assistPrecision: 0,
-        assistUploadTime: punchTime,
-        assistEmpId: employee.employeeId,
-        assistTerminalId: null,
-        assistSyncId: 0,
-        assistActive: 1,
-        assistType: 'check',
-        assistPunchTime: punchTime,
-        assistPunchTimeUtc: punchTime,
-        assistPunchTimeOrigin: punchTime,
-      })
+    // Idempotente: evita duplicar checadas si se re-ejecuta el paso.
+    await this.deletePreviousSimulatedAssists(employeeCode, date, utcOffsetHours, trx)
+
+    const assistIds: number[] = []
+    for (const punch of [
+      { local: checkInLocal, utc: checkInBiometricUtc },
+      { local: checkOutLocal, utc: checkOutBiometricUtc },
+    ]) {
+      const assist = await Assist.create(
+        {
+          assistEmpCode: employeeCode,
+          assistTerminalSn: '',
+          assistTerminalAlias: '',
+          assistAreaAlias: SIMULATED_AREA_ALIAS,
+          assistLongitude: 0,
+          assistLatitude: 0,
+          assistPrecision: 0,
+          assistUploadTime: punch.utc,
+          assistEmpId: employee.employeeId,
+          assistTerminalId: null,
+          assistSyncId: 0,
+          assistActive: 1,
+          assistType: 'check',
+          assistPunchTime: punch.local,
+          assistPunchTimeUtc: punch.utc,
+          assistPunchTimeOrigin: punch.utc,
+        },
+        { client: trx }
+      )
+      assistIds.push(assist.assistId)
     }
 
     return {
@@ -76,6 +108,76 @@ export default class SimulateAttendanceService {
       checkIn: checkInLocal.toFormat('HH:mm'),
       checkOut: checkOutLocal.toFormat('HH:mm'),
       disclaimer: 'Asistencias generadas automáticamente de manera simulada para demostración',
+      assistIds,
     }
+  }
+
+  /**
+   * Convierte hora civil México a la marca UTC falsa del biométrico:
+   * hora de pared del día + offset (+5 verano / +6 invierno).
+   */
+  private toBiometricUtc(local: DateTime, utcOffsetHours: number): DateTime {
+    return DateTime.fromObject(
+      {
+        year: local.year,
+        month: local.month,
+        day: local.day,
+        hour: local.hour,
+        minute: local.minute,
+        second: local.second,
+      },
+      { zone: 'UTC' }
+    ).plus({ hours: utcOffsetHours })
+  }
+
+  /**
+   * Offset biométrico del día. Replica `computeMexicoDST` de attendance-stats:
+   * primer domingo de abril → último domingo de octubre → +5; fuera → +6.
+   */
+  private biometricUtcOffsetHours(dayIso: string): number {
+    const year = Number(dayIso.slice(0, 4))
+    const { dstStart, dstEnd } = this.computeMexicoBiometricDst(year)
+    return dayIso >= dstStart && dayIso <= dstEnd ? 5 : 6
+  }
+
+  /**
+   * Bounds del DST del checador (no el civil de México post-2022).
+   */
+  private computeMexicoBiometricDst(year: number): { dstStart: string; dstEnd: string } {
+    const aprilFirst = new Date(Date.UTC(year, 3, 1))
+    const aprilFirstDow = aprilFirst.getUTCDay()
+    const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirstDow) % 7)))
+
+    const octLast = new Date(Date.UTC(year, 9, 31))
+    const octLastDow = octLast.getUTCDay()
+    const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLastDow))
+
+    return {
+      dstStart: dstStartDate.toISOString().slice(0, 10),
+      dstEnd: dstEndDate.toISOString().slice(0, 10),
+    }
+  }
+
+  /**
+   * Borra checadas previas del mismo paso de onboarding en la ventana del día
+   * (cubre tanto el encoding civil viejo como el biométrico nuevo).
+   */
+  private async deletePreviousSimulatedAssists(
+    employeeCode: string,
+    dayIso: string,
+    utcOffsetHours: number,
+    trx?: TransactionClientContract
+  ): Promise<void> {
+    const dayStart = DateTime.fromISO(`${dayIso}T00:00:00`, { zone: 'UTC' }).minus({ hours: 1 })
+    const dayEnd = DateTime.fromISO(`${dayIso}T23:59:59`, { zone: 'UTC' })
+      .plus({ hours: utcOffsetHours + 1 })
+      .plus({ days: 1 })
+
+    await Assist.query({ client: trx })
+      .where('assist_emp_code', employeeCode)
+      .where('assist_area_alias', SIMULATED_AREA_ALIAS)
+      .where('assist_punch_time_utc', '>=', dayStart.toSQL({ includeOffset: false })!)
+      .where('assist_punch_time_utc', '<=', dayEnd.toSQL({ includeOffset: false })!)
+      .delete()
   }
 }

@@ -300,7 +300,7 @@ export default class SignupDraftService {
         userData.userEmail = draft.signupDraftEmail
         userData.userPassword = data.password
         userData.userActive = 1
-        userData.roleId = 1
+        userData.roleId = ownerRole.roleId
         userData.personId = trxPerson.personId
         userData.userToken = ''
         userData.pinCode = ''

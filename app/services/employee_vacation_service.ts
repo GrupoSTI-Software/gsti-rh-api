@@ -36,9 +36,22 @@ const MAX_VACATION_IMPORT_DATA_ROWS = 500
 export default class EmployeeVacationService {
 
   private i18n: I18n
+  private t: (key: string, params?: { [key: string]: string | number }) => string
+  private localeToUse: string
 
   constructor(i18n: I18n) {
     this.i18n = i18n
+    this.t = i18n.formatMessage.bind(i18n)
+    this.localeToUse = i18n.locale
+  }
+
+  /**
+   * Formatea el rango de fechas del título del resumen según el locale activo.
+   */
+  private formatSummaryReportTitle(start: DateTime, end: DateTime): string {
+    const startLabel = start.setLocale(this.localeToUse).toFormat('DDD')
+    const endLabel = end.setLocale(this.localeToUse).toFormat('DDD')
+    return this.t('vacation_summary_report_title', { start: startLabel, end: endLabel })
   }
   async getExcelAll(filters: EmployeeVacationExcelFilterInterface) {
     try {
@@ -156,19 +169,19 @@ export default class EmployeeVacationService {
     let fgColor = 'FFFFFFF'
     let color = '4EA72E'
     const headers = [
-      'ID',
-      'Employee',
-      'Department',
-      'Position',
-      'Hire Date',
-      'Employer Company',
-      'Years',
-      'Vac.',
-      'Used',
-      'Rest.',
+      this.t('vacation_summary_report_id'),
+      this.t('employee'),
+      this.t('department'),
+      this.t('position'),
+      this.t('vacation_summary_report_hire_date'),
+      this.t('vacation_excel_report_employer_company'),
+      this.t('vacation_excel_report_years'),
+      this.t('vacation_excel_report_vac'),
+      this.t('vacation_excel_report_used'),
+      this.t('vacation_excel_report_rest'),
     ]
     for (let i = 1; i <= 15; i++) {
-      headers.push(`Date ${i}`)
+      headers.push(`${this.t('date')} ${i}`)
     }
     // Agregar los encabezados al worksheet
     const headerRow = worksheet.addRow(headers)
@@ -523,11 +536,11 @@ export default class EmployeeVacationService {
     let fgColor = 'FFFFFFF'
     let color = '4EA72E'
     const headers = [
-      'Date',
-      'ID',
-      'Employee',
-      'Department',
-      'Position',
+      this.t('date'),
+      this.t('vacation_summary_report_id'),
+      this.t('employee'),
+      this.t('department'),
+      this.t('position'),
     ]
 
     // Agregar los encabezados al worksheet
@@ -652,8 +665,9 @@ export default class EmployeeVacationService {
       for (let year = startYear; year <= end.year; year++) {
         years.push(year)
       }
-      const title = `Vacations Control Summary, ${start.toFormat('DDD')} to ${end.toFormat('DDD')}`
-      const sheet = workbook.addWorksheet('Vacations Control Summary')
+      const title = this.formatSummaryReportTitle(start, end)
+      const sheetName = this.t('vacation_summary_report_sheet_name')
+      const sheet = workbook.addWorksheet(sheetName)
       await this.addHeadRowSummary(workbook, sheet, title, years)
       const rows = await this.addEmployeesSummary(employees, years)
       await this.addRowToWorkSheetSummary(rows, sheet)
@@ -703,11 +717,11 @@ export default class EmployeeVacationService {
     let cell = null
     let color = '4EA72E'
     const headers = [
-      'ID',
-      'Employee',
-      'Department',
-      'Position',
-      'Hire Date',
+      this.t('vacation_summary_report_id'),
+      this.t('employee'),
+      this.t('department'),
+      this.t('position'),
+      this.t('vacation_summary_report_hire_date'),
     ]
 
     // Agregar los encabezados al worksheet
@@ -723,7 +737,13 @@ export default class EmployeeVacationService {
     }
     headerRow.font = { bold: true, color: { argb: fgColor } }
 
-    const labels = ['Years', 'Vac', 'Used', 'Rest', 'Acc. Disp.']
+    const labels = [
+      this.t('vacation_summary_report_years'),
+      this.t('vacation_summary_report_vac'),
+      this.t('vacation_summary_report_used'),
+      this.t('vacation_summary_report_rest'),
+      this.t('vacation_summary_report_acc_disp'),
+    ]
     let startColIndex = 7
     const rowNumber = 3
 
@@ -801,7 +821,6 @@ export default class EmployeeVacationService {
   async addRowToWorkSheetSummary(rows: EmployeeVacationExcelRowSummaryInterface[], worksheet: ExcelJS.Worksheet) {
     for await (const rowData of rows) {
       const row: (string | number)[] = [
-        rowData.employeePayrollCode,
         rowData.employeeCode,
         rowData.employeeName,
         rowData.department,
@@ -848,7 +867,10 @@ export default class EmployeeVacationService {
       }
 
       const newRow = {
-        employeeCode: employee.employeePayrollCode?.toString() || '',
+        employeePayrollCode:
+          employee.employeePayrollCode?.toString() || employee.employeePayrollNum?.toString() || '',
+        employeeCode:
+          employee.employeePayrollCode?.toString() || employee.employeePayrollNum?.toString() || '',
         employeeName: `${employee.employeeFirstName} ${employee.employeeLastName}`,
         department: employee.department ? employee.department.departmentName : '',
         position: employee.position ? employee.position.positionName : '',
@@ -1561,11 +1583,17 @@ export default class EmployeeVacationService {
       deductionsCreated: 0,
       vacationsCreated: 0,
       skipped: 0,
+      skippedDetails: [] as string[],
     }
 
     const shiftExceptionService = new ShiftExceptionService(this.i18n)
 
     for (const { employee, daysToSkip, skipReason, vacationDates } of parsed) {
+      const employeeLabel =
+        employee.employeePayrollCode ||
+        employee.employeePayrollNum ||
+        `empleado ${employee.employeeId}`
+
       // ── 6a. Aplicar omisiones distribuidas del periodo más antiguo al más reciente ──
       if (daysToSkip > 0) {
         const periods = await this.getVacationPeriodsOrdered(employee)
@@ -1595,6 +1623,9 @@ export default class EmployeeVacationService {
 
         if (!period) {
           results.skipped++
+          results.skippedDetails.push(
+            `${employeeLabel}: fecha ${dt.toFormat('dd/MM/yyyy')} omitida — no hay periodo de vacaciones con días disponibles para esa fecha.`
+          )
           continue
         }
 
@@ -1618,15 +1649,29 @@ export default class EmployeeVacationService {
           results.vacationsCreated++
         } else {
           results.skipped++
+          results.skippedDetails.push(
+            `${employeeLabel}: fecha ${dt.toFormat('dd/MM/yyyy')} omitida — ya existe una vacación registrada en esa fecha para el empleado.`
+          )
         }
       }
     }
 
+    const hasSkipped = results.skipped > 0
+    const allSkipped = results.vacationsCreated === 0 && hasSkipped
+
     return {
       status: 201,
-      type: 'success',
-      title: 'Importación completada',
-      message: 'Las vacaciones fueron importadas correctamente.',
+      type: allSkipped ? 'warning' : hasSkipped ? 'warning' : 'success',
+      title: allSkipped
+        ? 'Importación sin registros'
+        : hasSkipped
+          ? 'Importación parcial'
+          : 'Importación completada',
+      message: allSkipped
+        ? 'No se registró ninguna vacación. Revise el detalle de los días omitidos.'
+        : hasSkipped
+          ? `Se importaron ${results.vacationsCreated} vacaciones; ${results.skipped} días fueron omitidos.`
+          : 'Las vacaciones fueron importadas correctamente.',
       data: results,
     }
   }

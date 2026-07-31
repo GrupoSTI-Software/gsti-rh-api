@@ -1,36 +1,56 @@
 import { HttpContext } from '@adonisjs/core/http'
 import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
+import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
-import User from '#models/user'
+import { isSystemRoleSlug } from '#constants/system_roles'
 import { createRoleValidator, updateRoleValidator } from '#validators/role'
 
 /**
- * Construye el CSV legado de `roleBusinessAccess` a partir de la tabla pivote
- * `business_unit_users` del usuario autenticado.
+ * Construye el CSV legado de `roleBusinessAccess` con los slugs del scope de
+ * la petición (`ctx.businessUnitScope`, middleware businessScope): el rol nace
+ * ligado a la empresa activa, no al pivote completo del usuario
+ * (USRH1785436961936, regla 3).
  *
- * Conservamos `roleBusinessAccess` como CSV de slugs por compatibilidad con código
- * heredado que lo lee. La pivote `role_business_units` y la eliminación de la
- * columna están fuera del alcance de esta historia.
- *
- * @returns CSV de Slugs (ej. `"sae,demo"`) o cadena vacía si el usuario no tiene acceso.
+ * Conservamos `roleBusinessAccess` como CSV de slugs por compatibilidad con
+ * código heredado que lo lee.
  */
-async function buildRoleBusinessAccessFromPivot(userId: number): Promise<string> {
-  const businessUnits = await User.query()
-    .where('user_id', userId)
-    .preload('businessUnits', (query) => {
-      query.whereNull('business_unit_deleted_at').select('business_unit_slug')
-    })
-    .first()
-
-  if (!businessUnits || businessUnits.businessUnits.length === 0) {
+async function buildRoleBusinessAccessFromScope(businessUnitScope: number[]): Promise<string> {
+  if (businessUnitScope.length === 0) {
     return ''
   }
 
-  return businessUnits.businessUnits.map((unit) => unit.businessUnitSlug).join(',')
+  const businessUnits = await BusinessUnit.query()
+    .whereIn('business_unit_id', businessUnitScope)
+    .whereNull('business_unit_deleted_at')
+    .select('business_unit_slug')
+
+  return businessUnits.map((unit) => unit.businessUnitSlug).join(',')
 }
 
 export default class RoleController {
+  /**
+   * Regla 1 de USRH1785436961936: los roles de sistema (owner, empleado) no
+   * son editables, eliminables ni reconfigurables desde un tenant. Solo `root`
+   * (plataforma) queda exento — administra los roles comunes para todos.
+   */
+  private async isSystemRoleLockedForUser(
+    auth: HttpContext['auth'],
+    role: Role
+  ): Promise<boolean> {
+    if (!isSystemRoleSlug(role.roleSlug)) {
+      return false
+    }
+    await auth.check()
+    const user = auth.user
+    if (!user) {
+      return true
+    }
+    if (!user.role) {
+      await user.load('role')
+    }
+    return user.role?.roleSlug !== 'root'
+  }
   /**
    * @swagger
    * /api/roles:
@@ -287,20 +307,28 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
-      let roleBusinessAccess = ''
-      if (user) {
-        roleBusinessAccess = await buildRoleBusinessAccessFromPivot(user.userId)
-      }
+      const roleBusinessAccess = await buildRoleBusinessAccessFromScope(businessUnitScope)
 
       const roleService = new RoleService()
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
       const roleSlug = roleService.generateSlug(roleName)
       const roleActive = request.input('roleActive')
+
+      // Un nombre que genere el slug de un rol de sistema haría que el rol del
+      // tenant se volviera visible en todas las empresas (los listados amplían
+      // visibilidad por slug): nombre reservado, se rechaza.
+      if (isSystemRoleSlug(roleSlug)) {
+        response.status(400)
+        return {
+          title: t('system_role_name_reserved_title'),
+          detail: t('system_role_name_reserved_detail'),
+          key: 'rol-nombre-reservado',
+        }
+      }
 
       const role = {
         roleName: roleName,
@@ -466,7 +494,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const roleId = request.param('roleId')
       const roleService = new RoleService()
@@ -503,6 +532,24 @@ export default class RoleController {
           title: 'The role was not found',
           message: 'The role was not found with the entered ID',
           data: { ...role },
+        }
+      }
+      if (await this.isSystemRoleLockedForUser(auth, currentRole)) {
+        response.status(403)
+        return {
+          title: t('system_role_locked_title'),
+          detail: t('system_role_locked_detail'),
+          key: 'rol-sistema-bloqueado',
+        }
+      }
+      // Renombrar un rol del tenant hacia el slug de un rol de sistema lo
+      // volvería visible en todas las empresas: nombre reservado, se rechaza.
+      if (isSystemRoleSlug(roleSlug) && currentRole.roleSlug !== roleSlug) {
+        response.status(400)
+        return {
+          title: t('system_role_name_reserved_title'),
+          detail: t('system_role_name_reserved_detail'),
+          key: 'rol-nombre-reservado',
         }
       }
       const data = await request.validateUsing(updateRoleValidator)
@@ -637,7 +684,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -660,6 +708,14 @@ export default class RoleController {
           title: 'The role was not found',
           message: 'The role was not found with the entered ID',
           data: { roleId },
+        }
+      }
+      if (await this.isSystemRoleLockedForUser(auth, currentRole)) {
+        response.status(403)
+        return {
+          title: t('system_role_locked_title'),
+          detail: t('system_role_locked_detail'),
+          key: 'rol-sistema-bloqueado',
         }
       }
       const roleService = new RoleService()
@@ -799,7 +855,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async assign({ request, response }: HttpContext) {
+  async assign({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const roleId = request.param('roleId')
       const data = request.all()
@@ -811,6 +868,17 @@ export default class RoleController {
           title: 'The role was not found',
           message: 'The role was not found with the entered ID',
           data: { ...request.all() },
+        }
+      }
+
+      // Reasignar permisos de un rol de sistema afectaría a TODOS los tenants:
+      // misma regla de bloqueo que edición/eliminación.
+      if (await this.isSystemRoleLockedForUser(auth, role)) {
+        response.status(403)
+        return {
+          title: t('system_role_locked_title'),
+          detail: t('system_role_locked_detail'),
+          key: 'rol-sistema-bloqueado',
         }
       }
 

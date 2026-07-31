@@ -36,10 +36,12 @@ const ERR = {
  *  - Fuera del scope  → 404 `BU.NOT.001` (no revela si la unidad existe).
  *  - Válido           → resuelve al ID interno → `TenantContext.run([internalId])`.
  *
- * ## Validación de `businessUnitId` en query param / body
- * Para compatibilidad con el código existente, el campo `businessUnitId` en query
- * string y body se sigue aceptando como entero positivo (ID interno). Cuando
- * está ausente, se inyecta el ID interno resuelto desde el header.
+ * ## Validación de `businessUnitId` / `payrollBusinessUnitId` en query/body
+ * Para compatibilidad con el código existente, `businessUnitId` en query string
+ * y body se acepta como UUID v4 o entero positivo (ID interno). Cuando está
+ * ausente, se inyecta el ID interno resuelto desde el header.
+ * `payrollBusinessUnitId` en body sigue la misma semántica (requerido en alta
+ * de empleados como FK NOT NULL).
  *
  * Debe colocarse después del middleware `auth` (requiere usuario autenticado).
  */

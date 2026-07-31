@@ -23,7 +23,8 @@ import BusinessUnit from './business_unit.js'
  *           description: Employee type slug
  *         businessUnitId:
  *           type: number
- *           description: Business unit ID
+ *           nullable: true
+ *           description: Business unit ID (null = catálogo del sistema)
  *         employeeTypeCreatedAt:
  *           type: string
  *           format: date-time
@@ -38,12 +39,16 @@ import BusinessUnit from './business_unit.js'
  *         employeeTypeId: 1
  *         employeeTypeName: "Employee"
  *         employeeTypeSlug: "employee"
- *         businessUnitId: 1
+ *         businessUnitId: null
  *         employeeTypeCreatedAt: '2024-12-05T12:00:00Z'
  *         employeeTypeUpdatedAt: '2024-12-05T13:00:00Z'
  *         employeeTypeDeletedAt: null
  */
-export default class EmployeeType extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
+export default class EmployeeType extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope('business_unit_id', { includeGlobal: true })
+) {
   @column({ isPrimary: true })
   declare employeeTypeId: number
 
@@ -54,7 +59,7 @@ export default class EmployeeType extends compose(BaseModel, SoftDeletes, withBu
   declare employeeTypeSlug: string
 
   @column()
-  declare businessUnitId: number
+  declare businessUnitId: number | null
 
   @belongsTo(() => BusinessUnit, {
     foreignKey: 'businessUnitId',

@@ -5,6 +5,7 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Role from '#models/role'
+import SystemSetting from '#models/system_setting'
 
 /**
  * Test funcional — flujo completo de signup self-service (USRH1783712837561).
@@ -37,6 +38,12 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
       await Person.query().where('person_id', createdPersonId).delete()
     }
     if (createdBusinessUnitId !== null) {
+      // `createForTenant` provisiona system_settings ligado por business_unit_id
+      // (USRH1783712837572): sin esta limpieza, la FK bloquea el delete de la BU.
+      await SystemSetting.query()
+        .withTrashed()
+        .where('business_unit_id', createdBusinessUnitId)
+        .delete()
       await BusinessUnit.query().where('business_unit_id', createdBusinessUnitId).delete()
     }
     await SignupDraft.query().where('signup_draft_email', signupEmail).delete()
