@@ -1,0 +1,13 @@
+import vine from '@vinejs/vine'
+
+/**
+ * Query para `GET /api/signup/plans/:planId/price`.
+ *
+ * Solo valida la forma del parámetro `employees` (entero positivo).
+ * La regla comercial de bloques de 10 vive en `BillingTenantService.assertContractedEmployees`.
+ */
+export const publicPlanPriceQueryValidator = vine.compile(
+  vine.object({
+    employees: vine.number().positive().withoutDecimals(),
+  })
+)

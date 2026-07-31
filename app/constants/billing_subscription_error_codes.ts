@@ -27,6 +27,10 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   SUBSCRIPTION_CANCELED: 'PLT.SUB.SUBSCRIPTION_CANCELED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.SUB.SYS_UNHANDLED',
+  /** La cantidad contratada self-service debe ser múltiplo de 10 y ≥ 10 */
+  EMPLOYEES_NOT_BLOCK_OF_TEN: 'PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN',
+  /** La cantidad contratada rebasa el tope defensivo de la superficie pública */
+  EMPLOYEES_ABOVE_SAFETY_CAP: 'PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP',
 } as const
 
 export type BillingSubscriptionErrorCode =
