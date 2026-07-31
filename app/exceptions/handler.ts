@@ -7,6 +7,11 @@ import {
   isRequestEntityTooLarge,
   respondEmployeeImportValFileError,
 } from '../helpers/employee_import_request_errors.js'
+import {
+  isContratoImportExcelPath,
+  isContratoImportRateLimitError,
+  respondContratoImportRateLimit,
+} from '../helpers/contrato_import_request_errors.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -41,6 +46,10 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       isEmployeeImportExcelPath(ctx.request.url())
     ) {
       return respondEmployeeImportValFileError(ctx, ctx.response, 'too_large')
+    }
+
+    if (isContratoImportRateLimitError(error) && isContratoImportExcelPath(ctx.request.url())) {
+      return respondContratoImportRateLimit(ctx, error)
     }
 
     return super.handle(error, ctx)
