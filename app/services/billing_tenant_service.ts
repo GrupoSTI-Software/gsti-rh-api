@@ -1,5 +1,5 @@
 import BillingPlan from '#models/billing_plan'
-import type BillingPlanPrice from '#models/billing_plan_price'
+import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BusinessUnit, { type BusinessUnitOrigin } from '#models/business_unit'
 import BillingCatalogService, { type ResolvedPrice } from '#services/billing_catalog_service'
@@ -97,6 +97,55 @@ export default class BillingTenantService {
 
     if (employeeCount < 10 || employeeCount % 10 !== 0) {
       throw employeesNotBlockOfTenError()
+    }
+  }
+
+  /**
+   * Plan vendible para `POST /api/auth/signup/start` (respuesta opaca 404).
+   */
+  async assertPublicSellablePlan(planId: number, referenceDate?: string): Promise<void> {
+    const refDate = referenceDate ?? toBusinessDateString()
+    const sellable = await this.findSellablePlan(planId, refDate)
+    if (!sellable) {
+      throw planUnavailableError()
+    }
+  }
+
+  /**
+   * Plan listo para contratar al cerrar el registro (errores explícitos 404/422).
+   */
+  async assertPlanReadyToSubscribe(planId: number, referenceDate?: string): Promise<void> {
+    const refDate = referenceDate ?? toBusinessDateString()
+    const plan = await BillingPlan.query().where('billing_plan_id', planId).first()
+
+    if (!plan) {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${planId} no encontrado`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_FOUND,
+        404,
+        'plan-no-encontrado',
+        'El plan solicitado no existe.'
+      )
+    }
+
+    if (!plan.isPublished || !plan.billingPlanActive) {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${planId} no está publicado`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
+        422,
+        'plan-no-publicado',
+        'Solo se puede contratar sobre un plan publicado del catálogo.'
+      )
+    }
+
+    if (!this.pickCurrentPrice(await this.loadPlanPrices(planId), refDate)) {
+      throw new BillingSubscriptionServiceError(
+        `Plan ${planId} no tiene precio vigente para ${refDate}`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.NO_ACTIVE_PRICE,
+        422,
+        'sin-precio-vigente',
+        'El plan no tiene un precio vigente en el catálogo para la fecha de hoy.'
+      )
     }
   }
 
@@ -246,6 +295,12 @@ export default class BillingTenantService {
     }
 
     return plan
+  }
+
+  private async loadPlanPrices(planId: number): Promise<BillingPlanPrice[]> {
+    return BillingPlanPrice.query()
+      .where('billing_plan_id', planId)
+      .orderBy('billing_plan_price_effective_from', 'asc')
   }
 
   private pickCurrentPrice(

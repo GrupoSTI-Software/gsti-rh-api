@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BusinessUnit from '#models/business_unit'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
@@ -126,9 +127,30 @@ export default class BillingSubscriptionService {
    * Congela (snapshot) el precio por empleado, el descuento por volumen y los
    * días de prueba vigentes en el catálogo al momento de contratar. Nace
    * siempre en estado `trialing`, con `provider = 'manual'`.
+   *
+   * @param trx Transacción opcional del llamador (p. ej. `SignupDraftService.complete()`).
+   * Sin `trx`, abre la suya y se comporta igual que antes (landlord).
    */
-  async createSubscription(input: CreateSubscriptionInput): Promise<BillingSubscription> {
-    const businessUnit = await BusinessUnit.query()
+  async createSubscription(
+    input: CreateSubscriptionInput,
+    trx?: TransactionClientContract
+  ): Promise<BillingSubscription> {
+    if (trx) {
+      return this.createSubscriptionWithin(input, trx)
+    }
+
+    try {
+      return await db.transaction((ownTrx) => this.createSubscriptionWithin(input, ownTrx))
+    } catch (error) {
+      this.rethrowDuplicateLiveSubscriptionError(error, input.businessUnitPublicId)
+    }
+  }
+
+  private async createSubscriptionWithin(
+    input: CreateSubscriptionInput,
+    trx: TransactionClientContract
+  ): Promise<BillingSubscription> {
+    const businessUnit = await BusinessUnit.query({ client: trx })
       .where('business_unit_public_id', input.businessUnitPublicId)
       .whereNull('business_unit_deleted_at')
       .first()
@@ -208,79 +230,75 @@ export default class BillingSubscriptionService {
     const trialDays = resolved.trialDays
     const trialEndsAt = nowBusiness.plus({ days: trialDays })
 
+    const existingLive = await BillingSubscription.query({ client: trx })
+      .where('business_unit_id', businessUnit.businessUnitId)
+      .whereIn('billing_subscription_status', LIVE_SUBSCRIPTION_STATUSES)
+      .whereNull('billing_subscription_deleted_at')
+      .forUpdate()
+      .first()
+
+    if (existingLive) {
+      throw new BillingSubscriptionServiceError(
+        `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
+        409,
+        'suscripcion-viva-existente',
+        'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
+      )
+    }
+
     try {
-      return await db.transaction(async (trx) => {
-        // Bloquea (si existe) la fila de la suscripción viva actual de esta
-        // empresa para serializar altas concurrentes sobre la misma empresa.
-        const existingLive = await BillingSubscription.query({ client: trx })
-          .where('business_unit_id', businessUnit.businessUnitId)
-          .whereIn('billing_subscription_status', LIVE_SUBSCRIPTION_STATUSES)
-          .whereNull('billing_subscription_deleted_at')
-          .forUpdate()
-          .first()
-
-        if (existingLive) {
-          throw new BillingSubscriptionServiceError(
-            `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
-            BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
-            409,
-            'suscripcion-viva-existente',
-            'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
-          )
-        }
-
-        return BillingSubscription.create(
-          {
-            businessUnitId: businessUnit.businessUnitId,
-            billingPlanId: input.billingPlanId,
-            billingPlanPriceId: currentPrice.billingPlanPriceId,
-            billingSubscriptionProvider: 'manual',
-            billingSubscriptionStatus: 'trialing',
-            billingSubscriptionContractedUnitAmount: resolved.pricePerEmployee,
-            billingSubscriptionContractedEmployees: contractedEmployees,
-            billingSubscriptionDiscountPercent: resolved.discountPercent,
-            billingSubscriptionContractedTrialDays: trialDays,
-            billingSubscriptionContractedCurrency: resolved.currency,
-            billingSubscriptionContractedTaxRate: resolved.taxRate,
-            billingSubscriptionContractedSubtotal: resolved.subtotal,
-            billingSubscriptionContractedTaxAmount: resolved.taxAmount,
-            billingSubscriptionContractedTotal: resolved.total,
-            billingSubscriptionContractedEffectiveFrom: DateTime.fromISO(
-              toCalendarIsoDate(resolved.effectiveFrom) ?? today
-            ),
-            billingSubscriptionTrialEndsAt: trialEndsAt,
-            billingSubscriptionCurrentPeriodStart: nowBusiness,
-            billingSubscriptionCurrentPeriodEnd: trialEndsAt,
-            billingSubscriptionStripeCustomerId: null,
-            billingSubscriptionStripeSubscriptionId: null,
-            billingSubscriptionSubscribedAt: nowBusiness,
-            billingSubscriptionLiveBusinessUnitId: businessUnit.businessUnitId,
-          },
-          { client: trx }
-        )
-      })
+      return await BillingSubscription.create(
+        {
+          businessUnitId: businessUnit.businessUnitId,
+          billingPlanId: input.billingPlanId,
+          billingPlanPriceId: currentPrice.billingPlanPriceId,
+          billingSubscriptionProvider: 'manual',
+          billingSubscriptionStatus: 'trialing',
+          billingSubscriptionContractedUnitAmount: resolved.pricePerEmployee,
+          billingSubscriptionContractedEmployees: contractedEmployees,
+          billingSubscriptionDiscountPercent: resolved.discountPercent,
+          billingSubscriptionContractedTrialDays: trialDays,
+          billingSubscriptionContractedCurrency: resolved.currency,
+          billingSubscriptionContractedTaxRate: resolved.taxRate,
+          billingSubscriptionContractedSubtotal: resolved.subtotal,
+          billingSubscriptionContractedTaxAmount: resolved.taxAmount,
+          billingSubscriptionContractedTotal: resolved.total,
+          billingSubscriptionContractedEffectiveFrom: DateTime.fromISO(
+            toCalendarIsoDate(resolved.effectiveFrom) ?? today
+          ),
+          billingSubscriptionTrialEndsAt: trialEndsAt,
+          billingSubscriptionCurrentPeriodStart: nowBusiness,
+          billingSubscriptionCurrentPeriodEnd: trialEndsAt,
+          billingSubscriptionStripeCustomerId: null,
+          billingSubscriptionStripeSubscriptionId: null,
+          billingSubscriptionSubscribedAt: nowBusiness,
+          billingSubscriptionLiveBusinessUnitId: businessUnit.businessUnitId,
+        },
+        { client: trx }
+      )
     } catch (error) {
-      // Defensa en profundidad: si dos altas concurrentes pasaron el FOR UPDATE
-      // (p. ej. motores/aislamientos distintos), el índice UNIQUE de
-      // `live_business_unit_id` rechaza el segundo INSERT.
-      const dbError = error as { code?: string; sqlMessage?: string }
-      if (
-        dbError?.code === ER_DUP_ENTRY &&
-        dbError.sqlMessage?.includes('uq_billing_subscription_live_business_unit')
-      ) {
-        throw new BillingSubscriptionServiceError(
-          `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva`,
-          BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
-          409,
-          'suscripcion-viva-existente',
-          'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
-        )
-      }
-      throw error
+      this.rethrowDuplicateLiveSubscriptionError(error, input.businessUnitPublicId)
     }
   }
 
-  // ─── Cambio de plan ───────────────────────────────────────────────────────
+  private rethrowDuplicateLiveSubscriptionError(error: unknown, businessUnitPublicId: string): never {
+    const dbError = error as { code?: string; sqlMessage?: string }
+    if (
+      dbError?.code === ER_DUP_ENTRY &&
+      dbError.sqlMessage?.includes('uq_billing_subscription_live_business_unit')
+    ) {
+      throw new BillingSubscriptionServiceError(
+        `Empresa ${businessUnitPublicId} ya tiene una suscripción viva`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
+        409,
+        'suscripcion-viva-existente',
+        'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
+      )
+    }
+
+    throw error
+  }
 
   /**
    * Cambia el plan de una suscripción existente, recongelando el snapshot

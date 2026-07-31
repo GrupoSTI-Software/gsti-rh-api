@@ -62,6 +62,19 @@ export function employeesNotBlockOfTenError(): BillingSubscriptionServiceError {
   )
 }
 
+/** Borrador de registro sin plan o cantidad seleccionados. */
+export function planNotSelectedError(): BillingSubscriptionServiceError {
+  const detail =
+    'El registro no tiene un plan seleccionado. Vuelve a iniciar el registro eligiendo tu plan.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_SELECTED,
+    422,
+    'plan-no-seleccionado',
+    detail
+  )
+}
+
 /** Cantidad sobre el tope defensivo de la superficie pública. */
 export function employeesAboveSafetyCapError(): BillingSubscriptionServiceError {
   return new BillingSubscriptionServiceError(

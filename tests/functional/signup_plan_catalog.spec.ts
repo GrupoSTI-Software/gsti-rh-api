@@ -288,6 +288,8 @@ test.group('GET /api/signup/* — limitador signup-catalog aislado (CA-4)', () =
       lastName: 'Limit',
       secondLastName: 'Test',
       businessUnitName: 'Rate Limit Tenant',
+      billingPlanId: 1,
+      contractedEmployees: 30,
     })
 
     assert.notEqual(signupResponse.status(), 429)

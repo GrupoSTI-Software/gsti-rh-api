@@ -26,5 +26,7 @@ export const startSignupValidator = vine.compile(
     secondLastName: vine.string().trim().minLength(1).maxLength(100).optional(),
     businessUnitName: vine.string().trim().minLength(1).maxLength(200),
     email: vine.string().trim().email(),
+    billingPlanId: vine.number().positive().withoutDecimals(),
+    contractedEmployees: vine.number().positive().withoutDecimals(),
   })
 )

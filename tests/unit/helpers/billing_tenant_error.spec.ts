@@ -6,6 +6,7 @@ import {
   employeesAboveSafetyCapError,
   employeesNotBlockOfTenError,
   mapCatalogErrorForPublicSurface,
+  planNotSelectedError,
   planUnavailableError,
   rethrowCatalogErrorForPublicSurface,
 } from '../../../app/helpers/billing_tenant_error.js'
@@ -94,5 +95,12 @@ test.group('billing_tenant_error — factories de cantidad', () => {
     const error = planUnavailableError()
     assert.equal(error.message, error.detail)
     assert.include(error.detail!, 'no está disponible')
+  })
+
+  test('planNotSelectedError expone key y code del contrato', ({ assert }) => {
+    const error = planNotSelectedError()
+    assert.equal(error.key, 'plan-no-seleccionado')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_SELECTED)
+    assert.equal(error.httpStatus, 422)
   })
 })

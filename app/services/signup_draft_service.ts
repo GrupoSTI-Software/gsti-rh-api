@@ -13,7 +13,12 @@ import UserService from '#services/user_service'
 import BusinessUnitService from '#services/business_unit_service'
 import AuthTokenService from '#services/auth_token_service'
 import SystemSettingService from '#services/system_setting_service'
+import BillingTenantService from '#services/billing_tenant_service'
+import BillingSubscriptionService from '#services/billing_subscription_service'
 import { resolveSignupApiError } from '#helpers/signup_api_error'
+import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscription_api_error'
+import { planNotSelectedError } from '#helpers/billing_tenant_error'
+import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
 import RoleService from '#services/role_service'
 
 export interface StartSignupData {
@@ -22,6 +27,8 @@ export interface StartSignupData {
   secondLastName?: string
   businessUnitName: string
   email: string
+  billingPlanId: number
+  contractedEmployees: number
 }
 
 interface ServiceResult {
@@ -61,6 +68,46 @@ export default class SignupDraftService {
     return null
   }
 
+  private toServiceResult(error: unknown): ServiceResult | null {
+    if (error instanceof BillingSubscriptionServiceError) {
+      const billing = resolveBillingSubscriptionApiError(error)
+      return {
+        status: billing.status,
+        type: 'warning',
+        title: billing.title,
+        message: billing.detail,
+        detail: billing.detail,
+        key: billing.key,
+        errorCode: billing.code,
+        code: billing.code,
+        data: {},
+      }
+    }
+
+    return null
+  }
+
+  private async validateSignupBillingSelection(
+    billingPlanId: number,
+    contractedEmployees: number,
+    surface: 'start' | 'complete'
+  ): Promise<ServiceResult | null> {
+    const billingTenantService = new BillingTenantService()
+
+    try {
+      billingTenantService.assertContractedEmployees(contractedEmployees)
+      if (surface === 'start') {
+        await billingTenantService.assertPublicSellablePlan(billingPlanId)
+      } else {
+        await billingTenantService.assertPlanReadyToSubscribe(billingPlanId)
+      }
+    } catch (error) {
+      return this.toServiceResult(error)
+    }
+
+    return null
+  }
+
   async emailAlreadyRegistered(email: string): Promise<boolean> {
     const user = await User.query()
       .where('user_email', email)
@@ -88,6 +135,8 @@ export default class SignupDraftService {
       draft.signupDraftLastName = data.lastName
       draft.signupDraftSecondLastName = data.secondLastName ?? null
       draft.signupDraftBusinessUnitName = data.businessUnitName
+      draft.signupDraftBillingPlanId = data.billingPlanId
+      draft.signupDraftContractedEmployees = data.contractedEmployees
       draft.signupDraftPinCode = pinCode
       draft.signupDraftPinExpiresAt = pinExpiresAt
       draft.signupDraftEmailVerifiedAt = null
@@ -100,6 +149,8 @@ export default class SignupDraftService {
         signupDraftLastName: data.lastName,
         signupDraftSecondLastName: data.secondLastName ?? null,
         signupDraftBusinessUnitName: data.businessUnitName,
+        signupDraftBillingPlanId: data.billingPlanId,
+        signupDraftContractedEmployees: data.contractedEmployees,
         signupDraftPinCode: pinCode,
         signupDraftPinExpiresAt: pinExpiresAt,
         signupDraftEmailVerifiedAt: null,
@@ -228,6 +279,29 @@ export default class SignupDraftService {
     const userService = new UserService(this.i18n as any)
     const businessUnitService = new BusinessUnitService(this.i18n as any)
     const systemSettingService = new SystemSettingService()
+    const billingSubscriptionService = new BillingSubscriptionService()
+
+    if (
+      draft.signupDraftBillingPlanId === null ||
+      draft.signupDraftContractedEmployees === null
+    ) {
+      const missingPlan = this.toServiceResult(planNotSelectedError())
+      if (missingPlan) {
+        return missingPlan
+      }
+    }
+
+    const billingPlanId = draft.signupDraftBillingPlanId!
+    const contractedEmployees = draft.signupDraftContractedEmployees!
+
+    const billingValidation = await this.validateSignupBillingSelection(
+      billingPlanId,
+      contractedEmployees,
+      'complete'
+    )
+    if (billingValidation) {
+      return billingValidation
+    }
 
     // Slug fuera de la transacción: solo lectura de unicidad, no persiste nada.
     const slug = await businessUnitService.resolveUniqueSlug(draft.signupDraftBusinessUnitName)
@@ -293,6 +367,7 @@ export default class SignupDraftService {
         businessUnitData.businessUnitSlug = slug
         businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
         businessUnitData.businessUnitActive = 1
+        businessUnitData.businessUnitOrigin = 'self_service'
         const trxBusinessUnit = await businessUnitService.create(businessUnitData, trx)
 
         // UserService.create ya ejecuta related('businessUnits').attach(businessUnitIds) internamente.
@@ -315,12 +390,27 @@ export default class SignupDraftService {
         // copiada del registro base — dentro de la misma transacción (fail-closed).
         await systemSettingService.createForTenant(trxBusinessUnit.businessUnitId, slug, trx)
 
+        await billingSubscriptionService.createSubscription(
+          {
+            businessUnitPublicId: trxBusinessUnit.businessUnitPublicId,
+            billingPlanId,
+            contractedEmployees,
+          },
+          trx
+        )
+
         return { businessUnit: trxBusinessUnit, user: trxUser }
       })
 
       businessUnit = result.businessUnit
       user = result.user
     } catch (error) {
+      const billingResult = this.toServiceResult(error)
+      if (billingResult) {
+        logger.error({ err: error }, 'SignupDraftService.complete: fallo de billing en el alta.')
+        return billingResult
+      }
+
       const resolved = resolveSignupApiError(error, 500, this.i18n)
       logger.error({ err: error }, 'SignupDraftService.complete: rollback del alta self-service.')
       return {
@@ -379,6 +469,15 @@ export default class SignupDraftService {
         message: this.t('signup_email_already_registered'),
         data: { email: data.email },
       }
+    }
+
+    const billingValidation = await this.validateSignupBillingSelection(
+      data.billingPlanId,
+      data.contractedEmployees,
+      'start'
+    )
+    if (billingValidation) {
+      return billingValidation
     }
 
     const { pinCode, pinExpiresAt } = this.generatePin()

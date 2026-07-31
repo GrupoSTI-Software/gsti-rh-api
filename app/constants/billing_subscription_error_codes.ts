@@ -31,6 +31,8 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   EMPLOYEES_NOT_BLOCK_OF_TEN: 'PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN',
   /** La cantidad contratada rebasa el tope defensivo de la superficie pública */
   EMPLOYEES_ABOVE_SAFETY_CAP: 'PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP',
+  /** El borrador de registro no trae plan/cantidad (draft anterior al cambio de flujo) */
+  PLAN_NOT_SELECTED: 'PLT.SUB.PLAN_NOT_SELECTED',
 } as const
 
 export type BillingSubscriptionErrorCode =
