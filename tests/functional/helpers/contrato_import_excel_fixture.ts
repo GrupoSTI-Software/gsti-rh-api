@@ -99,7 +99,7 @@ export async function createRepseRegistration(
   businessUnit: BusinessUnit,
   options: {
     expiresAt?: DateTime
-    status?: RepseRegistration['status']
+    status?: RepseRegistration['status'] | 'inactive'
   } = {}
 ): Promise<RepseRegistration> {
   const registration = new RepseRegistration()
@@ -107,7 +107,7 @@ export async function createRepseRegistration(
   registration.folio = `CSE-IMPORT-${uniqueStamp()}`
   registration.registeredAt = DateTime.now()
   registration.expiresAt = options.expiresAt ?? DateTime.now().plus({ years: 1 })
-  registration.status = options.status ?? 'active'
+  registration.status = (options.status ?? 'active') as RepseRegistration['status']
   await registration.save()
   return registration
 }
@@ -137,7 +137,7 @@ export const CONTRATO_IMPORT_VARIANT_HEADERS = [
 
 export async function createContratoImportFixture(
   businessUnit: BusinessUnit,
-  options: { repseStatus?: RepseRegistration['status'] } = {}
+  options: { repseStatus?: RepseRegistration['status'] | 'inactive' } = {}
 ): Promise<ContratoImportTestFixture> {
   const repseRegistration = await createRepseRegistration(businessUnit, {
     status: options.repseStatus ?? 'active',

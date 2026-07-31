@@ -11,7 +11,6 @@ import {
   buildValidContratoImportRow,
   buildOversizedImportFileBuffer,
   buildValidOversizedContratoImportExcelBuffer,
-  buildContratoImportExcelBufferMinSize,
   CONTRATO_IMPORT_MAX_FILE_BYTES,
   SAMPLE_DOCX_BUFFER,
   SAMPLE_PNG_BUFFER,
