@@ -199,12 +199,18 @@ export default class PositionLevelService {
   }
 
   /**
-   * Punto ÚNICO de verificación de uso (R-1 del spec). USRH1785273891313 lo
-   * completa con la consulta a `position_position_levels`; mientras no exista
-   * consumidor, ningún nivel está en uso. NO mover fuera del servicio.
+   * Punto ÚNICO de verificación de uso (R-1 del spec): un nivel está en uso
+   * cuando algún puesto lo tiene configurado en `position_position_levels`
+   * (fila viva, activa o no — la configuración cuenta como uso).
+   * Completado por USRH1785273891313. NO mover fuera del servicio.
    */
-  async isInUse(_positionLevelId: number): Promise<boolean> {
-    return false
+  async isInUse(positionLevelId: number): Promise<boolean> {
+    const row = await db
+      .from('position_position_levels')
+      .where('position_level_id', positionLevelId)
+      .whereNull('position_position_level_deleted_at')
+      .first()
+    return Boolean(row)
   }
 
   /**
