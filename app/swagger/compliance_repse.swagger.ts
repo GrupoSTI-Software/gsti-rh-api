@@ -575,4 +575,81 @@ export {}
  *                 name: Demo REPSE - Mantenimiento de aire acondicionado
  *             createdAt: '2026-06-04T18:14:04.868+00:00'
  *             updatedAt: '2026-06-04T18:14:04.868+00:00'
+ *
+ *     ContratoServicioEspecializadoImportacionRowError:
+ *       type: object
+ *       required: [row, motivo, key, code]
+ *       properties:
+ *         row:
+ *           type: integer
+ *           description: Número de fila del archivo Excel (1 = cabecera; primera fila de datos = 2).
+ *         motivo:
+ *           type: string
+ *           description: Motivo legible del rechazo, en el idioma de `Accept-Language`.
+ *         key:
+ *           type: string
+ *           description: Clave estable kebab-case del motivo.
+ *         code:
+ *           type: string
+ *           description: Código estable del catálogo `CSE.*` (reusa códigos de dominio o `CSE.IMP.*`).
+ *
+ *     ContratoServicioEspecializadoImportacionResumen:
+ *       type: object
+ *       required: [totalRows, created, rejected]
+ *       properties:
+ *         totalRows:
+ *           type: integer
+ *           description: Filas de datos no vacías procesadas (excluye la cabecera).
+ *         created:
+ *           type: integer
+ *           description: Contratos dados de alta exitosamente.
+ *         rejected:
+ *           type: integer
+ *           description: Filas rechazadas (longitud de rowErrors).
+ *
+ *     ContratoServicioEspecializadoImportacionSuccess:
+ *       type: object
+ *       required: [type, title, message, data]
+ *       properties:
+ *         type:
+ *           type: string
+ *           enum: [success, warning]
+ *           description: warning cuando rejected > 0; success cuando todas las filas se importaron.
+ *         title:
+ *           type: string
+ *         message:
+ *           type: string
+ *         data:
+ *           type: object
+ *           required: [summary, rowErrors, warnings]
+ *           properties:
+ *             summary:
+ *               $ref: '#/components/schemas/ContratoServicioEspecializadoImportacionResumen'
+ *             rowErrors:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/ContratoServicioEspecializadoImportacionRowError'
+ *             warnings:
+ *               type: array
+ *               items:
+ *                 type: string
+ *       example:
+ *         type: warning
+ *         title: Importación de Contratos de Servicios Especializados
+ *         message: 'Importación completada: 3 contrato(s) creado(s), 2 fila(s) rechazada(s).'
+ *         data:
+ *           summary:
+ *             totalRows: 5
+ *             created: 3
+ *             rejected: 2
+ *           rowErrors:
+ *             - row: 4
+ *               motivo: El contratante con RFC XAXX010101000 no existe en su catálogo.
+ *               key: contratante-rfc-no-encontrado
+ *               code: CSE.IMP.CONTRATANTE.001
+ *             - row: 7
+ *               motivo: Ya existe un contrato con ese número en su tenant.
+ *               key: numero-contrato-duplicado
+ *               code: CSE.CONFLICT.NUMERO.001
+ *           warnings: []
  */
