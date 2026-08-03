@@ -26,6 +26,8 @@ export default class AuthSignupController {
    *               - lastName
    *               - businessUnitName
    *               - email
+   *               - billingPlanId
+   *               - contractedEmployees
    *             properties:
    *               firstName:
    *                 type: string
@@ -47,6 +49,12 @@ export default class AuthSignupController {
    *                 type: string
    *                 description: Valid email
    *                 default: ''
+   *               billingPlanId:
+   *                 type: integer
+   *                 description: Plan elegido en el paso 1 del registro
+   *               contractedEmployees:
+   *                 type: integer
+   *                 description: Cantidad de empleados declarada (bloques de 10, mínimo 10)
    *     responses:
    *       '200':
    *         description: Resource processed successfully

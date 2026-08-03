@@ -35,8 +35,15 @@ import RepseRegistration from './repse_registration.js'
  *          businessUnitDeletedAt:
  *            type: string
  *            description: Date of logic delete
+ *          businessUnitOrigin:
+ *            type: string
+ *            enum: [self_service, platform]
+ *            description: Canal por el que nació la empresa
  *
  */
+/** Canal por el que nació la empresa. */
+export type BusinessUnitOrigin = 'self_service' | 'platform'
+
 export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
   /**
    * Identificador interno secuencial. Solo para FK en tablas internas;
@@ -64,6 +71,9 @@ export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare businessUnitActive: number
+
+  @column()
+  declare businessUnitOrigin: BusinessUnitOrigin
 
   @column.dateTime({ autoCreate: true })
   declare businessUnitCreatedAt: DateTime | null

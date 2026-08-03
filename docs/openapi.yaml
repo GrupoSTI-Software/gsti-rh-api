@@ -1544,6 +1544,77 @@ components:
             createdAt: '2026-01-15T12:00:00.000Z'
             updatedAt: '2026-01-15T12:00:00.000Z'
 
+    ContratoServicioEspecializadoImportacionRowError:
+      type: object
+      required: [row, motivo, key, code]
+      properties:
+        row:
+          type: integer
+          description: Número de fila del Excel (1 = cabecera; primera fila de datos = 2).
+        motivo:
+          type: string
+          description: Motivo legible del rechazo, en el idioma de Accept-Language.
+        key:
+          type: string
+          description: Clave estable kebab-case del motivo.
+        code:
+          type: string
+          description: Código estable del catálogo CSE.* (reusa códigos de dominio o CSE.IMP.*).
+
+    ContratoServicioEspecializadoImportacionSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success, warning]
+          description: warning cuando rejected > 0; success cuando todas las filas se importaron.
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          required: [summary, rowErrors, warnings]
+          properties:
+            summary:
+              type: object
+              required: [totalRows, created, rejected]
+              properties:
+                totalRows:
+                  type: integer
+                created:
+                  type: integer
+                rejected:
+                  type: integer
+            rowErrors:
+              type: array
+              items:
+                $ref: '#/components/schemas/ContratoServicioEspecializadoImportacionRowError'
+            warnings:
+              type: array
+              items:
+                type: string
+      example:
+        type: warning
+        title: Importación de Contratos de Servicios Especializados
+        message: 'Importación completada: 3 contrato(s) creado(s), 2 fila(s) rechazada(s).'
+        data:
+          summary:
+            totalRows: 5
+            created: 3
+            rejected: 2
+          rowErrors:
+            - row: 4
+              motivo: El contratante con RFC XAXX010101000 no existe en su catálogo.
+              key: contratante-rfc-no-encontrado
+              code: CSE.IMP.CONTRATANTE.001
+            - row: 7
+              motivo: Ya existe un contrato con ese número en su tenant.
+              key: numero-contrato-duplicado
+              code: CSE.CONFLICT.NUMERO.001
+          warnings: []
+
     RenovarContratoRequest:
       type: object
       required: [fechaInicio, fechaFin, motivo]
@@ -4699,6 +4770,156 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/plantilla-importacion:
+    get:
+      summary: Descarga la plantilla Excel de importación masiva de contratos
+      description: |
+        Hoja "Contratos" con las 14 cabeceras canónicas + 1 fila de ejemplo, y hoja
+        "Instrucciones" con el formato de celdas compuestas (compromisos documentales
+        y servicios registrados), enums permitidos y ejemplos (USRH1785509296682).
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Identificador de unidad de negocio
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Archivo xlsx adjunto (plantilla-importacion-contratos-servicios-especializados.xlsx)
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/contratos-servicios-especializados/importacion:
+    post:
+      summary: Importa contratos de servicios especializados desde un archivo Excel
+      description: |
+        Valida que el archivo sea un Excel real y que sus cabeceras se emparejen con la
+        plantilla; procesa cada fila de forma secuencial (sin transacción global),
+        resolviendo el contratante por RFC (índice ciego) y los servicios registrados por
+        nombre, y reúsa `create` para dar de alta cada fila válida. Las filas inválidas se
+        reportan con su número y motivo sin detener el procesamiento de las demás
+        (USRH1785509296682). Máximo 500 filas de datos por archivo. Limitada a 10 intentos / 15 minutos por usuario.
+      tags: [ContratosServiciosEspecializados]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Identificador de unidad de negocio
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [archivo]
+              properties:
+                archivo:
+                  type: string
+                  format: binary
+                  description: Archivo Excel (.xlsx) de máximo 10 MB
+      responses:
+        '200':
+          description: Importación procesada (filas válidas creadas, filas inválidas reportadas)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContratoServicioEspecializadoImportacionSuccess'
+        '400':
+          description: Archivo ausente/no es Excel válido, cabeceras no emparejables (key archivo-no-excel / cabeceras-invalidas) o más de 500 filas de datos (key filas-excedidas); ninguna fila se procesa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                cabecerasInvalidas:
+                  value:
+                    type: error
+                    title: Cabeceras inválidas
+                    message: No se pudieron emparejar las cabeceras del archivo con la plantilla. Descargue la plantilla vigente y no modifique la fila 1.
+                    key: cabeceras-invalidas
+                    errorCode: CSE.IMP.HEADERS.001
+                    data: null
+                filasExcedidas:
+                  value:
+                    type: error
+                    title: Demasiadas filas en el archivo
+                    message: El archivo tiene 501 filas de datos, por encima del máximo permitido (500). Divide el archivo en lotes más pequeños.
+                    key: filas-excedidas
+                    errorCode: CSE.IMP.ROWS.001
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso create o gestion (key sin-permiso)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '429':
+          description: Límite de 10 intentos de importación / 15 minutos por usuario excedido (`key: importacion-rate-limit`, `errorCode: CSE.IMP.RATE.001`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Límite de intentos de importación alcanzado
+                message: Alcanzó el límite de intentos de importación de contratos. Intente de nuevo más tarde.
+                key: importacion-rate-limit
+                errorCode: CSE.IMP.RATE.001
+                data: null
 
   /api/contratos-servicios-especializados/{id}:
     get:
