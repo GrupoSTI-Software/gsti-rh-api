@@ -6,6 +6,7 @@ import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 
 export default class RoleService {
@@ -73,10 +74,19 @@ export default class RoleService {
     return currentRole
   }
 
-  async assignPermissions(roleId: number, permissions: Array<number>) {
-    let rolePermissions = await RoleSystemPermission.query()
-      .whereNull('role_system_permission_deleted_at')
-      .where('role_id', roleId)
+  async assignPermissions(
+    roleId: number,
+    permissions: Array<number>,
+    trx?: TransactionClientContract
+  ) {
+    const queryPermissions = () => {
+      const query = RoleSystemPermission.query()
+        .whereNull('role_system_permission_deleted_at')
+        .where('role_id', roleId)
+      return trx ? query.useTransaction(trx) : query
+    }
+
+    let rolePermissions = await queryPermissions()
     if (rolePermissions) {
       if (permissions === undefined) {
         permissions = []
@@ -86,6 +96,7 @@ export default class RoleService {
           (a: number) => Number.parseInt(a.toString()) === item.systemPermissionId
         )
         if (!existPermission) {
+          if (trx) item.useTransaction(trx)
           await item.delete()
         }
       }
@@ -98,12 +109,11 @@ export default class RoleService {
         const newPermission = new RoleSystemPermission()
         newPermission.roleId = roleId
         newPermission.systemPermissionId = permissionId
+        if (trx) newPermission.useTransaction(trx)
         await newPermission.save()
       }
     }
-    rolePermissions = await RoleSystemPermission.query()
-      .whereNull('role_system_permission_deleted_at')
-      .where('role_id', roleId)
+    rolePermissions = await queryPermissions()
     return rolePermissions
   }
 
