@@ -4233,17 +4233,24 @@ paths:
                 message: No autenticado
                 data: null
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Sin permiso
-                message: No cuentas con permisos para realizar esta acción.
-                key: sin-permiso
-                data: null
+              examples:
+                permisoDenegado:
+                  summary: key PERM.DENIED
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para realizar esta operación.
+                    key: PERM.DENIED
+                permisoNoResuelto:
+                  summary: key PERM.UNRESOLVED
+                  value:
+                    title: No se pudo verificar el permiso
+                    detail: No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.
+                    key: PERM.UNRESOLVED
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:
@@ -4351,17 +4358,24 @@ paths:
                 message: No autenticado
                 data: null
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Sin permiso
-                message: No cuentas con permisos para realizar esta acción.
-                key: sin-permiso
-                data: null
+              examples:
+                permisoDenegado:
+                  summary: key PERM.DENIED
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para realizar esta operación.
+                    key: PERM.DENIED
+                permisoNoResuelto:
+                  summary: key PERM.UNRESOLVED
+                  value:
+                    title: No se pudo verificar el permiso
+                    detail: No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.
+                    key: PERM.UNRESOLVED
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:

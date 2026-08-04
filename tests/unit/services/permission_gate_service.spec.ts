@@ -32,7 +32,7 @@ test.group('PermissionGateService', (group) => {
       systemModuleName: 'Test PermGate Module',
       systemModuleSlug: MODULE_SLUG,
       systemModuleDescription: 'Fixture de test',
-      systemModules: 1,
+      systemModules: '1',
       systemModulePath: `/${MODULE_SLUG}`,
       systemModuleGroup: 'test',
       systemModuleActive: 1,

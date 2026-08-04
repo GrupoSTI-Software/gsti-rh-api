@@ -13,7 +13,7 @@ test.group('SystemModule — system_module_permission_enforcement_active', (grou
       systemModuleName: 'Test Permission Enforcement',
       systemModuleSlug: slug,
       systemModuleDescription: 'Fixture de test',
-      systemModules: 1,
+      systemModules: '1',
       systemModulePath: '/test-permission-enforcement',
       systemModuleGroup: 'test',
       systemModuleActive: 1,

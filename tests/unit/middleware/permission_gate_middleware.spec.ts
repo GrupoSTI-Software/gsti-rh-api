@@ -107,7 +107,7 @@ test.group('PermissionGateMiddleware', () => {
     const ctx = {
       auth: { user: { userId: 1, roleId: 1 } },
       response: {
-        status(code: number) {
+        status(_code: number) {
           return {
             json(body: Record<string, unknown>) {
               return body

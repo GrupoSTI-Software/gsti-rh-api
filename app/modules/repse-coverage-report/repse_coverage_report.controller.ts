@@ -85,7 +85,7 @@ export default class RepseCoverageReportController {
    *       '401':
    *         description: No autenticado
    *       '403':
-   *         description: Sin permiso read o gestion
+   *         description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
    *       '422':
    *         description: key rango-fechas-invalido
    */
@@ -158,7 +158,7 @@ export default class RepseCoverageReportController {
    *       '401':
    *         description: No autenticado
    *       '403':
-   *         description: Sin permiso read o gestion
+   *         description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
    *       '422':
    *         description: key rango-fechas-invalido
    */

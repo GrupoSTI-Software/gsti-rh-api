@@ -24,7 +24,7 @@ test.group('RoleService.assignPermissions — trx opcional', (group) => {
       systemModuleName: 'Test Assign Trx Module',
       systemModuleSlug: `test-assign-trx-module-${stamp}`,
       systemModuleDescription: 'Fixture de test',
-      systemModules: 1,
+      systemModules: '1',
       systemModulePath: `/test-assign-trx-${stamp}`,
       systemModuleGroup: 'test',
       systemModuleActive: 1,
