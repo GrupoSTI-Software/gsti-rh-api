@@ -27,4 +27,35 @@ export const ONBOARDING_ERROR_STATUS: Record<OnboardingErrorKey, number> = {
   'intencion-de-onboarding-invalida': 422,
   'paso-de-onboarding-no-omitible': 409,
   'status-de-onboarding-invalido': 422,
+  'siembra-demo-no-encontrada': 404,
+  'siembra-demo-unidad-invalida': 409,
+  'siembra-demo-limite-empleados': 409,
 }
+
+/**
+ * Tipos de entidad que la siembra demo registra pieza por pieza en
+ * `onboarding_seeded_records` (USRH1785438246847). Constante de aplicación,
+ * no enum de BD: el borrado (USRH1785438246903) itera sobre esta unión.
+ */
+/**
+ * Umbral de abandono de una siembra demo (USRH1785438247062): días desde la
+ * siembra sin que el recorrido se termine u omita para que la purga diaria la
+ * limpie. Constante única del sistema (no configurable por tenant).
+ */
+export const ONBOARDING_DEMO_ABANDON_DAYS = 30
+
+export const ONBOARDING_SEEDED_ENTITY_TYPES = [
+  'department',
+  'position',
+  'department_position',
+  'person',
+  'employee',
+  'user',
+  'user_responsible_employee',
+  'shift',
+  'employee_shift',
+  'assist',
+  'shift_exception',
+  'exception_request',
+] as const
+export type OnboardingSeededEntityType = (typeof ONBOARDING_SEEDED_ENTITY_TYPES)[number]

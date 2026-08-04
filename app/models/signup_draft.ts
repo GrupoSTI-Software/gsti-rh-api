@@ -29,6 +29,14 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *           nullable: true
  *         signupDraftBusinessUnitName:
  *           type: string
+ *         signupDraftBillingPlanId:
+ *           type: number
+ *           nullable: true
+ *           description: Plan elegido en el paso 1 del registro (sin precio persistido).
+ *         signupDraftContractedEmployees:
+ *           type: number
+ *           nullable: true
+ *           description: Cantidad de empleados declarada en el paso 1 (bloques de 10).
  *         signupDraftPinCode:
  *           type: string
  *           nullable: true
@@ -77,6 +85,12 @@ export default class SignupDraft extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare signupDraftBusinessUnitName: string
+
+  @column()
+  declare signupDraftBillingPlanId: number | null
+
+  @column()
+  declare signupDraftContractedEmployees: number | null
 
   @column()
   declare signupDraftPinCode: string | null

@@ -49,6 +49,7 @@ export default class BusinessUnitService {
     newBusinessUnit.businessUnitSlug = businessUnit.businessUnitSlug
     newBusinessUnit.businessUnitLegalName = businessUnit.businessUnitLegalName
     newBusinessUnit.businessUnitActive = businessUnit.businessUnitActive
+    newBusinessUnit.businessUnitOrigin = businessUnit.businessUnitOrigin
     if (trx) {
       newBusinessUnit.useTransaction(trx)
     }

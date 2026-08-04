@@ -164,6 +164,36 @@ export default class EmpresaContratanteService {
   }
 
   /**
+   * Resuelve una empresa contratante activa por RFC dentro del tenant actual,
+   * siempre por el índice ciego (`empresa_contratante_rfc_hash`), nunca por
+   * igualdad sobre la columna cifrada (USRH1785509296682, motor de
+   * importación de contratos por Excel). Devuelve `null` sin lanzar cuando
+   * no existe, para que el caller decida el motivo de fila.
+   */
+  async findByRfcInTenant(rfc: string): Promise<EmpresaContratante | null> {
+    const normalizedRfc = normalizeRfc(rfc)
+    const allowed = await getAllowedBusinessUnitIds()
+    if (allowed.length === 0) {
+      return null
+    }
+
+    const row = await EmpresaContratante.query()
+      .whereNull('empresa_contratante_deleted_at')
+      .whereIn('business_unit_id', allowed)
+      .where('empresa_contratante_rfc_hash', blindIndex(normalizedRfc))
+      .first()
+
+    if (!row) {
+      logger.debug(
+        'RFC de contratante no encontrado en catálogo durante importación rfc=%s',
+        maskRfcForLog(normalizedRfc)
+      )
+    }
+
+    return row
+  }
+
+  /**
    * Actualización parcial. No permite cambiar `businessUnitId`.
    */
   async update(empresaContratanteId: number, payload: EmpresaContratanteUpdatePayload) {

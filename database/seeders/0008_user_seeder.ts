@@ -13,6 +13,7 @@ export default class extends BaseSeeder {
         personId: 1,
         roleId: 3,
         businessUnitIds: [1],
+        isPlatformAdmin: true,
       },
     ]
 

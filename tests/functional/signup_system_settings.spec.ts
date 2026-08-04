@@ -9,8 +9,13 @@ import User from '#models/user'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import BillingPlan from '#models/billing_plan'
+import BillingPlanPrice from '#models/billing_plan_price'
+import BillingVolumeTier from '#models/billing_volume_tier'
+import BillingSubscription from '#models/billing_subscription'
 import SignupDraftService from '#services/signup_draft_service'
 import SystemSettingService from '#services/system_setting_service'
+import BillingCatalogService from '#services/billing_catalog_service'
 import { SignupServiceError } from '#exceptions/signup_service_error'
 import { SIGNUP_ERROR_CODES } from '#constants/signup_error_codes'
 
@@ -39,7 +44,39 @@ function getI18nStub(): I18n {
   } as unknown as I18n
 }
 
-async function createVerifiedDraft(stamp: number): Promise<{ draft: SignupDraft; token: string }> {
+async function createPublishedPlan(stamp: number): Promise<number> {
+  const catalog = new BillingCatalogService()
+  const plan = await catalog.createPlan({
+    billingPlanName: `Signup Settings Plan ${stamp}`,
+    billingPlanDescription: 'Fixture de complete() con system_settings',
+    billingPlanProvider: 'manual',
+  })
+
+  await BillingPlanPrice.create({
+    billingPlanId: plan.billingPlanId,
+    billingPlanPriceAmount: 65,
+    billingPlanPriceCurrency: 'MXN',
+    billingPlanPriceTaxRate: 0.16,
+    billingPlanPriceTrialDays: 7,
+    billingPlanPriceEffectiveFrom: '2025-01-01',
+    billingPlanPriceStripePriceId: null,
+    billingPlanPriceProvider: 'manual',
+  })
+
+  await BillingVolumeTier.create({
+    billingPlanId: plan.billingPlanId,
+    billingVolumeTierMinEmployees: 1,
+    billingVolumeTierDiscountPercent: 0,
+  })
+
+  await catalog.publishPlan(plan.billingPlanId)
+  return plan.billingPlanId
+}
+
+async function createVerifiedDraft(
+  stamp: number,
+  billingPlanId: number
+): Promise<{ draft: SignupDraft; token: string }> {
   const token = randomUUID()
   const draft = await SignupDraft.create({
     signupDraftEmail: `signup-settings-${stamp}@gsti-tests.local`,
@@ -47,6 +84,8 @@ async function createVerifiedDraft(stamp: number): Promise<{ draft: SignupDraft;
     signupDraftLastName: 'Test',
     signupDraftSecondLastName: 'Tenant',
     signupDraftBusinessUnitName: `Signup Settings Tenant ${stamp}`,
+    signupDraftBillingPlanId: billingPlanId,
+    signupDraftContractedEmployees: 30,
     signupDraftPinCode: '123456',
     signupDraftPinExpiresAt: DateTime.now().plus({ minutes: 10 }),
     signupDraftEmailVerifiedAt: DateTime.now(),
@@ -58,6 +97,9 @@ async function createVerifiedDraft(stamp: number): Promise<{ draft: SignupDraft;
 async function cleanupTenant(businessUnitName: string, email: string) {
   const businessUnit = await BusinessUnit.query().where('business_unit_name', businessUnitName).first()
   if (businessUnit) {
+    await BillingSubscription.query()
+      .where('business_unit_id', businessUnit.businessUnitId)
+      .delete()
     await SystemSetting.query()
       .withTrashed()
       .where('business_unit_id', businessUnit.businessUnitId)
@@ -84,21 +126,31 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
   let token: string
   let businessUnitName: string
   let email: string
+  let publishedPlanId: number | null = null
 
-  group.each.setup(() => {
+  group.each.setup(async () => {
     stamp = Date.now() + Math.floor(Math.random() * 1000)
+    publishedPlanId = await createPublishedPlan(stamp)
   })
 
   group.each.teardown(async () => {
     if (businessUnitName && email) {
       await cleanupTenant(businessUnitName, email)
     }
+    if (publishedPlanId !== null) {
+      await BillingVolumeTier.query().where('billing_plan_id', publishedPlanId).delete()
+      await BillingPlanPrice.query().where('billing_plan_id', publishedPlanId).delete()
+      const plan = await BillingPlan.find(publishedPlanId)
+      if (plan) {
+        await plan.delete()
+      }
+    }
   })
 
   test('alta feliz: crea 1 fila de system_settings ligada por business_unit_id, copiada del registro base', async ({
     assert,
   }) => {
-    ;({ draft, token } = await createVerifiedDraft(stamp))
+    ;({ draft, token } = await createVerifiedDraft(stamp, publishedPlanId!))
     businessUnitName = draft.signupDraftBusinessUnitName
     email = draft.signupDraftEmail
 
@@ -129,7 +181,7 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
   })
 
   test('reintento idempotente: no duplica la configuración del mismo tenant', async ({ assert }) => {
-    ;({ draft, token } = await createVerifiedDraft(stamp))
+    ;({ draft, token } = await createVerifiedDraft(stamp, publishedPlanId!))
     businessUnitName = draft.signupDraftBusinessUnitName
     email = draft.signupDraftEmail
 
@@ -155,7 +207,7 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
   test('rollback: si falla la provisión de settings, no quedan Person/BusinessUnit/User huérfanos', async ({
     assert,
   }) => {
-    ;({ draft, token } = await createVerifiedDraft(stamp))
+    ;({ draft, token } = await createVerifiedDraft(stamp, publishedPlanId!))
     businessUnitName = draft.signupDraftBusinessUnitName
     email = draft.signupDraftEmail
 

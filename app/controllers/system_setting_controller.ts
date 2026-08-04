@@ -450,7 +450,8 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, businessUnitScope }: HttpContext) {
+  async store({ request, response, businessUnitScope, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const systemSettingTradeName = request.input('systemSettingTradeName')
       const systemSettingSidebarColor = request.input('systemSettingSidebarColor')
@@ -507,14 +508,16 @@ export default class SystemSettingController {
         : []
       const businessSlugsStore = buUnitsStore.map((bu) => bu.businessUnitSlug)
       const data = await request.validateUsing(createSystemSettingValidator)
-      const valid = await systemSettingService.verifyInfo(systemSetting)
+      // USRH1785436961868: unicidad del nombre comercial POR EMPRESA (scope
+      // del middleware, nunca del payload); error estándar {title, detail, key}
+      // en el idioma del usuario, sin revelar datos de otras empresas.
+      const valid = await systemSettingService.verifyInfo(systemSetting, businessUnitScope[0])
       if (valid.status !== 200) {
         response.status(valid.status)
         return {
-          type: valid.type,
-          title: valid.title,
-          message: valid.message,
-          data: { ...data },
+          title: t('system_setting_trade_name_taken_title'),
+          detail: t('system_setting_trade_name_taken_detail'),
+          key: 'nombre-comercial-duplicado',
         }
       }
       // USRH1783712837584: valida por `business_unit_id`, no por el CSV de slugs.
@@ -837,7 +840,8 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, businessUnitScope }: HttpContext) {
+  async update({ request, response, businessUnitScope, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const systemSettingId = request.param('systemSettingId')
       const systemSettingTradeName = request.input('systemSettingTradeName')
@@ -917,14 +921,16 @@ export default class SystemSettingController {
         ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
         : []
       const businessSlugsUpdate = buUnitsUpdate.map((bu) => bu.businessUnitSlug)
-      const valid = await systemSettingService.verifyInfo(systemSetting)
+      // USRH1785436961868: unicidad del nombre comercial POR EMPRESA (scope
+      // del middleware, nunca del payload); error estándar {title, detail, key}
+      // en el idioma del usuario, sin revelar datos de otras empresas.
+      const valid = await systemSettingService.verifyInfo(systemSetting, businessUnitScope[0])
       if (valid.status !== 200) {
         response.status(valid.status)
         return {
-          type: valid.type,
-          title: valid.title,
-          message: valid.message,
-          data: { ...systemSetting },
+          title: t('system_setting_trade_name_taken_title'),
+          detail: t('system_setting_trade_name_taken_detail'),
+          key: 'nombre-comercial-duplicado',
         }
       }
       // USRH1783712837584: valida por `business_unit_id`, no por el CSV de slugs.

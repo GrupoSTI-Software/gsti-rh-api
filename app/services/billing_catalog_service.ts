@@ -91,7 +91,6 @@ export default class BillingCatalogService {
       .preload('prices', (q) => q.orderBy('billing_plan_price_effective_from', 'asc'))
       .preload('volumeTiers', (q) => q.orderBy('billing_volume_tier_min_employees', 'asc'))
       .first()
-
     if (!plan) {
       throw new BillingCatalogServiceError(
         `Plan ${planId} no encontrado`,

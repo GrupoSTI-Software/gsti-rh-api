@@ -298,6 +298,46 @@ export async function findRepseSpecializedServicesInTenantOrFail(
   return rows
 }
 
+/**
+ * Resuelve servicios del catálogo REPSE por `name` (case/trim-insensitive)
+ * dentro del tenant actual, validando el padre `RepseRegistration` igual que
+ * `findRepseSpecializedServicesInTenantOrFail`. A diferencia de esa función,
+ * no lanza si algún nombre no existe: devuelve los encontrados y la lista de
+ * nombres sin resolver, para que el caller (motor de importación por Excel,
+ * USRH1785509296682) decida el motivo exacto de la fila.
+ */
+export async function findRepseSpecializedServicesByNamesInTenant(
+  names: string[]
+): Promise<{ found: RepseSpecializedService[]; missing: string[] }> {
+  const uniqueNames = [...new Set(names.map((name) => name.trim()).filter((name) => name.length > 0))]
+  if (uniqueNames.length === 0) {
+    return { found: [], missing: [] }
+  }
+
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    return { found: [], missing: uniqueNames }
+  }
+
+  const normalizedNames = uniqueNames.map((name) => name.toLowerCase())
+  const rows = await RepseSpecializedService.query()
+    .whereNull('repse_specialized_service_deleted_at')
+    .whereRaw(
+      `LOWER(TRIM(repse_specialized_service_name)) IN (${normalizedNames.map(() => '?').join(',')})`,
+      normalizedNames
+    )
+    .whereHas('repseRegistration', (parentQuery) => {
+      parentQuery
+        .whereNull('repse_registration_deleted_at')
+        .whereIn('business_unit_id', allowed)
+    })
+
+  const foundNamesLower = new Set(rows.map((row) => row.name.trim().toLowerCase()))
+  const missing = uniqueNames.filter((name) => !foundNamesLower.has(name.toLowerCase()))
+
+  return { found: rows, missing }
+}
+
 export type FindEmployeeInTenantOptions = {
   itemIndex?: number
 }

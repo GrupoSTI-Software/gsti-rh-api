@@ -2076,13 +2076,15 @@ export default class SyncAssistsService {
 
       // Si hay skip-checkin pero no hay checkout, verificar si hay registros "subidos"
       if (hasSkipCheckinException) {
-        // Buscar el primer registro disponible (ahora en eatCheckIn o eatCheckOut)
+        // Buscar el primer registro disponible (ahora en eatCheckIn o eatCheckOut).
+        // La checada se interpreta con el offset del biométrico del día para no
+        // adelantarla 1 h en verano (USRH1785436961903).
         let firstRecordTime: DateTime | null = null
 
         if (checkAssist.assist.checkEatIn) {
-          firstRecordTime = DateTime.fromISO(checkAssist.assist.checkEatIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
+          firstRecordTime = this.biometricPunchWallTime(checkAssist.assist.checkEatIn.assistPunchTimeUtc.toString(), checkAssist.day)
         } else if (checkAssist.assist.checkEatOut) {
-          firstRecordTime = DateTime.fromISO(checkAssist.assist.checkEatOut.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
+          firstRecordTime = this.biometricPunchWallTime(checkAssist.assist.checkEatOut.assistPunchTimeUtc.toString(), checkAssist.day)
         }
 
         if (firstRecordTime) {
@@ -2128,9 +2130,14 @@ export default class SyncAssistsService {
 
     const currentNowTime = DateTime.now().setZone('UTC-6')
 
-    // Obtener hora real de checkout
-    const DayTime = DateTime.fromISO(`${checkAssist.assist.checkOut.assistPunchTimeUtc}`, { setZone: true })
-    const checkTime = DayTime.setZone('UTC-6')
+    // Obtener hora real de checkout: se interpreta con el offset del biométrico
+    // del día evaluado (+5 verano / +6 resto) — misma referencia que la entrada
+    // ya corregida en attendance-stats; con `-6` fijo una salida puntual se leía
+    // 1 h antes y se marcaba anticipada en la ventana de verano (USRH1785436961903).
+    const checkTime = this.biometricPunchWallTime(
+      `${checkAssist.assist.checkOut.assistPunchTimeUtc}`,
+      checkAssist.day
+    )
 
     // Si el checkout es del día siguiente, ajustar la comparación
     const checkOutDay = checkTime.toFormat('yyyy-LL-dd')
@@ -2270,6 +2277,40 @@ export default class SyncAssistsService {
     const stringDate = `${day}T${hourStart}.000-06:00`
     const timeToStart = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: 1 })
     return timeToStart
+  }
+
+  /**
+   * Offset del biométrico para un día (USRH1785436961903): el checador guarda
+   * `assist_punch_time_utc` como hora de pared + offset, aplicando SU horario
+   * de verano (primer domingo de abril → último domingo de octubre → +5; el
+   * resto del año → +6) aunque el DST civil ya no exista en México. Misma
+   * convención que `attendance-stats` (utc_offset del SQL) y
+   * `simulate_attendance`; unificarla en una sola fuente de verdad de zona
+   * horaria es trabajo aparte (ESB-04-02-04-03).
+   */
+  private biometricUtcOffsetHours(dayIso: string): number {
+    const year = Number(dayIso.slice(0, 4))
+    const aprilFirst = new Date(Date.UTC(year, 3, 1))
+    const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirst.getUTCDay()) % 7)))
+    const octLast = new Date(Date.UTC(year, 9, 31))
+    const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLast.getUTCDay()))
+    const dstStart = dstStartDate.toISOString().slice(0, 10)
+    const dstEnd = dstEndDate.toISOString().slice(0, 10)
+    return dayIso >= dstStart && dayIso <= dstEnd ? 5 : 6
+  }
+
+  /**
+   * Hora de pared real de una checada del biométrico, expresada en -06:00 para
+   * compararse con las horas civiles del turno del día evaluado. La marca
+   * almacenada = pared + offset del día; interpretarla con `-6` fijo (la
+   * convención vieja) la adelanta 1 h dentro de la ventana de verano del
+   * checador y hacía ver anticipada una salida puntual (USRH1785436961903).
+   */
+  private biometricPunchWallTime(punchUtc: string, dayIso: string): DateTime {
+    const offset = this.biometricUtcOffsetHours(dayIso)
+    return DateTime.fromISO(punchUtc, { setZone: true })
+      .setZone('UTC-6')
+      .plus({ hours: 6 - offset })
   }
 
   /**

@@ -1,5 +1,6 @@
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
+import { SYSTEM_ROLE_SLUGS, isSystemRoleSlug } from '#constants/system_roles'
 import Role from '#models/role'
 import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -17,10 +18,8 @@ export default class RoleService {
       slugs = units.map((bu) => bu.businessUnitSlug)
     }
 
-    // Roles de sistema siempre visibles (p. ej. onboarding de tenants nuevos
-    // cuyo slug aún no está en role_business_access de los seeders).
-    const SYSTEM_ROLE_SLUGS = ['empleado'] as const
-
+    // Roles de sistema (owner, empleado) siempre visibles en todo tenant
+    // (USRH1785436961936); el resto se filtra por role_business_access.
     const roles = await Role.query()
       .whereNull('role_deleted_at')
       .andWhere((query) => {
@@ -390,6 +389,20 @@ export default class RoleService {
    * @returns Rol encontrado o null
    */
   async findRoleBySlug(roleSlug: string, allowedBusinessUnitIds: number[] = []): Promise<Role | null> {
+    // Los roles de sistema resuelven directo, sin depender del CSV
+    // role_business_access: son asignables en todo tenant (USRH1785436961936).
+    // `orderBy` fija la fila sembrada (la más antigua) ante cualquier residuo
+    // histórico con slug duplicado.
+    if (isSystemRoleSlug(roleSlug)) {
+      return (
+        (await Role.query()
+          .where('role_slug', roleSlug)
+          .whereNull('role_deleted_at')
+          .orderBy('role_id', 'asc')
+          .first()) || null
+      )
+    }
+
     let slugs: string[]
     if (allowedBusinessUnitIds.length === 0) {
       const allUnits = await BusinessUnit.query()
