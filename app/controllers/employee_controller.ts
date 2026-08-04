@@ -40,6 +40,8 @@ import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PiiExportService from '#services/pii_export_service'
 import logger from '@adonisjs/core/services/logger'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
+import { resolveEmployeeQuotaApiError } from '../helpers/employee_quota_api_error.js'
+import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
 import { respondEmployeeImportValFileError } from '../helpers/employee_import_request_errors.js'
 import { EMPLOYEE_IMPORT_UPLOAD } from '../constants/employee_import_error_codes.js'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
@@ -923,7 +925,7 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
-   *       '400':
+      *       '400':
    *         description: The parameters entered are invalid or essential data is missing to process the request. Errores de negocio de modalidad híbrida se retornan con `code` (ej. `hybrid_requires_active_shift`).
    *         content:
    *           application/json:
@@ -945,6 +947,41 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '409':
+   *         description: Cupo de empleados agotado o empresa self-service sin plan vigente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   description: Título traducido del rechazo
+   *                 message:
+   *                   type: string
+   *                   description: Mensaje principal traducido
+   *                 detail:
+   *                   type: string
+   *                   description: Detalle con cantidades y salida comercial
+   *                 key:
+   *                   type: string
+   *                   enum: [cupo-empleados-agotado, sin-plan-contratado]
+   *                 code:
+   *                   type: string
+   *                   enum: [EMP.QUOTA.EXCEEDED, EMP.QUOTA.NO_PLAN]
+   *                 data:
+   *                   type: object
+   *                   description: Solo cantidades; nunca identificadores internos de empresa
+   *                   properties:
+   *                     contracted:
+   *                       type: integer
+   *                       description: Cupo efectivo (contratación o legacy)
+   *                     active:
+   *                       type: integer
+   *                       description: Empleados vigentes al momento del rechazo
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1122,6 +1159,19 @@ export default class EmployeeController {
       if (failedPersonId > 0) {
         const employeeService = new EmployeeService(i18n)
         await employeeService.releasePersonIfOrphan(failedPersonId)
+      }
+      if (error instanceof EmployeeQuotaError) {
+        const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
       }
       // Errores de negocio de la modalidad híbrida se traducen a 400 con el
       // código para que el cliente muestre el mensaje correcto (i18n).
