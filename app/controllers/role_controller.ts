@@ -5,6 +5,7 @@ import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isSystemRoleSlug } from '#constants/system_roles'
 import { createRoleValidator, updateRoleValidator } from '#validators/role'
+import db from '@adonisjs/lucid/services/db'
 
 /**
  * Construye el CSV legado de `roleBusinessAccess` con los slugs del scope de
@@ -882,11 +883,24 @@ export default class RoleController {
         }
       }
 
-      role.roleManagementDays = data.roleManagementDays
-      await role.save()
-
       const roleService = new RoleService()
-      const roleSystemPermissions = await roleService.assignPermissions(roleId, data.permissions)
+      let roleSystemPermissions
+      try {
+        roleSystemPermissions = await db.transaction(async (trx) => {
+          role.useTransaction(trx)
+          role.roleManagementDays = data.roleManagementDays
+          await role.save()
+          return roleService.assignPermissions(roleId, data.permissions, trx)
+        })
+      } catch {
+        response.status(500)
+        return {
+          title: t('role_permissions_assignment_failed_title'),
+          detail: t('role_permissions_assignment_failed_detail'),
+          key: 'asignacion-permisos-rol-fallida',
+        }
+      }
+
       response.status(201)
       return {
         type: 'success',

@@ -2410,6 +2410,8 @@
   },
   "system_role_locked_title": "Rol de sistema",
   "system_role_locked_detail": "Los roles owner y empleado son de la plataforma: no pueden editarse, eliminarse ni reconfigurarse desde una empresa.",
+  "role_permissions_assignment_failed_title": "No se pudo asignar el permiso",
+  "role_permissions_assignment_failed_detail": "No fue posible guardar la asignación de permisos del rol. Ningún cambio se aplicó.",
   "system_role_name_reserved_title": "Nombre de rol reservado",
   "system_role_name_reserved_detail": "El nombre del rol coincide con un rol de sistema de la plataforma; elige un nombre distinto.",
   "system_setting_trade_name_taken_title": "Nombre comercial en uso",
