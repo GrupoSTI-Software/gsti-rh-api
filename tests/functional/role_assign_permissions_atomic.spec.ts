@@ -66,6 +66,7 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
   let targetRole: Role
   let systemModule: SystemModule
   let permission: SystemPermission
+  let rollbackPermission: SystemPermission
 
   group.setup(async () => {
     actor = await createRootActor('role-assign-atomic')
@@ -92,10 +93,18 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
       systemPermissionSlug: 'read',
       systemModuleId: systemModule.systemModuleId,
     })
+    rollbackPermission = await SystemPermission.create({
+      systemPermissionName: 'Write',
+      systemPermissionSlug: 'write',
+      systemModuleId: systemModule.systemModuleId,
+    })
   })
 
   group.teardown(async () => {
     await RoleSystemPermission.query().where('role_id', targetRole.roleId).delete()
+    await SystemPermission.query()
+      .where('system_permission_id', rollbackPermission.systemPermissionId)
+      .delete()
     await SystemPermission.query().where('system_permission_id', permission.systemPermissionId).delete()
     await SystemModule.query().where('system_module_id', systemModule.systemModuleId).delete()
     await Role.query().where('role_id', targetRole.roleId).delete()
@@ -119,6 +128,12 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
   })
 
   test('permiso inexistente: revierte también roleManagementDays (atomicidad)', async ({ client, assert }) => {
+    await RoleSystemPermission.query().where('role_id', targetRole.roleId).delete()
+    await RoleSystemPermission.create({
+      roleId: targetRole.roleId,
+      systemPermissionId: rollbackPermission.systemPermissionId,
+    })
+
     const before = await Role.query().where('role_id', targetRole.roleId).firstOrFail()
     const previousDays = before.roleManagementDays
 
@@ -129,7 +144,7 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
       .setup((request) => {
         request.request.ok(() => true)
       })
-      .json({ roleManagementDays: 999, permissions: [999999999] })
+      .json({ roleManagementDays: 999, permissions: [permission.systemPermissionId, 999999999] })
 
     response.assertStatus(500)
     assert.equal(response.body().key, 'asignacion-permisos-rol-fallida')
@@ -141,5 +156,10 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
       .where('role_id', targetRole.roleId)
       .where('system_permission_id', 999999999)
     assert.lengthOf(grants, 0)
+
+    const preservedGrants = await RoleSystemPermission.query()
+      .where('role_id', targetRole.roleId)
+      .where('system_permission_id', rollbackPermission.systemPermissionId)
+    assert.lengthOf(preservedGrants, 1)
   })
 })
