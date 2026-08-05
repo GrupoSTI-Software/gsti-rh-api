@@ -4,8 +4,10 @@ import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../../../app/constants/billing
 import { BillingCatalogServiceError } from '../../../app/exceptions/billing_catalog_service_error.js'
 import {
   employeesAboveSafetyCapError,
+  employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
   mapCatalogErrorForPublicSurface,
+  originNotSelfServiceError,
   planNotSelectedError,
   planUnavailableError,
   rethrowCatalogErrorForPublicSurface,
@@ -23,6 +25,14 @@ test.group('billing_tenant_error — constantes nuevas', () => {
     assert.equal(
       BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_ABOVE_SAFETY_CAP,
       'PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP'
+    )
+    assert.equal(
+      BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT,
+      'PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT'
+    )
+    assert.equal(
+      BILLING_SUBSCRIPTION_ERROR_CODES.ORIGIN_NOT_SELF_SERVICE,
+      'PLT.SUB.ORIGIN_NOT_SELF_SERVICE'
     )
   })
 })
@@ -102,5 +112,29 @@ test.group('billing_tenant_error — factories de cantidad', () => {
     assert.equal(error.key, 'plan-no-seleccionado')
     assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_SELECTED)
     assert.equal(error.httpStatus, 422)
+  })
+
+  test('originNotSelfServiceError expone key y code del contrato', ({ assert }) => {
+    const error = originNotSelfServiceError()
+    assert.equal(error.key, 'empresa-no-self-service')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.ORIGIN_NOT_SELF_SERVICE)
+    assert.equal(error.httpStatus, 422)
+    assert.include(error.detail!, 'hola@valanserh.com')
+    assert.notInclude(error.detail!.toLowerCase(), 'gsti')
+  })
+
+  test('employeesBelowActiveHeadcountError incluye data con active y minimum', ({ assert }) => {
+    const error = employeesBelowActiveHeadcountError(47, 50)
+    assert.equal(error.key, 'cantidad-menor-a-plantilla-activa')
+    assert.equal(
+      error.errorCode,
+      BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT
+    )
+    assert.deepEqual(error.data, { active: 47, minimum: 50 })
+    assert.include(error.detail!, '47')
+    assert.include(error.detail!, '50')
+
+    const resolved = resolveBillingSubscriptionApiError(error)
+    assert.deepEqual(resolved.data, { active: 47, minimum: 50 })
   })
 })
