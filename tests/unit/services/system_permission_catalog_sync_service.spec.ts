@@ -106,7 +106,7 @@ test.group('SystemPermissionCatalogSyncService — sincronización', (group) => 
         displayName: 'Nombre nuevo que NO debe aplicarse',
         kind: 'write',
         section: 'test',
-        legacyEquivalence: { systemPermissionSlug: 'read' },
+        legacyEquivalence: { systemPermissionSlug: 'read', relation: 'exact' },
       },
     ])
 

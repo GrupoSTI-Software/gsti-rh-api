@@ -5,6 +5,7 @@ import {
   validateCatalogIntegrity,
 } from '#constants/system_permission_catalog'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
+import type { LegacyPermissionEquivalence } from '#constants/permission_catalog_types'
 
 /**
  * Tests unitarios del índice maestro de módulos y permisos
@@ -153,25 +154,28 @@ test.group('Índice maestro — validateCatalogIntegrity() detecta estructura in
 
 test.group('validateCatalogIntegrity — relation de equivalencia (USRH1785766406722)', () => {
   test('exige relation cuando hay legacyEquivalence', ({ assert }) => {
-    assert.throws(
-      () =>
-        validateCatalogIntegrity({
-          modules: [{ slug: 'employees', actionsEnumerated: true }],
-          actionsByModule: {
-            employees: [
-              {
-                slug: 'x',
-                displayName: 'X',
-                kind: 'read',
-                section: 'listado',
-                // @ts-expect-error — fixture a propósito sin relation
-                legacyEquivalence: { systemPermissionSlug: 'read' },
-              },
-            ],
-          },
-        }),
-      SystemPermissionCatalogError
-    )
+    let caught: unknown
+    try {
+      validateCatalogIntegrity({
+        modules: [{ slug: 'employees', actionsEnumerated: true }],
+        actionsByModule: {
+          employees: [
+            {
+              slug: 'x',
+              displayName: 'X',
+              kind: 'read',
+              section: 'listado',
+              legacyEquivalence: {
+                systemPermissionSlug: 'read',
+              } as LegacyPermissionEquivalence,
+            },
+          ],
+        },
+      })
+    } catch (error) {
+      caught = error
+    }
+    assert.instanceOf(caught, SystemPermissionCatalogError)
   })
 
   test('acepta relation exact|broader|narrower', ({ assert }) => {
