@@ -1,7 +1,11 @@
 import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
-import type { ActionCatalogEntry, ModuleCatalogEntry } from '#constants/permission_catalog_types'
+import type {
+  ActionCatalogEntry,
+  LegacyEquivalenceRelation,
+  ModuleCatalogEntry,
+} from '#constants/permission_catalog_types'
 
 export { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 export type { ModuleSlug } from '#constants/system_modules_catalog'
@@ -285,6 +289,18 @@ export function validateCatalogIntegrity(
         throw new SystemPermissionCatalogError(
           `La acción "${action.slug}" del módulo "${moduleSlug}" no declara sección.`
         )
+      }
+      if (action.legacyEquivalence && !action.legacyEquivalence.relation) {
+        throw new SystemPermissionCatalogError(
+          `La acción "${action.slug}" declara legacyEquivalence sin relation.`
+        )
+      }
+      const allowed: LegacyEquivalenceRelation[] = ['exact', 'broader', 'narrower']
+      if (
+        action.legacyEquivalence &&
+        !allowed.includes(action.legacyEquivalence.relation)
+      ) {
+        throw new SystemPermissionCatalogError(`relation inválida en "${action.slug}"`)
       }
     }
   }

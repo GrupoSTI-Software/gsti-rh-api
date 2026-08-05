@@ -10,6 +10,8 @@
 /** El proyecto separa deliberadamente ver de cambiar (y de eliminar). */
 export type PermissionActionKind = 'read' | 'write' | 'delete'
 
+export type LegacyEquivalenceRelation = 'exact' | 'broader' | 'narrower'
+
 /** Marca que una acción queda fuera del control de permisos, con dueño. */
 export interface ActionExemption {
   reason: string
@@ -19,6 +21,13 @@ export interface ActionExemption {
 /** Equivalencia con lo que ya está registrado en `system_permissions`, por slug (nunca por id). */
 export interface LegacyPermissionEquivalence {
   systemPermissionSlug: string
+  /**
+   * Relación del permiso YA registrado (legacy) respecto a ESTA entrada del catálogo:
+   * - exact: son la misma decisión (mismo slug o alias 1:1)
+   * - broader: el legacy abre más superficie que esta decisión
+   * - narrower: el legacy abre menos superficie que esta decisión
+   */
+  relation: LegacyEquivalenceRelation
 }
 
 export interface ActionCatalogEntry<TSection extends string = string> {

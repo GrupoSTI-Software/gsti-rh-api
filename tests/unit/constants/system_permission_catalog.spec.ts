@@ -150,3 +150,53 @@ test.group('Índice maestro — validateCatalogIntegrity() detecta estructura in
     )
   })
 })
+
+test.group('validateCatalogIntegrity — relation de equivalencia (USRH1785766406722)', () => {
+  test('exige relation cuando hay legacyEquivalence', ({ assert }) => {
+    assert.throws(
+      () =>
+        validateCatalogIntegrity({
+          modules: [{ slug: 'employees', actionsEnumerated: true }],
+          actionsByModule: {
+            employees: [
+              {
+                slug: 'x',
+                displayName: 'X',
+                kind: 'read',
+                section: 'listado',
+                // @ts-expect-error — fixture a propósito sin relation
+                legacyEquivalence: { systemPermissionSlug: 'read' },
+              },
+            ],
+          },
+        }),
+      SystemPermissionCatalogError
+    )
+  })
+
+  test('acepta relation exact|broader|narrower', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      validateCatalogIntegrity({
+        modules: [{ slug: 'employees', actionsEnumerated: true }],
+        actionsByModule: {
+          employees: [
+            {
+              slug: 'read',
+              displayName: 'Consultar listado',
+              kind: 'read',
+              section: 'listado',
+              legacyEquivalence: { systemPermissionSlug: 'read', relation: 'exact' },
+            },
+            {
+              slug: 'tab-bancos-read',
+              displayName: 'Consultar Bancos',
+              kind: 'read',
+              section: 'bancos',
+              legacyEquivalence: { systemPermissionSlug: 'read', relation: 'broader' },
+            },
+          ],
+        },
+      })
+    )
+  })
+})
