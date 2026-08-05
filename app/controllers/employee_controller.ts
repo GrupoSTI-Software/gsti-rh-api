@@ -6676,6 +6676,8 @@ export default class EmployeeController {
    *     description: |
    *       Carga masiva de empleados. Requiere autenticación y alcance de unidad de negocio.
    *       La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado de la plantilla.
+   *       Si el archivo incluye altas nuevas y rebasa el cupo efectivo, responde 409 y no aplica
+   *       ninguna fila (todo-o-nada). Un archivo con solo correcciones no evalúa cupo.
    *     parameters:
    *       - in: header
    *         name: Authorization
@@ -6744,6 +6746,8 @@ export default class EmployeeController {
    *                           type: integer
    *                         limitReached:
    *                           type: boolean
+   *                           deprecated: true
+   *                           description: Siempre false. Si el cupo no alcanza, la API responde 409 sin escribir nada.
    *                     rowErrors:
    *                       type: array
    *                       items:
@@ -6796,6 +6800,66 @@ export default class EmployeeController {
    *                   key: cabeceras-invalidas
    *                   code: EMP.IMPORT.VAL_HEADERS
    *                   data: null
+   *       409:
+   *         description: |
+   *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+   *           No se aplica ninguna fila del Excel (todo-o-nada).
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+   *                 code:
+   *                   type: string
+   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+   *                 data:
+   *                   type: object
+   *                   description: Solo cantidades; nunca identificadores internos de empresa
+   *                   properties:
+   *                     contracted:
+   *                       type: integer
+   *                     active:
+   *                       type: integer
+   *                     incoming:
+   *                       type: integer
+   *                       description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *             examples:
+   *               cupoRebasado:
+   *                 value:
+   *                   type: error
+   *                   title: El archivo rebasa tu cupo de empleados
+   *                   message: El archivo daría de alta 5 empleados y solo te quedan 2 lugares.
+   *                   detail: "Contratados: 20. Vigentes: 18. Altas en el archivo: 5. No se aplicó ninguna línea del archivo; escríbenos a hola@valanserh.com para ampliar tu cupo."
+   *                   key: cupo-empleados-agotado-importacion
+   *                   code: EMP.IMPORT.QUOTA_EXCEEDED
+   *                   data:
+   *                     contracted: 20
+   *                     active: 18
+   *                     incoming: 5
+   *               sinPlan:
+   *                 value:
+   *                   type: error
+   *                   title: No tienes un plan vigente
+   *                   message: No se aplicó ninguna línea del archivo porque tu empresa no tiene un plan vigente.
+   *                   detail: El archivo traía 3 altas y no se aplicó ninguna. Escríbenos a hola@valanserh.com para activar tu plan y vuelve a subirlo.
+   *                   key: sin-plan-contratado-importacion
+   *                   code: EMP.IMPORT.NO_PLAN
+   *                   data:
+   *                     contracted: 0
+   *                     active: 12
+   *                     incoming: 3
    *       500:
    *         description: Error inesperado del servidor
    *         content:
@@ -6882,11 +6946,7 @@ export default class EmployeeController {
       let title = 'Importación completada'
       let message = ''
 
-      if (summary.limitReached) {
-        responseType = 'warning'
-        title = 'Límite de empleados alcanzado'
-        message = `Se alcanzó el límite de empleados. Se crearon ${summary.created} empleados, se actualizaron ${summary.updated} empleados, y ${summary.skipped} no se pudieron procesar.`
-      } else if (rowErrors.length > 0 || warnings.length > 0) {
+      if (rowErrors.length > 0 || warnings.length > 0) {
         responseType = 'warning'
         title = 'Importación completada con advertencias'
         message = `Se procesaron ${summary.processed} empleados: ${summary.created} creados, ${summary.updated} actualizados. ${summary.failed} filas con error.`
@@ -6902,6 +6962,20 @@ export default class EmployeeController {
         data: result,
       }
     } catch (error: unknown) {
+      if (error instanceof EmployeeQuotaError) {
+        const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
+      }
+
       // Detectar errores de validación de cabeceras
       if (
         (error as { isHeaderValidationError?: boolean }).isHeaderValidationError ||

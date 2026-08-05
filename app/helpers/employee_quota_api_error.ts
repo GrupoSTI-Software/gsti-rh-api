@@ -6,6 +6,7 @@ import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
 export type EmployeeQuotaErrorData = {
   contracted: number
   active: number
+  incoming?: number
 }
 
 export type ResolvedEmployeeQuotaApiError = {
@@ -55,10 +56,17 @@ function buildQuotaErrorData(
 ): EmployeeQuotaErrorData {
   const contracted = Number(i18nData?.contracted ?? 0)
   const active = Number(i18nData?.active ?? 0)
-  return {
+  const data: EmployeeQuotaErrorData = {
     contracted: Number.isFinite(contracted) ? contracted : 0,
     active: Number.isFinite(active) ? active : 0,
   }
+  if (i18nData?.incoming !== undefined) {
+    const incoming = Number(i18nData.incoming)
+    if (Number.isFinite(incoming)) {
+      data.incoming = incoming
+    }
+  }
+  return data
 }
 
 /** Cupo agotado en alta individual o reactivación. */
@@ -73,6 +81,40 @@ export function employeeQuotaExceededError(
     409,
     'cupo-empleados-agotado',
     `Contratados: ${contracted}. Vigentes: ${active}. Escríbenos a hola@valanserh.com para ampliar tu cupo.`,
+    i18nData
+  )
+}
+
+/** Lote de importación que rebasa el cupo efectivo (USRH1785441818458). */
+export function employeeImportQuotaExceededError(
+  contracted: number,
+  active: number,
+  incoming: number
+): EmployeeQuotaError {
+  const remaining = Math.max(contracted - active, 0)
+  const i18nData = { contracted, active, incoming, remaining }
+  return new EmployeeQuotaError(
+    `El archivo daría de alta ${incoming} empleados y solo te quedan ${remaining} lugares.`,
+    EMPLOYEE_QUOTA_ERROR_CODES.IMPORT_EXCEEDED,
+    409,
+    'cupo-empleados-agotado-importacion',
+    `Contratados: ${contracted}. Vigentes: ${active}. Altas en el archivo: ${incoming}. No se aplicó ninguna línea del archivo; escríbenos a hola@valanserh.com para ampliar tu cupo.`,
+    i18nData
+  )
+}
+
+/** Importación en empresa self-service sin contratación vigente (USRH1785441818458). */
+export function employeeImportQuotaNoPlanError(
+  active: number,
+  incoming: number
+): EmployeeQuotaError {
+  const i18nData = { contracted: 0, active, incoming }
+  return new EmployeeQuotaError(
+    'No se aplicó ninguna línea del archivo porque tu empresa no tiene un plan vigente.',
+    EMPLOYEE_QUOTA_ERROR_CODES.IMPORT_NO_PLAN,
+    409,
+    'sin-plan-contratado-importacion',
+    `El archivo traía ${incoming} altas y no se aplicó ninguna. Escríbenos a hola@valanserh.com para activar tu plan y vuelve a subirlo.`,
     i18nData
   )
 }

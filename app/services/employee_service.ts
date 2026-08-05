@@ -38,7 +38,6 @@ import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import SystemSettingsEmployee from '#models/system_settings_employee'
 import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
@@ -51,6 +50,11 @@ import ShiftExceptionService from './shift_exception_service.js'
 import Holiday from '#models/holiday'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import EmployeeQuotaService from './employee_quota_service.js'
+import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
+import {
+  employeeImportQuotaExceededError,
+  employeeImportQuotaNoPlanError,
+} from '../helpers/employee_quota_api_error.js'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
@@ -2654,59 +2658,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Obtener el límite de empleados para una unidad de negocio específica
-   * @param businessUnitId - ID de la unidad de negocio
-   * @returns Promise<number | null>
-   */
-  private async getEmployeeLimitForBusinessUnit(businessUnitId: number): Promise<number | null> {
-    try {
-      // Obtener el slug de la unidad de negocio del empleado (USRH1783821206455:
-      // ya no se empareja contra la lista global, sino contra la unidad concreta).
-      const businessUnit = await BusinessUnit.find(businessUnitId)
-      if (!businessUnit) {
-        console.error('Business unit not found:', businessUnitId)
-        return null
-      }
-
-      // Buscar el system_setting que contenga la unidad de negocio
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .select('system_setting_id', 'system_setting_business_units')
-
-      let matchingSystemSettingId: number | null = null
-
-      for (const setting of systemSettings) {
-        const settingBusinessUnits = setting.systemSettingBusinessUnits.split(',').map((unit: string) => unit.trim())
-
-        // Verificar si el setting incluye la unidad de negocio del empleado
-        const hasMatch = settingBusinessUnits.includes(businessUnit.businessUnitSlug)
-
-        if (hasMatch) {
-          matchingSystemSettingId = setting.systemSettingId
-          break
-        }
-      }
-
-      if (!matchingSystemSettingId) {
-        return null
-      }
-
-      // Buscar el límite de empleados activo para el system_setting encontrado
-      const result = await SystemSettingsEmployee.query()
-        .where('is_active', 1)
-        .where('system_setting_id', matchingSystemSettingId)
-        .whereNull('system_setting_employee_deleted_at')
-        .first()
-
-      return result ? result.employeeLimit : null
-    } catch (error) {
-      console.error('Error getting employee limit for business unit:', error)
-      return null
-    }
-  }
-
-  /**
    * Import employees from Excel file
    */
   async importFromExcel(
@@ -2784,14 +2735,12 @@ export default class EmployeeService {
         existingEmployees.map((emp) => [emp.employeeId, emp])
       )
 
-      // Verificar límite de empleados (se verificará por unidad de negocio individual)
-
+      // Índice O(1) por ID para `findExistingEmployeeForImport`
       let totalRows = 0
       let processed = 0
       let created = 0
       let updated = 0
       let skipped = 0
-      let limitReached = false
       const rowErrors: EmployeeImportRowError[] = []
       const warnings: string[] = []
 
@@ -2940,55 +2889,11 @@ export default class EmployeeService {
         }
       }
 
-      // Verificar límite general de empleados
-      if (newEmployeesCount > 0) {
-        // Obtener el límite general del sistema (usando la primera unidad de negocio como referencia)
-        const firstBusinessUnit = businessUnits[0]
-        const employeeLimit = firstBusinessUnit ? await this.getEmployeeLimitForBusinessUnit(firstBusinessUnit.businessUnitId) : null
+      await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
 
-        if (employeeLimit) {
-          const currentTotalCount = await Employee.query()
-            .whereNull('deletedAt')
-            .count('* as total')
-          const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
+      const createdEmployees: Employee[] = []
 
-          if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
-            limitReached = true
-            warnings.push(
-              `Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`
-            )
-          }
-        }
-      }
-
-      // Si se alcanzó el límite, no procesar más empleados nuevos
-      if (limitReached) {
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
-          if (!isUpdate) {
-            skipped++
-            warnings.push(
-              `Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`
-            )
-            continue
-          }
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
-          if (!existingEmployee) continue
-          try {
-            await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-            if (employeeData.employeeWorkScheduleHybridAttempt) {
-              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
-            }
-            updated++
-            processed++
-          } catch (error: any) {
-            skipped++
-            rowErrors.push({ row: rowNumber, message: error.message })
-          }
-        }
-      } else {
-        const createdEmployees: Employee[] = []
-
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
+      for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           try {
             if (isUpdate) {
               const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
@@ -3062,7 +2967,6 @@ export default class EmployeeService {
             warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
           }
         }
-      }
 
       return this.finalizeEmployeeImportResult({
         totalRows,
@@ -3070,7 +2974,7 @@ export default class EmployeeService {
         created,
         updated,
         skipped,
-        limitReached,
+        limitReached: false,
         rowErrors,
         warnings,
       })
@@ -3082,7 +2986,62 @@ export default class EmployeeService {
       if (error.isHeaderValidationError || error.isRowLimitError) {
         throw error
       }
+      if (error instanceof EmployeeQuotaError) {
+        throw error
+      }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
+    }
+  }
+
+  /**
+   * Empresa activa para cupo en importación masiva (USRH1785441818458).
+   * Solo el scope del request (`allowedBusinessUnitIds` / middleware businessScope),
+   * nunca la primera unidad del listado Excel (`businessUnits[0]`).
+   */
+  private resolveImportScopeBusinessUnitId(allowedBusinessUnitIds: number[]): number {
+    const scopedIds = allowedBusinessUnitIds.filter((id) => Number.isFinite(id) && id > 0)
+    if (scopedIds.length === 1) {
+      return scopedIds[0]
+    }
+    if (scopedIds.length > 1) {
+      throw new Error(
+        'El scope de empresa para validar el cupo de la importación debe ser una sola unidad de negocio'
+      )
+    }
+
+    const contextScope = TenantContext.getScope().filter((id) => Number.isFinite(id) && id > 0)
+    if (contextScope.length === 1) {
+      return contextScope[0]
+    }
+
+    throw new Error(
+      'No se pudo resolver la empresa activa para validar el cupo de la importación'
+    )
+  }
+
+  /**
+   * Cupo de empleados en carga masiva: todo-o-nada antes de la pasada 2 (USRH1785441818458).
+   * Usa la misma fuente que el alta individual; solo evalúa filas de alta nueva.
+   */
+  private async assertImportWithinQuota(
+    allowedBusinessUnitIds: number[],
+    newEmployeesCount: number
+  ): Promise<void> {
+    if (newEmployeesCount <= 0) {
+      return
+    }
+
+    const businessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+
+    const quota = await this.quotaService.resolveQuota(businessUnitId)
+    const active = await this.quotaService.countActiveEmployees(businessUnitId)
+
+    if (quota.source === 'no_plan') {
+      throw employeeImportQuotaNoPlanError(active, newEmployeesCount)
+    }
+
+    if (quota.limit !== null && active + newEmployeesCount > quota.limit) {
+      throw employeeImportQuotaExceededError(quota.limit, active, newEmployeesCount)
     }
   }
 
