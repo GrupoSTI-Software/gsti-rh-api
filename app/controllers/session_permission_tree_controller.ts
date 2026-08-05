@@ -8,18 +8,9 @@ export default class SessionPermissionTreeController {
 
   async show({ auth, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
-    const user = auth.user
-
-    if (!user) {
-      return response.status(401).json({
-        title: t('session_permission_tree_unauthenticated_title'),
-        detail: t('session_permission_tree_unauthenticated_detail'),
-        key: 'auth-required',
-      })
-    }
 
     try {
-      const tree = await this.service.buildForUser(user)
+      const tree = await this.service.buildForUser(auth.user!)
       return response.status(200).json({ data: tree })
     } catch (error) {
       if (error instanceof SessionPermissionTreeUnresolvedError) {
@@ -36,18 +27,9 @@ export default class SessionPermissionTreeController {
 
   async version({ auth, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
-    const user = auth.user
-
-    if (!user) {
-      return response.status(401).json({
-        title: t('session_permission_tree_unauthenticated_title'),
-        detail: t('session_permission_tree_unauthenticated_detail'),
-        key: 'auth-required',
-      })
-    }
 
     try {
-      const version = await this.service.getVersionForUser(user)
+      const version = await this.service.getVersionForUser(auth.user!)
       return response.status(200).json({ data: version })
     } catch (error) {
       if (error instanceof SessionPermissionTreeUnresolvedError) {

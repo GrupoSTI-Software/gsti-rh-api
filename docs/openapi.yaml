@@ -3847,15 +3847,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionPermissionTreeResponse'
         '401':
-          description: Sesión requerida
+          description: Access token ausente, inválido o expirado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionPermissionError'
+                $ref: '#/components/schemas/ApiError'
               example:
-                title: Sesión requerida
-                detail: Debes iniciar sesión para consultar el listado de permisos.
-                key: auth-required
+                type: warning
+                title: Token inválido
+                message: El access token es inválido o está corrupto
+                detail: El access token es inválido o está corrupto
+                key: AUTH.TOKEN.INVALID
+                data:
+                  refreshable: false
         '403':
           description: Rol de sesión irresoluble
           content:
@@ -3891,15 +3895,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/SessionPermissionVersionResponse'
         '401':
-          description: Sesión requerida
+          description: Access token ausente, inválido o expirado
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionPermissionError'
+                $ref: '#/components/schemas/ApiError'
               example:
-                title: Sesión requerida
-                detail: Debes iniciar sesión para consultar el listado de permisos.
-                key: auth-required
+                type: warning
+                title: Token inválido
+                message: El access token es inválido o está corrupto
+                detail: El access token es inválido o está corrupto
+                key: AUTH.TOKEN.INVALID
+                data:
+                  refreshable: false
         '403':
           description: Rol de sesión irresoluble
           content:
