@@ -128,6 +128,132 @@ components:
         data:
           nullable: true
 
+    SessionPermissionAction:
+      type: object
+      required:
+        - slug
+        - displayName
+        - kind
+        - allowed
+        - reason
+        - revocableFromPrivileged
+        - exceptionProfile
+      properties:
+        slug:
+          type: string
+          example: read
+        displayName:
+          type: string
+          example: Consultar empleado
+        kind:
+          type: string
+          enum: [read, write, delete]
+        allowed:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - assignment
+            - privileged-role
+            - missing-assignment
+            - explicit-revocation
+            - module-inactive
+        revocableFromPrivileged:
+          type: boolean
+        exceptionProfile:
+          type: string
+          enum: [standard, expanded, platformReserved, strict]
+
+    SessionPermissionSection:
+      type: object
+      required: [slug, actions]
+      properties:
+        slug:
+          type: string
+          example: datos-persona
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionAction'
+
+    SessionPermissionModule:
+      type: object
+      required: [slug, active, permissionEnforcementActive, sections]
+      properties:
+        slug:
+          type: string
+          example: employees
+        active:
+          type: boolean
+        permissionEnforcementActive:
+          type: boolean
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionSection'
+
+    SessionPermissionTree:
+      type: object
+      required: [role, modules, version, generatedAt]
+      properties:
+        role:
+          type: object
+          required: [id, name, slug]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionModule'
+        version:
+          type: string
+          example: 0f4c2a8d9b1e7a03
+        generatedAt:
+          type: string
+          format: date-time
+
+    SessionPermissionTreeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SessionPermissionTree'
+
+    SessionPermissionVersion:
+      type: object
+      required: [version, generatedAt]
+      properties:
+        version:
+          type: string
+          example: 0f4c2a8d9b1e7a03
+        generatedAt:
+          type: string
+          format: date-time
+
+    SessionPermissionVersionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SessionPermissionVersion'
+
+    SessionPermissionError:
+      type: object
+      required: [title, detail, key]
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+          example: PERM.TREE.UNRESOLVED
+
     Nom035QrunError:
       allOf:
         - $ref: '#/components/schemas/ApiError'
@@ -3696,6 +3822,95 @@ components:
           nullable: true
 
 paths:
+  /api/auth/session/permissions:
+    get:
+      summary: Obtener el árbol de permisos de la sesión
+      description: |
+        Devuelve el listado informativo de permisos para el rol asociado al
+        usuario autenticado. Cualquier parámetro `roleId` enviado por query,
+        body o path se ignora: el rol se resuelve únicamente desde la sesión.
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Árbol de permisos de la sesión
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPermissionTreeResponse'
+        '401':
+          description: Sesión requerida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPermissionError'
+              example:
+                title: Sesión requerida
+                detail: Debes iniciar sesión para consultar el listado de permisos.
+                key: auth-required
+        '403':
+          description: Rol de sesión irresoluble
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPermissionError'
+              example:
+                title: Permisos de sesión no disponibles
+                detail: No fue posible determinar el rol de la sesión para construir el listado de permisos.
+                key: PERM.TREE.UNRESOLVED
+
+  /api/auth/session/permissions/version:
+    get:
+      summary: Obtener la marca de vigencia de permisos de sesión
+      description: |
+        Devuelve una marca liviana de vigencia para detectar cambios en el
+        árbol de permisos del rol de la sesión. No acepta parámetros de rol.
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Marca de vigencia actual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPermissionVersionResponse'
+        '401':
+          description: Sesión requerida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPermissionError'
+              example:
+                title: Sesión requerida
+                detail: Debes iniciar sesión para consultar el listado de permisos.
+                key: auth-required
+        '403':
+          description: Rol de sesión irresoluble
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPermissionError'
+              example:
+                title: Permisos de sesión no disponibles
+                detail: No fue posible determinar el rol de la sesión para construir el listado de permisos.
+                key: PERM.TREE.UNRESOLVED
+
   /api/employees/import-excel:
     post:
       summary: Importar empleados desde archivo Excel
