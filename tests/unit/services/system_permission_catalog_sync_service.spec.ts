@@ -31,10 +31,18 @@ async function getEmployeesModule(): Promise<SystemModule> {
   return employeesModule
 }
 
-function buildCatalog(employees: readonly ActionCatalogEntry<string>[]): SystemPermissionCatalog {
+function testAction(
+  entry: Omit<ActionCatalogEntry<string>, 'exceptionProfile'>
+): ActionCatalogEntry<string> {
+  return { ...entry, exceptionProfile: 'standard' }
+}
+
+function buildCatalog(
+  employees: readonly Omit<ActionCatalogEntry<string>, 'exceptionProfile'>[]
+): SystemPermissionCatalog {
   return {
     modules: [{ slug: 'employees', actionsEnumerated: true }],
-    actionsByModule: { employees },
+    actionsByModule: { employees: employees.map(testAction) },
   }
 }
 

@@ -103,8 +103,8 @@ test.group('Índice maestro — validateCatalogIntegrity() detecta estructura in
         modules: [{ slug: 'employees', actionsEnumerated: true }],
         actionsByModule: {
           employees: [
-            { slug: 'dup-action', displayName: 'x', kind: 'read', section: 's' },
-            { slug: 'dup-action', displayName: 'y', kind: 'write', section: 's' },
+            { slug: 'dup-action', displayName: 'x', kind: 'read', section: 's', exceptionProfile: 'standard' },
+            { slug: 'dup-action', displayName: 'y', kind: 'write', section: 's', exceptionProfile: 'standard' },
           ],
         },
       })
@@ -116,7 +116,7 @@ test.group('Índice maestro — validateCatalogIntegrity() detecta estructura in
       validateCatalogIntegrity({
         modules: [],
         actionsByModule: {
-          employees: [{ slug: 'a', displayName: 'x', kind: 'read', section: 's' }],
+          employees: [{ slug: 'a', displayName: 'x', kind: 'read', section: 's', exceptionProfile: 'standard' }],
         },
       })
     )
@@ -127,7 +127,7 @@ test.group('Índice maestro — validateCatalogIntegrity() detecta estructura in
       validateCatalogIntegrity({
         modules: [{ slug: 'employees', actionsEnumerated: false }],
         actionsByModule: {
-          employees: [{ slug: 'a', displayName: 'x', kind: 'read', section: 's' }],
+          employees: [{ slug: 'a', displayName: 'x', kind: 'read', section: 's', exceptionProfile: 'standard' }],
         },
       })
     )
@@ -156,7 +156,7 @@ test.group('Índice maestro — validateCatalogIntegrity() detecta estructura in
       validateCatalogIntegrity({
         modules: [{ slug: 'employees', actionsEnumerated: true }],
         actionsByModule: {
-          employees: [{ slug: 'a', displayName: 'x', kind: 'read', section: 's' }],
+          employees: [{ slug: 'a', displayName: 'x', kind: 'read', section: 's', exceptionProfile: 'standard' }],
         },
       })
     )

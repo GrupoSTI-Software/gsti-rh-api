@@ -109,10 +109,12 @@ test.group('SessionPermissionTreeService', (group) => {
   }) => {
     const service = new SessionPermissionTreeService()
 
-    await assert.rejects(
-      () => service.buildForUser(fakeUser(999999999)),
-      SessionPermissionTreeUnresolvedError
-    )
+    try {
+      await service.buildForUser(fakeUser(999999999))
+      assert.fail('debía lanzar SessionPermissionTreeUnresolvedError')
+    } catch (error) {
+      assert.instanceOf(error, SessionPermissionTreeUnresolvedError)
+    }
   })
 
   test('rol plano con grant real de employees:read marca asignación y faltante', async ({

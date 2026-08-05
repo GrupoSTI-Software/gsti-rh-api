@@ -68,7 +68,7 @@ test.group('SystemPermissionCatalogConsistencyService — hallazgos', (group) =>
     const catalog: SystemPermissionCatalog = {
       modules: [{ slug: 'employees', actionsEnumerated: true }],
       actionsByModule: {
-        employees: [{ slug, displayName: 'x', kind: 'read', section: 's' }],
+        employees: [{ slug, displayName: 'x', kind: 'read', section: 's', exceptionProfile: 'standard' }],
       },
     }
 
@@ -92,6 +92,7 @@ test.group('SystemPermissionCatalogConsistencyService — hallazgos', (group) =>
             displayName: 'x',
             kind: 'read',
             section: 's',
+            exceptionProfile: 'standard',
             exemption: {
               reason: 'app móvil del empleado, fuera de este proyecto',
               owner: 'Wilvardo',
