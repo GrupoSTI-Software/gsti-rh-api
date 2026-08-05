@@ -7,6 +7,8 @@
  * que declarar un nuevo módulo más adelante no obligue a tocar este archivo.
  */
 
+import type { PermissionGateBypass } from '#constants/permission_gate'
+
 /** El proyecto separa deliberadamente ver de cambiar (y de eliminar). */
 export type PermissionActionKind = 'read' | 'write' | 'delete'
 
@@ -37,6 +39,12 @@ export interface ActionCatalogEntry<TSection extends string = string> {
   displayName: string
   kind: PermissionActionKind
   section: TSection
+  /**
+   * Perfil de excepción que alcanza a esta acción (USRH1785766406723).
+   * Reutiliza PermissionGateBypass de USRH1785766406721.
+   * `strict` = no alcanzable por ninguna excepción (retiro expreso posible incluso a privilegiados).
+   */
+  exceptionProfile: PermissionGateBypass
   /** Presente cuando la acción ya existía antes de declararse en este catálogo. */
   legacyEquivalence?: LegacyPermissionEquivalence
   /** Presente cuando la acción queda deliberadamente fuera de la revisión de consistencia. */

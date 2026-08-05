@@ -68,6 +68,7 @@ function tabReadWrite<S extends TabSection>(section: S, label: string, writeLega
     displayName: `Consultar ${label}`,
     kind: 'read' as const,
     section,
+    exceptionProfile: 'standard' as const,
     legacyEquivalence: { systemPermissionSlug: 'read' as const, relation: 'broader' as const },
   } as const
   const write = {
@@ -75,6 +76,7 @@ function tabReadWrite<S extends TabSection>(section: S, label: string, writeLega
     displayName: `Modificar ${label}`,
     kind: 'write' as const,
     section,
+    exceptionProfile: 'standard' as const,
     legacyEquivalence: {
       systemPermissionSlug: writeLegacySlug ?? 'update-information',
       relation: 'broader' as const,
@@ -107,6 +109,7 @@ function tabActionsWithDelete<S extends TabSection>(
     displayName: `Eliminar ${label}`,
     kind: 'delete' as const,
     section,
+    exceptionProfile: 'standard' as const,
     legacyEquivalence: { systemPermissionSlug: 'delete' as const, relation: 'broader' as const },
   } as const
   return [read, write, del] as const
@@ -137,6 +140,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Dar de alta colaborador',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'create', relation: 'exact' },
   },
   {
@@ -144,6 +148,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Editar colaborador',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'update', relation: 'exact' },
   },
   {
@@ -151,6 +156,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Dar de baja colaborador',
     kind: 'delete',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'delete', relation: 'exact' },
   },
   {
@@ -158,6 +164,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar listado de colaboradores',
     kind: 'read',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'read', relation: 'exact' },
   },
   {
@@ -165,6 +172,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Ver personal dado de baja',
     kind: 'read',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'read-terminated-employees', relation: 'exact' },
   },
   {
@@ -172,6 +180,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Actualizar información del colaborador',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'update-information', relation: 'exact' },
   },
   {
@@ -179,6 +188,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Aplicar excepción de turno a una persona',
     kind: 'write',
     section: 'turnos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'add-exception', relation: 'exact' },
   },
   {
@@ -186,6 +196,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar turno',
     kind: 'write',
     section: 'turnos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-shift', relation: 'exact' },
   },
   {
@@ -193,6 +204,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar vacaciones',
     kind: 'write',
     section: 'turnos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-vacation', relation: 'exact' },
   },
   {
@@ -200,6 +212,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Solicitar excepción de turno',
     kind: 'write',
     section: 'turnos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'exception-request', relation: 'exact' },
   },
   {
@@ -207,6 +220,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar cambio de turno',
     kind: 'write',
     section: 'turnos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-shift-change', relation: 'exact' },
   },
   {
@@ -214,6 +228,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Quitar turno asignado del día',
     kind: 'delete',
     section: 'turnos',
+    exceptionProfile: 'standard',
     legacyEquivalence: {
       systemPermissionSlug: 'remove-shift-assigned-to-the-day',
       relation: 'exact',
@@ -224,6 +239,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar archivos del expediente',
     kind: 'read',
     section: 'expediente',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'read-only-files', relation: 'exact' },
   },
   {
@@ -231,6 +247,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar archivos del expediente',
     kind: 'write',
     section: 'expediente',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-files', relation: 'exact' },
   },
   {
@@ -238,6 +255,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar incapacidades',
     kind: 'read',
     section: 'expediente',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'read-work-disabilities', relation: 'exact' },
   },
   {
@@ -245,6 +263,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar incapacidades',
     kind: 'write',
     section: 'expediente',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-work-disabilities', relation: 'exact' },
   },
   {
@@ -252,6 +271,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar responsable asignado',
     kind: 'read',
     section: 'responsable',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-responsible-read', relation: 'exact' },
   },
   {
@@ -259,6 +279,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar responsable asignado',
     kind: 'write',
     section: 'responsable',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-responsible-edit', relation: 'exact' },
   },
   {
@@ -266,6 +287,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar colaboradores asignados',
     kind: 'read',
     section: 'asignados',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-assigned-read', relation: 'exact' },
   },
   {
@@ -273,6 +295,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Administrar colaboradores asignados',
     kind: 'write',
     section: 'asignados',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-assigned-edit', relation: 'exact' },
   },
   {
@@ -280,6 +303,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Acceso total a colaboradores asignados',
     kind: 'write',
     section: 'asignados',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'full-employee-assigned', relation: 'exact' },
   },
   {
@@ -287,6 +311,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Sincronizar contra equipo biométrico externo',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-biotime', relation: 'exact' },
   },
   {
@@ -294,6 +319,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar Face ID',
     kind: 'read',
     section: 'biometricos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'show-face-id', relation: 'exact' },
   },
   {
@@ -301,6 +327,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Cargar Face ID',
     kind: 'write',
     section: 'biometricos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'upload-face-id', relation: 'exact' },
   },
   {
@@ -308,6 +335,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar huellas',
     kind: 'read',
     section: 'biometricos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'show-fingers', relation: 'exact' },
   },
   {
@@ -315,6 +343,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Cargar huellas',
     kind: 'write',
     section: 'biometricos',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'upload-fingers', relation: 'exact' },
   },
   {
@@ -322,6 +351,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Revelar dato sensible completo',
     kind: 'read',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'exact' },
   },
   {
@@ -329,6 +359,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Registrar consentimiento físico',
     kind: 'write',
     section: 'consentimiento',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'register-physical-consent', relation: 'exact' },
   },
 
@@ -362,6 +393,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Importar personal',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'create', relation: 'broader' },
   },
   {
@@ -369,6 +401,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Importar asignaciones de turno',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'manage-shift', relation: 'broader' },
   },
   {
@@ -376,6 +409,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Aplicar excepción de turno a un grupo',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'add-exception', relation: 'broader' },
   },
   {
@@ -383,6 +417,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Generar gafetes',
     kind: 'write',
     section: 'listado',
+    exceptionProfile: 'standard',
   },
 
   // --- D) Descargas (nuevas) ---
@@ -391,24 +426,28 @@ const CATALOG_ENTRIES = [
     displayName: 'Descargar reporte de personal',
     kind: 'read',
     section: 'descargas',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'download-attendance-report',
     displayName: 'Descargar reporte de asistencia',
     kind: 'read',
     section: 'descargas',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'download-vacations-history',
     displayName: 'Descargar histórico de vacaciones',
     kind: 'read',
     section: 'descargas',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'download-proceeding-files',
     displayName: 'Descargar expediente documental',
     kind: 'read',
     section: 'descargas',
+    exceptionProfile: 'standard',
   },
 
   // --- E) Datos sensibles (nuevas) ---
@@ -417,6 +456,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Consultar datos de identificación',
     kind: 'read',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
@@ -424,12 +464,14 @@ const CATALOG_ENTRIES = [
     displayName: 'Modificar datos de identificación',
     kind: 'write',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'sensitive-contacto-read',
     displayName: 'Consultar datos de contacto',
     kind: 'read',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
@@ -437,12 +479,14 @@ const CATALOG_ENTRIES = [
     displayName: 'Modificar datos de contacto',
     kind: 'write',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'sensitive-financiero-read',
     displayName: 'Consultar datos financieros',
     kind: 'read',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
@@ -450,12 +494,14 @@ const CATALOG_ENTRIES = [
     displayName: 'Modificar datos financieros',
     kind: 'write',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'sensitive-salud-read',
     displayName: 'Consultar datos de salud',
     kind: 'read',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
@@ -463,12 +509,14 @@ const CATALOG_ENTRIES = [
     displayName: 'Modificar datos de salud',
     kind: 'write',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
   },
   {
     slug: 'sensitive-biometrico-read',
     displayName: 'Consultar datos biométricos (familia legal)',
     kind: 'read',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
@@ -476,6 +524,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Modificar datos biométricos (familia legal)',
     kind: 'write',
     section: 'datos-sensibles',
+    exceptionProfile: 'standard',
   },
 
   // --- F) Apartados app colaborador (exemption, no BD) — owner: Wilvardo ---
@@ -484,6 +533,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Perfil propio en app/portal del colaborador',
     kind: 'read',
     section: 'app-colaborador',
+    exceptionProfile: 'standard',
     exemption: {
       reason:
         'Perfil propio en app/portal del colaborador; fuera del control de roles del backoffice',
@@ -495,6 +545,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Gafete propio del colaborador',
     kind: 'read',
     section: 'app-colaborador',
+    exceptionProfile: 'standard',
     exemption: {
       reason: 'Gafete propio (GET /api/employee-badges/me)',
       owner: 'Wilvardo',
@@ -505,6 +556,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Calendario de asistencia del colaborador',
     kind: 'read',
     section: 'app-colaborador',
+    exceptionProfile: 'standard',
     exemption: {
       reason: 'Calendario de asistencia del colaborador',
       owner: 'Wilvardo',
@@ -515,6 +567,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Contactos de emergencia propios',
     kind: 'read',
     section: 'app-colaborador',
+    exceptionProfile: 'standard',
     exemption: {
       reason: 'Contactos de emergencia propios',
       owner: 'Wilvardo',
@@ -525,6 +578,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Incapacidades propias',
     kind: 'read',
     section: 'app-colaborador',
+    exceptionProfile: 'standard',
     exemption: {
       reason: 'Incapacidades propias',
       owner: 'Wilvardo',
@@ -535,6 +589,7 @@ const CATALOG_ENTRIES = [
     displayName: 'Solicitudes de excepción propias',
     kind: 'read',
     section: 'app-colaborador',
+    exceptionProfile: 'standard',
     exemption: {
       reason: 'Solicitudes de excepción propias',
       owner: 'Wilvardo',
