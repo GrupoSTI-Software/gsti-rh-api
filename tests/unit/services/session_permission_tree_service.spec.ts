@@ -196,6 +196,31 @@ test.group('SessionPermissionTreeService', (group) => {
     }
   })
 
+  test('la versión cambia al revocar un grant que no es el más reciente', async ({ assert }) => {
+    const service = new SessionPermissionTreeService()
+    const readPermission = await findEmployeesPermission('read')
+    const createPermission = await findEmployeesPermission('create')
+    const olderGrant = await RoleSystemPermission.create({
+      roleId: plainRole.roleId,
+      systemPermissionId: readPermission.systemPermissionId,
+    })
+    const latestGrant = await RoleSystemPermission.create({
+      roleId: plainRole.roleId,
+      systemPermissionId: createPermission.systemPermissionId,
+    })
+
+    try {
+      const before = await service.getVersionForUser(fakeUser(plainRole.roleId))
+      await olderGrant.delete()
+      const after = await service.getVersionForUser(fakeUser(plainRole.roleId))
+
+      assert.notEqual(after.version, before.version)
+    } finally {
+      await olderGrant.forceDelete()
+      await latestGrant.forceDelete()
+    }
+  })
+
   test('grant huérfano no aparece en el árbol ni bloquea el resto', async ({ assert }) => {
     const employeesModule = await findEmployeesModule()
     const orphanPermission = await SystemPermission.create({

@@ -24,6 +24,10 @@ import SessionPermissionTreeUnresolvedError from '#exceptions/session_permission
 
 type ModulesBySlug = Map<string, SystemModule>
 type GrantsByModuleId = Map<number, Set<string>>
+type RoleGrantVersionComponents = {
+  maxTimestamp: DateTime
+  liveGrantDigest: string
+}
 
 const EPOCH = DateTime.fromMillis(0, { zone: 'utc' })
 
@@ -159,8 +163,8 @@ export default class SessionPermissionTreeService {
   }
 
   private async computeVersion(roleId: number, modulesBySlug: ModulesBySlug): Promise<string> {
-    const [grantsMax, permissionsMax] = await Promise.all([
-      this.computeRoleGrantMax(roleId),
+    const [grantComponents, permissionsMax] = await Promise.all([
+      this.computeRoleGrantVersionComponents(roleId),
       this.computeEnumeratedPermissionMax(modulesBySlug),
     ])
     const modulesMax = this.computeCatalogModuleMax(modulesBySlug)
@@ -169,7 +173,8 @@ export default class SessionPermissionTreeService {
     return this.shortHash(
       [
         roleId,
-        grantsMax.toUTC().toISO(),
+        grantComponents.maxTimestamp.toUTC().toISO(),
+        grantComponents.liveGrantDigest,
         permissionsMax.toUTC().toISO(),
         modulesMax.toUTC().toISO(),
         catalogDigest,
@@ -177,14 +182,25 @@ export default class SessionPermissionTreeService {
     )
   }
 
-  private async computeRoleGrantMax(roleId: number): Promise<DateTime> {
+  private async computeRoleGrantVersionComponents(
+    roleId: number
+  ): Promise<RoleGrantVersionComponents> {
     const grants = await RoleSystemPermission.query()
       .whereNull('role_system_permission_deleted_at')
       .where('role_id', roleId)
 
-    return this.maxDateTime(
-      grants.map((grant) => grant.roleSystemPermissionUpdatedAt ?? grant.roleSystemPermissionCreatedAt)
-    )
+    const grantedPermissionIds = Array.from(
+      new Set(grants.map((grant) => grant.systemPermissionId))
+    ).sort((left, right) => left - right)
+
+    return {
+      maxTimestamp: this.maxDateTime(
+        grants.map(
+          (grant) => grant.roleSystemPermissionUpdatedAt ?? grant.roleSystemPermissionCreatedAt
+        )
+      ),
+      liveGrantDigest: this.shortHash(grantedPermissionIds.join('|')),
+    }
   }
 
   private async computeEnumeratedPermissionMax(modulesBySlug: ModulesBySlug): Promise<DateTime> {
