@@ -176,6 +176,7 @@ test.group('validateCatalogIntegrity — relation de equivalencia (USRH178576640
               displayName: 'X',
               kind: 'read',
               section: 'listado',
+              exceptionProfile: 'standard',
               legacyEquivalence: {
                 systemPermissionSlug: 'read',
               } as LegacyPermissionEquivalence,
@@ -200,6 +201,7 @@ test.group('validateCatalogIntegrity — relation de equivalencia (USRH178576640
               displayName: 'Consultar listado',
               kind: 'read',
               section: 'listado',
+              exceptionProfile: 'standard',
               legacyEquivalence: { systemPermissionSlug: 'read', relation: 'exact' },
             },
             {
@@ -207,6 +209,7 @@ test.group('validateCatalogIntegrity — relation de equivalencia (USRH178576640
               displayName: 'Consultar Bancos',
               kind: 'read',
               section: 'bancos',
+              exceptionProfile: 'standard',
               legacyEquivalence: { systemPermissionSlug: 'read', relation: 'broader' },
             },
           ],

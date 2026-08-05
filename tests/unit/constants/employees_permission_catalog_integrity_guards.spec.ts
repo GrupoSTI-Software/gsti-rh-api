@@ -51,8 +51,20 @@ test.group('EMPLOYEES_PERMISSION_CATALOG — guardas de integridad (Task 4)', ()
         modules: [{ slug: 'employees', actionsEnumerated: true }],
         actionsByModule: {
           employees: [
-            { slug: 'dup', displayName: 'a', kind: 'read', section: 'bancos' },
-            { slug: 'dup', displayName: 'b', kind: 'write', section: 'bancos' },
+            {
+              slug: 'dup',
+              displayName: 'a',
+              kind: 'read',
+              section: 'bancos',
+              exceptionProfile: 'standard',
+            },
+            {
+              slug: 'dup',
+              displayName: 'b',
+              kind: 'write',
+              section: 'bancos',
+              exceptionProfile: 'standard',
+            },
           ],
         },
       })
