@@ -114,7 +114,10 @@ export default class SystemPermissionCatalogConsistencyService {
       if (action.exemption) {
         continue
       }
-      const slugToMatch = action.legacyEquivalence?.systemPermissionSlug ?? action.slug
+      const slugToMatch =
+        action.legacyEquivalence?.relation === 'exact'
+          ? action.legacyEquivalence.systemPermissionSlug
+          : action.slug
       if (!registeredSlugs.has(slugToMatch)) {
         report.declaredNotRegistered.push({
           kind: 'permission',
@@ -127,7 +130,13 @@ export default class SystemPermissionCatalogConsistencyService {
     }
 
     const declaredSlugsInDb = new Set(
-      actions.map((action) => action.legacyEquivalence?.systemPermissionSlug ?? action.slug)
+      actions
+        .filter((action) => !action.exemption)
+        .map((action) =>
+          action.legacyEquivalence?.relation === 'exact'
+            ? action.legacyEquivalence.systemPermissionSlug
+            : action.slug
+        )
     )
     for (const permission of registeredPermissions) {
       if (!declaredSlugsInDb.has(permission.systemPermissionSlug)) {

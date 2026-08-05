@@ -62,7 +62,13 @@ test.group('0055_system_permission_catalog_sync_seeder — idempotencia', () => 
     await new SystemPermissionCatalogSyncSeeder({} as never).run()
 
     for (const action of EMPLOYEES_PERMISSION_CATALOG) {
-      const expectedSlug = action.legacyEquivalence?.systemPermissionSlug ?? action.slug
+      if (action.exemption) {
+        continue
+      }
+      const expectedSlug =
+        action.legacyEquivalence?.relation === 'exact'
+          ? action.legacyEquivalence.systemPermissionSlug
+          : action.slug
       const permission = await SystemPermission.query()
         .whereNull('system_permission_deleted_at')
         .where('systemModuleId', employeesModule.systemModuleId)

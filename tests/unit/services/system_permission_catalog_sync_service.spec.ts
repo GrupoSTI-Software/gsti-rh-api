@@ -161,6 +161,67 @@ test.group('SystemPermissionCatalogSyncService — sincronización', (group) => 
     assert.lengthOf(allMatches, 1, 'tampoco se duplica junto a la fila dada de baja')
   })
 
+  test('no crea fila para acciones con exemption', async ({ assert }) => {
+    const slug = `${TEST_SLUG_PREFIX}exempt-collab`
+    const catalog = buildCatalog([
+      {
+        slug,
+        displayName: 'Apartado',
+        kind: 'read',
+        section: 'app-colaborador',
+        exemption: { reason: 'app colaborador', owner: 'Wilvardo' },
+      },
+    ])
+    const result = await new SystemPermissionCatalogSyncService(catalog).sync()
+    assert.notInclude(result.createdPermissionSlugs, slug)
+    const row = await SystemPermission.query().where('systemPermissionSlug', slug).first()
+    assert.isNull(row)
+  })
+
+  test('crea acción nueva con relation broader sin reutilizar el slug legacy', async ({
+    assert,
+  }) => {
+    const employeesModule = await getEmployeesModule()
+    const slug = `${TEST_SLUG_PREFIX}tab-bancos-read`
+    const catalog = buildCatalog([
+      {
+        slug,
+        displayName: 'Consultar Bancos',
+        kind: 'read',
+        section: 'bancos',
+        legacyEquivalence: { systemPermissionSlug: 'read', relation: 'broader' },
+      },
+    ])
+    const result = await new SystemPermissionCatalogSyncService(catalog).sync()
+    assert.include(result.createdPermissionSlugs, slug)
+    const created = await SystemPermission.query()
+      .where('systemModuleId', employeesModule.systemModuleId)
+      .where('systemPermissionSlug', slug)
+      .first()
+    assert.exists(created)
+  })
+
+  test('relation exact no crea ni renombra el legacy', async ({ assert }) => {
+    const catalog = buildCatalog([
+      {
+        slug: 'read',
+        displayName: 'Nombre que NO debe aplicarse',
+        kind: 'read',
+        section: 'listado',
+        legacyEquivalence: { systemPermissionSlug: 'read', relation: 'exact' },
+      },
+    ])
+    const employeesModule = await getEmployeesModule()
+    const before = await SystemPermission.query()
+      .where('systemPermissionSlug', 'read')
+      .where('systemModuleId', employeesModule.systemModuleId)
+      .first()
+    const result = await new SystemPermissionCatalogSyncService(catalog).sync()
+    assert.notInclude(result.createdPermissionSlugs, 'read')
+    const after = await SystemPermission.find(before!.systemPermissionId)
+    assert.equal(after!.systemPermissionName, before!.systemPermissionName)
+  })
+
   test('nunca escribe en role_system_permissions (regla 8)', async ({ assert }) => {
     const beforeCount = await RoleSystemPermission.query().whereNull(
       'role_system_permission_deleted_at'
