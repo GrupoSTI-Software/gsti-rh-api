@@ -45,6 +45,15 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
     )
   })
 
+  test('tab-expediente-write documenta broader hacia manage-files, no update-information', ({
+    assert,
+  }) => {
+    const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'tab-expediente-write')
+    assert.exists(action)
+    assert.equal(action!.legacyEquivalence?.systemPermissionSlug, 'manage-files')
+    assert.equal(action!.legacyEquivalence?.relation, 'broader')
+  })
+
   test('declara listado nuevo, descargas, sensibles y excepciones masivas', ({ assert }) => {
     for (const slug of [
       'import-employees', 'import-shift-assignments', 'apply-exception-mass', 'generate-badges',

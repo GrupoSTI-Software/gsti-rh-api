@@ -43,43 +43,74 @@ export type EmployeesSection =
   | 'turnos'
   | 'app-colaborador'
 
+/** Secciones que corresponden a una pestaña del expediente (excluye las agrupadoras). */
+type TabSection = Exclude<
+  EmployeesSection,
+  'listado' | 'descargas' | 'datos-sensibles' | 'turnos' | 'app-colaborador'
+>
+
 /**
- * Genera las decisiones `tab-<section>-read|write|delete` de una pestaña del
- * expediente, evitando repetir a mano las ~56 entradas del inventario
- * canónico (sección B del plan). No se exporta: es un detalle de armado de
- * este catálogo, no una utilidad reusable por otros módulos.
+ * Entradas `tab-<section>-read|write` comunes a toda pestaña. No se exporta:
+ * es un detalle de armado de este catálogo, no una utilidad reusable por
+ * otros módulos.
+ *
+ * Genérica en `S` (en vez de anotar el retorno como
+ * `ActionCatalogEntry<EmployeesSection>[]`) a propósito: anotar el retorno
+ * ensancha cada `slug` a `string`, y como `EMPLOYEES_PERMISSION_CATALOG` se
+ * arma intercalando llamadas a este helper con literales sueltos, ese
+ * ensanchamiento se filtraba a `EmployeeActionSlug` completo. Al inferir `S`
+ * desde el argumento y usar `as const` en cada entrada y en el arreglo que
+ * devuelve, TypeScript conserva el slug literal de cada pestaña.
  */
-function tabActions(
-  section: Exclude<EmployeesSection, 'listado' | 'descargas' | 'datos-sensibles' | 'turnos' | 'app-colaborador'>,
-  label: string,
-  opts: { withDelete: boolean }
-): ActionCatalogEntry<EmployeesSection>[] {
-  const base: ActionCatalogEntry<EmployeesSection>[] = [
-    {
-      slug: `tab-${section}-read`,
-      displayName: `Consultar ${label}`,
-      kind: 'read',
-      section,
-      legacyEquivalence: { systemPermissionSlug: 'read', relation: 'broader' },
+function tabReadWrite<S extends TabSection>(section: S, label: string, writeLegacySlug?: string) {
+  const read = {
+    slug: `tab-${section}-read` as const,
+    displayName: `Consultar ${label}`,
+    kind: 'read' as const,
+    section,
+    legacyEquivalence: { systemPermissionSlug: 'read' as const, relation: 'broader' as const },
+  } as const
+  const write = {
+    slug: `tab-${section}-write` as const,
+    displayName: `Modificar ${label}`,
+    kind: 'write' as const,
+    section,
+    legacyEquivalence: {
+      systemPermissionSlug: writeLegacySlug ?? 'update-information',
+      relation: 'broader' as const,
     },
-    {
-      slug: `tab-${section}-write`,
-      displayName: `Modificar ${label}`,
-      kind: 'write',
-      section,
-      legacyEquivalence: { systemPermissionSlug: 'update-information', relation: 'broader' },
-    },
-  ]
-  if (opts.withDelete) {
-    base.push({
-      slug: `tab-${section}-delete`,
-      displayName: `Eliminar ${label}`,
-      kind: 'delete',
-      section,
-      legacyEquivalence: { systemPermissionSlug: 'delete', relation: 'broader' },
-    })
-  }
-  return base
+  } as const
+  return [read, write] as const
+}
+
+/**
+ * Pestañas con las tres decisiones (read/write/delete — sección B del plan).
+ *
+ * Deliberadamente NO es una única función con `opts: { withDelete: boolean }`
+ * que decida con un `if`: como `boolean` no es literal, TypeScript infiere el
+ * retorno de esa función como la UNIÓN de las dos formas posibles (con y sin
+ * delete) para TODAS las llamadas, sin importar el valor concreto pasado en
+ * cada sitio. Al combinar ~19 llamadas así en un solo arreglo `as const`, esa
+ * unión se multiplica combinatoriamente y TypeScript deja de poder
+ * representarla (`TS2590 — union type too complex to represent`). Separar en
+ * dos funciones sin ramas da a cada llamada un tipo de retorno fijo y evita
+ * el problema.
+ */
+function tabActionsWithDelete<S extends TabSection>(section: S, label: string, writeLegacySlug?: string) {
+  const [read, write] = tabReadWrite(section, label, writeLegacySlug)
+  const del = {
+    slug: `tab-${section}-delete` as const,
+    displayName: `Eliminar ${label}`,
+    kind: 'delete' as const,
+    section,
+    legacyEquivalence: { systemPermissionSlug: 'delete' as const, relation: 'broader' as const },
+  } as const
+  return [read, write, del] as const
+}
+
+/** Pestañas sin delete (solo consentimiento — regla de negocio 2). */
+function tabActionsNoDelete<S extends TabSection>(section: S, label: string) {
+  return tabReadWrite(section, label)
 }
 
 /**
@@ -295,25 +326,28 @@ const CATALOG_ENTRIES = [
   },
 
   // --- B) Pestañas del expediente (nuevas) — 18 con delete + consentimiento sin delete ---
-  ...tabActions('foto', 'Foto', { withDelete: true }),
-  ...tabActions('trabajo', 'Trabajo', { withDelete: true }),
-  ...tabActions('persona', 'Persona', { withDelete: true }),
-  ...tabActions('condicion-medica', 'Condición médica', { withDelete: true }),
-  ...tabActions('periodos-lactancia', 'Periodos de lactancia', { withDelete: true }),
-  ...tabActions('expediente', 'Expediente', { withDelete: true }),
-  ...tabActions('domicilio', 'Domicilio', { withDelete: true }),
-  ...tabActions('bancos', 'Bancos', { withDelete: true }),
-  ...tabActions('responsable', 'Responsable', { withDelete: true }),
-  ...tabActions('zonas', 'Zonas', { withDelete: true }),
-  ...tabActions('asignados', 'Asignados', { withDelete: true }),
-  ...tabActions('biometricos', 'Biométricos', { withDelete: true }),
-  ...tabActions('anotaciones', 'Anotaciones', { withDelete: true }),
-  ...tabActions('dispositivos', 'Dispositivos', { withDelete: true }),
-  ...tabActions('evaluaciones', 'Evaluaciones', { withDelete: true }),
-  ...tabActions('assessments', 'Assessments', { withDelete: true }),
-  ...tabActions('ruta-carrera', 'Ruta de carrera', { withDelete: true }),
-  ...tabActions('certificaciones', 'Certificaciones', { withDelete: true }),
-  ...tabActions('consentimiento', 'Consentimiento', { withDelete: false }),
+  ...tabActionsWithDelete('foto', 'Foto'),
+  ...tabActionsWithDelete('trabajo', 'Trabajo'),
+  ...tabActionsWithDelete('persona', 'Persona'),
+  ...tabActionsWithDelete('condicion-medica', 'Condición médica'),
+  ...tabActionsWithDelete('periodos-lactancia', 'Periodos de lactancia'),
+  // Excepción de la regla general (sección B del plan): la pestaña de
+  // archivos del expediente documenta broader hacia `manage-files`, no
+  // hacia `update-information`.
+  ...tabActionsWithDelete('expediente', 'Expediente', 'manage-files'),
+  ...tabActionsWithDelete('domicilio', 'Domicilio'),
+  ...tabActionsWithDelete('bancos', 'Bancos'),
+  ...tabActionsWithDelete('responsable', 'Responsable'),
+  ...tabActionsWithDelete('zonas', 'Zonas'),
+  ...tabActionsWithDelete('asignados', 'Asignados'),
+  ...tabActionsWithDelete('biometricos', 'Biométricos'),
+  ...tabActionsWithDelete('anotaciones', 'Anotaciones'),
+  ...tabActionsWithDelete('dispositivos', 'Dispositivos'),
+  ...tabActionsWithDelete('evaluaciones', 'Evaluaciones'),
+  ...tabActionsWithDelete('assessments', 'Assessments'),
+  ...tabActionsWithDelete('ruta-carrera', 'Ruta de carrera'),
+  ...tabActionsWithDelete('certificaciones', 'Certificaciones'),
+  ...tabActionsNoDelete('consentimiento', 'Consentimiento'),
 
   // --- C) Listado (nuevas) ---
   {
