@@ -6,14 +6,34 @@ import {
 } from '#constants/system_permission_catalog'
 
 const LEGACY_SLUGS = [
-  'create', 'update', 'delete', 'read', 'read-terminated-employees', 'update-information',
-  'add-exception', 'manage-shift', 'manage-vacation', 'exception-request',
-  'manage-shift-change', 'remove-shift-assigned-to-the-day',
-  'read-only-files', 'manage-files', 'read-work-disabilities', 'manage-work-disabilities',
-  'manage-responsible-read', 'manage-responsible-edit',
-  'manage-assigned-read', 'manage-assigned-edit', 'full-employee-assigned',
-  'manage-biotime', 'show-face-id', 'upload-face-id', 'show-fingers', 'upload-fingers',
-  'reveal-sensitive-data', 'register-physical-consent',
+  'create',
+  'update',
+  'delete',
+  'read',
+  'read-terminated-employees',
+  'update-information',
+  'add-exception',
+  'manage-shift',
+  'manage-vacation',
+  'exception-request',
+  'manage-shift-change',
+  'remove-shift-assigned-to-the-day',
+  'read-only-files',
+  'manage-files',
+  'read-work-disabilities',
+  'manage-work-disabilities',
+  'manage-responsible-read',
+  'manage-responsible-edit',
+  'manage-assigned-read',
+  'manage-assigned-edit',
+  'full-employee-assigned',
+  'manage-biotime',
+  'show-face-id',
+  'upload-face-id',
+  'show-fingers',
+  'upload-fingers',
+  'reveal-sensitive-data',
+  'register-physical-consent',
 ] as const
 
 test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
@@ -29,9 +49,24 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
 
   test('declara read+write(+delete) por pestaña; consentimiento sin delete', ({ assert }) => {
     const tabs = [
-      'foto', 'trabajo', 'persona', 'condicion-medica', 'periodos-lactancia', 'expediente',
-      'domicilio', 'bancos', 'responsable', 'zonas', 'asignados', 'biometricos',
-      'anotaciones', 'dispositivos', 'evaluaciones', 'assessments', 'ruta-carrera', 'certificaciones',
+      'foto',
+      'trabajo',
+      'persona',
+      'condicion-medica',
+      'periodos-lactancia',
+      'expediente',
+      'domicilio',
+      'bancos',
+      'responsable',
+      'zonas',
+      'asignados',
+      'biometricos',
+      'anotaciones',
+      'dispositivos',
+      'evaluaciones',
+      'assessments',
+      'ruta-carrera',
+      'certificaciones',
     ]
     for (const tab of tabs) {
       assert.exists(EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === `tab-${tab}-read`))
@@ -56,16 +91,29 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
 
   test('declara listado nuevo, descargas, sensibles y excepciones masivas', ({ assert }) => {
     for (const slug of [
-      'import-employees', 'import-shift-assignments', 'apply-exception-mass', 'generate-badges',
-      'download-employees-list', 'download-attendance-report', 'download-vacations-history',
+      'import-employees',
+      'import-shift-assignments',
+      'apply-exception-mass',
+      'generate-badges',
+      'download-employees-list',
+      'download-attendance-report',
+      'download-vacations-history',
       'download-proceeding-files',
-      'sensitive-identificacion-read', 'sensitive-identificacion-write',
-      'sensitive-contacto-read', 'sensitive-contacto-write',
-      'sensitive-financiero-read', 'sensitive-financiero-write',
-      'sensitive-salud-read', 'sensitive-salud-write',
-      'sensitive-biometrico-read', 'sensitive-biometrico-write',
+      'sensitive-identificacion-read',
+      'sensitive-identificacion-write',
+      'sensitive-contacto-read',
+      'sensitive-contacto-write',
+      'sensitive-financiero-read',
+      'sensitive-financiero-write',
+      'sensitive-salud-read',
+      'sensitive-salud-write',
+      'sensitive-biometrico-read',
+      'sensitive-biometrico-write',
     ]) {
-      assert.exists(EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === slug), slug)
+      assert.exists(
+        EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === slug),
+        slug
+      )
     }
   })
 

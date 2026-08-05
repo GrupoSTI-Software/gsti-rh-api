@@ -93,9 +93,7 @@ export default class SystemPermissionCatalogSyncService {
 
     const isExact = action.legacyEquivalence?.relation === 'exact'
 
-    const slugToMatch = isExact
-      ? action.legacyEquivalence!.systemPermissionSlug
-      : action.slug
+    const slugToMatch = isExact ? action.legacyEquivalence!.systemPermissionSlug : action.slug
 
     const existing = await SystemPermission.query()
       .withTrashed()
@@ -105,16 +103,6 @@ export default class SystemPermissionCatalogSyncService {
 
     if (existing) {
       return false
-    }
-
-    // Para broader/narrower: buscar también por action.slug por si ya se creó
-    if (!isExact && action.legacyEquivalence) {
-      const byOwnSlug = await SystemPermission.query()
-        .withTrashed()
-        .where('systemModuleId', systemModuleId)
-        .where('systemPermissionSlug', action.slug)
-        .first()
-      if (byOwnSlug) return false
     }
 
     await SystemPermission.create({

@@ -12,9 +12,7 @@ import { SystemPermissionCatalogError } from '#exceptions/system_permission_cata
  */
 
 test.group('EMPLOYEES_PERMISSION_CATALOG — guardas de integridad (Task 4)', () => {
-  test('ninguna sección de pestaña inventada: solo EmployeesSection conocidas', ({
-    assert,
-  }) => {
+  test('ninguna sección de pestaña inventada: solo EmployeesSection conocidas', ({ assert }) => {
     const allowed = new Set<string>([
       'foto',
       'trabajo',
@@ -47,18 +45,20 @@ test.group('EMPLOYEES_PERMISSION_CATALOG — guardas de integridad (Task 4)', ()
   })
 
   test('validateCatalogIntegrity detiene duplicados antes de sync', ({ assert }) => {
-    assert.throws(
-      () =>
-        validateCatalogIntegrity({
-          modules: [{ slug: 'employees', actionsEnumerated: true }],
-          actionsByModule: {
-            employees: [
-              { slug: 'dup', displayName: 'a', kind: 'read', section: 'bancos' },
-              { slug: 'dup', displayName: 'b', kind: 'write', section: 'bancos' },
-            ],
-          },
-        }),
-      SystemPermissionCatalogError
-    )
+    let caught: unknown
+    try {
+      validateCatalogIntegrity({
+        modules: [{ slug: 'employees', actionsEnumerated: true }],
+        actionsByModule: {
+          employees: [
+            { slug: 'dup', displayName: 'a', kind: 'read', section: 'bancos' },
+            { slug: 'dup', displayName: 'b', kind: 'write', section: 'bancos' },
+          ],
+        },
+      })
+    } catch (error) {
+      caught = error
+    }
+    assert.instanceOf(caught, SystemPermissionCatalogError)
   })
 })

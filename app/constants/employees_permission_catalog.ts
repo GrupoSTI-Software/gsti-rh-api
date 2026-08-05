@@ -96,7 +96,11 @@ function tabReadWrite<S extends TabSection>(section: S, label: string, writeLega
  * dos funciones sin ramas da a cada llamada un tipo de retorno fijo y evita
  * el problema.
  */
-function tabActionsWithDelete<S extends TabSection>(section: S, label: string, writeLegacySlug?: string) {
+function tabActionsWithDelete<S extends TabSection>(
+  section: S,
+  label: string,
+  writeLegacySlug?: string
+) {
   const [read, write] = tabReadWrite(section, label, writeLegacySlug)
   const del = {
     slug: `tab-${section}-delete` as const,
@@ -210,7 +214,10 @@ const CATALOG_ENTRIES = [
     displayName: 'Quitar turno asignado del día',
     kind: 'delete',
     section: 'turnos',
-    legacyEquivalence: { systemPermissionSlug: 'remove-shift-assigned-to-the-day', relation: 'exact' },
+    legacyEquivalence: {
+      systemPermissionSlug: 'remove-shift-assigned-to-the-day',
+      relation: 'exact',
+    },
   },
   {
     slug: 'read-only-files',

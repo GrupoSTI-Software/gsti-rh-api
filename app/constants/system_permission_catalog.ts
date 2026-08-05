@@ -296,10 +296,7 @@ export function validateCatalogIntegrity(
         )
       }
       const allowed: LegacyEquivalenceRelation[] = ['exact', 'broader', 'narrower']
-      if (
-        action.legacyEquivalence &&
-        !allowed.includes(action.legacyEquivalence.relation)
-      ) {
+      if (action.legacyEquivalence && !allowed.includes(action.legacyEquivalence.relation)) {
         throw new SystemPermissionCatalogError(`relation inválida en "${action.slug}"`)
       }
     }

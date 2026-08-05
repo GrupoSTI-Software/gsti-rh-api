@@ -60,7 +60,11 @@ test.group('Índice maestro — catálogo real', () => {
     const exempt = actions.filter((action) => action.exemption)
     assert.lengthOf(legacy, 28, 'las 28 decisiones ya sembradas conservan relation exact')
     assert.lengthOf(exempt, 6, 'los apartados de app colaborador no crean fila en BD')
-    assert.lengthOf(actions, 108, '28 legacy + 56 pestaña + 4 listado + 4 descargas + 10 sensibles + 6 exemption')
+    assert.lengthOf(
+      actions,
+      108,
+      '28 legacy + 56 pestaña + 4 listado + 4 descargas + 10 sensibles + 6 exemption'
+    )
   })
 
   test('cada acción de Empleados declara kind, sección y nombre legible', ({ assert }) => {
