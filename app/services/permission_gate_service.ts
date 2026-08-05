@@ -5,6 +5,11 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemPermission from '#models/system_permission'
 import type User from '#models/user'
 import type { PermissionGateOptions } from '#constants/permission_gate'
+import {
+  buildPermissionGateIdentity,
+  hasPermissionGateBypass,
+  type PermissionGateIdentity,
+} from '#helpers/permission_gate_identity'
 
 export type PermissionGateDecisionReason =
   | 'module-not-enforced'
@@ -16,13 +21,6 @@ export type PermissionGateDecisionReason =
 export interface PermissionGateDecision {
   allowed: boolean
   reason: PermissionGateDecisionReason
-}
-
-interface PermissionGateIdentity {
-  roleId: number
-  isPlatformAccount: boolean
-  isCompanyOwnerAccount: boolean
-  isDireccionGeneralAccount: boolean
 }
 
 /**
@@ -56,7 +54,7 @@ export default class PermissionGateService {
         return { allowed: false, reason: 'unresolved' }
       }
 
-      if (this.hasBypass(identity, options.bypass)) {
+      if (hasPermissionGateBypass(identity, options.bypass)) {
         return { allowed: true, reason: 'bypass' }
       }
 
@@ -74,28 +72,6 @@ export default class PermissionGateService {
     }
   }
 
-  private hasBypass(
-    identity: PermissionGateIdentity,
-    bypass: PermissionGateOptions['bypass']
-  ): boolean {
-    switch (bypass) {
-      case 'standard':
-        return identity.isPlatformAccount || identity.isCompanyOwnerAccount
-      case 'expanded':
-        return (
-          identity.isPlatformAccount ||
-          identity.isCompanyOwnerAccount ||
-          identity.isDireccionGeneralAccount
-        )
-      case 'platformReserved':
-        return identity.isPlatformAccount
-      case 'strict':
-        return false
-      default:
-        return false
-    }
-  }
-
   private async resolveIdentity(user: User): Promise<PermissionGateIdentity | null> {
     if (this.identityCache.has(user.userId)) {
       return this.identityCache.get(user.userId)!
@@ -107,12 +83,7 @@ export default class PermissionGateService {
       return null
     }
 
-    const identity: PermissionGateIdentity = {
-      roleId: role.roleId,
-      isPlatformAccount: role.roleSlug === 'root',
-      isCompanyOwnerAccount: role.roleSlug === 'owner',
-      isDireccionGeneralAccount: role.roleSlug === 'super-administrador',
-    }
+    const identity = buildPermissionGateIdentity(role)
     this.identityCache.set(user.userId, identity)
     return identity
   }
