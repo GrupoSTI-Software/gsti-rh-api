@@ -52,8 +52,15 @@ test.group('Índice maestro — catálogo real', () => {
     )
   })
 
-  test('Empleados enumera exactamente las 28 acciones ya sembradas', ({ assert }) => {
-    assert.lengthOf(SYSTEM_PERMISSION_CATALOG.actionsByModule.employees, 28)
+  test('Empleados enumera las 28 legacy ya sembradas más el inventario granular nuevo (USRH1785766406722)', ({
+    assert,
+  }) => {
+    const actions = SYSTEM_PERMISSION_CATALOG.actionsByModule.employees
+    const legacy = actions.filter((action) => action.legacyEquivalence?.relation === 'exact')
+    const exempt = actions.filter((action) => action.exemption)
+    assert.lengthOf(legacy, 28, 'las 28 decisiones ya sembradas conservan relation exact')
+    assert.lengthOf(exempt, 6, 'los apartados de app colaborador no crean fila en BD')
+    assert.lengthOf(actions, 108, '28 legacy + 56 pestaña + 4 listado + 4 descargas + 10 sensibles + 6 exemption')
   })
 
   test('cada acción de Empleados declara kind, sección y nombre legible', ({ assert }) => {

@@ -1,87 +1,147 @@
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 
 /**
- * Catálogo de acciones autorizables del módulo Empleados (USRH1785766406720),
- * piloto de enumeración completa: las ~28 acciones ya sembradas hoy en
+ * Catálogo de acciones autorizables del módulo Empleados: primero el
+ * piloto de enumeración de las ~28 acciones ya sembradas hoy en
  * `system_permissions` bajo `system_module_id = 1` (`0018_system_permission_seeder.ts`
  * y los seeders puntuales `0047_pii_sensitive_data_module_seeder.ts` /
- * `0051_physical_consent_permission_seeder.ts`), agrupadas por sección.
+ * `0051_physical_consent_permission_seeder.ts`), ahora ampliado por
+ * USRH1785766406722 con el inventario completo de decisiones autorizables
+ * del expediente (pestañas), listado, descargas y familias legales de
+ * datos sensibles, más lo que la app/portal del colaborador consume fuera
+ * del control de roles del backoffice (`exemption`).
  *
- * Todas traen `legacyEquivalence` porque ninguna es nueva: esta HU no crea
- * permisos, solo declara los que ya existen (regla de negocio 4). Las
- * acciones granulares nuevas del proyecto de Empleados se declaran en
- * `USRH1785766406722`, no aquí.
+ * Las 28 legacy conservan slug y `legacyEquivalence.relation: 'exact'`
+ * (regla de negocio 9: no se borra ni renombra nada ya registrado). Las
+ * acciones nuevas no crean fila en `system_permissions` cuando su relación
+ * documental es `exact`; con `broader`/`narrower` sí se materializan porque
+ * son una decisión distinta a la ya sembrada (decisión de diseño 3 del plan).
  */
 export type EmployeesSection =
-  | 'datos-persona'
-  | 'turnos'
-  | 'archivos-expediente'
-  | 'responsables-asignacion'
+  | 'foto'
+  | 'trabajo'
+  | 'persona'
+  | 'condicion-medica'
+  | 'periodos-lactancia'
+  | 'expediente'
+  | 'consentimiento'
+  | 'domicilio'
+  | 'bancos'
+  | 'responsable'
+  | 'zonas'
+  | 'asignados'
   | 'biometricos'
+  | 'anotaciones'
+  | 'dispositivos'
+  | 'evaluaciones'
+  | 'assessments'
+  | 'ruta-carrera'
+  | 'certificaciones'
+  | 'listado'
+  | 'descargas'
+  | 'datos-sensibles'
+  | 'turnos'
+  | 'app-colaborador'
 
-export const EMPLOYEES_PERMISSION_CATALOG = [
-  // --- datos-persona ---
+/**
+ * Genera las decisiones `tab-<section>-read|write|delete` de una pestaña del
+ * expediente, evitando repetir a mano las ~56 entradas del inventario
+ * canónico (sección B del plan). No se exporta: es un detalle de armado de
+ * este catálogo, no una utilidad reusable por otros módulos.
+ */
+function tabActions(
+  section: Exclude<EmployeesSection, 'listado' | 'descargas' | 'datos-sensibles' | 'turnos' | 'app-colaborador'>,
+  label: string,
+  opts: { withDelete: boolean }
+): ActionCatalogEntry<EmployeesSection>[] {
+  const base: ActionCatalogEntry<EmployeesSection>[] = [
+    {
+      slug: `tab-${section}-read`,
+      displayName: `Consultar ${label}`,
+      kind: 'read',
+      section,
+      legacyEquivalence: { systemPermissionSlug: 'read', relation: 'broader' },
+    },
+    {
+      slug: `tab-${section}-write`,
+      displayName: `Modificar ${label}`,
+      kind: 'write',
+      section,
+      legacyEquivalence: { systemPermissionSlug: 'update-information', relation: 'broader' },
+    },
+  ]
+  if (opts.withDelete) {
+    base.push({
+      slug: `tab-${section}-delete`,
+      displayName: `Eliminar ${label}`,
+      kind: 'delete',
+      section,
+      legacyEquivalence: { systemPermissionSlug: 'delete', relation: 'broader' },
+    })
+  }
+  return base
+}
+
+/**
+ * Fuente literal (no exportada) del catálogo: se mantiene con `as const` para
+ * que `EmployeeActionSlug` conserve la unión de slugs concretos en vez de
+ * ensancharse a `string`. Como las entradas tienen formas distintas
+ * (unas con `legacyEquivalence`, otras con `exemption`, otras con ninguna),
+ * el tipo de cada elemento del tuple es su literal exacto — por eso no se
+ * exporta ni se recorre directamente: acceder a `legacyEquivalence`/`exemption`
+ * sobre esa unión heterogénea falla en tiempo de compilación aunque el campo
+ * sea opcional en `ActionCatalogEntry` (regla estructural: si el campo no
+ * existe en un miembro de la unión, TypeScript no permite leerlo). Por eso
+ * `EMPLOYEES_PERMISSION_CATALOG`, lo que consume el resto del código, se
+ * expone abajo con el tipo general ensanchado.
+ */
+const CATALOG_ENTRIES = [
+  // --- A) 28 legacy: conservan slug, relation exact, reubicadas por sección ---
   {
     slug: 'create',
-    displayName: 'Crear empleado',
+    displayName: 'Dar de alta colaborador',
     kind: 'write',
-    section: 'datos-persona',
+    section: 'listado',
     legacyEquivalence: { systemPermissionSlug: 'create', relation: 'exact' },
   },
   {
     slug: 'update',
-    displayName: 'Modificar empleado',
+    displayName: 'Editar colaborador',
     kind: 'write',
-    section: 'datos-persona',
+    section: 'listado',
     legacyEquivalence: { systemPermissionSlug: 'update', relation: 'exact' },
   },
   {
     slug: 'delete',
-    displayName: 'Eliminar empleado',
+    displayName: 'Dar de baja colaborador',
     kind: 'delete',
-    section: 'datos-persona',
+    section: 'listado',
     legacyEquivalence: { systemPermissionSlug: 'delete', relation: 'exact' },
   },
   {
     slug: 'read',
-    displayName: 'Consultar empleado',
+    displayName: 'Consultar listado de colaboradores',
     kind: 'read',
-    section: 'datos-persona',
+    section: 'listado',
     legacyEquivalence: { systemPermissionSlug: 'read', relation: 'exact' },
   },
   {
-    slug: 'update-information',
-    displayName: 'Actualizar información del empleado',
-    kind: 'write',
-    section: 'datos-persona',
-    legacyEquivalence: { systemPermissionSlug: 'update-information', relation: 'exact' },
-  },
-  {
     slug: 'read-terminated-employees',
-    displayName: 'Consultar empleados dados de baja',
+    displayName: 'Ver personal dado de baja',
     kind: 'read',
-    section: 'datos-persona',
+    section: 'listado',
     legacyEquivalence: { systemPermissionSlug: 'read-terminated-employees', relation: 'exact' },
   },
   {
-    slug: 'reveal-sensitive-data',
-    displayName: 'Revelar dato sensible completo',
-    kind: 'read',
-    section: 'datos-persona',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'exact' },
-  },
-  {
-    slug: 'register-physical-consent',
-    displayName: 'Registrar consentimiento físico',
+    slug: 'update-information',
+    displayName: 'Actualizar información del colaborador',
     kind: 'write',
-    section: 'datos-persona',
-    legacyEquivalence: { systemPermissionSlug: 'register-physical-consent', relation: 'exact' },
+    section: 'listado',
+    legacyEquivalence: { systemPermissionSlug: 'update-information', relation: 'exact' },
   },
-
-  // --- turnos ---
   {
     slug: 'add-exception',
-    displayName: 'Registrar excepción de turno',
+    displayName: 'Aplicar excepción de turno a una persona',
     kind: 'write',
     section: 'turnos',
     legacyEquivalence: { systemPermissionSlug: 'add-exception', relation: 'exact' },
@@ -121,80 +181,74 @@ export const EMPLOYEES_PERMISSION_CATALOG = [
     section: 'turnos',
     legacyEquivalence: { systemPermissionSlug: 'remove-shift-assigned-to-the-day', relation: 'exact' },
   },
-
-  // --- archivos-expediente ---
   {
     slug: 'read-only-files',
     displayName: 'Consultar archivos del expediente',
     kind: 'read',
-    section: 'archivos-expediente',
+    section: 'expediente',
     legacyEquivalence: { systemPermissionSlug: 'read-only-files', relation: 'exact' },
   },
   {
     slug: 'manage-files',
     displayName: 'Administrar archivos del expediente',
     kind: 'write',
-    section: 'archivos-expediente',
+    section: 'expediente',
     legacyEquivalence: { systemPermissionSlug: 'manage-files', relation: 'exact' },
   },
   {
     slug: 'read-work-disabilities',
     displayName: 'Consultar incapacidades',
     kind: 'read',
-    section: 'archivos-expediente',
+    section: 'expediente',
     legacyEquivalence: { systemPermissionSlug: 'read-work-disabilities', relation: 'exact' },
   },
   {
     slug: 'manage-work-disabilities',
     displayName: 'Administrar incapacidades',
     kind: 'write',
-    section: 'archivos-expediente',
+    section: 'expediente',
     legacyEquivalence: { systemPermissionSlug: 'manage-work-disabilities', relation: 'exact' },
   },
-
-  // --- responsables-asignacion ---
   {
     slug: 'manage-responsible-read',
     displayName: 'Consultar responsable asignado',
     kind: 'read',
-    section: 'responsables-asignacion',
+    section: 'responsable',
     legacyEquivalence: { systemPermissionSlug: 'manage-responsible-read', relation: 'exact' },
   },
   {
     slug: 'manage-responsible-edit',
     displayName: 'Administrar responsable asignado',
     kind: 'write',
-    section: 'responsables-asignacion',
+    section: 'responsable',
     legacyEquivalence: { systemPermissionSlug: 'manage-responsible-edit', relation: 'exact' },
   },
   {
     slug: 'manage-assigned-read',
-    displayName: 'Consultar empleados asignados',
+    displayName: 'Consultar colaboradores asignados',
     kind: 'read',
-    section: 'responsables-asignacion',
+    section: 'asignados',
     legacyEquivalence: { systemPermissionSlug: 'manage-assigned-read', relation: 'exact' },
   },
   {
     slug: 'manage-assigned-edit',
-    displayName: 'Administrar empleados asignados',
+    displayName: 'Administrar colaboradores asignados',
     kind: 'write',
-    section: 'responsables-asignacion',
+    section: 'asignados',
     legacyEquivalence: { systemPermissionSlug: 'manage-assigned-edit', relation: 'exact' },
   },
   {
     slug: 'full-employee-assigned',
-    displayName: 'Acceso total a empleados asignados',
+    displayName: 'Acceso total a colaboradores asignados',
     kind: 'write',
-    section: 'responsables-asignacion',
+    section: 'asignados',
     legacyEquivalence: { systemPermissionSlug: 'full-employee-assigned', relation: 'exact' },
   },
-
-  // --- biometricos ---
   {
     slug: 'manage-biotime',
-    displayName: 'Administrar BioTime',
+    displayName: 'Sincronizar contra equipo biométrico externo',
     kind: 'write',
-    section: 'biometricos',
+    section: 'listado',
     legacyEquivalence: { systemPermissionSlug: 'manage-biotime', relation: 'exact' },
   },
   {
@@ -225,6 +279,230 @@ export const EMPLOYEES_PERMISSION_CATALOG = [
     section: 'biometricos',
     legacyEquivalence: { systemPermissionSlug: 'upload-fingers', relation: 'exact' },
   },
+  {
+    slug: 'reveal-sensitive-data',
+    displayName: 'Revelar dato sensible completo',
+    kind: 'read',
+    section: 'datos-sensibles',
+    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'exact' },
+  },
+  {
+    slug: 'register-physical-consent',
+    displayName: 'Registrar consentimiento físico',
+    kind: 'write',
+    section: 'consentimiento',
+    legacyEquivalence: { systemPermissionSlug: 'register-physical-consent', relation: 'exact' },
+  },
+
+  // --- B) Pestañas del expediente (nuevas) — 18 con delete + consentimiento sin delete ---
+  ...tabActions('foto', 'Foto', { withDelete: true }),
+  ...tabActions('trabajo', 'Trabajo', { withDelete: true }),
+  ...tabActions('persona', 'Persona', { withDelete: true }),
+  ...tabActions('condicion-medica', 'Condición médica', { withDelete: true }),
+  ...tabActions('periodos-lactancia', 'Periodos de lactancia', { withDelete: true }),
+  ...tabActions('expediente', 'Expediente', { withDelete: true }),
+  ...tabActions('domicilio', 'Domicilio', { withDelete: true }),
+  ...tabActions('bancos', 'Bancos', { withDelete: true }),
+  ...tabActions('responsable', 'Responsable', { withDelete: true }),
+  ...tabActions('zonas', 'Zonas', { withDelete: true }),
+  ...tabActions('asignados', 'Asignados', { withDelete: true }),
+  ...tabActions('biometricos', 'Biométricos', { withDelete: true }),
+  ...tabActions('anotaciones', 'Anotaciones', { withDelete: true }),
+  ...tabActions('dispositivos', 'Dispositivos', { withDelete: true }),
+  ...tabActions('evaluaciones', 'Evaluaciones', { withDelete: true }),
+  ...tabActions('assessments', 'Assessments', { withDelete: true }),
+  ...tabActions('ruta-carrera', 'Ruta de carrera', { withDelete: true }),
+  ...tabActions('certificaciones', 'Certificaciones', { withDelete: true }),
+  ...tabActions('consentimiento', 'Consentimiento', { withDelete: false }),
+
+  // --- C) Listado (nuevas) ---
+  {
+    slug: 'import-employees',
+    displayName: 'Importar personal',
+    kind: 'write',
+    section: 'listado',
+    legacyEquivalence: { systemPermissionSlug: 'create', relation: 'broader' },
+  },
+  {
+    slug: 'import-shift-assignments',
+    displayName: 'Importar asignaciones de turno',
+    kind: 'write',
+    section: 'listado',
+    legacyEquivalence: { systemPermissionSlug: 'manage-shift', relation: 'broader' },
+  },
+  {
+    slug: 'apply-exception-mass',
+    displayName: 'Aplicar excepción de turno a un grupo',
+    kind: 'write',
+    section: 'listado',
+    legacyEquivalence: { systemPermissionSlug: 'add-exception', relation: 'broader' },
+  },
+  {
+    slug: 'generate-badges',
+    displayName: 'Generar gafetes',
+    kind: 'write',
+    section: 'listado',
+  },
+
+  // --- D) Descargas (nuevas) ---
+  {
+    slug: 'download-employees-list',
+    displayName: 'Descargar reporte de personal',
+    kind: 'read',
+    section: 'descargas',
+  },
+  {
+    slug: 'download-attendance-report',
+    displayName: 'Descargar reporte de asistencia',
+    kind: 'read',
+    section: 'descargas',
+  },
+  {
+    slug: 'download-vacations-history',
+    displayName: 'Descargar histórico de vacaciones',
+    kind: 'read',
+    section: 'descargas',
+  },
+  {
+    slug: 'download-proceeding-files',
+    displayName: 'Descargar expediente documental',
+    kind: 'read',
+    section: 'descargas',
+  },
+
+  // --- E) Datos sensibles (nuevas) ---
+  {
+    slug: 'sensitive-identificacion-read',
+    displayName: 'Consultar datos de identificación',
+    kind: 'read',
+    section: 'datos-sensibles',
+    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
+  },
+  {
+    slug: 'sensitive-identificacion-write',
+    displayName: 'Modificar datos de identificación',
+    kind: 'write',
+    section: 'datos-sensibles',
+  },
+  {
+    slug: 'sensitive-contacto-read',
+    displayName: 'Consultar datos de contacto',
+    kind: 'read',
+    section: 'datos-sensibles',
+    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
+  },
+  {
+    slug: 'sensitive-contacto-write',
+    displayName: 'Modificar datos de contacto',
+    kind: 'write',
+    section: 'datos-sensibles',
+  },
+  {
+    slug: 'sensitive-financiero-read',
+    displayName: 'Consultar datos financieros',
+    kind: 'read',
+    section: 'datos-sensibles',
+    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
+  },
+  {
+    slug: 'sensitive-financiero-write',
+    displayName: 'Modificar datos financieros',
+    kind: 'write',
+    section: 'datos-sensibles',
+  },
+  {
+    slug: 'sensitive-salud-read',
+    displayName: 'Consultar datos de salud',
+    kind: 'read',
+    section: 'datos-sensibles',
+    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
+  },
+  {
+    slug: 'sensitive-salud-write',
+    displayName: 'Modificar datos de salud',
+    kind: 'write',
+    section: 'datos-sensibles',
+  },
+  {
+    slug: 'sensitive-biometrico-read',
+    displayName: 'Consultar datos biométricos (familia legal)',
+    kind: 'read',
+    section: 'datos-sensibles',
+    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
+  },
+  {
+    slug: 'sensitive-biometrico-write',
+    displayName: 'Modificar datos biométricos (familia legal)',
+    kind: 'write',
+    section: 'datos-sensibles',
+  },
+
+  // --- F) Apartados app colaborador (exemption, no BD) — owner: Wilvardo ---
+  {
+    slug: 'collaborator-own-profile',
+    displayName: 'Perfil propio en app/portal del colaborador',
+    kind: 'read',
+    section: 'app-colaborador',
+    exemption: {
+      reason:
+        'Perfil propio en app/portal del colaborador; fuera del control de roles del backoffice',
+      owner: 'Wilvardo',
+    },
+  },
+  {
+    slug: 'collaborator-own-badge',
+    displayName: 'Gafete propio del colaborador',
+    kind: 'read',
+    section: 'app-colaborador',
+    exemption: {
+      reason: 'Gafete propio (GET /api/employee-badges/me)',
+      owner: 'Wilvardo',
+    },
+  },
+  {
+    slug: 'collaborator-attendance-calendar',
+    displayName: 'Calendario de asistencia del colaborador',
+    kind: 'read',
+    section: 'app-colaborador',
+    exemption: {
+      reason: 'Calendario de asistencia del colaborador',
+      owner: 'Wilvardo',
+    },
+  },
+  {
+    slug: 'collaborator-emergency-contacts',
+    displayName: 'Contactos de emergencia propios',
+    kind: 'read',
+    section: 'app-colaborador',
+    exemption: {
+      reason: 'Contactos de emergencia propios',
+      owner: 'Wilvardo',
+    },
+  },
+  {
+    slug: 'collaborator-work-disabilities',
+    displayName: 'Incapacidades propias',
+    kind: 'read',
+    section: 'app-colaborador',
+    exemption: {
+      reason: 'Incapacidades propias',
+      owner: 'Wilvardo',
+    },
+  },
+  {
+    slug: 'collaborator-exception-requests',
+    displayName: 'Solicitudes de excepción propias',
+    kind: 'read',
+    section: 'app-colaborador',
+    exemption: {
+      reason: 'Solicitudes de excepción propias',
+      owner: 'Wilvardo',
+    },
+  },
 ] as const satisfies ActionCatalogEntry<EmployeesSection>[]
 
-export type EmployeeActionSlug = (typeof EMPLOYEES_PERMISSION_CATALOG)[number]['slug']
+/** Catálogo completo de acciones de Empleados, tipado con la forma general. */
+export const EMPLOYEES_PERMISSION_CATALOG: readonly ActionCatalogEntry<EmployeesSection>[] =
+  CATALOG_ENTRIES
+
+export type EmployeeActionSlug = (typeof CATALOG_ENTRIES)[number]['slug']
