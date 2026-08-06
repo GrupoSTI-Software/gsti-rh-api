@@ -117,6 +117,34 @@ export default class RoleService {
     return rolePermissions
   }
 
+  /**
+   * Aplica `roleManagementDays` y sincroniza permisos para cada rol del lote,
+   * bajo la `trx` provista por el caller. No abre ni confirma la transacción:
+   * si alguna operación falla, el error debe burbujear para que el caller
+   * haga rollback de TODO el lote (atomicidad).
+   */
+  async assignPermissionsBatch(
+    items: Array<{
+      roleId: number
+      permissions: number[]
+      roleManagementDays: number | null
+    }>,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    for (const item of items) {
+      const role = await Role.query()
+        .useTransaction(trx)
+        .whereNull('role_deleted_at')
+        .where('role_id', item.roleId)
+        .firstOrFail()
+
+      role.useTransaction(trx)
+      role.roleManagementDays = item.roleManagementDays
+      await role.save()
+      await this.assignPermissions(item.roleId, item.permissions, trx)
+    }
+  }
+
   async show(roleId: number) {
     const role = await Role.query()
       .whereNull('role_deleted_at')
