@@ -156,8 +156,14 @@ export default class ReportJobService {
 
     const assistsService = new AssistsService(i18n)
 
+    // `ReportJobFilters` admite `userResponsibleId: null` (JSON); el Excel espera `undefined`.
+    const excelFilters = {
+      ...filters,
+      userResponsibleId: filters.userResponsibleId ?? undefined,
+    }
+
     const buffer = await assistsService.generateAssistanceAllBuffer(
-      filters,
+      excelFilters,
       filters.departmentsList,
       allowedIds,
       async (current: number, total: number) => {
