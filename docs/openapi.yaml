@@ -3730,7 +3730,79 @@ components:
               type: integer
               description: Altas nuevas detectadas en el archivo (filas sin ID Empleado)
 
+    EmployeeQuotaMeData:
+      type: object
+      description: Cupo efectivo y conteo de vigentes para la empresa activa (USRH1785441819658).
+      properties:
+        limit:
+          type: integer
+          nullable: true
+          description: Cupo máximo; null cuando la empresa no tiene tope configurado
+        active:
+          type: integer
+          description: Empleados vigentes al momento de la consulta
+        remaining:
+          type: integer
+          nullable: true
+          description: Lugares restantes; null si limit es null; puede ser negativo si ya excedía
+        hasPlan:
+          type: boolean
+          description: false cuando la empresa self-service no tiene contratación viva
+
 paths:
+  /api/employees/quota:
+    get:
+      summary: Consultar cupo de empleados de la empresa activa
+      description: |
+        Lectura del cupo efectivo y del conteo de empleados vigentes. Requiere Bearer token
+        y header X-Business-Unit-Id. No expone el origen del cupo ni identificadores internos.
+      tags: [Employees]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Cupo resuelto
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/EmployeeQuotaMeData'
+        '400':
+          description: Falta header X-Business-Unit-Id
+        '401':
+          description: No autenticado
+        '404':
+          description: Empresa fuera de alcance o inexistente
+
   /api/employees/import-excel:
     post:
       summary: Importar empleados desde archivo Excel

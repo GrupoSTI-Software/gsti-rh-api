@@ -53,6 +53,7 @@ import {
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import EmployeeQuotaService from '#services/employee_quota_service'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -6332,6 +6333,122 @@ export default class EmployeeController {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/quota:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Cupo de empleados vigente de la empresa activa
+   *     description: |
+   *       Devuelve el cupo efectivo, el conteo de vigentes y los lugares restantes
+   *       de la empresa del header `X-Business-Unit-Id`. Capa de lectura sobre
+   *       `EmployeeQuotaService` (USRH1785441819658).
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *     responses:
+   *       '200':
+   *         description: Cupo resuelto para la empresa activa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                       nullable: true
+   *                     active:
+   *                       type: integer
+   *                     remaining:
+   *                       type: integer
+   *                       nullable: true
+   *                     hasPlan:
+   *                       type: boolean
+   *       '400':
+   *         description: Falta header X-Business-Unit-Id
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '401':
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '404':
+   *         description: Empresa fuera de alcance o inexistente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   */
+  async getQuota({ response }: HttpContext) {
+    const businessUnitId = TenantContext.getScope()[0]
+    const quotaService = new EmployeeQuotaService()
+    const quota = await quotaService.resolveQuota(businessUnitId)
+    const active = await quotaService.countActiveEmployees(businessUnitId)
+
+    const limit = quota.limit
+    const remaining = limit === null ? null : limit - active
+    const hasPlan = quota.source !== 'no_plan'
+
+    return response.status(200).json({
+      type: 'success',
+      title: 'Cupo de empleados',
+      message: 'Cupo vigente de la empresa',
+      data: {
+        limit,
+        active,
+        remaining,
+        hasPlan,
+      },
+    })
   }
 
   /**
