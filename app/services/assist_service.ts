@@ -962,6 +962,171 @@ export default class AssistsService {
     }
   }
 
+  /**
+   * Genera el buffer Excel de "todas las asistencias" con callback de progreso.
+   * Reutiliza exactamente el mismo código que `getExcelAllAssistance` pero
+   * acepta `allowedBusinessUnitIds` directamente (para uso en jobs asíncronos)
+   * e invoca `onProgress(current, total)` tras procesar cada empleado.
+   *
+   * Calcula primero el total de empleados (un pase de conteo) para poder
+   * reportar progreso real. Si el conteo falla, el callback recibe 0/0 y
+   * el progreso queda indeterminado sin bloquear la generación.
+   */
+  async generateAssistanceAllBuffer(
+    filters: import('../interfaces/assist_excel_filter_interface.js').AssistExcelFilterInterface,
+    departmentsList: number[],
+    allowedBusinessUnitIds: number[],
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return this.buildExcelBusinessUnitScopeError()
+    }
+    const businessUnitFilterIds = scope.businessUnitFilterIds
+    const departments = await Department.query()
+      .whereNull('department_deleted_at')
+      .whereIn('departmentId', departmentsList)
+      .if(businessUnitFilterIds.length > 0, (query) => {
+        query.whereIn('businessUnitId', businessUnitFilterIds)
+      })
+      .orderBy('departmentId')
+
+    const departmentService = new DepartmentService(this.i18n)
+    const employeeService = new EmployeeService(this.i18n)
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+
+    let progressTotal = 0
+    try {
+      for (const departmentRow of departments) {
+        const positions = await departmentService.getPositions(departmentRow.departmentId, filters.userResponsibleId)
+        for (const position of positions) {
+          const emps: any = await this.fetchEmployeesForExcelReport(
+            employeeService,
+            {
+              search: '',
+              departmentId: departmentRow.departmentId,
+              positionId: position.positionId,
+              page: 1,
+              limit: 999999999999999,
+              employeeWorkSchedule: '',
+              ignoreDiscriminated: 0,
+              ignoreExternal: 1,
+              userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
+            },
+            [departmentRow.departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
+          )
+          if (emps) progressTotal += Array.isArray(emps) ? emps.length : 0
+        }
+      }
+    } catch {
+      progressTotal = 0
+    }
+
+    const rows = [] as AssistExcelRowInterface[]
+    let progressCurrent = 0
+
+    for await (const departmentRow of departments) {
+      const departmentId = departmentRow.departmentId
+      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      for await (const position of resultPositions) {
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
+          {
+            search: '',
+            departmentId: departmentId,
+            positionId: position.positionId,
+            page: 1,
+            limit: 999999999999999,
+            employeeWorkSchedule: '',
+            ignoreDiscriminated: 0,
+            ignoreExternal: 1,
+            userResponsibleId: filters.userResponsibleId,
+            payrollBusinessUnitId: filters.payrollBusinessUnitId,
+          },
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
+        )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
+        const dataEmployes: any = resultEmployes
+        for await (const employee of dataEmployes) {
+          const result = await syncAssistsService.index(
+            { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+            { page: 1, limit: 999999999999999 }
+          )
+          const data: any = result.data
+          if (data) {
+            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+            const newRows = await this.addRowCalendar(employee, employeeCalendar)
+            for await (const row of newRows) {
+              rows.push(row)
+            }
+          }
+          progressCurrent++
+          await onProgress(progressCurrent, progressTotal)
+        }
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    let worksheet = workbook.addWorksheet(this.t('assistance_report'))
+    const assistExcelImageInterface = {
+      workbook,
+      worksheet,
+      col: 0.28,
+      row: 0.7,
+    } as AssistExcelImageInterface
+    await this.addImageLogo(assistExcelImageInterface)
+    worksheet.getRow(1).height = 60
+    worksheet.mergeCells('A1:Q1')
+    const titleRow = worksheet.addRow([this.t('assistance_report')])
+    let color = '244062'
+    let fgColor = 'FFFFFFF'
+    worksheet.getCell('A' + 2).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: color },
+    }
+    titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+    titleRow.height = 42
+    titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    worksheet.mergeCells('A2:Q2')
+    color = '366092'
+    const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
+    periodRow.font = { size: 15, color: { argb: fgColor } }
+    worksheet.getCell('A' + 3).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: color },
+    }
+    periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    periodRow.height = 30
+    worksheet.mergeCells('A3:Q3')
+    worksheet.views = [
+      { state: 'frozen', ySplit: 1 },
+      { state: 'frozen', ySplit: 2 },
+      { state: 'frozen', ySplit: 3 },
+      { state: 'frozen', ySplit: 4 },
+    ]
+    this.addHeadRow(worksheet)
+    await this.addRowToWorkSheet(rows, worksheet)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
   async getExcelAllIncidentSummary(
     filters: AssistExcelFilterInterface,
     departmentsList: Array<number>,
@@ -3228,40 +3393,54 @@ export default class AssistsService {
 
   async addImageLogo(assistExcelImageInterface: AssistExcelImageInterface) {
     const imageLogo = await this.getLogo()
-    const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-    const imageBuffer = imageResponse.data
-
-    const metadata = await sharp(imageBuffer).metadata()
-    const imageWidth = metadata.width ? metadata.width : 0
-    const imageHeight = metadata.height ? metadata.height : 0
-
-    const targetWidth = 139
-    const targetHeight = 49
-
-    const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-    let adjustedWidth = imageWidth * scale
-    let adjustedHeight = imageHeight * scale
-
-    if (assistExcelImageInterface.col === 14.2) {
-      const increaseFactor = 1.3
-      adjustedWidth *= increaseFactor
-      adjustedHeight *= increaseFactor
-    } else if (assistExcelImageInterface.col < 1) {
-      const increaseFactor = 1.05
-      adjustedWidth *= increaseFactor
-      adjustedHeight *= increaseFactor
+    if (!imageLogo) {
+      return
     }
 
-    const imageId = assistExcelImageInterface.workbook.addImage({
-      buffer: imageBuffer,
-      extension: 'png',
-    })
+    try {
+      const imageResponse = await axios.get(imageLogo, {
+        responseType: 'arraybuffer',
+        timeout: 10_000,
+      })
+      const imageBuffer = imageResponse.data
 
-    assistExcelImageInterface.worksheet.addImage(imageId, {
-      tl: { col: assistExcelImageInterface.col, row: assistExcelImageInterface.row },
-      ext: { width: adjustedWidth, height: adjustedHeight },
-    })
+      const metadata = await sharp(imageBuffer).metadata()
+      const imageWidth = metadata.width ? metadata.width : 0
+      const imageHeight = metadata.height ? metadata.height : 0
+
+      const targetWidth = 139
+      const targetHeight = 49
+
+      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
+
+      let adjustedWidth = imageWidth * scale
+      let adjustedHeight = imageHeight * scale
+
+      if (assistExcelImageInterface.col === 14.2) {
+        const increaseFactor = 1.3
+        adjustedWidth *= increaseFactor
+        adjustedHeight *= increaseFactor
+      } else if (assistExcelImageInterface.col < 1) {
+        const increaseFactor = 1.05
+        adjustedWidth *= increaseFactor
+        adjustedHeight *= increaseFactor
+      }
+
+      const imageId = assistExcelImageInterface.workbook.addImage({
+        buffer: imageBuffer,
+        extension: 'png',
+      })
+
+      assistExcelImageInterface.worksheet.addImage(imageId, {
+        tl: { col: assistExcelImageInterface.col, row: assistExcelImageInterface.row },
+        ext: { width: adjustedWidth, height: adjustedHeight },
+      })
+    } catch (err: unknown) {
+      // En desarrollo sin DNS a DigitalOcean Spaces el logo no se puede descargar.
+      // El reporte debe generarse igual (sin logo) en lugar de fallar todo el job.
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`AssistsService.addImageLogo: no se pudo cargar el logo (${imageLogo}): ${message}`)
+    }
   }
 
   decimalToTimeString(decimal: number): string {
