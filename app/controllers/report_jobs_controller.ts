@@ -2,9 +2,12 @@ import fs from 'node:fs'
 import type { HttpContext } from '@adonisjs/core/http'
 import ReportJobService from '#services/report_job_service'
 import UserService from '#services/user_service'
+import RoleService from '#services/role_service'
 import env from '#start/env'
 import type { ReportJobFilters, ReportJobType } from '#models/report_job'
 import Employee from '#models/employee'
+
+const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
 export default class ReportJobsController {
   /**
@@ -48,7 +51,11 @@ export default class ReportJobsController {
           ? Number(employeeIdRaw)
           : undefined
 
-      const validTypes: ReportJobType[] = ['assistance_all', 'assistance_employee']
+      const validTypes: ReportJobType[] = [
+        'assistance_all',
+        'assistance_employee',
+        'assistance_incident_summary',
+      ]
       if (!validTypes.includes(reportTypeRaw)) {
         response.status(400)
         return {
@@ -59,6 +66,39 @@ export default class ReportJobsController {
         }
       }
       const reportJobType = reportTypeRaw as ReportJobType
+
+      // Gate server-side del resumen de incidencias: la decisión de qué
+      // columnas salariales incluye el archivo (y si se puede descargar)
+      // la toma el rol de quien descarga, NUNCA un flag del cliente.
+      let canDisplayPaymentsSummary = false
+      let canDisplayDiscountsSummary = false
+      if (reportJobType === 'assistance_incident_summary') {
+        const roleService = new RoleService()
+        const canDownloadSummary = await roleService.hasAccess(
+          user.role.roleId,
+          ATTENDANCE_MONITOR_MODULE_SLUG,
+          'download-summary'
+        )
+        if (!canDownloadSummary) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-resumen-sin-permiso' },
+          }
+        }
+        canDisplayPaymentsSummary = await roleService.hasAccess(
+          user.role.roleId,
+          ATTENDANCE_MONITOR_MODULE_SLUG,
+          'display-payments-summary'
+        )
+        canDisplayDiscountsSummary = await roleService.hasAccess(
+          user.role.roleId,
+          ATTENDANCE_MONITOR_MODULE_SLUG,
+          'display-discounts-summary'
+        )
+      }
 
       if (!filterDate || !filterDateEnd) {
         response.status(400)
@@ -73,7 +113,9 @@ export default class ReportJobsController {
         businessUnitId !== undefined ? [businessUnitId] : businessUnitScope
 
       // No-oráculo: inexistente y fuera de scope responden exactamente igual.
-      if (reportJobType === 'assistance_employee') {
+      // El resumen de incidencias por empleado reutiliza este mismo gate
+      // (misma ruta by-employee, `reportType='assistance_incident_summary'`).
+      if (reportJobType === 'assistance_employee' || (reportJobType === 'assistance_incident_summary' && employeeId)) {
         if (!employeeId) {
           response.status(400)
           const entity = t('employee')
@@ -122,6 +164,8 @@ export default class ReportJobsController {
         departmentsList,
         locale: i18n.locale,
         employeeId,
+        canDisplayPaymentsSummary,
+        canDisplayDiscountsSummary,
       }
 
       const reportJobService = new ReportJobService()

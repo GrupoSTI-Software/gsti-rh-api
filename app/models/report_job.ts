@@ -4,8 +4,12 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import User from '#models/user'
 
 export type ReportJobStatus = 'pending' | 'processing' | 'completed' | 'failed'
-/** `assistance_all` = empresa; `assistance_employee` = un solo empleado (detalle). */
-export type ReportJobType = 'assistance_all' | 'assistance_employee'
+/**
+ * `assistance_all` = empresa; `assistance_employee` = un solo empleado
+ * (detalle); `assistance_incident_summary` = resumen de incidencias
+ * (empresa o un empleado, según `employeeId`).
+ */
+export type ReportJobType = 'assistance_all' | 'assistance_employee' | 'assistance_incident_summary'
 
 export interface ReportJobFilters {
   filterDate: string
@@ -17,8 +21,17 @@ export interface ReportJobFilters {
   branchNameIds?: number[]
   departmentsList: number[]
   locale: string
-  /** Obligatorio cuando `reportJobType === 'assistance_employee'`. */
+  /** Obligatorio cuando `reportJobType === 'assistance_employee'` o `assistance_incident_summary` en la ruta by-employee. */
   employeeId?: number
+  /**
+   * Resueltos por el servidor (`RoleService.hasAccess`) al encolar el job de
+   * `assistance_incident_summary`; NUNCA aceptados como flag del cliente.
+   * Se persisten aquí para que el worker asíncrono los use sin re-resolver
+   * el rol (el rol pudo cambiar entre el encolado y la ejecución, pero la
+   * decisión de seguridad ya se tomó server-side al momento del encolado).
+   */
+  canDisplayPaymentsSummary?: boolean
+  canDisplayDiscountsSummary?: boolean
 }
 
 export default class ReportJob extends BaseModel {
