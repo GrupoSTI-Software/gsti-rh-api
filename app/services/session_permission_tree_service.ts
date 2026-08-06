@@ -152,6 +152,7 @@ export default class SessionPermissionTreeService {
         reason: decision.reason,
         revocableFromPrivileged: action.exceptionProfile === 'strict',
         exceptionProfile: action.exceptionProfile,
+        grantable: !action.exemption,
       })
       sections.set(action.section, sectionActions)
     }

@@ -282,4 +282,23 @@ test.group('SessionPermissionTreeService', (group) => {
         .every((action) => action.revocableFromPrivileged === false)
     )
   })
+
+  test('grantable refleja la exención del catálogo acción por acción', async ({ assert }) => {
+    const tree = await new SessionPermissionTreeService().buildForUser(fakeUser(plainRole.roleId))
+    const actionsBySlug = new Map(
+      employeesModuleFrom(tree)
+        .sections.flatMap((section) => section.actions)
+        .map((action) => [action.slug, action])
+    )
+
+    for (const catalogAction of SYSTEM_PERMISSION_CATALOG.actionsByModule.employees) {
+      const action = actionsBySlug.get(catalogAction.slug)
+      assert.exists(action, `falta la acción employees:${catalogAction.slug} en el árbol`)
+      assert.equal(
+        action!.grantable,
+        !('exemption' in catalogAction && catalogAction.exemption),
+        `grantable incorrecto para employees:${catalogAction.slug}`
+      )
+    }
+  })
 })

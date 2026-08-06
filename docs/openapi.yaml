@@ -138,6 +138,7 @@ components:
         - reason
         - revocableFromPrivileged
         - exceptionProfile
+        - grantable
       properties:
         slug:
           type: string
@@ -163,6 +164,12 @@ components:
         exceptionProfile:
           type: string
           enum: [standard, expanded, platformReserved, strict]
+        grantable:
+          type: boolean
+          description: >-
+            `false` para acciones exentas del catálogo: se enumeran pero no
+            tienen permiso en `system_permissions`, así que no pueden
+            otorgarse ni revocarse desde la configuración de roles.
 
     SessionPermissionSection:
       type: object

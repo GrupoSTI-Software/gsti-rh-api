@@ -224,6 +224,29 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
     assert.equal(updateAction.reason, 'missing-assignment')
   })
 
+  test('marca como no otorgables las acciones exentas y otorgables al resto', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client.get('/api/auth/session/permissions').loginAs(standardActor!.user)
+    response.assertStatus(200)
+
+    const body = response.body() as { data: SessionPermissionTree }
+    const employeesNode = body.data.modules.find((moduleNode) => moduleNode.slug === 'employees')!
+    const collaboratorSection = employeesNode.sections.find(
+      (section) => section.slug === 'app-colaborador'
+    )!
+
+    assert.isAbove(collaboratorSection.actions.length, 0)
+    assert.isTrue(collaboratorSection.actions.every((action) => action.grantable === false))
+
+    const grantableActions = employeesNode.sections
+      .flatMap((section) => section.actions)
+      .filter((action) => action.grantable)
+    assert.isAbove(grantableActions.length, 0)
+    assert.isTrue(findEmployeeAction(body.data, 'read').grantable)
+  })
+
   test('devuelve permisos privilegiados para owner aunque no tenga grants', async ({ client, assert }) => {
     const response = await client.get('/api/auth/session/permissions').loginAs(ownerActor!.user)
 
