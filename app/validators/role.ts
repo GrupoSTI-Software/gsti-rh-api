@@ -15,3 +15,17 @@ export const updateRoleValidator = vine.compile(
     roleActive: vine.boolean().optional(),
   })
 )
+
+export const assignRolesPermissionsBatchValidator = vine.compile(
+  vine.object({
+    roles: vine
+      .array(
+        vine.object({
+          roleId: vine.number().withoutDecimals().positive(),
+          permissions: vine.array(vine.number().withoutDecimals().positive()),
+          roleManagementDays: vine.number().withoutDecimals().min(0).nullable(),
+        })
+      )
+      .minLength(1),
+  })
+)
