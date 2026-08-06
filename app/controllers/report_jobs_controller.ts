@@ -3,7 +3,8 @@ import type { HttpContext } from '@adonisjs/core/http'
 import ReportJobService from '#services/report_job_service'
 import UserService from '#services/user_service'
 import env from '#start/env'
-import type { ReportJobFilters } from '#models/report_job'
+import type { ReportJobFilters, ReportJobType } from '#models/report_job'
+import Employee from '#models/employee'
 
 export default class ReportJobsController {
   /**
@@ -40,6 +41,24 @@ export default class ReportJobsController {
         businessUnitIdRaw !== null && businessUnitIdRaw !== undefined && Number(businessUnitIdRaw) > 0
           ? Number(businessUnitIdRaw)
           : undefined
+      const reportTypeRaw = request.input('reportType') ?? 'assistance_all'
+      const employeeIdRaw = request.input('employeeId')
+      const employeeId =
+        employeeIdRaw !== null && employeeIdRaw !== undefined && Number(employeeIdRaw) > 0
+          ? Number(employeeIdRaw)
+          : undefined
+
+      const validTypes: ReportJobType[] = ['assistance_all', 'assistance_employee']
+      if (!validTypes.includes(reportTypeRaw)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('report_type'),
+          message: t('entity_is_not_valid', { entity: t('report_type') }),
+          data: { reportType: reportTypeRaw },
+        }
+      }
+      const reportJobType = reportTypeRaw as ReportJobType
 
       if (!filterDate || !filterDateEnd) {
         response.status(400)
@@ -50,14 +69,47 @@ export default class ReportJobsController {
         }
       }
 
+      const allowedBusinessUnitIds =
+        businessUnitId !== undefined ? [businessUnitId] : businessUnitScope
+
+      // No-oráculo: inexistente y fuera de scope responden exactamente igual.
+      if (reportJobType === 'assistance_employee') {
+        if (!employeeId) {
+          response.status(400)
+          const entity = t('employee')
+          return {
+            type: 'warning',
+            title: t('entity_was_not_found', { entity }),
+            message: t('entity_was_not_found_with_entered_id', { entity }),
+            data: { key: 'empleado-no-encontrado' },
+          }
+        }
+        const employee = await Employee.query()
+          .withTrashed()
+          .where('employee_id', employeeId)
+          .first()
+        const inScope =
+          !!employee &&
+          (allowedBusinessUnitIds.length === 0 ||
+            allowedBusinessUnitIds.includes(employee.businessUnitId))
+        if (!inScope) {
+          response.status(400)
+          const entity = t('employee')
+          return {
+            type: 'warning',
+            title: t('entity_was_not_found', { entity }),
+            message: t('entity_was_not_found_with_entered_id', { entity }),
+            data: { key: 'empleado-no-encontrado' },
+          }
+        }
+      }
+
       let userResponsibleId: number | null = null
       if (user.role.roleSlug !== 'root') {
         userResponsibleId = user.userId
       }
 
       const departmentsList = await userService.getRoleDepartments(user.userId)
-      const allowedBusinessUnitIds =
-        businessUnitId !== undefined ? [businessUnitId] : businessUnitScope
 
       const filters: ReportJobFilters = {
         filterDate,
@@ -69,12 +121,13 @@ export default class ReportJobsController {
         branchNameIds: undefined,
         departmentsList,
         locale: i18n.locale,
+        employeeId,
       }
 
       const reportJobService = new ReportJobService()
       const job = await reportJobService.enqueue(
         user.userId,
-        'assistance_all',
+        reportJobType,
         filters,
         allowedBusinessUnitIds
       )

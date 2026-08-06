@@ -6,6 +6,7 @@ import ReportJob, {
   type ReportJobFilters,
   type ReportJobType,
 } from '#models/report_job'
+import Employee from '#models/employee'
 import AssistsService from '#services/assist_service'
 import UploadService from '#services/upload_service'
 import logger from '@adonisjs/core/services/logger'
@@ -155,24 +156,56 @@ export default class ReportJobService {
     const i18n = i18nManager.locale(locale)
 
     const assistsService = new AssistsService(i18n)
-
-    // `ReportJobFilters` admite `userResponsibleId: null` (JSON); el Excel espera `undefined`.
-    const excelFilters = {
-      ...filters,
-      userResponsibleId: filters.userResponsibleId ?? undefined,
+    const onProgress = async (current: number, total: number) => {
+      await job.merge({
+        reportJobProgressCurrent: current,
+        reportJobProgressTotal: total,
+      }).save()
     }
 
-    const buffer = await assistsService.generateAssistanceAllBuffer(
-      excelFilters,
-      filters.departmentsList,
-      allowedIds,
-      async (current: number, total: number) => {
-        await job.merge({
-          reportJobProgressCurrent: current,
-          reportJobProgressTotal: total,
-        }).save()
+    let buffer: Awaited<ReturnType<AssistsService['generateAssistanceAllBuffer']>>
+
+    if (job.reportJobType === 'assistance_employee') {
+      const employeeId = filters.employeeId
+      if (!employeeId) {
+        throw new Error('Falta employeeId para el reporte por empleado')
       }
-    )
+      const employee = await Employee.query()
+        .withTrashed()
+        .where('employee_id', employeeId)
+        .preload('position')
+        .preload('department')
+        .preload('person')
+        .first()
+      if (!employee) {
+        throw new Error('Empleado no encontrado al generar el reporte')
+      }
+      if (allowedIds.length > 0 && !allowedIds.includes(employee.businessUnitId)) {
+        throw new Error('Empleado no encontrado al generar el reporte')
+      }
+      buffer = await assistsService.generateAssistanceEmployeeBuffer(
+        employee,
+        {
+          employeeId,
+          filterDate: filters.filterDate,
+          filterDateEnd: filters.filterDateEnd,
+          filterDatePay: filters.filterDatePay ?? '',
+        },
+        onProgress
+      )
+    } else {
+      // `ReportJobFilters` admite `userResponsibleId: null` (JSON); el Excel espera `undefined`.
+      const excelFilters = {
+        ...filters,
+        userResponsibleId: filters.userResponsibleId ?? undefined,
+      }
+      buffer = await assistsService.generateAssistanceAllBuffer(
+        excelFilters,
+        filters.departmentsList,
+        allowedIds,
+        onProgress
+      )
+    }
 
     if (!buffer || buffer.status !== 201 || !('buffer' in buffer)) {
       throw new Error(
@@ -181,6 +214,10 @@ export default class ReportJobService {
     }
 
     const fileBuffer = Buffer.from(buffer.buffer as ArrayBuffer)
+    const displayFileName =
+      job.reportJobType === 'assistance_employee'
+        ? `${i18n.formatMessage('assistance_report')}.xlsx`
+        : REPORT_FILE_NAME
     let savedKey: string
 
     if (env.get('NODE_ENV') !== 'production') {
@@ -201,7 +238,7 @@ export default class ReportJobService {
     await job.merge({
       reportJobStatus: 'completed',
       reportJobFileKey: savedKey,
-      reportJobFileName: REPORT_FILE_NAME,
+      reportJobFileName: displayFileName,
       reportJobProgressCurrent: job.reportJobProgressTotal,
       reportJobCompletedAt: DateTime.now(),
       reportJobExpiresAt: DateTime.now().plus({ hours: FILE_TTL_HOURS }),

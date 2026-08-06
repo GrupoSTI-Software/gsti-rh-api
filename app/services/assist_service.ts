@@ -128,90 +128,111 @@ export default class AssistsService {
     filters: AssistEmployeeExcelFilterInterface
   ) {
     try {
-      const employeeId = filters.employeeId
-      const filterDate = filters.filterDate
-      const filterDateEnd = filters.filterDateEnd
-      const page = 1
-      const limit = 999999999999999
-      const syncAssistsService = new SyncAssistsService(this.i18n)
-      const result = await syncAssistsService.index(
-        {
-          date: filterDate,
-          dateEnd: filterDateEnd,
-          employeeID: employeeId,
-        },
-        { page, limit }
-      )
-      const data: any = result.data
-      const rows = [] as AssistExcelRowInterface[]
-      if (data) {
-        const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-        let newRows = [] as AssistExcelRowInterface[]
-        newRows = await this.addRowCalendar(employee, employeeCalendar)
-        for await (const row of newRows) {
-          rows.push(row)
+      return await this.generateAssistanceEmployeeBuffer(
+        employee,
+        filters,
+        async () => {
+          /* sin progreso en el camino síncrono */
         }
-      }
-      const workbook = new ExcelJS.Workbook()
-      let worksheet = workbook.addWorksheet(this.t('assistance_report'))
-      const assistExcelImageInterface = {
-        workbook: workbook,
-        worksheet: worksheet,
-        col: 0.28,
-        row: 0.7,
-      } as AssistExcelImageInterface
-      await this.addImageLogo(assistExcelImageInterface)
-      worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:Q1')
-      const titleRow = worksheet.addRow(this.t('assistance_report'))
-      let color = '244062'
-      let fgColor = 'FFFFFFF'
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
-      titleRow.height = 42
-      titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:Q2')
-      color = '366092'
-      let periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-
-      worksheet.getCell('A' + 3).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      periodRow.height = 30
-      worksheet.mergeCells('A3:Q3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
-      this.addHeadRow(worksheet)
-      const status = employee.deletedAt ? 'Terminated' : 'Active'
-      await this.addRowToWorkSheet(rows, worksheet, status)
-      const buffer = await workbook.xlsx.writeBuffer()
-      return {
-        status: 201,
-        type: 'success',
-        title: this.t('resource'),
-        message: this.t('resource_was_created_successfully'),
-        buffer: buffer,
-      }
+      )
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
       return {
         status: 500,
         type: 'error',
         title: this.t('server_error'),
         message: this.t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+        error: err.message,
       }
+    }
+  }
+
+  /**
+   * Genera el Excel de asistencias de un solo empleado (mismo layout de 20
+   * columnas que `generateAssistanceAllBuffer`). Conserva `withTrashed` vía
+   * el empleado ya cargado y señala baja en el layout.
+   * Usado por jobs asíncronos (`assistance_employee`) y por el endpoint síncrono.
+   */
+  async generateAssistanceEmployeeBuffer(
+    employee: Employee,
+    filters: AssistEmployeeExcelFilterInterface,
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    await onProgress(0, 1)
+
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    const result = await syncAssistsService.index(
+      {
+        date: filterDate,
+        dateEnd: filterDateEnd,
+        employeeID: employee.employeeId,
+      },
+      { page: 1, limit: 999999999999999 }
+    )
+    const data: any = result.data
+    const rows = [] as AssistExcelRowInterface[]
+    if (data) {
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      const newRows = await this.addRowCalendar(employee, employeeCalendar)
+      for await (const row of newRows) {
+        rows.push(row)
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet(this.t('assistance_report'))
+    const assistExcelImageInterface = {
+      workbook,
+      worksheet,
+      col: 0.28,
+      row: 0.7,
+    } as AssistExcelImageInterface
+    await this.addImageLogo(assistExcelImageInterface)
+    worksheet.getRow(1).height = 60
+    worksheet.mergeCells('A1:Q1')
+    const titleRow = worksheet.addRow([this.t('assistance_report')])
+    let color = '244062'
+    const fgColor = 'FFFFFFF'
+    worksheet.getCell('A' + 2).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: color },
+    }
+    titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+    titleRow.height = 42
+    titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    worksheet.mergeCells('A2:Q2')
+    color = '366092'
+    const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
+    periodRow.font = { size: 15, color: { argb: fgColor } }
+    worksheet.getCell('A' + 3).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: color },
+    }
+    periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    periodRow.height = 30
+    worksheet.mergeCells('A3:Q3')
+    worksheet.views = [
+      { state: 'frozen', ySplit: 1 },
+      { state: 'frozen', ySplit: 2 },
+      { state: 'frozen', ySplit: 3 },
+      { state: 'frozen', ySplit: 4 },
+    ]
+    this.addHeadRow(worksheet)
+    const status = employee.deletedAt ? 'Terminated' : 'Active'
+    await this.addRowToWorkSheet(rows, worksheet, status)
+    await onProgress(1, 1)
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
     }
   }
 

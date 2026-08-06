@@ -39,7 +39,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer usa el mismo color de título "244062"', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const snippet = content.slice(start, start + 5000)
     assert.include(
@@ -51,7 +51,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer usa el mismo color de periodo "366092"', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const snippet = content.slice(start, start + 5000)
     assert.include(
@@ -63,7 +63,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer llama a addHeadRow', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const snippet = content.slice(start, start + 12000)
     assert.include(
@@ -75,7 +75,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer llama a addRowToWorkSheet', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const snippet = content.slice(start, start + 12000)
     assert.include(
@@ -87,7 +87,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer llama a addImageLogo', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const snippet = content.slice(start, start + 5000)
     assert.include(
@@ -99,7 +99,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer acepta departmentsList como parámetro explícito', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const signature = content.slice(start, start + 400)
     assert.include(
@@ -111,7 +111,7 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
 
   test('generateAssistanceAllBuffer acepta onProgress como callback', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('generateAssistanceAllBuffer')
+    const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const signature = content.slice(start, start + 400)
     assert.include(
@@ -151,5 +151,34 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
       "'failed'",
       'ReportJobService debe marcar el status como failed ante cualquier error'
     )
+  })
+})
+
+
+test.group('ReportJobService — reporte por empleado (USRH1785766125028)', () => {
+  test('generateAssistanceEmployeeBuffer existe en assist_service.ts', ({ assert }) => {
+    const content = readSource(ASSIST_SERVICE)
+    assert.include(content, 'generateAssistanceEmployeeBuffer')
+  })
+
+  test('generateAssistanceEmployeeBuffer señala baja con Terminated', ({ assert }) => {
+    const content = readSource(ASSIST_SERVICE)
+    const start = content.indexOf('generateAssistanceEmployeeBuffer')
+    assert.isAbove(start, -1)
+    const snippet = content.slice(start, start + 4000)
+    assert.include(snippet, 'Terminated')
+    assert.include(snippet, 'addHeadRow')
+    assert.include(snippet, 'addRowToWorkSheet')
+  })
+
+  test('ReportJobService enruta assistance_employee al buffer por empleado', ({ assert }) => {
+    const content = readSource(REPORT_JOB_SERVICE)
+    assert.include(content, "reportJobType === 'assistance_employee'")
+    assert.include(content, 'generateAssistanceEmployeeBuffer')
+  })
+
+  test('ReportJobType incluye assistance_employee', ({ assert }) => {
+    const model = readSource(join(process.cwd(), 'app/models/report_job.ts'))
+    assert.include(model, 'assistance_employee')
   })
 })

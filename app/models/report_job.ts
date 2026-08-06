@@ -4,7 +4,8 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import User from '#models/user'
 
 export type ReportJobStatus = 'pending' | 'processing' | 'completed' | 'failed'
-export type ReportJobType = 'assistance_all'
+/** `assistance_all` = empresa; `assistance_employee` = un solo empleado (detalle). */
+export type ReportJobType = 'assistance_all' | 'assistance_employee'
 
 export interface ReportJobFilters {
   filterDate: string
@@ -16,6 +17,8 @@ export interface ReportJobFilters {
   branchNameIds?: number[]
   departmentsList: number[]
   locale: string
+  /** Obligatorio cuando `reportJobType === 'assistance_employee'`. */
+  employeeId?: number
 }
 
 export default class ReportJob extends BaseModel {
