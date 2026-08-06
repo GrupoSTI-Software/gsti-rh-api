@@ -83,4 +83,13 @@ test.group('employee_service importFromExcel — escala con archivos de miles de
     )
     assert.notMatch(constantsContent, /process\.env/)
   })
+
+  test('no existe camino degradado limitReached que persista correcciones sin altas', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, 'await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)')
+    assert.notInclude(content, 'if (limitReached)')
+  })
 })
