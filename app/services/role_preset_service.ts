@@ -82,18 +82,19 @@ export default class RolePresetService {
           .where('system_module_slug', ROLE_PRESET_MODULE_SLUG)
       })
 
-    const foundBySlug = new Map(permissions.map((permission) => [permission.systemPermissionSlug, permission]))
+    const foundBySlug = new Map(
+      permissions.map((permission) => [permission.systemPermissionSlug, permission])
+    )
     const ids: number[] = []
-    const missing: string[] = []
 
     for (const slug of requestedSlugs) {
       const permission = foundBySlug.get(slug)
-      if (!permission) {
-        missing.push(slug)
-        continue
+      if (permission) {
+        ids.push(permission.systemPermissionId)
       }
-      ids.push(permission.systemPermissionId)
     }
+
+    const missing = slugs.filter((slug) => !foundBySlug.has(slug))
 
     return { ids, missing }
   }

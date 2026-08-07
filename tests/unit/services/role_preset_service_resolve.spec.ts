@@ -1,7 +1,12 @@
 import { test } from '@japa/runner'
 import SystemPermissionCatalogSyncSeeder from '#database/seeders/0055_system_permission_catalog_sync_seeder'
+import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import { getRolePreset } from '#constants/role_presets'
 import RolePresetService from '#services/role_preset_service'
+
+const employeesPermissionBySlug = new Map(
+  EMPLOYEES_PERMISSION_CATALOG.map((permission) => [permission.slug, permission] as const)
+)
 
 test.group('RolePresetService.resolveEmployeesPermissionIds', (group) => {
   group.setup(async () => {
@@ -37,14 +42,22 @@ test.group('RolePresetService.resolveEmployeesPermissionIds', (group) => {
     const items = await new RolePresetService().list()
 
     assert.lengthOf(items, 4)
-    const admin = items.find((item) => item.slug === 'hr-admin')!
-    assert.equal(admin.permissionCount, admin.permissions.length)
-    assert.isAbove(admin.permissionCount, 20)
-    assert.containsSubset(admin.permissions[0], {
-      slug: admin.permissions[0].slug,
-      displayName: admin.permissions[0].displayName,
-      section: admin.permissions[0].section,
-      kind: admin.permissions[0].kind,
-    })
+    assert.deepEqual(
+      items.map((item) => item.slug),
+      ['hr-admin', 'branch-supervisor', 'read-only', 'data-entry']
+    )
+
+    for (const item of items) {
+      assert.equal(item.permissionCount, item.permissions.length)
+      assert.isAbove(item.permissionCount, 0)
+
+      for (const permission of item.permissions) {
+        const catalogPermission = employeesPermissionBySlug.get(permission.slug)
+        assert.exists(catalogPermission, permission.slug)
+        assert.equal(permission.displayName, catalogPermission!.displayName, permission.slug)
+        assert.equal(permission.section, catalogPermission!.section, permission.slug)
+        assert.equal(permission.kind, catalogPermission!.kind, permission.slug)
+      }
+    }
   })
 })
