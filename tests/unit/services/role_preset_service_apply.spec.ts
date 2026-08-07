@@ -75,12 +75,16 @@ test.group('RolePresetService.apply', (group) => {
 
   group.teardown(async () => {
     await RoleSystemPermission.query().where('role_id', role.roleId).delete()
-    await SystemPermission.query().where('system_permission_id', customPermission.systemPermissionId).delete()
+    await SystemPermission.query()
+      .where('system_permission_id', customPermission.systemPermissionId)
+      .delete()
     await SystemModule.query().where('system_module_id', customModule.systemModuleId).delete()
     await Role.query().where('role_id', role.roleId).delete()
   })
 
-  test('replace deja exactamente la plantilla en employees y conserva otro módulo', async ({ assert }) => {
+  test('replace deja exactamente la plantilla en employees y conserva otro módulo', async ({
+    assert,
+  }) => {
     const service = new RolePresetService()
     const preview = await service.preview(role.roleId, 'branch-supervisor', 'replace')
 
@@ -111,7 +115,9 @@ test.group('RolePresetService.apply', (group) => {
     const employeeGrants = await RoleSystemPermission.query()
       .where('role_id', role.roleId)
       .whereHas('systemPermissions', (query) =>
-        query.whereHas('systemModule', (moduleQuery) => moduleQuery.where('system_module_slug', 'employees'))
+        query.whereHas('systemModule', (moduleQuery) =>
+          moduleQuery.where('system_module_slug', 'employees')
+        )
       )
     assert.deepEqual(
       employeeGrants.map((grant) => grant.systemPermissionId).sort((a, b) => a - b),
@@ -142,8 +148,64 @@ test.group('RolePresetService.apply', (group) => {
     })
 
     const grants = await RoleSystemPermission.query().where('role_id', role.roleId)
-    assert.include(grants.map((grant) => grant.systemPermissionId), sensitive.systemPermissionId)
-    assert.include(grants.map((grant) => grant.systemPermissionId), customPermission.systemPermissionId)
+    assert.include(
+      grants.map((grant) => grant.systemPermissionId),
+      sensitive.systemPermissionId
+    )
+    assert.include(
+      grants.map((grant) => grant.systemPermissionId),
+      customPermission.systemPermissionId
+    )
+  })
+
+  test('conserva la asignación a un permiso con borrado lógico en merge y replace', async ({
+    assert,
+  }) => {
+    const orphanPermission = await SystemPermission.create({
+      systemPermissionName: 'Orphan Read',
+      systemPermissionSlug: `orphan-read-${stamp}`,
+      systemModuleId: customModule.systemModuleId,
+    })
+    await RoleSystemPermission.create({
+      roleId: role.roleId,
+      systemPermissionId: orphanPermission.systemPermissionId,
+    })
+    await orphanPermission.delete()
+
+    try {
+      const service = new RolePresetService()
+
+      for (const mode of ['merge', 'replace'] as const) {
+        const preview = await service.preview(role.roleId, 'read-only', mode)
+        assert.include(preview.baselinePermissionIds, orphanPermission.systemPermissionId)
+
+        await db.transaction((trx) =>
+          service.apply(
+            role.roleId,
+            {
+              presetSlug: 'read-only',
+              mode,
+              expectedPresetVersion: '1.0.0',
+              baselinePermissionIds: preview.baselinePermissionIds,
+            },
+            trx
+          )
+        )
+
+        const grants = await RoleSystemPermission.query()
+          .whereNull('role_system_permission_deleted_at')
+          .where('role_id', role.roleId)
+        assert.include(
+          grants.map((grant) => grant.systemPermissionId),
+          orphanPermission.systemPermissionId
+        )
+      }
+    } finally {
+      await RoleSystemPermission.query()
+        .where('system_permission_id', orphanPermission.systemPermissionId)
+        .delete()
+      await orphanPermission.forceDelete()
+    }
   })
 
   test('versión de plantilla distinta aborta sin escribir', async ({ assert }) => {
@@ -175,7 +237,10 @@ test.group('RolePresetService.apply', (group) => {
     const service = new RolePresetService()
     const preview = await service.preview(role.roleId, 'read-only', 'replace')
     const extra = await findEmployeesPermission('create')
-    await RoleSystemPermission.create({ roleId: role.roleId, systemPermissionId: extra.systemPermissionId })
+    await RoleSystemPermission.create({
+      roleId: role.roleId,
+      systemPermissionId: extra.systemPermissionId,
+    })
 
     try {
       await db.transaction((trx) =>

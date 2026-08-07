@@ -191,26 +191,26 @@ export default class RolePresetService {
 
     const currentGrants = await this.loadCurrentGrants(roleId)
     const currentIds = this.sortUniqueIds(currentGrants.map((grant) => grant.systemPermissionId))
+    const allEmployeesPermissionIds = await this.loadAllEmployeesPermissionIds()
+    const employeesLiveIds = new Set(allEmployeesPermissionIds)
+
+    // Las listas visibles solo describen el catálogo vivo de Empleados; el
+    // baseline en cambio lleva TODOS los ids asignados para que coincida con el
+    // que `apply` vuelve a calcular.
     const currentEmployeesGrants = currentGrants
-      .filter(
-        (grant) =>
-          grant.systemPermissions.systemModule.systemModuleSlug === ROLE_PRESET_MODULE_SLUG
-      )
+      .filter((grant) => employeesLiveIds.has(grant.systemPermissionId))
       .sort((a, b) => a.systemPermissionId - b.systemPermissionId)
 
     const currentEmployeesIds = this.sortUniqueIds(
       currentEmployeesGrants.map((grant) => grant.systemPermissionId)
     )
-    const allEmployeesPermissionIds = await this.loadAllEmployeesPermissionIds()
     const desiredIds = this.computeDesiredPermissionIds({
       mode,
       currentIds,
       presetEmployeesIds,
       allEmployeesPermissionIds,
     })
-    const desiredEmployeesIds = desiredIds.filter((id) =>
-      allEmployeesPermissionIds.includes(id)
-    )
+    const desiredEmployeesIds = desiredIds.filter((id) => employeesLiveIds.has(id))
 
     const currentEmployeesSet = new Set(currentEmployeesIds)
     const desiredEmployeesSet = new Set(desiredEmployeesIds)
@@ -224,15 +224,21 @@ export default class RolePresetService {
 
     const granted = desiredEmployeesIds
       .filter((id) => !currentEmployeesSet.has(id))
-      .map((systemPermissionId) => this.buildPreviewItemFromPresetId(systemPermissionId, presetSlugById))
+      .map((systemPermissionId) =>
+        this.buildPreviewItemFromPresetId(systemPermissionId, presetSlugById)
+      )
 
     const revoked = currentEmployeesIds
       .filter((id) => !desiredEmployeesSet.has(id))
-      .map((systemPermissionId) => this.buildPreviewItemFromCurrentGrant(systemPermissionId, currentEmployeesGrants))
+      .map((systemPermissionId) =>
+        this.buildPreviewItemFromCurrentGrant(systemPermissionId, currentEmployeesGrants)
+      )
 
     const unchanged = currentEmployeesIds
       .filter((id) => desiredEmployeesSet.has(id))
-      .map((systemPermissionId) => this.buildPreviewItemFromCurrentGrant(systemPermissionId, currentEmployeesGrants))
+      .map((systemPermissionId) =>
+        this.buildPreviewItemFromCurrentGrant(systemPermissionId, currentEmployeesGrants)
+      )
 
     return {
       preset: {
@@ -283,7 +289,11 @@ export default class RolePresetService {
         'plantilla-version-obsoleta',
         'Versión de plantilla obsoleta',
         `La plantilla "${preset.slug}" ya no coincide con la versión previsualizada.`,
-        { presetSlug: preset.slug, expectedPresetVersion: input.expectedPresetVersion, version: preset.version }
+        {
+          presetSlug: preset.slug,
+          expectedPresetVersion: input.expectedPresetVersion,
+          version: preset.version,
+        }
       )
     }
 
@@ -297,7 +307,11 @@ export default class RolePresetService {
         'rol-permisos-cambiaron',
         'Permisos del rol cambiaron',
         'Los permisos actuales del rol ya no coinciden con la vista previa.',
-        { roleId, baselinePermissionIds: input.baselinePermissionIds, currentPermissionIds: currentIds }
+        {
+          roleId,
+          baselinePermissionIds: input.baselinePermissionIds,
+          currentPermissionIds: currentIds,
+        }
       )
     }
 
@@ -355,16 +369,16 @@ export default class RolePresetService {
       }
     }
 
+    // Se devuelven TODAS las asignaciones vivas del rol, incluidas las que
+    // apuntan a un permiso o módulo con borrado lógico: `assignPermissions`
+    // elimina cualquier fila fuera de la lista deseada, así que dejarlas fuera
+    // del baseline haría que aplicar una plantilla las borrara en silencio.
+    // La relación `systemPermissions` queda sin cargar en esas huérfanas (el
+    // mixin de soft delete las filtra), por eso solo se desreferencia sobre
+    // permisos vivos de Empleados.
     const grantsQuery = RoleSystemPermission.query()
       .whereNull('role_system_permission_deleted_at')
       .where('role_id', roleId)
-      .whereHas('systemPermissions', (permissionQuery) => {
-        permissionQuery
-          .whereNull('system_permission_deleted_at')
-          .whereHas('systemModule', (moduleQuery) =>
-            moduleQuery.whereNull('system_module_deleted_at')
-          )
-      })
       .preload('systemPermissions', (query) => query.preload('systemModule'))
     if (trx) {
       grantsQuery.useTransaction(trx)
@@ -429,7 +443,9 @@ export default class RolePresetService {
   ): RolePresetPreviewItem {
     const slug = presetSlugById.get(systemPermissionId)
     if (!slug) {
-      throw new Error(`No se pudo resolver el slug de la plantilla para el permiso ${systemPermissionId}.`)
+      throw new Error(
+        `No se pudo resolver el slug de la plantilla para el permiso ${systemPermissionId}.`
+      )
     }
 
     const catalogPermission = EMPLOYEE_PERMISSION_BY_SLUG.get(slug)

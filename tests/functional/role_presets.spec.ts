@@ -90,6 +90,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
   let testModule: SystemModule
   let otherPermissionId: number
   let createPermissionId: number
+  const foreignRoleIds: number[] = []
 
   group.setup(async () => {
     actor = await createActor('root', 'role-presets-root')
@@ -99,7 +100,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
       roleSlug: `test-role-presets-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
+      roleBusinessAccess: `${actor!.businessUnit.businessUnitSlug},${nonRootActor!.businessUnit.businessUnitSlug}`,
       roleManagementDays: 10,
     })
     ownerRole = await Role.query()
@@ -126,6 +127,10 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
   })
 
   group.teardown(async () => {
+    for (const roleId of foreignRoleIds) {
+      await RoleSystemPermission.query().where('role_id', roleId).delete()
+      await Role.query().where('role_id', roleId).delete()
+    }
     await RoleSystemPermission.query().where('role_id', targetRole.roleId).delete()
     await Role.query().where('role_id', targetRole.roleId).delete()
     await SystemPermission.query().where('system_module_id', testModule.systemModuleId).delete()
@@ -262,6 +267,42 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
     assert.equal(response.body().key, 'rol-sistema-bloqueado')
     const afterGrants = await loadGrants(ownerRole.roleId)
     assert.deepEqual(afterGrants.map((grant) => grant.systemPermissionId).sort(), before)
+  })
+
+  test('preview y apply sobre un rol de otra empresa devuelven 404', async ({ client, assert }) => {
+    const foreignRole = await Role.create({
+      roleName: `Rol de otra empresa ${stamp}`,
+      roleSlug: `foreign-role-presets-${stamp}`,
+      roleDescription: 'Fixture de otro tenant',
+      roleActive: 1,
+      roleBusinessAccess: nonRootActor!.businessUnit.businessUnitSlug,
+      roleManagementDays: 10,
+    })
+    foreignRoleIds.push(foreignRole.roleId)
+
+    const previewResponse = await client
+      .post(`/api/roles/${foreignRole.roleId}/role-presets/preview`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({ presetSlug: 'read-only', mode: 'replace' })
+    previewResponse.assertStatus(404)
+    assert.equal(previewResponse.body().key, 'rol-no-encontrado')
+
+    const applyResponse = await client
+      .post(`/api/roles/${foreignRole.roleId}/role-presets/apply`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({
+        presetSlug: 'read-only',
+        mode: 'replace',
+        expectedPresetVersion: new RolePresetService()
+          .list()
+          .find((item) => item.slug === 'read-only')!.version,
+        baselinePermissionIds: [],
+      })
+    applyResponse.assertStatus(404)
+    assert.equal(applyResponse.body().key, 'rol-no-encontrado')
+    assert.isEmpty(await loadGrants(foreignRole.roleId))
   })
 
   test('apply con baseline vieja devuelve 409 y no cambia la base', async ({ client, assert }) => {

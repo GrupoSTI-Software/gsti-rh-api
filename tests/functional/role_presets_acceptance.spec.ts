@@ -26,7 +26,7 @@ async function createActor(roleSlug = 'root'): Promise<Actor> {
     personEmail: `role-preset-acceptance-${stamp}@gsti-tests.local`,
   })
   const user = await User.create({
-    userEmail: person.personEmail,
+    userEmail: person.personEmail!,
     userPassword: 'RolePresetAcceptance123!',
     userActive: 1,
     roleId: role.roleId,
@@ -84,7 +84,7 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       roleSlug: `acceptance-role-${stamp}`,
       roleDescription: 'Fixture de aceptación',
       roleActive: 1,
-      roleBusinessAccess: '',
+      roleBusinessAccess: actor!.businessUnit.businessUnitSlug,
       roleManagementDays: 10,
     })
     otherModule = await SystemModule.create({
@@ -115,7 +115,9 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
     }
     await RoleSystemPermission.query().where('role_id', role.roleId).delete()
     await Role.query().where('role_id', role.roleId).delete()
-    await SystemPermission.query().where('system_permission_id', otherPermission.systemPermissionId).delete()
+    await SystemPermission.query()
+      .where('system_permission_id', otherPermission.systemPermissionId)
+      .delete()
     await SystemModule.query().where('system_module_id', otherModule.systemModuleId).delete()
     await cleanupActor(actor)
     await cleanupActor(lockedActor)
@@ -142,7 +144,9 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
     assert.isAbove(preview.granted.length, 0)
     assert.isAbove(preview.revoked.length, 0)
     assert.isAbove(preview.unchanged.length, 0)
-    assert.isTrue(preview.granted.every((item: { moduleSlug: string }) => item.moduleSlug === 'employees'))
+    assert.isTrue(
+      preview.granted.every((item: { moduleSlug: string }) => item.moduleSlug === 'employees')
+    )
     const applyResponse = await client
       .post(`/api/roles/${role.roleId}/role-presets/apply`)
       .loginAs(actor!.user)
@@ -155,8 +159,14 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       })
     applyResponse.assertStatus(201)
     const after = await grants(role.roleId)
-    assert.include(after.map((grant) => grant.systemPermissionId), otherPermission.systemPermissionId)
-    assert.notInclude(after.map((grant) => grant.systemPermissionId), current.systemPermissionId)
+    assert.include(
+      after.map((grant) => grant.systemPermissionId),
+      otherPermission.systemPermissionId
+    )
+    assert.notInclude(
+      after.map((grant) => grant.systemPermissionId),
+      current.systemPermissionId
+    )
     assert.deepEqual(
       after
         .filter((grant) => grant.systemPermissions.systemModule.systemModuleSlug === 'employees')
@@ -199,7 +209,10 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       })
     apply.assertStatus(201)
     const after = await grants(role.roleId)
-    assert.include(after.map((grant) => grant.systemPermissionId), previous.systemPermissionId)
+    assert.include(
+      after.map((grant) => grant.systemPermissionId),
+      previous.systemPermissionId
+    )
   })
 
   test('C: alta de Auditoría con Consulta solo crea permisos read', async ({ client, assert }) => {
@@ -228,7 +241,10 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
     )
   })
 
-  test('D: permiso faltante responde 422, informa slug y conserva grants', async ({ client, assert }) => {
+  test('D: permiso faltante responde 422, informa slug y conserva grants', async ({
+    client,
+    assert,
+  }) => {
     const existing = await permission('employees', 'read')
     await RoleSystemPermission.create({
       roleId: role.roleId,
@@ -245,9 +261,10 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       assert.equal(response.body().key, 'plantilla-permisos-faltantes')
       assert.include(response.body().data.missing, 'read')
       const after = await grants(role.roleId)
-      assert.deepEqual(after.map((grant) => grant.systemPermissionId), [
-        otherPermission.systemPermissionId,
-      ])
+      assert.deepEqual(
+        after.map((grant) => grant.systemPermissionId),
+        [otherPermission.systemPermissionId]
+      )
     } finally {
       await existing.restore()
     }
@@ -277,7 +294,10 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       })
     )
     const after = await grants(role.roleId)
-    assert.deepEqual(after.map((grant) => grant.systemPermissionId), [previous.systemPermissionId])
+    assert.deepEqual(
+      after.map((grant) => grant.systemPermissionId),
+      [previous.systemPermissionId]
+    )
   })
 
   test('F: rol sistema devuelve 403 y no modifica grants', async ({ client, assert }) => {
@@ -300,7 +320,10 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
     assert.deepEqual(after.map((grant) => grant.systemPermissionId).sort(), before)
   })
 
-  test('G: listar plantillas no crea role_system_permissions automáticamente', async ({ client, assert }) => {
+  test('G: listar plantillas no crea role_system_permissions automáticamente', async ({
+    client,
+    assert,
+  }) => {
     const before = await RoleSystemPermission.query().where('role_id', role.roleId)
     const response = await client
       .get('/api/role-presets')

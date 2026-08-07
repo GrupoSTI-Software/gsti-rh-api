@@ -374,9 +374,7 @@ export default class RoleService {
   async verifyInfo(role: Role) {
     const action = role.roleId > 0 ? 'updated' : 'created'
 
-    const query = Role.query()
-      .where('role_name', role.roleName)
-      .whereNull('role_deleted_at')
+    const query = Role.query().where('role_name', role.roleName).whereNull('role_deleted_at')
 
     if (role.roleId > 0) {
       query.whereNot('role_id', role.roleId)
@@ -385,15 +383,15 @@ export default class RoleService {
     const rolesWithSameName = await query
 
     const inputAccess = role.roleBusinessAccess
-      ? role.roleBusinessAccess.split(',').map(e => e.trim())
+      ? role.roleBusinessAccess.split(',').map((e) => e.trim())
       : []
 
-    const hasConflict = rolesWithSameName.some(existingRole => {
+    const hasConflict = rolesWithSameName.some((existingRole) => {
       const existingAccess = existingRole.roleBusinessAccess
-        ? existingRole.roleBusinessAccess.split(',').map(e => e.trim())
+        ? existingRole.roleBusinessAccess.split(',').map((e) => e.trim())
         : []
 
-      return inputAccess.some(company => existingAccess.includes(company))
+      return inputAccess.some((company) => existingAccess.includes(company))
     })
 
     if (hasConflict && role.roleName) {
@@ -427,7 +425,10 @@ export default class RoleService {
    * @param roleSlug - Slug del rol a buscar
    * @returns Rol encontrado o null
    */
-  async findRoleBySlug(roleSlug: string, allowedBusinessUnitIds: number[] = []): Promise<Role | null> {
+  async findRoleBySlug(
+    roleSlug: string,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Role | null> {
     // Los roles de sistema resuelven directo, sin depender del CSV
     // role_business_access: son asignables en todo tenant (USRH1785436961936).
     // `orderBy` fija la fila sembrada (la más antigua) ante cualquier residuo
@@ -473,4 +474,44 @@ export default class RoleService {
     return role || null
   }
 
+  /**
+   * Busca un rol por id acotado al tenant, con el mismo criterio que `index`:
+   * los roles de sistema resuelven en cualquier empresa (USRH1785436961936) y
+   * el resto solo si su CSV `role_business_access` incluye alguna unidad del
+   * scope. Devuelve `null` cuando el rol existe pero pertenece a otro tenant,
+   * para que el caller responda 404 sin revelar su existencia.
+   */
+  async findRoleByIdInScope(
+    roleId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Role | null> {
+    const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
+
+    if (!role) {
+      return null
+    }
+
+    if (isSystemRoleSlug(role.roleSlug)) {
+      return role
+    }
+
+    let slugs: string[]
+    if (allowedBusinessUnitIds.length === 0) {
+      const allUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .select('business_unit_slug')
+      slugs = allUnits.map((unit) => unit.businessUnitSlug)
+    } else {
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+        .select('business_unit_slug')
+      slugs = units.map((unit) => unit.businessUnitSlug)
+    }
+
+    const access = role.roleBusinessAccess
+      ? role.roleBusinessAccess.split(',').map((slug) => slug.trim())
+      : []
+
+    return slugs.some((slug) => access.includes(slug.trim())) ? role : null
+  }
 }

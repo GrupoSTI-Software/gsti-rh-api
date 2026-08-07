@@ -1,5 +1,8 @@
 import { test } from '@japa/runner'
-import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
+import {
+  EMPLOYEES_PERMISSION_CATALOG,
+  type EmployeeActionSlug,
+} from '#constants/employees_permission_catalog'
 import { ROLE_PRESETS, getRolePreset } from '#constants/role_presets'
 
 const grantableSlugs = new Set(
@@ -30,10 +33,12 @@ test.group('ROLE_PRESETS — integridad (USRH1785766406742)', () => {
         const m = /^tab-(.+)-(read|write|delete)$/.exec(slug)
         if (!m) continue
         const [, section, kind] = m
-        if (kind === 'write') assert.isTrue(set.has(`tab-${section}-read`), slug)
+        const read = `tab-${section}-read` as EmployeeActionSlug
+        const write = `tab-${section}-write` as EmployeeActionSlug
+        if (kind === 'write') assert.isTrue(set.has(read), slug)
         if (kind === 'delete') {
-          assert.isTrue(set.has(`tab-${section}-write`), slug)
-          assert.isTrue(set.has(`tab-${section}-read`), slug)
+          assert.isTrue(set.has(write), slug)
+          assert.isTrue(set.has(read), slug)
         }
       }
     }

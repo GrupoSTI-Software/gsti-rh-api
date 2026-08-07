@@ -6,6 +6,8 @@ import Role from '#models/role'
 import { isSystemRoleSlug } from '#constants/system_roles'
 import { isSystemRoleLockedForUser } from '#helpers/system_role_lock'
 import RolePresetService from '#services/role_preset_service'
+import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
+import { buildRolePresetErrorResponse } from '#helpers/role_preset_error_response'
 import { getRolePreset } from '#constants/role_presets'
 import {
   assignRolesPermissionsBatchValidator,
@@ -372,6 +374,15 @@ export default class RoleController {
         }
       }
     } catch (error) {
+      // La plantilla ya trae su propio contrato de error (422 permisos
+      // faltantes, 404 plantilla inexistente…): degradarlo a 500 dejaría al
+      // cliente sin saber que el alta falló por la plantilla y no por el rol.
+      if (error instanceof RolePresetServiceError) {
+        const mapped = buildRolePresetErrorResponse(error, i18n)
+        response.status(mapped.status)
+        return mapped.body
+      }
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -519,7 +530,7 @@ export default class RoleController {
         roleName: roleName,
         roleDescription: roleDescription,
         roleSlug: roleSlug,
-        roleActive: roleActive
+        roleActive: roleActive,
       } as Role
 
       if (!roleId) {
