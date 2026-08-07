@@ -222,7 +222,9 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnitOwn!.businessUnitPublicId)
     response.assertStatus(404)
+    assert.equal(response.body().type, 'warning')
     assert.equal(response.body().title, 'Employee supply not found')
+    assert.equal(response.body().message, 'The employee supply was not found')
     assert.isNull(response.body().data)
   })
 
@@ -232,7 +234,10 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnitOwn!.businessUnitPublicId)
     response.assertStatus(404)
+    assert.equal(response.body().type, 'warning')
     assert.equal(response.body().title, 'Employee supply not found')
+    assert.equal(response.body().message, 'The employee supply was not found')
+    assert.isNull(response.body().data)
   })
 
   test('DELETE de foto ajena responde 404 y conserva la foto', async ({ client, assert }) => {
@@ -241,7 +246,10 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnitOwn!.businessUnitPublicId)
     response.assertStatus(404)
+    assert.equal(response.body().type, 'warning')
     assert.equal(response.body().title, 'Photo not found')
+    assert.equal(response.body().message, 'The photo was not found')
+    assert.isNull(response.body().data)
 
     const stillAlive = await TenantContext.runUnscoped(
       () =>
@@ -260,6 +268,9 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnitOwn!.businessUnitPublicId)
     response.assertStatus(200)
+    assert.equal(response.body().type, 'success')
+    assert.equal(response.body().title, 'Photos retrieved')
+    assert.equal(response.body().message, 'Photos retrieved successfully')
     const ids = (response.body().data as any[]).map(
       (photo) => photo.employeeSupplieAssignationPhotoId
     )
@@ -273,6 +284,9 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnitForeign!.businessUnitPublicId)
     assignation.assertStatus(200)
+    assert.equal(assignation.body().type, 'success')
+    assert.equal(assignation.body().title, 'Photos retrieved')
+    assert.equal(assignation.body().message, 'Photos retrieved successfully')
     assert.include(
       (assignation.body().data as any[]).map((photo) => photo.employeeSupplieAssignationPhotoId),
       photoForeignAssignationId
@@ -283,6 +297,9 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnitForeign!.businessUnitPublicId)
     returned.assertStatus(200)
+    assert.equal(returned.body().type, 'success')
+    assert.equal(returned.body().title, 'Photos retrieved')
+    assert.equal(returned.body().message, 'Photos retrieved successfully')
     assert.include(
       (returned.body().data as any[]).map((photo) => photo.employeeSupplieAssignationPhotoId),
       photoForeignReturnId
