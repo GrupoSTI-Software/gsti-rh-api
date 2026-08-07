@@ -1,4 +1,5 @@
 import RoleService from '#services/role_service'
+import Role from '#models/role'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemPermission from '#models/system_permission'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
@@ -11,6 +12,7 @@ import {
 } from '#constants/role_presets'
 import { ROLE_PRESET_ERROR_CODES } from '#constants/role_preset_error_codes'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export interface RolePresetListPermissionItem {
   slug: string
@@ -52,7 +54,13 @@ export interface RolePresetPreview {
   unchanged: RolePresetPreviewItem[]
 }
 
-const roleService = new RoleService()
+export interface RolePresetApplyInput {
+  presetSlug: RolePresetSlug
+  mode: RolePresetMode
+  expectedPresetVersion: string
+  baselinePermissionIds: number[]
+}
+
 const EMPLOYEE_PERMISSION_BY_SLUG = new Map(
   EMPLOYEES_PERMISSION_CATALOG.map((permission) => [permission.slug, permission] as const)
 )
@@ -105,8 +113,8 @@ export default class RolePresetService {
     const permissions = await SystemPermission.query()
       .whereNull('system_permission_deleted_at')
       .whereIn('system_permission_slug', requestedSlugs)
-      .whereHas('systemModule', (query) => {
-        query
+      .whereHas('systemModule', (moduleQuery) => {
+        moduleQuery
           .whereNull('system_module_deleted_at')
           .where('system_module_slug', ROLE_PRESET_MODULE_SLUG)
       })
@@ -181,20 +189,7 @@ export default class RolePresetService {
       )
     }
 
-    const roleAccess = await roleService.getAccess(roleId)
-    if (roleAccess.status !== 200) {
-      throw new RolePresetServiceError(
-        `El rol solicitado no existe: ${roleId}`,
-        ROLE_PRESET_ERROR_CODES.ROLE_NOT_FOUND,
-        404,
-        'rol-no-encontrado',
-        'Rol no encontrado',
-        `No existe un rol con id "${roleId}".`,
-        { roleId }
-      )
-    }
-
-    const currentGrants = (roleAccess.data ?? []) as RoleSystemPermission[]
+    const currentGrants = await this.loadCurrentGrants(roleId)
     const currentIds = this.sortUniqueIds(currentGrants.map((grant) => grant.systemPermissionId))
     const currentEmployeesGrants = currentGrants
       .filter(
@@ -255,19 +250,149 @@ export default class RolePresetService {
     }
   }
 
+  async apply(
+    roleId: number,
+    input: RolePresetApplyInput,
+    trx: TransactionClientContract
+  ): Promise<{
+    roleSystemPermissions: RoleSystemPermission[]
+    appliedPreset: { slug: string; version: string }
+  }> {
+    let preset
+    try {
+      preset = getRolePreset(input.presetSlug)
+    } catch {
+      throw new RolePresetServiceError(
+        `La plantilla solicitada no existe: ${input.presetSlug}`,
+        ROLE_PRESET_ERROR_CODES.PRESET_NOT_FOUND,
+        404,
+        'plantilla-no-encontrada',
+        'Plantilla de rol no encontrada',
+        `No existe una plantilla de rol con slug "${input.presetSlug}".`,
+        { presetSlug: input.presetSlug }
+      )
+    }
+
+    if (input.expectedPresetVersion !== preset.version) {
+      throw new RolePresetServiceError(
+        `La versión de la plantilla "${preset.slug}" quedó obsoleta`,
+        ROLE_PRESET_ERROR_CODES.STALE_PRESET_VERSION,
+        409,
+        'plantilla-version-obsoleta',
+        'Versión de plantilla obsoleta',
+        `La plantilla "${preset.slug}" ya no coincide con la versión previsualizada.`,
+        { presetSlug: preset.slug, expectedPresetVersion: input.expectedPresetVersion, version: preset.version }
+      )
+    }
+
+    const currentGrants = await this.loadCurrentGrants(roleId, trx)
+    const currentIds = this.sortUniqueIds(currentGrants.map((grant) => grant.systemPermissionId))
+    if (!this.sameIdSet(currentIds, input.baselinePermissionIds)) {
+      throw new RolePresetServiceError(
+        `Los permisos del rol "${roleId}" cambiaron desde la vista previa`,
+        ROLE_PRESET_ERROR_CODES.STALE_ROLE_PERMISSIONS,
+        409,
+        'rol-permisos-cambiaron',
+        'Permisos del rol cambiaron',
+        'Los permisos actuales del rol ya no coinciden con la vista previa.',
+        { roleId, baselinePermissionIds: input.baselinePermissionIds, currentPermissionIds: currentIds }
+      )
+    }
+
+    const { ids: presetEmployeesIds, missing } = await this.resolveEmployeesPermissionIds(
+      preset.permissionSlugs
+    )
+    if (missing.length > 0) {
+      throw new RolePresetServiceError(
+        `Faltan permisos de la plantilla "${preset.slug}" en la base de datos`,
+        ROLE_PRESET_ERROR_CODES.MISSING_PERMISSIONS,
+        422,
+        'plantilla-permisos-faltantes',
+        'Plantilla de rol incompleta',
+        `La plantilla "${preset.slug}" referencia permisos que no existen en la base de datos.`,
+        { presetSlug: preset.slug, missing }
+      )
+    }
+
+    const allEmployeesPermissionIds = await this.loadAllEmployeesPermissionIds(trx)
+    const desired = this.computeDesiredPermissionIds({
+      mode: input.mode,
+      currentIds,
+      presetEmployeesIds,
+      allEmployeesPermissionIds,
+    })
+    const roleService = new RoleService()
+    const roleSystemPermissions = await roleService.assignPermissions(roleId, desired, trx)
+
+    return {
+      roleSystemPermissions,
+      appliedPreset: { slug: preset.slug, version: preset.version },
+    }
+  }
+
+  private async loadCurrentGrants(
+    roleId: number,
+    trx?: TransactionClientContract
+  ): Promise<RoleSystemPermission[]> {
+    const roleQuery = Role.query().whereNull('role_deleted_at').where('role_id', roleId)
+    if (trx) {
+      roleQuery.useTransaction(trx)
+    }
+    if (!(await roleQuery.first())) {
+      throw new RolePresetServiceError(
+        `El rol solicitado no existe: ${roleId}`,
+        ROLE_PRESET_ERROR_CODES.ROLE_NOT_FOUND,
+        404,
+        'rol-no-encontrado',
+        'Rol no encontrado',
+        `No existe un rol con id "${roleId}".`,
+        { roleId }
+      )
+    }
+
+    const grantsQuery = RoleSystemPermission.query()
+      .whereNull('role_system_permission_deleted_at')
+      .where('role_id', roleId)
+      .whereHas('systemPermissions', (permissionQuery) => {
+        permissionQuery
+          .whereNull('system_permission_deleted_at')
+          .whereHas('systemModule', (moduleQuery) =>
+            moduleQuery.whereNull('system_module_deleted_at')
+          )
+      })
+      .preload('systemPermissions', (query) => query.preload('systemModule'))
+    if (trx) {
+      grantsQuery.useTransaction(trx)
+    }
+    return grantsQuery
+  }
+
+  private sameIdSet(left: number[], right: number[]): boolean {
+    const normalizedLeft = this.sortUniqueIds(left)
+    const normalizedRight = this.sortUniqueIds(right)
+    return (
+      normalizedLeft.length === normalizedRight.length &&
+      normalizedLeft.every((id, index) => id === normalizedRight[index])
+    )
+  }
+
   private sortUniqueIds(ids: number[]): number[] {
     return [...new Set(ids)].sort((a, b) => a - b)
   }
 
-  private async loadAllEmployeesPermissionIds(): Promise<number[]> {
-    const permissions = await SystemPermission.query()
+  private async loadAllEmployeesPermissionIds(trx?: TransactionClientContract): Promise<number[]> {
+    const query = SystemPermission.query()
       .whereNull('system_permission_deleted_at')
-      .whereHas('systemModule', (query) => {
-        query
+      .whereHas('systemModule', (moduleQuery) => {
+        moduleQuery
           .whereNull('system_module_deleted_at')
           .where('system_module_slug', ROLE_PRESET_MODULE_SLUG)
       })
       .select('system_permission_id')
+    if (trx) {
+      query.useTransaction(trx)
+    }
+    const permissions = await query
 
     return this.sortUniqueIds(permissions.map((permission) => permission.systemPermissionId))
   }
