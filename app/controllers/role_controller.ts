@@ -4,6 +4,7 @@ import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_inte
 import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isSystemRoleSlug } from '#constants/system_roles'
+import { isSystemRoleLockedForUser } from '#helpers/system_role_lock'
 import {
   assignRolesPermissionsBatchValidator,
   createRoleValidator,
@@ -34,28 +35,6 @@ async function buildRoleBusinessAccessFromScope(businessUnitScope: number[]): Pr
 }
 
 export default class RoleController {
-  /**
-   * Regla 1 de USRH1785436961936: los roles de sistema (owner, empleado) no
-   * son editables, eliminables ni reconfigurables desde un tenant. Solo `root`
-   * (plataforma) queda exento — administra los roles comunes para todos.
-   */
-  private async isSystemRoleLockedForUser(
-    auth: HttpContext['auth'],
-    role: Role
-  ): Promise<boolean> {
-    if (!isSystemRoleSlug(role.roleSlug)) {
-      return false
-    }
-    await auth.check()
-    const user = auth.user
-    if (!user) {
-      return true
-    }
-    if (!user.role) {
-      await user.load('role')
-    }
-    return user.role?.roleSlug !== 'root'
-  }
   /**
    * @swagger
    * /api/roles:
@@ -539,7 +518,7 @@ export default class RoleController {
           data: { ...role },
         }
       }
-      if (await this.isSystemRoleLockedForUser(auth, currentRole)) {
+      if (await isSystemRoleLockedForUser(auth, currentRole)) {
         response.status(403)
         return {
           title: t('system_role_locked_title'),
@@ -715,7 +694,7 @@ export default class RoleController {
           data: { roleId },
         }
       }
-      if (await this.isSystemRoleLockedForUser(auth, currentRole)) {
+      if (await isSystemRoleLockedForUser(auth, currentRole)) {
         response.status(403)
         return {
           title: t('system_role_locked_title'),
@@ -878,7 +857,7 @@ export default class RoleController {
 
       // Reasignar permisos de un rol de sistema afectaría a TODOS los tenants:
       // misma regla de bloqueo que edición/eliminación.
-      if (await this.isSystemRoleLockedForUser(auth, role)) {
+      if (await isSystemRoleLockedForUser(auth, role)) {
         response.status(403)
         return {
           title: t('system_role_locked_title'),
@@ -1071,7 +1050,7 @@ export default class RoleController {
             data: { roleId: item.roleId },
           }
         }
-        if (await this.isSystemRoleLockedForUser(auth, role)) {
+        if (await isSystemRoleLockedForUser(auth, role)) {
           response.status(403)
           return {
             title: t('system_role_locked_batch_title'),
