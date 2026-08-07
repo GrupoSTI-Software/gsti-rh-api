@@ -11,3 +11,14 @@ export const publicPlanPriceQueryValidator = vine.compile(
     employees: vine.number().positive().withoutDecimals(),
   })
 )
+
+/**
+ * Body para `POST /api/billing/subscription` (re-contratación tenant).
+ * Solo valida forma; las reglas comerciales viven en `BillingTenantService`.
+ */
+export const contractTenantSubscriptionValidator = vine.compile(
+  vine.object({
+    billingPlanId: vine.number().positive().withoutDecimals(),
+    contractedEmployees: vine.number().positive().withoutDecimals(),
+  })
+)

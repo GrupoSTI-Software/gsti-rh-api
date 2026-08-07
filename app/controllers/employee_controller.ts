@@ -40,6 +40,8 @@ import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PiiExportService from '#services/pii_export_service'
 import logger from '@adonisjs/core/services/logger'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
+import { resolveEmployeeQuotaApiError } from '../helpers/employee_quota_api_error.js'
+import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
 import { respondEmployeeImportValFileError } from '../helpers/employee_import_request_errors.js'
 import { EMPLOYEE_IMPORT_UPLOAD } from '../constants/employee_import_error_codes.js'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
@@ -51,6 +53,7 @@ import {
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import EmployeeQuotaService from '#services/employee_quota_service'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -923,7 +926,7 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
-   *       '400':
+      *       '400':
    *         description: The parameters entered are invalid or essential data is missing to process the request. Errores de negocio de modalidad híbrida se retornan con `code` (ej. `hybrid_requires_active_shift`).
    *         content:
    *           application/json:
@@ -945,6 +948,41 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '409':
+   *         description: Cupo de empleados agotado o empresa self-service sin plan vigente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   description: Título traducido del rechazo
+   *                 message:
+   *                   type: string
+   *                   description: Mensaje principal traducido
+   *                 detail:
+   *                   type: string
+   *                   description: Detalle con cantidades y salida comercial
+   *                 key:
+   *                   type: string
+   *                   enum: [cupo-empleados-agotado, sin-plan-contratado]
+   *                 code:
+   *                   type: string
+   *                   enum: [EMP.QUOTA.EXCEEDED, EMP.QUOTA.NO_PLAN]
+   *                 data:
+   *                   type: object
+   *                   description: Solo cantidades; nunca identificadores internos de empresa
+   *                   properties:
+   *                     contracted:
+   *                       type: integer
+   *                       description: Cupo efectivo (contratación o legacy)
+   *                     active:
+   *                       type: integer
+   *                       description: Empleados vigentes al momento del rechazo
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1122,6 +1160,19 @@ export default class EmployeeController {
       if (failedPersonId > 0) {
         const employeeService = new EmployeeService(i18n)
         await employeeService.releasePersonIfOrphan(failedPersonId)
+      }
+      if (error instanceof EmployeeQuotaError) {
+        const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
       }
       // Errores de negocio de la modalidad híbrida se traducen a 400 con el
       // código para que el cliente muestre el mensaje correcto (i18n).
@@ -6286,6 +6337,122 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/quota:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Cupo de empleados vigente de la empresa activa
+   *     description: |
+   *       Devuelve el cupo efectivo, el conteo de vigentes y los lugares restantes
+   *       de la empresa del header `X-Business-Unit-Id`. Capa de lectura sobre
+   *       `EmployeeQuotaService` (USRH1785441819658).
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *     responses:
+   *       '200':
+   *         description: Cupo resuelto para la empresa activa
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                       nullable: true
+   *                     active:
+   *                       type: integer
+   *                     remaining:
+   *                       type: integer
+   *                       nullable: true
+   *                     hasPlan:
+   *                       type: boolean
+   *       '400':
+   *         description: Falta header X-Business-Unit-Id
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '401':
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '404':
+   *         description: Empresa fuera de alcance o inexistente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   */
+  async getQuota({ response }: HttpContext) {
+    const businessUnitId = TenantContext.getScope()[0]
+    const quotaService = new EmployeeQuotaService()
+    const quota = await quotaService.resolveQuota(businessUnitId)
+    const active = await quotaService.countActiveEmployees(businessUnitId)
+
+    const limit = quota.limit
+    const remaining = limit === null ? null : limit - active
+    const hasPlan = quota.source !== 'no_plan'
+
+    return response.status(200).json({
+      type: 'success',
+      title: 'Cupo de empleados',
+      message: 'Cupo vigente de la empresa',
+      data: {
+        limit,
+        active,
+        remaining,
+        hasPlan,
+      },
+    })
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-biometrics:
    *   get:
    *     security:
@@ -6626,6 +6793,8 @@ export default class EmployeeController {
    *     description: |
    *       Carga masiva de empleados. Requiere autenticación y alcance de unidad de negocio.
    *       La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado de la plantilla.
+   *       Si el archivo incluye altas nuevas y rebasa el cupo efectivo, responde 409 y no aplica
+   *       ninguna fila (todo-o-nada). Un archivo con solo correcciones no evalúa cupo.
    *     parameters:
    *       - in: header
    *         name: Authorization
@@ -6694,6 +6863,8 @@ export default class EmployeeController {
    *                           type: integer
    *                         limitReached:
    *                           type: boolean
+   *                           deprecated: true
+   *                           description: Siempre false. Si el cupo no alcanza, la API responde 409 sin escribir nada.
    *                     rowErrors:
    *                       type: array
    *                       items:
@@ -6746,6 +6917,66 @@ export default class EmployeeController {
    *                   key: cabeceras-invalidas
    *                   code: EMP.IMPORT.VAL_HEADERS
    *                   data: null
+   *       409:
+   *         description: |
+   *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+   *           No se aplica ninguna fila del Excel (todo-o-nada).
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+   *                 code:
+   *                   type: string
+   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+   *                 data:
+   *                   type: object
+   *                   description: Solo cantidades; nunca identificadores internos de empresa
+   *                   properties:
+   *                     contracted:
+   *                       type: integer
+   *                     active:
+   *                       type: integer
+   *                     incoming:
+   *                       type: integer
+   *                       description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *             examples:
+   *               cupoRebasado:
+   *                 value:
+   *                   type: error
+   *                   title: El archivo rebasa tu cupo de empleados
+   *                   message: El archivo daría de alta 5 empleados y solo te quedan 2 lugares.
+   *                   detail: "Contratados: 20. Vigentes: 18. Altas en el archivo: 5. No se aplicó ninguna línea del archivo; escríbenos a hola@valanserh.com para ampliar tu cupo."
+   *                   key: cupo-empleados-agotado-importacion
+   *                   code: EMP.IMPORT.QUOTA_EXCEEDED
+   *                   data:
+   *                     contracted: 20
+   *                     active: 18
+   *                     incoming: 5
+   *               sinPlan:
+   *                 value:
+   *                   type: error
+   *                   title: No tienes un plan vigente
+   *                   message: No se aplicó ninguna línea del archivo porque tu empresa no tiene un plan vigente.
+   *                   detail: El archivo traía 3 altas y no se aplicó ninguna. Escríbenos a hola@valanserh.com para activar tu plan y vuelve a subirlo.
+   *                   key: sin-plan-contratado-importacion
+   *                   code: EMP.IMPORT.NO_PLAN
+   *                   data:
+   *                     contracted: 0
+   *                     active: 12
+   *                     incoming: 3
    *       500:
    *         description: Error inesperado del servidor
    *         content:
@@ -6832,11 +7063,7 @@ export default class EmployeeController {
       let title = 'Importación completada'
       let message = ''
 
-      if (summary.limitReached) {
-        responseType = 'warning'
-        title = 'Límite de empleados alcanzado'
-        message = `Se alcanzó el límite de empleados. Se crearon ${summary.created} empleados, se actualizaron ${summary.updated} empleados, y ${summary.skipped} no se pudieron procesar.`
-      } else if (rowErrors.length > 0 || warnings.length > 0) {
+      if (rowErrors.length > 0 || warnings.length > 0) {
         responseType = 'warning'
         title = 'Importación completada con advertencias'
         message = `Se procesaron ${summary.processed} empleados: ${summary.created} creados, ${summary.updated} actualizados. ${summary.failed} filas con error.`
@@ -6852,6 +7079,20 @@ export default class EmployeeController {
         data: result,
       }
     } catch (error: unknown) {
+      if (error instanceof EmployeeQuotaError) {
+        const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
+      }
+
       // Detectar errores de validación de cabeceras
       if (
         (error as { isHeaderValidationError?: boolean }).isHeaderValidationError ||
