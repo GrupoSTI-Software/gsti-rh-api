@@ -22,3 +22,23 @@ Implementado.
 ## Preocupaciones
 
 La cobertura funcional específica de esta tarea queda pendiente hasta incorporar `tests/functional/role_create_with_preset.spec.ts`.
+
+## Actualización posterior
+
+Se incorporó `tests/functional/role_create_with_preset.spec.ts` con los dos casos requeridos.
+
+Evidencia de ejecución:
+
+```text
+node ace test functional --files role_create_with_preset.spec.ts
+
+functional / POST /api/roles con plantilla
+  ✔ con rolePresetSlug read-only nace con lecturas de empleados y devuelve la plantilla aplicada
+  ✔ sin rolePresetSlug crea el rol sin permisos
+
+PASSED
+Tests  2 passed (2)
+exit_code: 0
+```
+
+La prueba necesitó enviar `roleActive: true`, porque la columna `role_active` no tiene valor predeterminado en la base de datos.
