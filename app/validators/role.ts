@@ -5,6 +5,7 @@ export const createRoleValidator = vine.compile(
     roleName: vine.string().trim().minLength(1).maxLength(100),
     roleDescription: vine.string().trim().minLength(0).maxLength(200).optional(),
     roleActive: vine.boolean().optional(),
+    rolePresetSlug: vine.enum(['hr-admin', 'branch-supervisor', 'read-only', 'data-entry']).optional(),
   })
 )
 

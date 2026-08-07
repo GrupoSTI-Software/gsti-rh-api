@@ -49,13 +49,14 @@ export default class RoleService {
     return roles
   }
 
-  async create(role: Role) {
+  async create(role: Role, trx?: TransactionClientContract) {
     const newRole = new Role()
     newRole.roleName = role.roleName
     newRole.roleDescription = role.roleDescription
     newRole.roleSlug = role.roleSlug
     newRole.roleActive = role.roleActive
     newRole.roleBusinessAccess = role.roleBusinessAccess
+    if (trx) newRole.useTransaction(trx)
     await newRole.save()
     return newRole
   }

@@ -5,6 +5,8 @@ import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isSystemRoleSlug } from '#constants/system_roles'
 import { isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import RolePresetService from '#services/role_preset_service'
+import { getRolePreset } from '#constants/role_presets'
 import {
   assignRolesPermissionsBatchValidator,
   createRoleValidator,
@@ -334,7 +336,31 @@ export default class RoleController {
         }
       }
 
-      const newRole = await roleService.create(role)
+      const rolePresetSlug = data.rolePresetSlug
+      let newRole: Role
+      let appliedPreset: { slug: string; version: string } | undefined
+
+      if (rolePresetSlug) {
+        const preset = getRolePreset(rolePresetSlug)
+        const result = await db.transaction(async (trx) => {
+          const createdRole = await roleService.create(role, trx)
+          const presetResult = await new RolePresetService().apply(
+            createdRole.roleId,
+            {
+              presetSlug: rolePresetSlug,
+              mode: 'replace',
+              expectedPresetVersion: preset.version,
+              baselinePermissionIds: [],
+            },
+            trx
+          )
+          return { role: createdRole, appliedPreset: presetResult.appliedPreset }
+        })
+        newRole = result.role
+        appliedPreset = result.appliedPreset
+      } else {
+        newRole = await roleService.create(role)
+      }
 
       if (newRole) {
         response.status(201)
@@ -342,7 +368,7 @@ export default class RoleController {
           type: 'success',
           title: 'Roles',
           message: 'The role was created successfully',
-          data: { role: newRole },
+          data: { role: newRole, ...(appliedPreset ? { appliedPreset } : {}) },
         }
       }
     } catch (error) {
