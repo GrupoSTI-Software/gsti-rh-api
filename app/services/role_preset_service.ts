@@ -183,7 +183,15 @@ export default class RolePresetService {
 
     const roleAccess = await roleService.getAccess(roleId)
     if (roleAccess.status !== 200) {
-      throw new Error(`No se pudo cargar el rol ${roleId} para generar la vista previa.`)
+      throw new RolePresetServiceError(
+        `El rol solicitado no existe: ${roleId}`,
+        ROLE_PRESET_ERROR_CODES.ROLE_NOT_FOUND,
+        404,
+        'rol-no-encontrado',
+        'Rol no encontrado',
+        `No existe un rol con id "${roleId}".`,
+        { roleId }
+      )
     }
 
     const currentGrants = (roleAccess.data ?? []) as RoleSystemPermission[]

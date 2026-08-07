@@ -131,4 +131,17 @@ test.group('RolePresetService.computeDesiredPermissionIds / preview', (group) =>
     assert.equal(readItem?.moduleSlug, 'employees')
     assert.equal(readItem?.displayName, employeesPermissionBySlug.get('read')!.displayName)
   })
+
+  test('preview con rol inexistente lanza 404 estable', async ({ assert }) => {
+    const service = new RolePresetService()
+
+    try {
+      await service.preview(999999999, 'data-entry', 'merge')
+      assert.fail('La vista previa debía fallar con un rol inexistente.')
+    } catch (error: any) {
+      assert.equal(error.httpStatus, 404)
+      assert.equal(error.key, 'rol-no-encontrado')
+      assert.equal(error.code, 'PLT.RP.ROLE_NOT_FOUND')
+    }
+  })
 })

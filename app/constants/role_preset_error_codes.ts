@@ -5,6 +5,8 @@
 export const ROLE_PRESET_ERROR_CODES = {
   /** La plantilla solicitada no existe */
   PRESET_NOT_FOUND: 'PLT.RP.PRESET_NOT_FOUND',
+  /** El rol solicitado no existe */
+  ROLE_NOT_FOUND: 'PLT.RP.ROLE_NOT_FOUND',
   /** Faltan permisos de la plantilla en la BD */
   MISSING_PERMISSIONS: 'PLT.RP.MISSING_PERMISSIONS',
   /** La versión esperada de la plantilla quedó obsoleta */
