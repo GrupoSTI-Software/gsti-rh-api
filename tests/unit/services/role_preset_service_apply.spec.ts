@@ -197,6 +197,28 @@ test.group('RolePresetService.apply', (group) => {
     }
   })
 
+  test('una segunda aplicación con la misma baseline recibe conflicto', async ({ assert }) => {
+    const service = new RolePresetService()
+    const preview = await service.preview(role.roleId, 'read-only', 'replace')
+    const input = {
+      presetSlug: 'read-only' as const,
+      mode: 'replace' as const,
+      expectedPresetVersion: '1.0.0',
+      baselinePermissionIds: preview.baselinePermissionIds,
+    }
+
+    await db.transaction((trx) => service.apply(role.roleId, input, trx))
+
+    try {
+      await db.transaction((trx) => service.apply(role.roleId, input, trx))
+      assert.fail('La segunda aplicación debía detectar una baseline obsoleta.')
+    } catch (error) {
+      assert.instanceOf(error, RolePresetServiceError)
+      assert.equal((error as RolePresetServiceError).httpStatus, 409)
+      assert.equal((error as RolePresetServiceError).key, 'rol-permisos-cambiaron')
+    }
+  })
+
   test('fallo a mitad hace rollback cuando el caller revierte la trx', async ({ assert }) => {
     const service = new RolePresetService()
     const preview = await service.preview(role.roleId, 'read-only', 'replace')

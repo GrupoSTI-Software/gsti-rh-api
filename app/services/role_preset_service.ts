@@ -258,6 +258,8 @@ export default class RolePresetService {
     roleSystemPermissions: RoleSystemPermission[]
     appliedPreset: { slug: string; version: string }
   }> {
+    await this.lockRole(roleId, trx)
+
     let preset
     try {
       preset = getRolePreset(input.presetSlug)
@@ -285,7 +287,7 @@ export default class RolePresetService {
       )
     }
 
-    const currentGrants = await this.loadCurrentGrants(roleId, trx)
+    const currentGrants = await this.loadCurrentGrants(roleId, trx, true)
     const currentIds = this.sortUniqueIds(currentGrants.map((grant) => grant.systemPermissionId))
     if (!this.sameIdSet(currentIds, input.baselinePermissionIds)) {
       throw new RolePresetServiceError(
@@ -332,22 +334,25 @@ export default class RolePresetService {
 
   private async loadCurrentGrants(
     roleId: number,
-    trx?: TransactionClientContract
+    trx?: TransactionClientContract,
+    roleAlreadyLocked = false
   ): Promise<RoleSystemPermission[]> {
-    const roleQuery = Role.query().whereNull('role_deleted_at').where('role_id', roleId)
-    if (trx) {
-      roleQuery.useTransaction(trx)
-    }
-    if (!(await roleQuery.first())) {
-      throw new RolePresetServiceError(
-        `El rol solicitado no existe: ${roleId}`,
-        ROLE_PRESET_ERROR_CODES.ROLE_NOT_FOUND,
-        404,
-        'rol-no-encontrado',
-        'Rol no encontrado',
-        `No existe un rol con id "${roleId}".`,
-        { roleId }
-      )
+    if (!roleAlreadyLocked) {
+      const roleQuery = Role.query().whereNull('role_deleted_at').where('role_id', roleId)
+      if (trx) {
+        roleQuery.useTransaction(trx)
+      }
+      if (!(await roleQuery.first())) {
+        throw new RolePresetServiceError(
+          `El rol solicitado no existe: ${roleId}`,
+          ROLE_PRESET_ERROR_CODES.ROLE_NOT_FOUND,
+          404,
+          'rol-no-encontrado',
+          'Rol no encontrado',
+          `No existe un rol con id "${roleId}".`,
+          { roleId }
+        )
+      }
     }
 
     const grantsQuery = RoleSystemPermission.query()
@@ -365,6 +370,27 @@ export default class RolePresetService {
       grantsQuery.useTransaction(trx)
     }
     return grantsQuery
+  }
+
+  private async lockRole(roleId: number, trx: TransactionClientContract): Promise<Role> {
+    const role = await Role.query()
+      .useTransaction(trx)
+      .forUpdate()
+      .whereNull('role_deleted_at')
+      .where('role_id', roleId)
+      .first()
+    if (!role) {
+      throw new RolePresetServiceError(
+        `El rol solicitado no existe: ${roleId}`,
+        ROLE_PRESET_ERROR_CODES.ROLE_NOT_FOUND,
+        404,
+        'rol-no-encontrado',
+        'Rol no encontrado',
+        `No existe un rol con id "${roleId}".`,
+        { roleId }
+      )
+    }
+    return role
   }
 
   private sameIdSet(left: number[], right: number[]): boolean {
