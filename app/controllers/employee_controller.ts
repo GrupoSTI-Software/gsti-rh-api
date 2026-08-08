@@ -42,6 +42,9 @@ import logger from '@adonisjs/core/services/logger'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
 import { resolveEmployeeQuotaApiError } from '../helpers/employee_quota_api_error.js'
 import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
+import EmployeePositionLevelService from '#services/employee_position_level_service'
+import { EmployeePositionLevelError } from '../exceptions/employee_position_level_error.js'
+import { resolveEmployeePositionLevelApiError } from '../helpers/employee_position_level_api_error.js'
 import { respondEmployeeImportValFileError } from '../helpers/employee_import_request_errors.js'
 import { EMPLOYEE_IMPORT_UPLOAD } from '../constants/employee_import_error_codes.js'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
@@ -820,6 +823,11 @@ export default class EmployeeController {
    *                 description: Position id
    *                 required: true
    *                 default: 0
+   *               positionLevelConfigId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: Nivel del puesto asignado al empleado (fila de position_position_levels del puesto efectivo). `null` o ausente = sin nivel
+   *                 required: false
    *               personId:
    *                 type: integer
    *                 description: Person id
@@ -983,6 +991,31 @@ export default class EmployeeController {
    *                     active:
    *                       type: integer
    *                       description: Empleados vigentes al momento del rechazo
+   *       '422':
+   *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto efectivo, o está inactivo para una asignación nueva
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   description: Título traducido del rechazo
+   *                 message:
+   *                   type: string
+   *                   description: Mensaje principal traducido
+   *                 detail:
+   *                   type: string
+   *                   description: Detalle traducido del rechazo
+   *                 key:
+   *                   type: string
+   *                   enum: [nivel-no-pertenece-al-puesto, nivel-inactivo-no-asignable]
+   *                 code:
+   *                   type: string
+   *                   enum: [ELVL.CONF.001, ELVL.CONF.002]
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1006,7 +1039,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
@@ -1121,6 +1154,19 @@ export default class EmployeeController {
           data: { ...data },
         }
       }
+      // Pertenencia del nivel de puesto (USRH1785964117188): corre contra el
+      // positionId EFECTIVO (post-fallback "Sin posición") y antes de toda
+      // persistencia; el rechazo burbujea al catch, que libera la persona
+      // huérfana del acto.
+      const positionLevelConfigId = data.positionLevelConfigId ?? null
+      await new EmployeePositionLevelService().assertAssignable({
+        positionLevelConfigId,
+        effectivePositionId: employee.positionId,
+        businessUnitScope,
+        previousPositionLevelConfigId: null,
+      })
+      employee.positionLevelConfigId = positionLevelConfigId
+
       const roles = await Role.query()
         .whereIn('role_slug', ['rh-manager', 'admin', 'nominas'])
         .whereNull('role_deleted_at')
@@ -1160,6 +1206,18 @@ export default class EmployeeController {
       if (failedPersonId > 0) {
         const employeeService = new EmployeeService(i18n)
         await employeeService.releasePersonIfOrphan(failedPersonId)
+      }
+      if (error instanceof EmployeePositionLevelError) {
+        const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+        }
       }
       if (error instanceof EmployeeQuotaError) {
         const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
@@ -1265,6 +1323,11 @@ export default class EmployeeController {
    *                 description: Position id
    *                 required: true
    *                 default: 0
+   *               positionLevelConfigId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: Nivel del puesto asignado al empleado (fila de position_position_levels del puesto del payload). Ausente = conservar el nivel actual; `null` = limpiar
+   *                 required: false
    *               businessUnitId:
    *                 type: integer
    *                 description: Business unit id
@@ -1399,6 +1462,31 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '422':
+   *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto del payload, o está inactivo para una asignación nueva
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   description: Título traducido del rechazo
+   *                 message:
+   *                   type: string
+   *                   description: Mensaje principal traducido
+   *                 detail:
+   *                   type: string
+   *                   description: Detalle traducido del rechazo
+   *                 key:
+   *                   type: string
+   *                   enum: [nivel-no-pertenece-al-puesto, nivel-inactivo-no-asignable]
+   *                 code:
+   *                   type: string
+   *                   enum: [ELVL.CONF.001, ELVL.CONF.002]
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1422,7 +1510,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n, auth }: HttpContext) {
+  async update({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       const employeeFirstName = request.input('employeeFirstName')
@@ -1574,6 +1662,23 @@ export default class EmployeeController {
           data: { ...data },
         }
       }
+
+      // Nivel de puesto (USRH1785964117188): propiedad ausente = no tocar el
+      // nivel actual; null explícito = limpiar. La pertenencia corre contra
+      // el positionId del payload ANTES de persistir, con la exención de
+      // conservación (mismo id + mismo puesto = no-op, regla 6).
+      if ('positionLevelConfigId' in data) {
+        const positionLevelConfigId = data.positionLevelConfigId ?? null
+        await new EmployeePositionLevelService().assertAssignable({
+          positionLevelConfigId,
+          effectivePositionId: employee.positionId,
+          businessUnitScope,
+          previousPositionLevelConfigId: currentEmployee.positionLevelConfigId,
+          currentPositionId: currentEmployee.positionId,
+        })
+        employee.positionLevelConfigId = positionLevelConfigId
+      }
+
       const previousEmail = currentEmployee.employeeBusinessEmail
       const actorId = auth.user?.userId
 
@@ -1602,6 +1707,18 @@ export default class EmployeeController {
         }
       }
     } catch (error) {
+      if (error instanceof EmployeePositionLevelError) {
+        const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+        }
+      }
       const workScheduleError = this.mapWorkScheduleErrorMessage(error?.message, i18n)
       if (workScheduleError) {
         response.status(400)
