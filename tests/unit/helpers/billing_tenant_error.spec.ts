@@ -7,10 +7,14 @@ import {
   employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
   mapCatalogErrorForPublicSurface,
+  noLiveSubscriptionError,
+  onlyAccountOwnerError,
   originNotSelfServiceError,
+  periodNotProratableError,
   planNotSelectedError,
   planUnavailableError,
   rethrowCatalogErrorForPublicSurface,
+  subscriptionPastDueError,
 } from '../../../app/helpers/billing_tenant_error.js'
 import { resolveBillingSubscriptionApiError } from '../../../app/helpers/billing_subscription_api_error.js'
 
@@ -136,5 +140,35 @@ test.group('billing_tenant_error — factories de cantidad', () => {
 
     const resolved = resolveBillingSubscriptionApiError(error)
     assert.deepEqual(resolved.data, { active: 47, minimum: 50 })
+  })
+})
+
+test.group('billing_tenant_error — previsualización de cambio (USRH1786107870847)', () => {
+  test('noLiveSubscriptionError expone key y code del contrato', ({ assert }) => {
+    const error = noLiveSubscriptionError()
+    assert.equal(error.key, 'sin-suscripcion-viva')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_SUBSCRIPTION)
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('subscriptionPastDueError expone key y code del contrato', ({ assert }) => {
+    const error = subscriptionPastDueError()
+    assert.equal(error.key, 'suscripcion-con-pago-atrasado')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_PAST_DUE)
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('periodNotProratableError expone key y code del contrato', ({ assert }) => {
+    const error = periodNotProratableError()
+    assert.equal(error.key, 'periodo-sin-dias-por-prorratear')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.PERIOD_NOT_PRORATABLE)
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('onlyAccountOwnerError responde 403', ({ assert }) => {
+    const error = onlyAccountOwnerError()
+    assert.equal(error.key, 'solo-el-dueno-de-la-cuenta')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
+    assert.equal(error.httpStatus, 403)
   })
 })

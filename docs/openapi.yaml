@@ -3749,7 +3749,221 @@ components:
           type: boolean
           description: false cuando la empresa self-service no tiene contratación viva
 
+    BillingSubscriptionChangePreviewAmounts:
+      type: object
+      description: Importes del periodo (precio unitario, descuento, IVA y total).
+      properties:
+        unitAmount:
+          type: number
+          nullable: true
+        pricePerEmployee:
+          type: number
+          nullable: true
+        discountPercent:
+          type: number
+        discountAmount:
+          type: number
+          nullable: true
+        subtotal:
+          type: number
+        taxRate:
+          type: number
+        taxAmount:
+          type: number
+        total:
+          type: number
+
+    BillingSubscriptionChangePreviewCurrentPeriod:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date
+        end:
+          type: string
+          format: date
+        totalDays:
+          type: integer
+        remainingDays:
+          type: integer
+
+    BillingSubscriptionChangePreviewProration:
+      type: object
+      description: Prorrateo en centavos enteros (solo aumentos con periodo prorrateable).
+      properties:
+        differenceCents:
+          type: integer
+        totalDays:
+          type: integer
+        remainingDays:
+          type: integer
+        amountCents:
+          type: integer
+        amountPesos:
+          type: number
+
+    BillingSubscriptionChangePreview:
+      type: object
+      description: |
+        Previsualización de cambio de cantidad contratada (USRH1786107870847).
+        Solo lectura: no modifica la suscripción.
+      properties:
+        billingSubscriptionId:
+          type: integer
+        billingPlanId:
+          type: integer
+        billingPlanPriceId:
+          type: integer
+        billingSubscriptionStatus:
+          type: string
+          enum: [trialing, active, past_due, canceled, incomplete, incomplete_expired, unpaid]
+        currency:
+          type: string
+        changeType:
+          type: string
+          enum: [increase, decrease, none]
+        contractedEmployees:
+          type: integer
+        requestedEmployees:
+          type: integer
+        activeEmployees:
+          type: integer
+        minimumContractedEmployees:
+          type: integer
+        currentPeriod:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreviewCurrentPeriod'
+        cutDate:
+          type: string
+          format: date
+        currentAmounts:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreviewAmounts'
+        newAmounts:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreviewAmounts'
+        proration:
+          allOf:
+            - $ref: '#/components/schemas/BillingSubscriptionChangePreviewProration'
+          nullable: true
+        effectiveFrom:
+          type: string
+          format: date
+          nullable: true
+
+    BillingSubscriptionChangePreviewResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreview'
+
+    BillingSubscriptionApiError:
+      type: object
+      description: |
+        Error de suscripción tenant (PLT.SUB.*). Contrato { title, detail, key, code }.
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+        code:
+          type: string
+          enum:
+            - PLT.SUB.NO_LIVE_SUBSCRIPTION
+            - PLT.SUB.SUBSCRIPTION_PAST_DUE
+            - PLT.SUB.PERIOD_NOT_PRORATABLE
+            - PLT.SUB.FORBIDDEN_ROLE
+            - PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN
+            - PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT
+            - PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP
+
 paths:
+  /api/billing/subscription/change-preview:
+    get:
+      summary: Previsualizar cambio de cantidad contratada
+      description: |
+        Consulta de solo lectura: clasifica el cambio (aumento, reducción o sin cambio),
+        calcula importes del periodo, prorrateo (aumentos) y fecha de efecto (reducciones)
+        sin modificar la suscripción. Solo el dueño de la cuenta (`owner`, `root` o
+        `super-administrador`). Requiere suscripción viva y periodo con días por delante
+        para prorratear aumentos.
+      tags: [Tenant Billing]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: employees
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Cantidad pedida (bloques de 10; reglas comerciales en el servicio)
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Previsualización resuelta (increase, decrease o none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionChangePreviewResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Rol distinto de owner/root/super-administrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Acceso restringido
+                detail: Solo el dueño de la cuenta puede consultar el costo del cambio.
+                key: solo-el-dueno-de-la-cuenta
+                code: PLT.SUB.FORBIDDEN_ROLE
+        '422':
+          description: |
+            Cantidad inválida, sin suscripción viva, pago atrasado o periodo no prorrateable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              examples:
+                noLiveSubscription:
+                  summary: Sin suscripción viva
+                  value:
+                    title: Sin suscripción activa
+                    detail: No hay una suscripción viva para previsualizar el cambio.
+                    key: sin-suscripcion-viva
+                    code: PLT.SUB.NO_LIVE_SUBSCRIPTION
+                employeesNotBlockOfTen:
+                  summary: Cantidad no múltiplo de 10
+                  value:
+                    title: Cantidad inválida
+                    detail: La cantidad debe ser múltiplo de 10.
+                    key: cantidad-no-multiplo-de-diez
+                    code: PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN
+        '429':
+          description: Límite de consultas de previsualización excedido (billing-preview)
+
   /api/employees/quota:
     get:
       summary: Consultar cupo de empleados de la empresa activa

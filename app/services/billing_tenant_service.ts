@@ -12,6 +12,7 @@ import {
   employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
   MIN_CONTRACTED_EMPLOYEES,
+  EMPLOYEE_BLOCK_SIZE,
   originNotSelfServiceError,
   planUnavailableError,
   PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
@@ -124,7 +125,7 @@ export default class BillingTenantService {
     }
     return Math.max(
       MIN_CONTRACTED_EMPLOYEES,
-      Math.ceil(activeEmployees / 10) * 10
+      Math.ceil(activeEmployees / EMPLOYEE_BLOCK_SIZE) * EMPLOYEE_BLOCK_SIZE
     )
   }
 
@@ -203,7 +204,7 @@ export default class BillingTenantService {
       throw employeesAboveSafetyCapError()
     }
 
-    if (employeeCount < 10 || employeeCount % 10 !== 0) {
+    if (employeeCount < MIN_CONTRACTED_EMPLOYEES || employeeCount % EMPLOYEE_BLOCK_SIZE !== 0) {
       throw employeesNotBlockOfTenError()
     }
   }

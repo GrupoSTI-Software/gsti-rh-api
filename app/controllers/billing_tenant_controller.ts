@@ -1,8 +1,14 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import BillingTenantService from '#services/billing_tenant_service'
+import BillingSubscriptionChangeService from '#services/billing_subscription_change_service'
+import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
+import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import { assertBillingOwner } from '../helpers/billing_owner_guard.js'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
+import { TenantContext } from '../utils/tenant_context.js'
 import {
   contractTenantSubscriptionValidator,
+  previewSubscriptionChangeQueryValidator,
   publicPlanPriceQueryValidator,
 } from '#validators/billing_tenant'
 
@@ -15,6 +21,7 @@ import {
  */
 export default class BillingTenantController {
   private readonly service = new BillingTenantService()
+  private readonly changeService = new BillingSubscriptionChangeService()
 
   /**
    * @swagger
@@ -431,6 +438,106 @@ export default class BillingTenantController {
         body.contractedEmployees
       )
       return response.status(201).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/billing/subscription/change-preview:
+   *   get:
+   *     tags:
+   *       - Tenant Billing
+   *     summary: Previsualizar cambio de cantidad contratada
+   *     description: |
+   *       Consulta de solo lectura: calcula clasificación, importes del periodo,
+   *       prorrateo (si es aumento) y fecha de efecto (si es reducción) sin
+   *       modificar la suscripción. Solo el dueño de la cuenta (`owner`).
+   *       Requiere suscripción viva y periodo con días por delante.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *       - in: query
+   *         name: employees
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Cantidad pedida (bloques de 10; reglas comerciales en el servicio)
+   *     responses:
+   *       '200':
+   *         description: Previsualización resuelta (increase, decrease o none)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
+   *       '422':
+   *         description: Cantidad inválida, sin suscripción viva, pago atrasado o periodo no prorrateable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *       '429':
+   *         description: Límite de consultas de previsualización excedido (billing-preview)
+   */
+  async previewSubscriptionChange(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      await assertBillingOwner(ctx)
+      const qs = await request.validateUsing(previewSubscriptionChangeQueryValidator)
+
+      const businessUnitId = TenantContext.getScope()[0]
+      if (!businessUnitId || businessUnitId <= 0) {
+        throw new BillingSubscriptionServiceError(
+          'No se pudo resolver la empresa activa del tenant',
+          BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+          500,
+          'empresa-no-resuelta',
+          'No se pudo determinar la empresa activa para previsualizar el cambio.'
+        )
+      }
+
+      const result = await this.changeService.previewChange(businessUnitId, qs.employees)
+      return response.status(200).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)
