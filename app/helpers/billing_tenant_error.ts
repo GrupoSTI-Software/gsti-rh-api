@@ -183,3 +183,32 @@ export function onlyAccountOwnerError(): BillingSubscriptionServiceError {
     detail
   )
 }
+
+/** La cantidad pedida no supera la contratada vigente (regla 5 — USRH1786107870850). */
+export function changeNotAnIncreaseError(
+  contracted: number,
+  requested: number
+): BillingSubscriptionServiceError {
+  const detail =
+    'La cantidad solicitada no es mayor a tu cantidad contratada actual. Para reducir tu suscripción usa la opción de reducción.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_NOT_AN_INCREASE,
+    422,
+    'cantidad-no-es-aumento',
+    detail,
+    { contracted, requested }
+  )
+}
+
+/** La suscripción se movió entre el cálculo y el registro (USRH1786107870850). */
+export function subscriptionChangeConflictError(): BillingSubscriptionServiceError {
+  const detail = 'Tu suscripción cambió mientras procesábamos la solicitud. Vuelve a intentarlo.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_CONFLICT,
+    409,
+    'cambio-en-conflicto',
+    detail
+  )
+}

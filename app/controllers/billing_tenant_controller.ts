@@ -10,6 +10,7 @@ import {
   contractTenantSubscriptionValidator,
   previewSubscriptionChangeQueryValidator,
   publicPlanPriceQueryValidator,
+  requestSubscriptionIncreaseValidator,
 } from '#validators/billing_tenant'
 
 /**
@@ -538,6 +539,129 @@ export default class BillingTenantController {
 
       const result = await this.changeService.previewChange(businessUnitId, qs.employees)
       return response.status(200).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/billing/subscription/changes/increase:
+   *   post:
+   *     tags:
+   *       - Tenant Billing
+   *     summary: Solicitar aumento de cantidad contratada
+   *     description: |
+   *       Registra la solicitud de aumento y genera el adeudo prorrateado (suscripción
+   *       activa) o aplica de inmediato sin cobro (periodo de prueba). Solo el dueño
+   *       de la cuenta (`owner`). Delega el cálculo en la previsualización; no acepta
+   *       importes ni identificadores de suscripción en el body.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - employees
+   *             properties:
+   *               employees:
+   *                 type: integer
+   *                 minimum: 1
+   *                 description: Cantidad pedida (bloques de 10; reglas comerciales en el servicio)
+   *     responses:
+   *       '201':
+   *         description: Solicitud registrada (pending_payment o applied en prueba)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
+   *       '409':
+   *         description: La suscripción cambió entre el cálculo y el registro
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: cambio-en-conflicto
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.CHANGE_CONFLICT
+   *       '422':
+   *         description: Cantidad inválida, no es aumento, sin suscripción viva o pago atrasado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *       '429':
+   *         description: Límite de solicitudes de cambio excedido (billing-change-request)
+   */
+  async requestSubscriptionIncrease(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      await assertBillingOwner(ctx)
+      const body = await request.validateUsing(requestSubscriptionIncreaseValidator)
+
+      const businessUnitId = TenantContext.getScope()[0]
+      if (!businessUnitId || businessUnitId <= 0) {
+        throw new BillingSubscriptionServiceError(
+          'No se pudo resolver la empresa activa del tenant',
+          BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+          500,
+          'empresa-no-resuelta',
+          'No se pudo determinar la empresa activa para solicitar el cambio.'
+        )
+      }
+
+      const result = await this.changeService.requestIncrease(businessUnitId, body.employees)
+      return response.status(201).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

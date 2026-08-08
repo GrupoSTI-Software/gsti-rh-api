@@ -111,7 +111,7 @@ test.group('billing_routes — change-preview (USRH1786107870847)', () => {
   test('OpenAPI documenta change-preview con schemas PLT.SUB.*', ({ assert }) => {
     const content = readFileSync(join(process.cwd(), 'docs/openapi.yaml'), 'utf-8')
     const sectionStart = content.indexOf('/api/billing/subscription/change-preview:')
-    const sectionEnd = content.indexOf('/api/employees/quota:')
+    const sectionEnd = content.indexOf('/api/billing/subscription/changes/increase:')
     const section = content.slice(sectionStart, sectionEnd)
 
     assert.include(section, 'BillingSubscriptionChangePreviewResponse')
@@ -119,6 +119,32 @@ test.group('billing_routes — change-preview (USRH1786107870847)', () => {
     assert.include(section, 'PLT.SUB.FORBIDDEN_ROLE')
     assert.include(section, 'PLT.SUB.NO_LIVE_SUBSCRIPTION')
     assert.include(section, 'PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN')
+    assert.include(section, "'429':")
+  })
+})
+
+test.group('billing_routes — changes/increase (USRH1786107870850)', () => {
+  test('expone ruta con limitador billing-change-request por userId', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'start/routes/billing_routes.ts'), 'utf-8')
+
+    assert.include(content, "limiter.define('billing-change-request'")
+    assert.include(content, 'billing-change-request:${userId}')
+    assert.include(content, '/subscription/changes/increase')
+    assert.include(content, 'requestSubscriptionIncrease')
+    assert.include(content, '.use(billingChangeRequestRateLimit)')
+  })
+
+  test('OpenAPI documenta increase con schemas PLT.SUB.*', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'docs/openapi.yaml'), 'utf-8')
+    const sectionStart = content.indexOf('/api/billing/subscription/changes/increase:')
+    const sectionEnd = content.indexOf('/api/employees/quota:')
+    const section = content.slice(sectionStart, sectionEnd)
+
+    assert.include(section, 'BillingSubscriptionIncreaseRequestResponse')
+    assert.include(section, 'PLT.SUB.CHANGE_NOT_AN_INCREASE')
+    assert.include(section, 'PLT.SUB.CHANGE_CONFLICT')
+    assert.include(section, "'201':")
+    assert.include(section, "'409':")
     assert.include(section, "'429':")
   })
 })

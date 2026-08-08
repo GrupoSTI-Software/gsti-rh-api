@@ -45,6 +45,10 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   PERIOD_NOT_PRORATABLE: 'PLT.SUB.PERIOD_NOT_PRORATABLE',
   /** Solo el dueño de la cuenta puede consultar el costo del cambio */
   FORBIDDEN_ROLE: 'PLT.SUB.FORBIDDEN_ROLE',
+  /** La cantidad solicitada no es mayor a la contratada vigente (no es un aumento) */
+  CHANGE_NOT_AN_INCREASE: 'PLT.SUB.CHANGE_NOT_AN_INCREASE',
+  /** La suscripción cambió entre el cálculo y el registro del cambio */
+  CHANGE_CONFLICT: 'PLT.SUB.CHANGE_CONFLICT',
 } as const
 
 export type BillingSubscriptionErrorCode =

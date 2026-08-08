@@ -3878,6 +3878,80 @@ components:
             - PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN
             - PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT
             - PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP
+            - PLT.SUB.CHANGE_NOT_AN_INCREASE
+            - PLT.SUB.CHANGE_CONFLICT
+
+    BillingSubscriptionIncreaseNewAmounts:
+      type: object
+      properties:
+        pricePerEmployee:
+          type: number
+        discountPercent:
+          type: number
+        subtotal:
+          type: number
+        taxRate:
+          type: number
+        taxAmount:
+          type: number
+        total:
+          type: number
+
+    BillingSubscriptionIncreaseRequestData:
+      type: object
+      description: |
+        Resultado de solicitar un aumento de cantidad contratada (USRH1786107870850).
+      properties:
+        billingSubscriptionChangeId:
+          type: integer
+        billingSubscriptionId:
+          type: integer
+        billingSubscriptionChangeType:
+          type: string
+          enum: [increase]
+        billingSubscriptionChangeStatus:
+          type: string
+          enum: [pending_payment, applied]
+        previousEmployees:
+          type: integer
+        newEmployees:
+          type: integer
+        contractedEmployees:
+          type: integer
+          description: Cupo vigente tras la operación (sin cambio hasta pagar, salvo en prueba)
+        currency:
+          type: string
+        newAmounts:
+          $ref: '#/components/schemas/BillingSubscriptionIncreaseNewAmounts'
+        proration:
+          allOf:
+            - $ref: '#/components/schemas/BillingSubscriptionChangePreviewProration'
+          nullable: true
+        cutDate:
+          type: string
+          format: date
+        effectiveAt:
+          type: string
+          format: date-time
+          nullable: true
+        appliedAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextStep:
+          type: string
+          enum: [awaiting_payment, applied]
+        nextStepMessage:
+          type: string
+
+    BillingSubscriptionIncreaseRequestResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingSubscriptionIncreaseRequestData'
 
 paths:
   /api/billing/subscription/change-preview:
@@ -3963,6 +4037,105 @@ paths:
                     code: PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN
         '429':
           description: Límite de consultas de previsualización excedido (billing-preview)
+
+  /api/billing/subscription/changes/increase:
+    post:
+      summary: Solicitar aumento de cantidad contratada
+      description: |
+        Registra la solicitud de aumento y genera el adeudo prorrateado cuando la suscripción
+        ya está pagando, o aplica de inmediato sin cobro en periodo de prueba. Solo el dueño
+        de la cuenta (`owner`, `root` o `super-administrador`). El cupo no sube hasta que
+        Valanserh registre el pago del adeudo, salvo en prueba.
+      tags: [Tenant Billing]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employees]
+              properties:
+                employees:
+                  type: integer
+                  minimum: 1
+                  description: Cantidad pedida (bloques de 10; reglas comerciales en el servicio)
+      responses:
+        '201':
+          description: Solicitud registrada (pending_payment o applied en prueba)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionIncreaseRequestResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Rol distinto de owner/root/super-administrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Acceso restringido
+                detail: Solo el dueño de la cuenta puede solicitar cambios en la suscripción.
+                key: solo-el-dueno-de-la-cuenta
+                code: PLT.SUB.FORBIDDEN_ROLE
+        '409':
+          description: La suscripción cambió mientras se procesaba la solicitud
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Suscripciones
+                detail: Tu suscripción cambió mientras procesábamos la solicitud. Vuelve a intentarlo.
+                key: cambio-en-conflicto
+                code: PLT.SUB.CHANGE_CONFLICT
+        '422':
+          description: |
+            Cantidad inválida, no es un aumento, sin suscripción viva, pago atrasado o periodo no prorrateable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              examples:
+                changeNotAnIncrease:
+                  summary: La cantidad no es un aumento
+                  value:
+                    title: Suscripciones
+                    detail: La cantidad solicitada no es mayor a tu cantidad contratada actual.
+                    key: cantidad-no-es-aumento
+                    code: PLT.SUB.CHANGE_NOT_AN_INCREASE
+                noLiveSubscription:
+                  summary: Sin suscripción viva
+                  value:
+                    title: Suscripciones
+                    detail: No tienes una contratación viva que se pueda cambiar.
+                    key: sin-suscripcion-viva
+                    code: PLT.SUB.NO_LIVE_SUBSCRIPTION
+        '429':
+          description: Límite de solicitudes de cambio excedido (billing-change-request)
 
   /api/employees/quota:
     get:

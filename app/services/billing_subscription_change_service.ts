@@ -1,23 +1,35 @@
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, {
   LIVE_SUBSCRIPTION_STATUSES,
   type BillingSubscriptionStatus,
 } from '#models/billing_subscription'
+import BillingSubscriptionChange, {
+  LIVE_SUBSCRIPTION_CHANGE_STATUSES,
+  type BillingSubscriptionChangeStatus,
+} from '#models/billing_subscription_change'
 import BillingCatalogService from '#services/billing_catalog_service'
 import BillingTenantService from '#services/billing_tenant_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import {
+  changeNotAnIncreaseError,
   employeesBelowActiveHeadcountError,
   noLiveSubscriptionError,
   periodNotProratableError,
+  subscriptionChangeConflictError,
   subscriptionPastDueError,
 } from '../helpers/billing_tenant_error.js'
 import {
   daysBetweenBusinessDates,
   toBusinessDateString,
   toCalendarIsoDate,
+  todayInBusinessZone,
 } from '../utils/business_date.js'
 
 export type SubscriptionChangeType = 'increase' | 'decrease' | 'none'
+
+export type SubscriptionChangeNextStep = 'awaiting_payment' | 'applied'
 
 export interface SubscriptionChangePreviewAmounts {
   unitAmount?: number
@@ -62,6 +74,31 @@ export interface SubscriptionChangePreview {
   newAmounts: SubscriptionChangePreviewAmounts
   proration: SubscriptionChangePreviewProration | null
   effectiveFrom: string | null
+}
+
+export interface SubscriptionIncreaseRequestResult {
+  billingSubscriptionChangeId: number
+  billingSubscriptionId: number
+  billingSubscriptionChangeType: 'increase'
+  billingSubscriptionChangeStatus: BillingSubscriptionChangeStatus
+  previousEmployees: number
+  newEmployees: number
+  contractedEmployees: number
+  currency: string
+  newAmounts: {
+    pricePerEmployee: number
+    discountPercent: number
+    subtotal: number
+    taxRate: number
+    taxAmount: number
+    total: number
+  }
+  proration: SubscriptionChangePreviewProration | null
+  cutDate: string
+  effectiveAt: string | null
+  appliedAt: string | null
+  nextStep: SubscriptionChangeNextStep
+  nextStepMessage: string
 }
 
 /**
@@ -150,6 +187,172 @@ export default class BillingSubscriptionChangeService {
       newAmounts,
       proration,
       effectiveFrom,
+    }
+  }
+
+  /**
+   * Registra la solicitud de AUMENTO de cantidad contratada de una empresa (USRH1786107870850).
+   *
+   * NO lee TenantContext ni HttpContext: recibe la empresa explícitamente, igual que
+   * previewChange. No calcula: delega en previewChange y transcribe. No sube la cantidad
+   * contratada salvo en periodo de prueba.
+   */
+  async requestIncrease(
+    businessUnitId: number,
+    requestedEmployees: number
+  ): Promise<SubscriptionIncreaseRequestResult> {
+    const preview = await this.previewChange(businessUnitId, requestedEmployees)
+
+    if (preview.changeType !== 'increase') {
+      throw changeNotAnIncreaseError(preview.contractedEmployees, preview.requestedEmployees)
+    }
+
+    const change = await db.transaction(async (trx) => {
+      const fresh = await BillingSubscription.query({ client: trx })
+        .where('business_unit_id', businessUnitId)
+        .whereIn('billing_subscription_status', LIVE_SUBSCRIPTION_STATUSES)
+        .whereNull('billing_subscription_deleted_at')
+        .orderBy('billing_subscription_id', 'desc')
+        .forUpdate()
+        .first()
+
+      if (!fresh) {
+        throw noLiveSubscriptionError()
+      }
+
+      this.assertPreviewStillValid(fresh, preview)
+
+      await BillingSubscriptionChange.query({ client: trx })
+        .where('billing_subscription_id', fresh.billingSubscriptionId)
+        .where('business_unit_id', businessUnitId)
+        .whereIn('billing_subscription_change_status', LIVE_SUBSCRIPTION_CHANGE_STATUSES)
+        .whereNull('billing_subscription_change_deleted_at')
+        .update({ billing_subscription_change_status: 'canceled' })
+
+      const isTrial = fresh.billingSubscriptionStatus === 'trialing'
+      const proratedCents = isTrial
+        ? 0
+        : Math.max(0, preview.proration?.amountCents ?? 0)
+      const appliedAt = isTrial ? todayInBusinessZone() : null
+
+      const created = await BillingSubscriptionChange.create(
+        {
+          billingSubscriptionId: fresh.billingSubscriptionId,
+          businessUnitId,
+          billingSubscriptionChangeType: 'increase',
+          billingSubscriptionChangeStatus: isTrial ? 'applied' : 'pending_payment',
+          billingSubscriptionChangePreviousEmployees: preview.contractedEmployees,
+          billingSubscriptionChangeNewEmployees: preview.requestedEmployees,
+          billingSubscriptionChangeUnitAmount: preview.newAmounts.pricePerEmployee!,
+          billingSubscriptionChangeDiscountPercent: preview.newAmounts.discountPercent,
+          billingSubscriptionChangeTaxRate: preview.newAmounts.taxRate,
+          billingSubscriptionChangeSubtotal: preview.newAmounts.subtotal,
+          billingSubscriptionChangeTaxAmount: preview.newAmounts.taxAmount,
+          billingSubscriptionChangeTotal: preview.newAmounts.total,
+          billingSubscriptionChangeProratedAmountCents: proratedCents,
+          billingSubscriptionChangeEffectiveAt: null,
+          billingSubscriptionChangeAppliedAt: appliedAt,
+          billingSubscriptionChangeBillingPaymentId: null,
+          billingSubscriptionChangeNotApplicableReason: null,
+        },
+        { client: trx }
+      )
+
+      if (isTrial) {
+        await this.applyTrialIncreaseSnapshot(fresh, preview, trx)
+      }
+
+      return created
+    })
+
+    return this.buildIncreaseRequestResult(preview, change)
+  }
+
+  private assertPreviewStillValid(
+    fresh: BillingSubscription,
+    preview: SubscriptionChangePreview
+  ): void {
+    if (fresh.billingSubscriptionId !== preview.billingSubscriptionId) {
+      throw subscriptionChangeConflictError()
+    }
+
+    if (Number(fresh.billingSubscriptionContractedEmployees) !== preview.contractedEmployees) {
+      throw subscriptionChangeConflictError()
+    }
+
+    const freshPeriodEnd = toCalendarIsoDate(fresh.billingSubscriptionCurrentPeriodEnd)
+    if (freshPeriodEnd !== preview.currentPeriod.end) {
+      throw subscriptionChangeConflictError()
+    }
+  }
+
+  private async applyTrialIncreaseSnapshot(
+    subscription: BillingSubscription,
+    preview: SubscriptionChangePreview,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const todayIso = toBusinessDateString()
+    const resolved = await this.catalog.resolvePrice(
+      subscription.billingPlanId,
+      preview.requestedEmployees,
+      todayIso
+    )
+
+    const currentPrice = await BillingPlanPrice.query({ client: trx })
+      .where('billing_plan_id', subscription.billingPlanId)
+      .where('billing_plan_price_effective_from', '<=', todayIso)
+      .orderBy('billing_plan_price_effective_from', 'desc')
+      .first()
+
+    if (!currentPrice) {
+      throw subscriptionChangeConflictError()
+    }
+
+    subscription.useTransaction(trx)
+    subscription.billingSubscriptionContractedEmployees = preview.requestedEmployees
+    subscription.billingPlanPriceId = currentPrice.billingPlanPriceId
+    subscription.billingSubscriptionContractedUnitAmount = resolved.pricePerEmployee
+    subscription.billingSubscriptionDiscountPercent = resolved.discountPercent
+    subscription.billingSubscriptionContractedSubtotal = resolved.subtotal
+    subscription.billingSubscriptionContractedTaxRate = resolved.taxRate
+    subscription.billingSubscriptionContractedTaxAmount = resolved.taxAmount
+    subscription.billingSubscriptionContractedTotal = resolved.total
+    subscription.billingSubscriptionContractedCurrency = resolved.currency
+    await subscription.save()
+  }
+
+  private buildIncreaseRequestResult(
+    preview: SubscriptionChangePreview,
+    change: BillingSubscriptionChange
+  ): SubscriptionIncreaseRequestResult {
+    const isTrial = change.billingSubscriptionChangeStatus === 'applied'
+    const proration = isTrial ? null : preview.proration
+
+    return {
+      billingSubscriptionChangeId: change.billingSubscriptionChangeId,
+      billingSubscriptionId: change.billingSubscriptionId,
+      billingSubscriptionChangeType: 'increase',
+      billingSubscriptionChangeStatus: change.billingSubscriptionChangeStatus,
+      previousEmployees: change.billingSubscriptionChangePreviousEmployees,
+      newEmployees: change.billingSubscriptionChangeNewEmployees,
+      contractedEmployees: isTrial ? preview.requestedEmployees : preview.contractedEmployees,
+      currency: preview.currency,
+      newAmounts: {
+        pricePerEmployee: preview.newAmounts.pricePerEmployee!,
+        discountPercent: preview.newAmounts.discountPercent,
+        subtotal: preview.newAmounts.subtotal,
+        taxRate: preview.newAmounts.taxRate,
+        taxAmount: preview.newAmounts.taxAmount,
+        total: preview.newAmounts.total,
+      },
+      proration,
+      cutDate: preview.cutDate,
+      effectiveAt: null,
+      appliedAt: change.billingSubscriptionChangeAppliedAt?.toISO() ?? null,
+      nextStep: isTrial ? 'applied' : 'awaiting_payment',
+      nextStepMessage: isTrial
+        ? `Tu cantidad contratada ya es de ${preview.requestedEmployees} empleados. Tu primer pago saldrá a ese importe.`
+        : 'Registramos tu solicitud. Tu cupo aumentará cuando confirmemos el pago del adeudo.',
     }
   }
 
