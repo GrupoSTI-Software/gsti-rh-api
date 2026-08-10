@@ -74,4 +74,15 @@ test.group('isEmployeeTerminationRecordChanged', () => {
       })
     )
   })
+
+  test('normaliza Date UTC a la misma forma canónica que una fecha string', ({ assert }) => {
+    const date = new Date('2024-01-15T23:59:59.000Z')
+    assert.equal(normalizeEmployeeTerminatedDate(date), '2024-01-15 00:000:00')
+    assert.isFalse(
+      isEmployeeTerminationRecordChanged(
+        { ...base, employeeTerminatedDate: date },
+        { ...base, employeeTerminatedDate: '2024-01-15T00:00:00.000Z' }
+      )
+    )
+  })
 })

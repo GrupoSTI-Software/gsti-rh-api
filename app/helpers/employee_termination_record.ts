@@ -1,5 +1,5 @@
 export interface EmployeeTerminationRecord {
-  employeeTerminatedDate: string | null
+  employeeTerminatedDate: string | Date | null
   employeeTerminationModality: string | null
   employeeTerminationType: string | null
 }
@@ -8,9 +8,12 @@ export interface EmployeeTerminationRecord {
 export function normalizeEmployeeTerminatedDate(value: unknown): string | null {
   if (!value) return null
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10)
+    const year = value.getUTCFullYear()
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(value.getUTCDate()).padStart(2, '0')
+    return `${year}-${month}-${day} 00:000:00`
   }
-  return String(value).replace('"', '').split(/[T\s]/)[0]
+  return `${String(value).replace('"', '').split(/[T\s]/)[0]} 00:000:00`
 }
 
 function normalizeToken(value: unknown): string | null {

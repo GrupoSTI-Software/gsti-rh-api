@@ -137,6 +137,7 @@ interface EmployeeFixture {
   person: Person
   departmentId: number
   positionId: number
+  alternativePositionId: number
 }
 
 interface SystemActor {
@@ -221,6 +222,16 @@ async function createEmployeeFixture(
     position_created_at: now,
   })
   const positionId = Number(positionInsert[0])
+  const alternativePositionInsert = await db.table('positions').insert({
+    position_sync_id: `${stamp}-alt`,
+    position_code: `POS-${stamp}-ALT`,
+    position_name: `Puesto alterno ${prefix}`,
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    position_active: 1,
+    position_created_at: now,
+  })
+  const alternativePositionId = Number(alternativePositionInsert[0])
   const employeeInsert = await db.table('employees').insert({
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
@@ -246,12 +257,15 @@ async function createEmployeeFixture(
     person,
     departmentId,
     positionId,
+    alternativePositionId,
   }
 }
 
 async function cleanupEmployeeFixture(fixture: EmployeeFixture | null) {
   if (!fixture) return
+  await db.from('employee_salary_history').where('employee_id', fixture.employee.employeeId).delete()
   await Employee.query().where('employee_id', fixture.employee.employeeId).delete()
+  await db.from('positions').where('position_id', fixture.alternativePositionId).delete()
   await db.from('positions').where('position_id', fixture.positionId).delete()
   await db.from('departments').where('department_id', fixture.departmentId).delete()
   await Person.query().where('person_id', fixture.person.personId).delete()
@@ -268,6 +282,8 @@ function employeePayload(fixture: EmployeeFixture, overrides: Record<string, unk
     departmentId: fixture.departmentId,
     positionId: fixture.positionId,
     employeeTypeId: employee.employeeTypeId,
+    payrollBusinessUnitId: employee.businessUnitId,
+    employeeBusinessEmail: employee.employeeBusinessEmail,
     employeeWorkSchedule: employee.employeeWorkSchedule ?? 'Onsite',
     employeeWorkScheduleHybridConfig: null,
     ...overrides,
@@ -304,14 +320,28 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
   })
 
   group.teardown(async () => {
-    if (actor) {
-      await db.from('employees').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
-      await db.from('positions').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
-      await db.from('departments').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+    try {
+      if (actor) {
+        const employees = await db
+          .from('employees')
+          .where('business_unit_id', actor.businessUnit.businessUnitId)
+          .select('employee_id')
+        await db
+          .from('employee_salary_history')
+          .whereIn(
+            'employee_id',
+            employees.map((employee) => employee.employee_id)
+          )
+          .delete()
+        await db.from('employees').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+        await db.from('positions').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+        await db.from('departments').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+      }
+      await cleanupActor(actor)
+    } finally {
+      employeesModule.systemModulePermissionEnforcementActive = false
+      await employeesModule.save()
     }
-    await cleanupActor(actor)
-    employeesModule.systemModulePermissionEnforcementActive = false
-    await employeesModule.save()
   })
 
   test('A: permite editar puesto y salario de empleado activo con tab-trabajo-write', async ({
@@ -324,9 +354,20 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
         .put(`/api/employees/${fixture.employee.employeeId}`)
         .loginAs(actor!.user)
         .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
-        .json(employeePayload(fixture, { dailySalary: 321, salaryChangeReason: 'Prueba' }))
-      assert.notEqual(response.status(), 403)
-      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+        .json(
+          employeePayload(fixture, {
+            positionId: fixture.alternativePositionId,
+            dailySalary: 321,
+            salaryChangeReason: 'Prueba',
+          })
+        )
+      response.assertStatus(201)
+      const updated = await terminationSnapshot(fixture.employee.employeeId)
+      assert.equal(updated.position_id, fixture.alternativePositionId)
+      assert.equal(Number(updated.daily_salary), 321)
+      assert.isNull(updated.employee_terminated_date)
+      assert.isNull(updated.employee_termination_modality)
+      assert.isNull(updated.employee_termination_type)
     } finally {
       await cleanupEmployeeFixture(fixture)
     }
@@ -335,19 +376,26 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
   test('B: permite editar baja existente sin modificar su registro', async ({ client, assert }) => {
     const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'terminated', true)
     try {
+      const before = await terminationSnapshot(fixture.employee.employeeId)
       const response = await client
         .put(`/api/employees/${fixture.employee.employeeId}`)
         .loginAs(actor!.user)
         .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
         .json(
           employeePayload(fixture, {
+            dailySalary: 654,
+            salaryChangeReason: 'Prueba',
             employeeTerminatedDate: '2024-01-15',
             employeeTerminationModality: 'Renuncia',
             employeeTerminationType: 'Jubilación',
           })
         )
-      assert.notEqual(response.status(), 403)
-      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+      response.assertStatus(201)
+      const updated = await terminationSnapshot(fixture.employee.employeeId)
+      assert.equal(String(updated.employee_terminated_date), String(before.employee_terminated_date))
+      assert.equal(updated.employee_termination_modality, before.employee_termination_modality)
+      assert.equal(updated.employee_termination_type, before.employee_termination_type)
+      assert.equal(Number(updated.daily_salary), 654)
     } finally {
       await cleanupEmployeeFixture(fixture)
     }

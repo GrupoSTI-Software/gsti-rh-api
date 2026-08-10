@@ -1408,7 +1408,7 @@ export default class EmployeeController {
 
       let employeeTerminatedDate = request.input('employeeTerminatedDate')
       employeeTerminatedDate = employeeTerminatedDate
-        ? employeeTerminatedDate.split('T')[0].replace('"', '')
+        ? (employeeTerminatedDate.split('T')[0] + ' 00:000:00').replace('"', '')
         : null
 
       const employee = {
@@ -1507,7 +1507,7 @@ export default class EmployeeController {
       if (
         isEmployeeTerminationRecordChanged(
           {
-            employeeTerminatedDate: currentEmployee.employeeTerminatedDate as string | null,
+            employeeTerminatedDate: currentEmployee.employeeTerminatedDate,
             employeeTerminationModality: this.normalizeTerminationInput(
               currentEmployee.employeeTerminationModality
             ),
