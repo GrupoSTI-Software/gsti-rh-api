@@ -59,6 +59,49 @@ test.group('employee_lactation_periods_routes — PermissionGate', () => {
   })
 })
 
+test.group('work_disability_*_routes — PermissionGate', () => {
+  test('incapacidad, periodos, notas y gastos declaran manage-work-disabilities', async ({
+    assert,
+  }) => {
+    const files = [
+      'start/routes/work_disability_routes.ts',
+      'start/routes/work_disability_period_routes.ts',
+      'start/routes/work_disability_note_routes.ts',
+      'start/routes/work_disability_period_expense_routes.ts',
+    ]
+    const keys = [
+      'createWorkDisability',
+      'updateWorkDisability',
+      'deleteWorkDisability',
+      'createWorkDisabilityPeriod',
+      'updateWorkDisabilityPeriod',
+      'deleteWorkDisabilityPeriod',
+      'createWorkDisabilityNote',
+      'updateWorkDisabilityNote',
+      'deleteWorkDisabilityNote',
+      'createWorkDisabilityPeriodExpense',
+      'updateWorkDisabilityPeriodExpense',
+      'deleteWorkDisabilityPeriodExpense',
+    ]
+    let joined = ''
+    for (const file of files) {
+      joined += await readFile(join(process.cwd(), file), 'utf8')
+    }
+    for (const key of keys) {
+      assert.include(joined, `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`)
+    }
+    const matches =
+      joined.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+    assert.equal(matches.length, 12)
+
+    const disabilities = await readFile(
+      join(process.cwd(), 'start/routes/work_disability_routes.ts'),
+      'utf8'
+    )
+    assert.notMatch(disabilities, /getByEmployee[\s\S]{0,200}permissionGate/)
+  })
+})
+
 test.group('lactancia — comprobación legacy intacta', () => {
   test('controladores siguen exigiendo update-information vía assertHasPermission', async ({
     assert,
