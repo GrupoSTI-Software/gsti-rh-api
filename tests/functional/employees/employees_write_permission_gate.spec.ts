@@ -517,4 +517,33 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
       await cleanupEmployeeFixture(fixture)
     }
   })
+
+  test('CA-15: DELETE de sucursal, asignación temporal y contrato exigen tab-trabajo-delete', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'ca15-delete')
+    try {
+      const responses = [
+        await client
+          .delete(`/api/employees/${fixture.employee.employeeId}/branch-office`)
+          .loginAs(actor!.user)
+          .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
+        await client
+          .delete(`/api/employees/${fixture.employee.employeeId}/temporary-assignments/1`)
+          .loginAs(actor!.user)
+          .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
+        await client
+          .delete('/api/employee-contracts/1')
+          .loginAs(actor!.user)
+          .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
+      ]
+      for (const [index, response] of responses.entries()) {
+        assert.equal(response.status(), 403, `DELETE mapeado ${index} debe exigir tab-trabajo-delete`)
+        assert.equal(response.body()?.key, 'PERM.DENIED')
+      }
+    } finally {
+      await cleanupEmployeeFixture(fixture)
+    }
+  })
 })
