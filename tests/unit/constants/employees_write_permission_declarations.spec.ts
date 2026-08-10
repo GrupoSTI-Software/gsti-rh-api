@@ -7,9 +7,9 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 40 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 65 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 40)
+    assert.equal(keys.length, 65)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -47,5 +47,36 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION.action, 'tab-persona-delete')
     assert.equal(EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION.bypass, 'standard')
+  })
+
+  test('mapea Condición médica, Lactancia e Incapacidades de escritura', ({ assert }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.equal(d.createEmployeeMedicalCondition.action, 'tab-condicion-medica-write')
+    assert.equal(d.updateEmployeeMedicalCondition.action, 'tab-condicion-medica-write')
+    assert.equal(d.deleteEmployeeMedicalCondition.action, 'tab-condicion-medica-delete')
+
+    assert.equal(d.createEmployeeLactationPeriod.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.updateEmployeeLactationPeriod.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.deleteEmployeeLactationPeriod.action, 'tab-periodos-lactancia-delete')
+    assert.equal(d.regenerateLactationShiftExceptions.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.runLactationExpiringCheck.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.revokeLactationConflict.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.reassignLactationConflict.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.reassignLactationConflictsBulk.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.createLactationEvidence.action, 'tab-periodos-lactancia-write')
+    assert.equal(d.deleteLactationEvidence.action, 'tab-periodos-lactancia-delete')
+
+    assert.equal(d.createWorkDisability.action, 'manage-work-disabilities')
+    assert.equal(d.updateWorkDisability.action, 'manage-work-disabilities')
+    assert.equal(d.deleteWorkDisability.action, 'manage-work-disabilities')
+    assert.equal(d.createWorkDisabilityPeriod.action, 'manage-work-disabilities')
+    assert.equal(d.updateWorkDisabilityPeriod.action, 'manage-work-disabilities')
+    assert.equal(d.deleteWorkDisabilityPeriod.action, 'manage-work-disabilities')
+    assert.equal(d.createWorkDisabilityNote.action, 'manage-work-disabilities')
+    assert.equal(d.updateWorkDisabilityNote.action, 'manage-work-disabilities')
+    assert.equal(d.deleteWorkDisabilityNote.action, 'manage-work-disabilities')
+    assert.equal(d.createWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
+    assert.equal(d.updateWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
+    assert.equal(d.deleteWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
   })
 })

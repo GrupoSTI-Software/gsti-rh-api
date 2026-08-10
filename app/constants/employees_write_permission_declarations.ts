@@ -8,8 +8,8 @@ const employeesStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos). Fuente única que consumen las rutas;
- * no concede nada ni enciende la exigencia del módulo.
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades).
+ * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployee: employeesStandard('create'),
@@ -52,6 +52,31 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeEmergencyContact: employeesStandard('tab-persona-write'),
   updateEmployeeEmergencyContact: employeesStandard('tab-persona-write'),
   deleteEmployeeEmergencyContact: employeesStandard('tab-persona-delete'),
+  createEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-write'),
+  updateEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-write'),
+  deleteEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-delete'),
+  createEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-write'),
+  updateEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-write'),
+  deleteEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-delete'),
+  regenerateLactationShiftExceptions: employeesStandard('tab-periodos-lactancia-write'),
+  runLactationExpiringCheck: employeesStandard('tab-periodos-lactancia-write'),
+  revokeLactationConflict: employeesStandard('tab-periodos-lactancia-write'),
+  reassignLactationConflict: employeesStandard('tab-periodos-lactancia-write'),
+  reassignLactationConflictsBulk: employeesStandard('tab-periodos-lactancia-write'),
+  createLactationEvidence: employeesStandard('tab-periodos-lactancia-write'),
+  deleteLactationEvidence: employeesStandard('tab-periodos-lactancia-delete'),
+  createWorkDisability: employeesStandard('manage-work-disabilities'),
+  updateWorkDisability: employeesStandard('manage-work-disabilities'),
+  deleteWorkDisability: employeesStandard('manage-work-disabilities'),
+  createWorkDisabilityPeriod: employeesStandard('manage-work-disabilities'),
+  updateWorkDisabilityPeriod: employeesStandard('manage-work-disabilities'),
+  deleteWorkDisabilityPeriod: employeesStandard('manage-work-disabilities'),
+  createWorkDisabilityNote: employeesStandard('manage-work-disabilities'),
+  updateWorkDisabilityNote: employeesStandard('manage-work-disabilities'),
+  deleteWorkDisabilityNote: employeesStandard('manage-work-disabilities'),
+  createWorkDisabilityPeriodExpense: employeesStandard('manage-work-disabilities'),
+  updateWorkDisabilityPeriodExpense: employeesStandard('manage-work-disabilities'),
+  deleteWorkDisabilityPeriodExpense: employeesStandard('manage-work-disabilities'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Permiso secundario cuando la edición toca el registro de baja. */
