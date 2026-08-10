@@ -51,6 +51,9 @@ import {
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -1371,7 +1374,8 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n, auth }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n, auth } = ctx
     try {
       const employeeId = request.param('employeeId')
       const employeeFirstName = request.input('employeeFirstName')
@@ -1496,6 +1500,37 @@ export default class EmployeeController {
       } else {
         employee.employeeTerminationModality = null
         employee.employeeTerminationType = null
+      }
+
+      if (
+        isEmployeeTerminationRecordChanged(
+          {
+            employeeTerminatedDate: currentEmployee.employeeTerminatedDate
+              ? String(currentEmployee.employeeTerminatedDate)
+              : null,
+            employeeTerminationModality: this.normalizeTerminationInput(
+              currentEmployee.employeeTerminationModality
+            ),
+            employeeTerminationType: this.normalizeTerminationInput(
+              currentEmployee.employeeTerminationType
+            ),
+          },
+          {
+            employeeTerminatedDate: employee.employeeTerminatedDate
+              ? String(employee.employeeTerminatedDate)
+              : null,
+            employeeTerminationModality: employee.employeeTerminationModality ?? null,
+            employeeTerminationType: employee.employeeTerminationType ?? null,
+          }
+        )
+      ) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_TERMINATION_RECORD_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
       }
 
       const employeeService = new EmployeeService(i18n)
