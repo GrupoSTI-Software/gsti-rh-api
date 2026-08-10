@@ -32,3 +32,25 @@ test.group('employee_address_routes — PermissionGate Domicilio', () => {
     )
   })
 })
+
+test.group('employee_bank_routes — PermissionGate Bancos', () => {
+  test('alta, edición y baja declaran permissionGate', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_bank_routes.ts'),
+      'utf8'
+    )
+    assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeBank)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBank)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeBank)'
+    )
+  })
+})
