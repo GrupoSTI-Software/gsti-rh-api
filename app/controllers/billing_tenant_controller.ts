@@ -11,6 +11,7 @@ import {
   previewSubscriptionChangeQueryValidator,
   publicPlanPriceQueryValidator,
   requestSubscriptionIncreaseValidator,
+  scheduleSubscriptionDecreaseValidator,
 } from '#validators/billing_tenant'
 
 /**
@@ -662,6 +663,205 @@ export default class BillingTenantController {
 
       const result = await this.changeService.requestIncrease(businessUnitId, body.employees)
       return response.status(201).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/billing/subscription/changes/decrease:
+   *   post:
+   *     tags:
+   *       - Tenant Billing
+   *     summary: Agendar reducción de cantidad contratada
+   *     description: |
+   *       Registra una reducción para que surta efecto al inicio del próximo periodo.
+   *       No modifica el cupo ni los importes del periodo en curso; no cobra ni devuelve
+   *       dinero. Solo el dueño de la cuenta (`owner`). Si ya existía otra petición viva,
+   *       la sustituye. No acepta identificadores de suscripción en el body.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - employees
+   *             properties:
+   *               employees:
+   *                 type: integer
+   *                 minimum: 1
+   *                 description: Cantidad destino (bloques de 10; reglas comerciales en el servicio)
+   *     responses:
+   *       '201':
+   *         description: Reducción agendada (scheduled) para la fecha de corte vigente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
+   *       '422':
+   *         description: |
+   *           Cantidad inválida, no es reducción, sin suscripción viva, pago atrasado
+   *           o periodo sin fecha de corte por delante
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *       '429':
+   *         description: Límite de solicitudes de cambio excedido (billing-subscription-change)
+   */
+  async scheduleSubscriptionDecrease(ctx: HttpContext) {
+    const { request, response } = ctx
+    try {
+      await assertBillingOwner(ctx)
+      const body = await request.validateUsing(scheduleSubscriptionDecreaseValidator)
+
+      const businessUnitId = TenantContext.getScope()[0]
+      if (!businessUnitId || businessUnitId <= 0) {
+        throw new BillingSubscriptionServiceError(
+          'No se pudo resolver la empresa activa del tenant',
+          BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+          500,
+          'empresa-no-resuelta',
+          'No se pudo determinar la empresa activa para agendar la reducción.'
+        )
+      }
+
+      const result = await this.changeService.scheduleDecrease(businessUnitId, body.employees)
+      return response.status(201).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/billing/subscription/changes/cancel:
+   *   post:
+   *     tags:
+   *       - Tenant Billing
+   *     summary: Cancelar cambio de suscripción agendado
+   *     description: |
+   *       Cancela la petición de cambio viva (`pending_payment` o `scheduled`) de la
+   *       empresa activa. No modifica la suscripción ni devuelve dinero. Solo el dueño
+   *       de la cuenta (`owner`). Sin body: cancela siempre el cambio vivo propio.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *     responses:
+   *       '200':
+   *         description: Cambio cancelado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
+   *       '422':
+   *         description: Sin cambio vivo, sin suscripción viva o pago atrasado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *       '429':
+   *         description: Límite de solicitudes de cambio excedido (billing-subscription-change)
+   */
+  async cancelSubscriptionChange(ctx: HttpContext) {
+    const { response } = ctx
+    try {
+      await assertBillingOwner(ctx)
+
+      const businessUnitId = TenantContext.getScope()[0]
+      if (!businessUnitId || businessUnitId <= 0) {
+        throw new BillingSubscriptionServiceError(
+          'No se pudo resolver la empresa activa del tenant',
+          BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+          500,
+          'empresa-no-resuelta',
+          'No se pudo determinar la empresa activa para cancelar el cambio.'
+        )
+      }
+
+      const result = await this.changeService.cancelLiveChange(businessUnitId)
+      return response.status(200).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

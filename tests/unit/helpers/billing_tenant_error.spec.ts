@@ -3,11 +3,13 @@ import { BILLING_CATALOG_ERROR_CODES } from '../../../app/constants/billing_cata
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../../../app/constants/billing_subscription_error_codes.js'
 import { BillingCatalogServiceError } from '../../../app/exceptions/billing_catalog_service_error.js'
 import {
+  changeNotADecreaseError,
   changeNotAnIncreaseError,
   employeesAboveSafetyCapError,
   employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
   mapCatalogErrorForPublicSurface,
+  noLiveSubscriptionChangeError,
   noLiveSubscriptionError,
   onlyAccountOwnerError,
   originNotSelfServiceError,
@@ -189,5 +191,22 @@ test.group('billing_tenant_error — solicitud de aumento (USRH1786107870850)', 
     assert.equal(error.key, 'cambio-en-conflicto')
     assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_CONFLICT)
     assert.equal(error.httpStatus, 409)
+  })
+})
+
+test.group('billing_tenant_error — agendar reducción (USRH1786107870853)', () => {
+  test('changeNotADecreaseError expone key, code y data del contrato', ({ assert }) => {
+    const error = changeNotADecreaseError(120, 150)
+    assert.equal(error.key, 'cambio-no-es-reduccion')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_NOT_A_DECREASE)
+    assert.equal(error.httpStatus, 422)
+    assert.deepEqual(error.data, { contracted: 120, requested: 150 })
+  })
+
+  test('noLiveSubscriptionChangeError responde 422', ({ assert }) => {
+    const error = noLiveSubscriptionChangeError()
+    assert.equal(error.key, 'sin-cambio-vivo')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_CHANGE)
+    assert.equal(error.httpStatus, 422)
   })
 })

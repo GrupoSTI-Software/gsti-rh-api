@@ -137,7 +137,7 @@ test.group('billing_routes — changes/increase (USRH1786107870850)', () => {
   test('OpenAPI documenta increase con schemas PLT.SUB.*', ({ assert }) => {
     const content = readFileSync(join(process.cwd(), 'docs/openapi.yaml'), 'utf-8')
     const sectionStart = content.indexOf('/api/billing/subscription/changes/increase:')
-    const sectionEnd = content.indexOf('/api/employees/quota:')
+    const sectionEnd = content.indexOf('/api/billing/subscription/changes/decrease:')
     const section = content.slice(sectionStart, sectionEnd)
 
     assert.include(section, 'BillingSubscriptionIncreaseRequestResponse')
@@ -145,6 +145,34 @@ test.group('billing_routes — changes/increase (USRH1786107870850)', () => {
     assert.include(section, 'PLT.SUB.CHANGE_CONFLICT')
     assert.include(section, "'201':")
     assert.include(section, "'409':")
+    assert.include(section, "'429':")
+  })
+})
+
+test.group('billing_routes — changes/decrease y cancel (USRH1786107870853)', () => {
+  test('expone rutas con limitador billing-subscription-change por userId', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'start/routes/billing_routes.ts'), 'utf-8')
+
+    assert.include(content, "limiter.define('billing-subscription-change'")
+    assert.include(content, 'billing-subscription-change:${userId}')
+    assert.include(content, '/subscription/changes/decrease')
+    assert.include(content, '/subscription/changes/cancel')
+    assert.include(content, 'scheduleSubscriptionDecrease')
+    assert.include(content, 'cancelSubscriptionChange')
+    assert.include(content, '.use(billingSubscriptionChangeRateLimit)')
+  })
+
+  test('OpenAPI documenta decrease y cancel con schemas PLT.SUB.*', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'docs/openapi.yaml'), 'utf-8')
+    const sectionStart = content.indexOf('/api/billing/subscription/changes/decrease:')
+    const sectionEnd = content.indexOf('/api/employees/quota:')
+    const section = content.slice(sectionStart, sectionEnd)
+
+    assert.include(section, 'BillingSubscriptionChangeRecordResponse')
+    assert.include(section, 'PLT.SUB.CHANGE_NOT_A_DECREASE')
+    assert.include(section, 'PLT.SUB.NO_LIVE_CHANGE')
+    assert.include(section, "'201':")
+    assert.include(section, "'200':")
     assert.include(section, "'429':")
   })
 })

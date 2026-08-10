@@ -49,6 +49,10 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   CHANGE_NOT_AN_INCREASE: 'PLT.SUB.CHANGE_NOT_AN_INCREASE',
   /** La suscripción cambió entre el cálculo y el registro del cambio */
   CHANGE_CONFLICT: 'PLT.SUB.CHANGE_CONFLICT',
+  /** La cantidad pedida no es menor a la contratada vigente (operación solo de reducción) */
+  CHANGE_NOT_A_DECREASE: 'PLT.SUB.CHANGE_NOT_A_DECREASE',
+  /** No existe un cambio de suscripción vivo que cancelar */
+  NO_LIVE_CHANGE: 'PLT.SUB.NO_LIVE_CHANGE',
 } as const
 
 export type BillingSubscriptionErrorCode =

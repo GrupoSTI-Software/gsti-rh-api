@@ -212,3 +212,31 @@ export function subscriptionChangeConflictError(): BillingSubscriptionServiceErr
     detail
   )
 }
+
+/** La cantidad pedida no es menor a la contratada: esta operación solo reduce (USRH1786107870853). */
+export function changeNotADecreaseError(
+  contracted: number,
+  requested: number
+): BillingSubscriptionServiceError {
+  const detail = `Esta operación solo reduce la cantidad contratada. Tienes ${contracted} empleados contratados y pediste ${requested}.`
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_NOT_A_DECREASE,
+    422,
+    'cambio-no-es-reduccion',
+    detail,
+    { contracted, requested }
+  )
+}
+
+/** No hay ningún cambio vivo que cancelar (USRH1786107870853). */
+export function noLiveSubscriptionChangeError(): BillingSubscriptionServiceError {
+  const detail = 'No tienes ningún cambio de suscripción agendado que se pueda cancelar.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_CHANGE,
+    422,
+    'sin-cambio-vivo',
+    detail
+  )
+}

@@ -3880,6 +3880,66 @@ components:
             - PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP
             - PLT.SUB.CHANGE_NOT_AN_INCREASE
             - PLT.SUB.CHANGE_CONFLICT
+            - PLT.SUB.CHANGE_NOT_A_DECREASE
+            - PLT.SUB.NO_LIVE_CHANGE
+
+    BillingSubscriptionChangeRecordData:
+      type: object
+      description: |
+        Registro de un cambio de cantidad contratada (reducción agendada o cancelada,
+        USRH1786107870853). Forma plana con prefijo; no modifica la suscripción al agendar.
+      properties:
+        billingSubscriptionChangeId:
+          type: integer
+        billingSubscriptionId:
+          type: integer
+        billingSubscriptionChangeType:
+          type: string
+          enum: [decrease]
+        billingSubscriptionChangeStatus:
+          type: string
+          enum: [scheduled, canceled]
+        billingSubscriptionChangePreviousEmployees:
+          type: integer
+        billingSubscriptionChangeNewEmployees:
+          type: integer
+        billingSubscriptionChangeUnitAmount:
+          type: number
+        billingSubscriptionChangeDiscountPercent:
+          type: number
+        billingSubscriptionChangeTaxRate:
+          type: number
+        billingSubscriptionChangeSubtotal:
+          type: number
+        billingSubscriptionChangeTaxAmount:
+          type: number
+        billingSubscriptionChangeTotal:
+          type: number
+        billingSubscriptionChangeProratedAmountCents:
+          type: integer
+          description: Siempre 0 en reducción
+        billingSubscriptionChangeEffectiveAt:
+          type: string
+          format: date
+          nullable: true
+          description: Fecha de corte vigente al agendar (inicio del próximo periodo)
+        billingSubscriptionChangeAppliedAt:
+          type: string
+          format: date-time
+          nullable: true
+        supersededBillingSubscriptionChangeId:
+          type: integer
+          nullable: true
+          description: Id del cambio vivo que quedó canceled al sustituir, o null
+
+    BillingSubscriptionChangeRecordResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingSubscriptionChangeRecordData'
 
     BillingSubscriptionIncreaseNewAmounts:
       type: object
@@ -4136,6 +4196,176 @@ paths:
                     code: PLT.SUB.NO_LIVE_SUBSCRIPTION
         '429':
           description: Límite de solicitudes de cambio excedido (billing-change-request)
+
+  /api/billing/subscription/changes/decrease:
+    post:
+      summary: Agendar reducción de cantidad contratada
+      description: |
+        Registra una reducción para que surta efecto al inicio del próximo periodo.
+        No modifica el cupo ni los importes del periodo en curso; no cobra ni devuelve
+        dinero. Solo el dueño de la cuenta (`owner`, `root` o `super-administrador`).
+        Si ya existía otra petición viva, la sustituye.
+      tags: [Tenant Billing]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employees]
+              properties:
+                employees:
+                  type: integer
+                  minimum: 1
+                  description: Cantidad destino (bloques de 10; reglas comerciales en el servicio)
+      responses:
+        '201':
+          description: Reducción agendada (scheduled) para la fecha de corte vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionChangeRecordResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Rol distinto de owner/root/super-administrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Acceso restringido
+                detail: Solo el dueño de la cuenta puede cambiar la cantidad contratada.
+                key: solo-el-dueno-de-la-cuenta
+                code: PLT.SUB.FORBIDDEN_ROLE
+        '422':
+          description: |
+            Cantidad inválida, no es reducción, sin suscripción viva, pago atrasado
+            o periodo sin fecha de corte por delante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              examples:
+                changeNotADecrease:
+                  summary: La cantidad no es una reducción
+                  value:
+                    title: Suscripciones
+                    detail: Esta operación solo reduce la cantidad contratada. Tienes 120 empleados contratados y pediste 150.
+                    key: cambio-no-es-reduccion
+                    code: PLT.SUB.CHANGE_NOT_A_DECREASE
+                employeesBelowActiveHeadcount:
+                  summary: Cantidad por debajo del mínimo por plantilla
+                  value:
+                    title: Suscripciones
+                    detail: Tienes 73 empleados activos. La cantidad mínima que puedes contratar es 80.
+                    key: cantidad-menor-a-plantilla-activa
+                    code: PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT
+                noLiveSubscription:
+                  summary: Sin suscripción viva
+                  value:
+                    title: Suscripciones
+                    detail: No tienes una contratación viva que se pueda cambiar.
+                    key: sin-suscripcion-viva
+                    code: PLT.SUB.NO_LIVE_SUBSCRIPTION
+        '429':
+          description: Límite de solicitudes de cambio excedido (billing-subscription-change)
+
+  /api/billing/subscription/changes/cancel:
+    post:
+      summary: Cancelar cambio de suscripción agendado
+      description: |
+        Cancela la petición de cambio viva (`pending_payment` o `scheduled`) de la
+        empresa activa. No modifica la suscripción. Solo el dueño de la cuenta
+        (`owner`, `root` o `super-administrador`). Sin body.
+      tags: [Tenant Billing]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Cambio cancelado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionChangeRecordResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Rol distinto de owner/root/super-administrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Acceso restringido
+                detail: Solo el dueño de la cuenta puede cambiar la cantidad contratada.
+                key: solo-el-dueno-de-la-cuenta
+                code: PLT.SUB.FORBIDDEN_ROLE
+        '422':
+          description: Sin cambio vivo, sin suscripción viva o pago atrasado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              examples:
+                noLiveChange:
+                  summary: Sin cambio vivo que cancelar
+                  value:
+                    title: Suscripciones
+                    detail: No tienes ningún cambio de suscripción agendado que se pueda cancelar.
+                    key: sin-cambio-vivo
+                    code: PLT.SUB.NO_LIVE_CHANGE
+                subscriptionPastDue:
+                  summary: Pago atrasado
+                  value:
+                    title: Suscripciones
+                    detail: Tu suscripción tiene un pago pendiente. Ponte al corriente para poder cambiar tu cantidad contratada.
+                    key: suscripcion-con-pago-atrasado
+                    code: PLT.SUB.SUBSCRIPTION_PAST_DUE
+        '429':
+          description: Límite de solicitudes de cambio excedido (billing-subscription-change)
 
   /api/employees/quota:
     get:

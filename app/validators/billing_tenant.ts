@@ -44,3 +44,14 @@ export const requestSubscriptionIncreaseValidator = vine.compile(
     employees: vine.number().positive().withoutDecimals(),
   })
 )
+
+/**
+ * Body para `POST /api/billing/subscription/changes/decrease` (USRH1786107870853).
+ * Solo valida forma; las reglas comerciales viven en
+ * `BillingSubscriptionChangeService` y en `BillingTenantService`.
+ */
+export const scheduleSubscriptionDecreaseValidator = vine.compile(
+  vine.object({
+    employees: vine.number().positive().withoutDecimals(),
+  })
+)

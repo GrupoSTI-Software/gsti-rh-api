@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BillingPlanPrice from '#models/billing_plan_price'
@@ -13,8 +14,10 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingTenantService from '#services/billing_tenant_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import {
+  changeNotADecreaseError,
   changeNotAnIncreaseError,
   employeesBelowActiveHeadcountError,
+  noLiveSubscriptionChangeError,
   noLiveSubscriptionError,
   periodNotProratableError,
   subscriptionChangeConflictError,
@@ -22,6 +25,7 @@ import {
 } from '../helpers/billing_tenant_error.js'
 import {
   daysBetweenBusinessDates,
+  getBusinessTimeZone,
   toBusinessDateString,
   toCalendarIsoDate,
   todayInBusinessZone,
@@ -74,6 +78,25 @@ export interface SubscriptionChangePreview {
   newAmounts: SubscriptionChangePreviewAmounts
   proration: SubscriptionChangePreviewProration | null
   effectiveFrom: string | null
+}
+
+export interface SubscriptionChangeRecord {
+  billingSubscriptionChangeId: number
+  billingSubscriptionId: number
+  billingSubscriptionChangeType: BillingSubscriptionChange['billingSubscriptionChangeType']
+  billingSubscriptionChangeStatus: BillingSubscriptionChangeStatus
+  billingSubscriptionChangePreviousEmployees: number
+  billingSubscriptionChangeNewEmployees: number
+  billingSubscriptionChangeUnitAmount: number
+  billingSubscriptionChangeDiscountPercent: number
+  billingSubscriptionChangeTaxRate: number
+  billingSubscriptionChangeSubtotal: number
+  billingSubscriptionChangeTaxAmount: number
+  billingSubscriptionChangeTotal: number
+  billingSubscriptionChangeProratedAmountCents: number
+  billingSubscriptionChangeEffectiveAt: string | null
+  billingSubscriptionChangeAppliedAt: string | null
+  supersededBillingSubscriptionChangeId: number | null
 }
 
 export interface SubscriptionIncreaseRequestResult {
@@ -266,6 +289,191 @@ export default class BillingSubscriptionChangeService {
     })
 
     return this.buildIncreaseRequestResult(preview, change)
+  }
+
+  /**
+   * Agenda una reducción de la cantidad contratada al inicio del próximo periodo
+   * (USRH1786107870853). No lee TenantContext ni HttpContext.
+   * No modifica `billing_subscriptions`: solo escribe en `billing_subscription_changes`.
+   */
+  async scheduleDecrease(
+    businessUnitId: number,
+    requestedEmployees: number
+  ): Promise<SubscriptionChangeRecord> {
+    const todayIso = toBusinessDateString()
+
+    const { change, supersededId } = await db.transaction(async (trx) => {
+      const subscription = await BillingSubscription.query({ client: trx })
+        .where('business_unit_id', businessUnitId)
+        .whereIn('billing_subscription_status', LIVE_SUBSCRIPTION_STATUSES)
+        .whereNull('billing_subscription_deleted_at')
+        .orderBy('billing_subscription_id', 'desc')
+        .forUpdate()
+        .first()
+
+      if (!subscription) {
+        throw noLiveSubscriptionError()
+      }
+
+      if (subscription.billingSubscriptionStatus === 'past_due') {
+        throw subscriptionPastDueError()
+      }
+
+      const periodStartIso = toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodStart)
+      const periodEndIso = toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd)
+      this.resolvePeriodDays(periodStartIso, periodEndIso, todayIso)
+
+      this.tenantService.assertContractedEmployees(requestedEmployees)
+
+      const contractedEmployees = subscription.billingSubscriptionContractedEmployees
+      if (requestedEmployees >= contractedEmployees) {
+        throw changeNotADecreaseError(contractedEmployees, requestedEmployees)
+      }
+
+      const activeEmployees = await this.employeeQuotaService.countActiveEmployees(
+        businessUnitId,
+        trx
+      )
+      const minimumContractedEmployees =
+        this.tenantService.resolveMinimumContractedEmployees(activeEmployees)
+
+      if (requestedEmployees < minimumContractedEmployees) {
+        throw employeesBelowActiveHeadcountError(activeEmployees, minimumContractedEmployees)
+      }
+
+      await this.tenantService.assertPlanReadyToSubscribe(subscription.billingPlanId, todayIso)
+
+      const resolved = await this.catalog.resolvePrice(
+        subscription.billingPlanId,
+        requestedEmployees,
+        todayIso
+      )
+
+      const liveChanges = await BillingSubscriptionChange.query({ client: trx })
+        .where('billing_subscription_id', subscription.billingSubscriptionId)
+        .where('business_unit_id', businessUnitId)
+        .whereIn('billing_subscription_change_status', LIVE_SUBSCRIPTION_CHANGE_STATUSES)
+        .whereNull('billing_subscription_change_deleted_at')
+        .orderBy('billing_subscription_change_id', 'desc')
+        .forUpdate()
+
+      const supersededBillingSubscriptionChangeId =
+        liveChanges[0]?.billingSubscriptionChangeId ?? null
+
+      if (liveChanges.length > 0) {
+        await BillingSubscriptionChange.query({ client: trx })
+          .where('billing_subscription_id', subscription.billingSubscriptionId)
+          .where('business_unit_id', businessUnitId)
+          .whereIn('billing_subscription_change_status', LIVE_SUBSCRIPTION_CHANGE_STATUSES)
+          .whereNull('billing_subscription_change_deleted_at')
+          .update({ billing_subscription_change_status: 'canceled' })
+      }
+
+      const effectiveAt = DateTime.fromISO(periodEndIso!, { zone: getBusinessTimeZone() }).startOf(
+        'day'
+      )
+
+      const created = await BillingSubscriptionChange.create(
+        {
+          billingSubscriptionId: subscription.billingSubscriptionId,
+          businessUnitId,
+          billingSubscriptionChangeType: 'decrease',
+          billingSubscriptionChangeStatus: 'scheduled',
+          billingSubscriptionChangePreviousEmployees: contractedEmployees,
+          billingSubscriptionChangeNewEmployees: requestedEmployees,
+          billingSubscriptionChangeUnitAmount: resolved.pricePerEmployee,
+          billingSubscriptionChangeDiscountPercent: resolved.discountPercent,
+          billingSubscriptionChangeTaxRate: resolved.taxRate,
+          billingSubscriptionChangeSubtotal: resolved.subtotal,
+          billingSubscriptionChangeTaxAmount: resolved.taxAmount,
+          billingSubscriptionChangeTotal: resolved.total,
+          billingSubscriptionChangeProratedAmountCents: 0,
+          billingSubscriptionChangeEffectiveAt: effectiveAt,
+          billingSubscriptionChangeAppliedAt: null,
+          billingSubscriptionChangeBillingPaymentId: null,
+          billingSubscriptionChangeNotApplicableReason: null,
+        },
+        { client: trx }
+      )
+
+      return { change: created, supersededId: supersededBillingSubscriptionChangeId }
+    })
+
+    return this.buildChangeRecord(change, supersededId)
+  }
+
+  /**
+   * Cancela el cambio vivo de la empresa mientras no haya surtido efecto
+   * (USRH1786107870853). No modifica `billing_subscriptions`.
+   */
+  async cancelLiveChange(businessUnitId: number): Promise<SubscriptionChangeRecord> {
+    const change = await db.transaction(async (trx) => {
+      const subscription = await BillingSubscription.query({ client: trx })
+        .where('business_unit_id', businessUnitId)
+        .whereIn('billing_subscription_status', LIVE_SUBSCRIPTION_STATUSES)
+        .whereNull('billing_subscription_deleted_at')
+        .orderBy('billing_subscription_id', 'desc')
+        .forUpdate()
+        .first()
+
+      if (!subscription) {
+        throw noLiveSubscriptionError()
+      }
+
+      if (subscription.billingSubscriptionStatus === 'past_due') {
+        throw subscriptionPastDueError()
+      }
+
+      const liveChange = await BillingSubscriptionChange.query({ client: trx })
+        .where('billing_subscription_id', subscription.billingSubscriptionId)
+        .where('business_unit_id', businessUnitId)
+        .whereIn('billing_subscription_change_status', LIVE_SUBSCRIPTION_CHANGE_STATUSES)
+        .whereNull('billing_subscription_change_deleted_at')
+        .orderBy('billing_subscription_change_id', 'desc')
+        .forUpdate()
+        .first()
+
+      if (!liveChange) {
+        throw noLiveSubscriptionChangeError()
+      }
+
+      liveChange.useTransaction(trx)
+      liveChange.billingSubscriptionChangeStatus = 'canceled'
+      await liveChange.save()
+
+      return liveChange
+    })
+
+    return this.buildChangeRecord(change, null)
+  }
+
+  private buildChangeRecord(
+    change: BillingSubscriptionChange,
+    supersededBillingSubscriptionChangeId: number | null
+  ): SubscriptionChangeRecord {
+    return {
+      billingSubscriptionChangeId: change.billingSubscriptionChangeId,
+      billingSubscriptionId: change.billingSubscriptionId,
+      billingSubscriptionChangeType: change.billingSubscriptionChangeType,
+      billingSubscriptionChangeStatus: change.billingSubscriptionChangeStatus,
+      billingSubscriptionChangePreviousEmployees: change.billingSubscriptionChangePreviousEmployees,
+      billingSubscriptionChangeNewEmployees: change.billingSubscriptionChangeNewEmployees,
+      billingSubscriptionChangeUnitAmount: Number(change.billingSubscriptionChangeUnitAmount),
+      billingSubscriptionChangeDiscountPercent: Number(
+        change.billingSubscriptionChangeDiscountPercent
+      ),
+      billingSubscriptionChangeTaxRate: Number(change.billingSubscriptionChangeTaxRate),
+      billingSubscriptionChangeSubtotal: Number(change.billingSubscriptionChangeSubtotal),
+      billingSubscriptionChangeTaxAmount: Number(change.billingSubscriptionChangeTaxAmount),
+      billingSubscriptionChangeTotal: Number(change.billingSubscriptionChangeTotal),
+      billingSubscriptionChangeProratedAmountCents: change.billingSubscriptionChangeProratedAmountCents,
+      billingSubscriptionChangeEffectiveAt: change.billingSubscriptionChangeEffectiveAt
+        ? toCalendarIsoDate(change.billingSubscriptionChangeEffectiveAt)
+        : null,
+      billingSubscriptionChangeAppliedAt:
+        change.billingSubscriptionChangeAppliedAt?.toISO() ?? null,
+      supersededBillingSubscriptionChangeId,
+    }
   }
 
   private assertPreviewStillValid(
