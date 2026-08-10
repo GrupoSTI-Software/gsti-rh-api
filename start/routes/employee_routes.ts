@@ -46,33 +46,57 @@ router
       '#controllers/employee_controller.getProceedingFiles'
     )
 
-    router.post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
-    router.delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
+    router
+      .post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.assignEmployeeBranchOffice)
+      )
+    router
+      .delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.unassignEmployeeBranchOffice)
+      )
     router.get(
       '/:employeeId/branch-offices/history',
       '#controllers/employee_branch_office_controller.history'
     )
 
-    router.post(
-      '/:employeeId/temporary-assignments',
-      '#controllers/employee_temporary_assignment_controller.store'
-    )
+    router
+      .post(
+        '/:employeeId/temporary-assignments',
+        '#controllers/employee_temporary_assignment_controller.store'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createTemporaryAssignment)
+      )
     router.get(
       '/:employeeId/temporary-assignments',
       '#controllers/employee_temporary_assignment_controller.index'
     )
-    router.put(
-      '/:employeeId/temporary-assignments/:id',
-      '#controllers/employee_temporary_assignment_controller.update'
-    )
-    router.post(
-      '/:employeeId/temporary-assignments/:id/cancel',
-      '#controllers/employee_temporary_assignment_controller.cancel'
-    )
-    router.delete(
-      '/:employeeId/temporary-assignments/:id',
-      '#controllers/employee_temporary_assignment_controller.destroy'
-    )
+    router
+      .put(
+        '/:employeeId/temporary-assignments/:id',
+        '#controllers/employee_temporary_assignment_controller.update'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateTemporaryAssignment)
+      )
+    router
+      .post(
+        '/:employeeId/temporary-assignments/:id/cancel',
+        '#controllers/employee_temporary_assignment_controller.cancel'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.cancelTemporaryAssignment)
+      )
+    router
+      .delete(
+        '/:employeeId/temporary-assignments/:id',
+        '#controllers/employee_temporary_assignment_controller.destroy'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteTemporaryAssignment)
+      )
     router.get(
       '/:employeeId/temporary-assignments/active',
       '#controllers/employee_temporary_assignment_controller.showActive'

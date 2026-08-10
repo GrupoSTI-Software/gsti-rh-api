@@ -15,5 +15,49 @@ test.group('employee_routes — declaraciones PermissionGate (escrituras)', () =
     assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.reactivateEmployee)')
     assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.uploadEmployeePhoto)')
     assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeePhoto)')
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.assignEmployeeBranchOffice)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.unassignEmployeeBranchOffice)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createTemporaryAssignment)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateTemporaryAssignment)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.cancelTemporaryAssignment)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteTemporaryAssignment)'
+    )
+  })
+
+  test('contratos declaran permissionGate en escrituras', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_contract_routes.ts'),
+      'utf8'
+    )
+    assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeContract)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeContract)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeContract)'
+    )
   })
 })
