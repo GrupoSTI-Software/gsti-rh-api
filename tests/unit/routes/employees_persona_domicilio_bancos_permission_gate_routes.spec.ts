@@ -54,3 +54,66 @@ test.group('employee_bank_routes — PermissionGate Bancos', () => {
     )
   })
 })
+
+test.group('employee_children_routes — PermissionGate Persona', () => {
+  test('hijos declaran tab-persona en escrituras', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_children_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeChild)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeChild)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeChild)'
+    )
+  })
+})
+
+test.group('employee_spouse_routes — PermissionGate Persona', () => {
+  test('cónyuge declara tab-persona en escrituras', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_spouse_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeSpouse)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeSpouse)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeSpouse)'
+    )
+  })
+})
+
+test.group('employee_emergency_contact_routes — PermissionGate Persona', () => {
+  test('contactos de emergencia declaran tab-persona en escrituras', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_emergency_contact_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeEmergencyContact)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeEmergencyContact)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeEmergencyContact)'
+    )
+  })
+})
