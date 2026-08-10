@@ -207,5 +207,8 @@ test.group('cobertura — 25 escrituras de salud/lactancia/incapacidades', () =>
       const count = joined.split(needle).length - 1
       assert.equal(count, 1, `${key} debe aparecer exactamente una vez en rutas`)
     }
+    const allMatches =
+      joined.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+    assert.equal(allMatches.length, 25)
   })
 })
