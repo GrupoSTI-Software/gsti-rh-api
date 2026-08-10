@@ -14,6 +14,10 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingTenantService from '#services/billing_tenant_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import {
+  changeApplyFailedError,
+  changeInconsistentSnapshotError,
+} from '../helpers/billing_payment_error.js'
+import {
   changeNotADecreaseError,
   changeNotAnIncreaseError,
   employeesBelowActiveHeadcountError,
@@ -23,6 +27,7 @@ import {
   subscriptionChangeConflictError,
   subscriptionPastDueError,
 } from '../helpers/billing_tenant_error.js'
+import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import {
   daysBetweenBusinessDates,
   getBusinessTimeZone,
@@ -98,6 +103,18 @@ export interface SubscriptionChangeRecord {
   billingSubscriptionChangeAppliedAt: string | null
   supersededBillingSubscriptionChangeId: number | null
 }
+
+export type ApplyIncreaseNotApplicableReason = 'base-de-cantidad-desfasada' | 'plan-no-disponible'
+
+export type ApplyIncreaseOutcome =
+  | { outcome: 'no_live_change' }
+  | { outcome: 'insufficient_payment'; change: SubscriptionChangeRecord }
+  | {
+      outcome: 'not_applicable'
+      change: SubscriptionChangeRecord
+      reason: ApplyIncreaseNotApplicableReason
+    }
+  | { outcome: 'applied'; change: SubscriptionChangeRecord }
 
 export interface SubscriptionIncreaseRequestResult {
   billingSubscriptionChangeId: number
@@ -403,6 +420,120 @@ export default class BillingSubscriptionChangeService {
   }
 
   /**
+   * Aplica un aumento `pending_payment` cuando el pago cubre el adeudo prorrateado
+   * (USRH1786107870856). Mutar la suscripción en memoria; el caller persiste con `save()`.
+   *
+   * @throws {BillingPaymentServiceError} si el cambio no pertenece a la empresa o el
+   *   snapshot congelado es inválido (fail-closed, rollback de la transacción del pago).
+   */
+  async applyIncreaseOnPayment(
+    subscription: BillingSubscription,
+    billingPaymentId: number,
+    amountCents: number,
+    trx: TransactionClientContract
+  ): Promise<ApplyIncreaseOutcome> {
+    const liveChange = await BillingSubscriptionChange.query({ client: trx })
+      .where('billing_subscription_id', subscription.billingSubscriptionId)
+      .where('business_unit_id', subscription.businessUnitId)
+      .where('billing_subscription_change_type', 'increase')
+      .where('billing_subscription_change_status', 'pending_payment')
+      .whereNull('billing_subscription_change_deleted_at')
+      .orderBy('billing_subscription_change_id', 'desc')
+      .forUpdate()
+      .first()
+
+    if (!liveChange) {
+      return { outcome: 'no_live_change' }
+    }
+
+    if (liveChange.businessUnitId !== subscription.businessUnitId) {
+      throw changeApplyFailedError(
+        'El cambio pendiente no pertenece a la empresa de la suscripción.'
+      )
+    }
+
+    this.assertIncreaseChangeSnapshotConsistent(liveChange)
+
+    if (amountCents < liveChange.billingSubscriptionChangeProratedAmountCents) {
+      return {
+        outcome: 'insufficient_payment',
+        change: this.buildChangeRecord(liveChange, null),
+      }
+    }
+
+    if (
+      subscription.billingSubscriptionContractedEmployees !==
+      liveChange.billingSubscriptionChangePreviousEmployees
+    ) {
+      const updated = await this.markChangeNotApplicable(
+        liveChange,
+        billingPaymentId,
+        'base-de-cantidad-desfasada',
+        trx
+      )
+      return {
+        outcome: 'not_applicable',
+        change: this.buildChangeRecord(updated, null),
+        reason: 'base-de-cantidad-desfasada',
+      }
+    }
+
+    const todayIso = toBusinessDateString()
+    try {
+      await this.tenantService.assertPlanReadyToSubscribe(subscription.billingPlanId, todayIso)
+    } catch (error) {
+      if (error instanceof BillingSubscriptionServiceError) {
+        const updated = await this.markChangeNotApplicable(
+          liveChange,
+          billingPaymentId,
+          'plan-no-disponible',
+          trx
+        )
+        return {
+          outcome: 'not_applicable',
+          change: this.buildChangeRecord(updated, null),
+          reason: 'plan-no-disponible',
+        }
+      }
+      throw error
+    }
+
+    subscription.useTransaction(trx)
+    subscription.billingSubscriptionContractedEmployees =
+      liveChange.billingSubscriptionChangeNewEmployees
+    subscription.billingSubscriptionContractedUnitAmount = Number(
+      liveChange.billingSubscriptionChangeUnitAmount
+    )
+    subscription.billingSubscriptionDiscountPercent = Number(
+      liveChange.billingSubscriptionChangeDiscountPercent
+    )
+    subscription.billingSubscriptionContractedTaxRate = Number(
+      liveChange.billingSubscriptionChangeTaxRate
+    )
+    subscription.billingSubscriptionContractedSubtotal = Number(
+      liveChange.billingSubscriptionChangeSubtotal
+    )
+    subscription.billingSubscriptionContractedTaxAmount = Number(
+      liveChange.billingSubscriptionChangeTaxAmount
+    )
+    subscription.billingSubscriptionContractedTotal = Number(
+      liveChange.billingSubscriptionChangeTotal
+    )
+
+    liveChange.useTransaction(trx)
+    liveChange.billingSubscriptionChangeStatus = 'applied'
+    liveChange.billingSubscriptionChangeAppliedAt = DateTime.now()
+    liveChange.billingSubscriptionChangeBillingPaymentId = billingPaymentId
+    liveChange.billingSubscriptionChangeNotApplicableReason = null
+    await liveChange.save()
+
+    return {
+      outcome: 'applied',
+      change: this.buildChangeRecord(liveChange, null),
+    }
+  }
+
+  /**
    * Cancela el cambio vivo de la empresa mientras no haya surtido efecto
    * (USRH1786107870853). No modifica `billing_subscriptions`.
    */
@@ -445,6 +576,55 @@ export default class BillingSubscriptionChangeService {
     })
 
     return this.buildChangeRecord(change, null)
+  }
+
+  private async markChangeNotApplicable(
+    change: BillingSubscriptionChange,
+    billingPaymentId: number,
+    reason: ApplyIncreaseNotApplicableReason,
+    trx: TransactionClientContract
+  ): Promise<BillingSubscriptionChange> {
+    change.useTransaction(trx)
+    change.billingSubscriptionChangeStatus = 'not_applicable'
+    change.billingSubscriptionChangeNotApplicableReason = reason
+    change.billingSubscriptionChangeBillingPaymentId = billingPaymentId
+    change.billingSubscriptionChangeAppliedAt = null
+    await change.save()
+    return change
+  }
+
+  private assertIncreaseChangeSnapshotConsistent(change: BillingSubscriptionChange): void {
+    const numericFields = [
+      change.billingSubscriptionChangeUnitAmount,
+      change.billingSubscriptionChangeDiscountPercent,
+      change.billingSubscriptionChangeTaxRate,
+      change.billingSubscriptionChangeSubtotal,
+      change.billingSubscriptionChangeTaxAmount,
+      change.billingSubscriptionChangeTotal,
+    ]
+
+    for (const value of numericFields) {
+      const numeric = Number(value)
+      if (!Number.isFinite(numeric)) {
+        throw changeInconsistentSnapshotError()
+      }
+    }
+
+    if (
+      !Number.isInteger(change.billingSubscriptionChangeProratedAmountCents) ||
+      change.billingSubscriptionChangeProratedAmountCents < 0
+    ) {
+      throw changeInconsistentSnapshotError()
+    }
+
+    if (
+      !Number.isInteger(change.billingSubscriptionChangePreviousEmployees) ||
+      !Number.isInteger(change.billingSubscriptionChangeNewEmployees) ||
+      change.billingSubscriptionChangePreviousEmployees <= 0 ||
+      change.billingSubscriptionChangeNewEmployees <= 0
+    ) {
+      throw changeInconsistentSnapshotError()
+    }
   }
 
   private buildChangeRecord(

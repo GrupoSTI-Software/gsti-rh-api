@@ -4013,6 +4013,204 @@ components:
         data:
           $ref: '#/components/schemas/BillingSubscriptionIncreaseRequestData'
 
+    BillingPaymentApiError:
+      type: object
+      description: |
+        Error del módulo de pagos de plataforma (PLT.PAY.*). Contrato { title, detail, key, code }.
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+        code:
+          type: string
+          enum:
+            - PLT.PAY.VAL_INPUT
+            - PLT.PAY.SUBSCRIPTION_NOT_FOUND
+            - PLT.PAY.NOT_FOUND
+            - PLT.PAY.SUBSCRIPTION_CANCELED
+            - PLT.PAY.AMOUNT_INVALID
+            - PLT.PAY.RECEIPT_INVALID
+            - PLT.PAY.RECEIPT_UPLOAD_FAILED
+            - PLT.PAY.CHANGE_APPLY_FAILED
+            - PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT
+            - PLT.PAY.SYS_UNHANDLED
+
+    BillingPaymentAppliedChangeData:
+      type: object
+      description: |
+        Cambio de aumento reflejado al registrar el pago (USRH1786107870856).
+        Null en la respuesta cuando no había cambio vivo, el monto fue insuficiente
+        o el cambio ya no aplicaba.
+      properties:
+        billingSubscriptionChangeId:
+          type: integer
+        billingSubscriptionId:
+          type: integer
+        billingSubscriptionChangeType:
+          type: string
+          enum: [increase]
+        billingSubscriptionChangeStatus:
+          type: string
+          enum: [applied, not_applicable]
+        billingSubscriptionChangePreviousEmployees:
+          type: integer
+        billingSubscriptionChangeNewEmployees:
+          type: integer
+        billingSubscriptionChangeUnitAmount:
+          type: number
+        billingSubscriptionChangeDiscountPercent:
+          type: number
+        billingSubscriptionChangeTaxRate:
+          type: number
+        billingSubscriptionChangeSubtotal:
+          type: number
+        billingSubscriptionChangeTaxAmount:
+          type: number
+        billingSubscriptionChangeTotal:
+          type: number
+        billingSubscriptionChangeProratedAmountCents:
+          type: integer
+        billingSubscriptionChangeEffectiveAt:
+          type: string
+          format: date
+          nullable: true
+        billingSubscriptionChangeAppliedAt:
+          type: string
+          format: date-time
+          nullable: true
+        supersededBillingSubscriptionChangeId:
+          type: integer
+          nullable: true
+
+    BillingPaymentRegisterSubscriptionSnapshot:
+      type: object
+      properties:
+        billingSubscriptionId:
+          type: integer
+        status:
+          type: string
+        currentPeriodStart:
+          type: string
+          format: date
+          nullable: true
+        currentPeriodEnd:
+          type: string
+          format: date
+          nullable: true
+
+    BillingPaymentRegisterData:
+      type: object
+      description: |
+        Resultado de registrar un pago manual con comprobante (USRH1784574994922 + 0856).
+      properties:
+        billingPaymentId:
+          type: integer
+        billingSubscriptionId:
+          type: integer
+        amountCents:
+          type: integer
+        method:
+          type: string
+          enum: [transfer, cash, other]
+        reference:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          format: date-time
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        hasReceipt:
+          type: boolean
+        subscription:
+          $ref: '#/components/schemas/BillingPaymentRegisterSubscriptionSnapshot'
+        appliedChange:
+          allOf:
+            - $ref: '#/components/schemas/BillingPaymentAppliedChangeData'
+          nullable: true
+
+    BillingPaymentRegisterResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingPaymentRegisterData'
+
+    BillingPaymentListItemData:
+      type: object
+      properties:
+        billingPaymentId:
+          type: integer
+        amountCents:
+          type: integer
+        method:
+          type: string
+          enum: [transfer, cash, other]
+        reference:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+          format: date-time
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        receiptAvailable:
+          type: boolean
+
+    BillingPaymentListResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingPaymentListItemData'
+        meta:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
+            lastPage:
+              type: integer
+
+    BillingPaymentDownloadData:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresIn:
+          type: integer
+          description: Segundos hasta que caduca el enlace firmado
+
+    BillingPaymentDownloadResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingPaymentDownloadData'
+
 paths:
   /api/billing/subscription/change-preview:
     get:
@@ -4366,6 +4564,223 @@ paths:
                     code: PLT.SUB.SUBSCRIPTION_PAST_DUE
         '429':
           description: Límite de solicitudes de cambio excedido (billing-subscription-change)
+
+  /api/platform/billing/subscriptions/{subscriptionId}/payments:
+    get:
+      summary: Histórico de pagos de una suscripción
+      description: |
+        Lista paginada de pagos de una suscripción, ordenados por fecha de pago descendente.
+        Solo administradores de plataforma. No expone URL pública del comprobante.
+      tags: [Platform Billing · Payments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Histórico paginado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentListResponse'
+        '404':
+          description: Suscripción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentApiError'
+              example:
+                title: Pagos de suscripción
+                detail: La suscripción solicitada no existe.
+                key: suscripcion-no-encontrada
+                code: PLT.PAY.SUBSCRIPTION_NOT_FOUND
+    post:
+      summary: Registrar pago con comprobante
+      description: |
+        Registra un pago manual sobre una suscripción no cancelada. De forma atómica:
+        sube el comprobante privado, inserta el pago, intenta aplicar un aumento
+        `pending_payment` si el monto cubre el adeudo prorrateado (USRH1786107870856),
+        avanza el periodo un mes y pone la suscripción en `active`.
+        `appliedChange` es null si no había cambio vivo o el pago fue insuficiente.
+      tags: [Platform Billing · Payments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subscriptionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [amountCents, method, paidAt, receipt]
+              properties:
+                amountCents:
+                  type: integer
+                  minimum: 100
+                  description: Monto en centavos MXN
+                method:
+                  type: string
+                  enum: [transfer, cash, other]
+                reference:
+                  type: string
+                  maxLength: 191
+                paidAt:
+                  type: string
+                  format: date-time
+                receipt:
+                  type: string
+                  format: binary
+                  description: Comprobante PDF, JPG o PNG (máx. 10 MB)
+      responses:
+        '201':
+          description: Pago registrado; puede incluir cambio aplicado o not_applicable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentRegisterResponse'
+              examples:
+                increaseApplied:
+                  summary: Aumento aplicado junto con el pago
+                  value:
+                    type: success
+                    data:
+                      billingPaymentId: 12001
+                      billingSubscriptionId: 7
+                      amountCents: 91210
+                      method: transfer
+                      reference: SPEI-0099123
+                      paidAt: '2026-07-28T15:04:00.000-06:00'
+                      periodStart: '2026-07-28'
+                      periodEnd: '2026-08-28'
+                      hasReceipt: true
+                      subscription:
+                        billingSubscriptionId: 7
+                        status: active
+                        currentPeriodStart: '2026-07-28'
+                        currentPeriodEnd: '2026-08-28'
+                      appliedChange:
+                        billingSubscriptionChangeId: 42
+                        billingSubscriptionId: 7
+                        billingSubscriptionChangeType: increase
+                        billingSubscriptionChangeStatus: applied
+                        billingSubscriptionChangePreviousEmployees: 100
+                        billingSubscriptionChangeNewEmployees: 150
+                        billingSubscriptionChangeUnitAmount: 65
+                        billingSubscriptionChangeDiscountPercent: 5
+                        billingSubscriptionChangeTaxRate: 0.16
+                        billingSubscriptionChangeSubtotal: 9750
+                        billingSubscriptionChangeTaxAmount: 1560
+                        billingSubscriptionChangeTotal: 11310
+                        billingSubscriptionChangeProratedAmountCents: 91210
+                        billingSubscriptionChangeEffectiveAt: null
+                        billingSubscriptionChangeAppliedAt: '2026-07-28T15:04:01.000-06:00'
+                        supersededBillingSubscriptionChangeId: null
+                noChange:
+                  summary: Pago sin cambio de cantidad aplicable
+                  value:
+                    type: success
+                    data:
+                      billingPaymentId: 12002
+                      billingSubscriptionId: 7
+                      amountCents: 927800
+                      method: transfer
+                      reference: null
+                      paidAt: '2026-07-28T15:04:00.000-06:00'
+                      periodStart: '2026-07-28'
+                      periodEnd: '2026-08-28'
+                      hasReceipt: true
+                      subscription:
+                        billingSubscriptionId: 7
+                        status: active
+                        currentPeriodStart: '2026-07-28'
+                        currentPeriodEnd: '2026-08-28'
+                      appliedChange: null
+        '404':
+          description: Suscripción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentApiError'
+        '422':
+          description: Suscripción cancelada, monto o comprobante inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentApiError'
+        '500':
+          description: Fallo al aplicar el aumento o snapshot inconsistente (rollback total)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentApiError'
+              examples:
+                changeApplyFailed:
+                  summary: No se pudo aplicar el aumento
+                  value:
+                    title: Pagos de suscripción
+                    detail: No se pudo aplicar el aumento de cantidad junto con el pago.
+                    key: cambio-aplicacion-fallida
+                    code: PLT.PAY.CHANGE_APPLY_FAILED
+                inconsistentSnapshot:
+                  summary: Snapshot congelado inválido
+                  value:
+                    title: Pagos de suscripción
+                    detail: Los importes congelados del cambio de suscripción están incompletos o son inválidos.
+                    key: cambio-snapshot-inconsistente
+                    code: PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT
+
+  /api/platform/billing/payments/{paymentId}/download:
+    get:
+      summary: Enlace de descarga del comprobante
+      description: |
+        Genera un enlace temporal firmado para descargar el comprobante de un pago.
+        Caduca en 24 horas. Solo administradores de plataforma.
+      tags: [Platform Billing · Payments]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Enlace firmado generado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentDownloadResponse'
+        '404':
+          description: Pago no encontrado o sin comprobante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPaymentApiError'
 
   /api/employees/quota:
     get:
