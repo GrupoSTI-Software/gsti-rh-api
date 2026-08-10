@@ -2,6 +2,10 @@ import { test } from '@japa/runner'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+function compact(source: string): string {
+  return source.replace(/\s+/g, '')
+}
+
 test.group('employee_medical_condition_routes — PermissionGate', () => {
   test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
     const content = await readFile(
@@ -10,15 +14,15 @@ test.group('employee_medical_condition_routes — PermissionGate', () => {
     )
     assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeMedicalCondition)'
     )
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeMedicalCondition)'
     )
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeMedicalCondition)'
     )
     // La consulta del colaborador no debe llevar gate de escritura
@@ -46,10 +50,14 @@ test.group('employee_lactation_periods_routes — PermissionGate', () => {
       'deleteLactationEvidence',
     ]
     for (const key of keys) {
-      assert.include(content, `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`)
+      assert.include(
+        compact(content),
+        `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`
+      )
     }
     const matches =
-      content.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
     assert.equal(matches.length, 10)
     // Lecturas / reportes / download no llevan gate (sus handlers no aparecen junto a permissionGate)
     assert.notMatch(content, /complianceReport[\s\S]{0,80}permissionGate/)
@@ -88,10 +96,13 @@ test.group('work_disability_*_routes — PermissionGate', () => {
       joined += await readFile(join(process.cwd(), file), 'utf8')
     }
     for (const key of keys) {
-      assert.include(joined, `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`)
+      assert.include(
+        compact(joined),
+        `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`
+      )
     }
     const matches =
-      joined.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(joined).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
     assert.equal(matches.length, 12)
 
     const disabilities = await readFile(
@@ -143,9 +154,7 @@ test.group('guards — fuera de alcance de esta historia', () => {
     assert.include(scheduler, 'LACTATION_NOTIFY_EXPIRING_COMMAND')
   })
 
-  test('catálogos de tipos de condición médica no declaran gate de sección', async ({
-    assert,
-  }) => {
+  test('catálogos de tipos de condición médica no declaran gate de sección', async ({ assert }) => {
     const files = [
       'start/routes/medical_condition_type_routes.ts',
       'start/routes/medical_condition_type_property_routes.ts',
@@ -204,11 +213,11 @@ test.group('cobertura — 25 escrituras de salud/lactancia/incapacidades', () =>
     }
     for (const key of expected) {
       const needle = `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`
-      const count = joined.split(needle).length - 1
+      const count = compact(joined).split(needle).length - 1
       assert.equal(count, 1, `${key} debe aparecer exactamente una vez en rutas`)
     }
     const allMatches =
-      joined.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(joined).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
     assert.equal(allMatches.length, 25)
   })
 })
