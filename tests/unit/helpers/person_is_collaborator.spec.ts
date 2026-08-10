@@ -1,7 +1,6 @@
 import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
 import Person from '#models/person'
-import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import { personIsCollaborator } from '#helpers/person_is_collaborator'
 
