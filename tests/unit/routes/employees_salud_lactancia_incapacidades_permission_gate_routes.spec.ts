@@ -129,9 +129,17 @@ test.group('guards — fuera de alcance de esta historia', () => {
       'utf8'
     )
     const scheduler = await readFile(join(process.cwd(), 'start/scheduler.ts'), 'utf8')
+    const lactationNotificationConstants = await readFile(
+      join(process.cwd(), 'app/constants/employee_lactation_notification.ts'),
+      'utf8'
+    )
     assert.notInclude(command, 'permissionGate')
     assert.notInclude(command, 'PermissionGate')
     assert.notInclude(scheduler, 'permissionGate')
+    assert.include(
+      lactationNotificationConstants,
+      "export const LACTATION_NOTIFY_EXPIRING_COMMAND = 'lactation:notify-expiring'"
+    )
     assert.include(scheduler, 'LACTATION_NOTIFY_EXPIRING_COMMAND')
   })
 
