@@ -20,7 +20,7 @@ test.group('respondPermissionGateDenial', () => {
       },
     } as unknown as HttpContext
 
-    respondPermissionGateDenial(ctx, { allowed: false, reason: 'denied' })
+    respondPermissionGateDenial(ctx, { reason: 'denied' })
 
     assert.equal(captured.status, 403)
     assert.equal(captured.body?.key, PERMISSION_GATE_ERROR_CODES.DENIED)
@@ -43,7 +43,7 @@ test.group('respondPermissionGateDenial', () => {
       },
     } as unknown as HttpContext
 
-    respondPermissionGateDenial(ctx, { allowed: false, reason: 'unresolved' })
+    respondPermissionGateDenial(ctx, { reason: 'unresolved' })
 
     assert.equal(captured.status, 403)
     assert.equal(captured.body?.key, PERMISSION_GATE_ERROR_CODES.UNRESOLVED)
