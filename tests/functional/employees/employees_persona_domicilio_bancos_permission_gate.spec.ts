@@ -30,6 +30,7 @@ interface SystemActor {
   user: User
   person: Person
   businessUnit: BusinessUnit
+  roleId: number
 }
 
 async function permissionId(moduleSlug: string, permissionSlug: string): Promise<number> {
@@ -129,7 +130,7 @@ async function createSystemActor(roleSlug: string, emailPrefix: string): Promise
   })
 
   await user.related('businessUnits').attach([businessUnit.businessUnitId])
-  return { user, person, businessUnit }
+  return { user, person, businessUnit, roleId: role.roleId }
 }
 
 async function cleanupSystemActor(actor: SystemActor | null) {
@@ -137,6 +138,33 @@ async function cleanupSystemActor(actor: SystemActor | null) {
   await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
   await User.query().where('user_id', actor.user.userId).delete()
   await Person.query().where('person_id', actor.person.personId).delete()
+}
+
+async function activeEmployeesGrants(roleId: number) {
+  return RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .whereNull('role_system_permission_deleted_at')
+    .whereHas('systemPermissions', (permissionQuery) =>
+      permissionQuery
+        .whereNull('system_permission_deleted_at')
+        .whereHas('systemModule', (moduleQuery) =>
+          moduleQuery.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
+        )
+    )
+}
+
+async function snapshotAndClearEmployeesGrants(roleId: number) {
+  const grants = await activeEmployeesGrants(roleId)
+  for (const grant of grants) {
+    await grant.delete()
+  }
+  return grants
+}
+
+async function restoreEmployeesGrants(grants: RoleSystemPermission[]) {
+  for (const grant of grants) {
+    await grant.restore()
+  }
 }
 
 async function createEmployeeFixture(businessUnitId: number, prefix: string): Promise<EmployeeFixture> {
@@ -510,7 +538,14 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       'super-administrador',
       'employees-persona-super-admin'
     )
+    let ownerGrants: RoleSystemPermission[] = []
+    let superAdminGrants: RoleSystemPermission[] = []
     try {
+      ownerGrants = await snapshotAndClearEmployeesGrants(owner.roleId)
+      superAdminGrants = await snapshotAndClearEmployeesGrants(superAdmin.roleId)
+      assert.lengthOf(await activeEmployeesGrants(owner.roleId), 0)
+      assert.lengthOf(await activeEmployeesGrants(superAdmin.roleId), 0)
+
       const ownerResponse = await client
         .post('/api/employee-banks')
         .loginAs(owner.user)
@@ -527,6 +562,8 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       superAdminResponse.assertStatus(403)
       assert.equal(superAdminResponse.body()?.key, 'PERM.DENIED')
     } finally {
+      await restoreEmployeesGrants(ownerGrants)
+      await restoreEmployeesGrants(superAdminGrants)
       await cleanupSystemActor(owner)
       await cleanupSystemActor(superAdmin)
     }
