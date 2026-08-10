@@ -50,3 +50,27 @@ siempre, y `delete` únicamente cuando cambian `employeeTerminatedDate`,
 - No agrega bitácora de denegaciones.
 - No oculta botones en el backoffice.
 - No enciende la exigencia del módulo.
+
+## 4. Superficie de escritura compartida con otros dominios
+
+Cuando una misma operación HTTP sirve a varios dominios del producto
+(p. ej. `PUT /api/persons/:personId` sirve a colaborador, cliente y usuario)
+y **no** existe una acción del módulo Empleados que aplique a los demás dominios:
+
+1. **No** declarar `permissionGate` sobre la ruta completa.
+2. Resolver caso por caso si el registro tocado corresponde a un colaborador
+   (vínculo `employees.person_id` con `employee_deleted_at IS NULL`).
+3. Si corresponde a colaborador, exigir el permiso del módulo Empleados con
+   `ensureSecondaryPermission` (mismo `PermissionGateService.evaluate`,
+   mismo interruptor de módulo, mismo bypass del catálogo, misma respuesta 403).
+4. Si no corresponde a colaborador, no exigir permiso de Empleados: la operación
+   sigue como hoy para ese dominio.
+5. Evaluar el permiso **antes** de validar el cuerpo de la petición cuando el
+   caso colaborador aplica, para no revelar reglas de validación de una sección
+   a la que no se tiene acceso.
+
+Ejemplo canónico: escritura de datos personales de `Person` — exige
+`tab-persona-write` / `tab-persona-delete` solo si la persona está ligada a
+un colaborador. Pilotos y sobrecargos son colaboradores (tienen fila en
+`employees`), así que quedan cubiertos aunque se editen desde otra pantalla.
+La persona de un cliente no queda cubierta.
