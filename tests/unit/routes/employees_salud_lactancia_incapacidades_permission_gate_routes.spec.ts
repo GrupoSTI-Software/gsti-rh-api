@@ -121,3 +121,32 @@ test.group('lactancia — comprobación legacy intacta', () => {
     assert.include(evidences, "key: 'sin-permiso'")
   })
 })
+
+test.group('guards — fuera de alcance de esta historia', () => {
+  test('comando y scheduler de aviso automático no usan permissionGate', async ({ assert }) => {
+    const command = await readFile(
+      join(process.cwd(), 'commands/lactation_notify_expiring.ts'),
+      'utf8'
+    )
+    const scheduler = await readFile(join(process.cwd(), 'start/scheduler.ts'), 'utf8')
+    assert.notInclude(command, 'permissionGate')
+    assert.notInclude(command, 'PermissionGate')
+    assert.notInclude(scheduler, 'permissionGate')
+    assert.include(scheduler, 'LACTATION_NOTIFY_EXPIRING_COMMAND')
+  })
+
+  test('catálogos de tipos de condición médica no declaran gate de sección', async ({
+    assert,
+  }) => {
+    const files = [
+      'start/routes/medical_condition_type_routes.ts',
+      'start/routes/medical_condition_type_property_routes.ts',
+      'start/routes/medical_condition_type_property_value_routes.ts',
+    ]
+    for (const file of files) {
+      const content = await readFile(join(process.cwd(), file), 'utf8')
+      assert.notInclude(content, 'permissionGate')
+      assert.notInclude(content, 'tab-condicion-medica')
+    }
+  })
+})
