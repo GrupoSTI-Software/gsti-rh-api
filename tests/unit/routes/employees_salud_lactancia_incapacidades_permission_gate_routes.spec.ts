@@ -158,3 +158,54 @@ test.group('guards — fuera de alcance de esta historia', () => {
     }
   })
 })
+
+test.group('cobertura — 25 escrituras de salud/lactancia/incapacidades', () => {
+  test('cada clave del dominio aparece exactamente una vez en rutas', async ({ assert }) => {
+    const routeFiles = [
+      'start/routes/employee_medical_condition_routes.ts',
+      'start/routes/employee_lactation_periods_routes.ts',
+      'start/routes/work_disability_routes.ts',
+      'start/routes/work_disability_period_routes.ts',
+      'start/routes/work_disability_note_routes.ts',
+      'start/routes/work_disability_period_expense_routes.ts',
+    ]
+    const expected = [
+      'createEmployeeMedicalCondition',
+      'updateEmployeeMedicalCondition',
+      'deleteEmployeeMedicalCondition',
+      'createEmployeeLactationPeriod',
+      'updateEmployeeLactationPeriod',
+      'deleteEmployeeLactationPeriod',
+      'regenerateLactationShiftExceptions',
+      'runLactationExpiringCheck',
+      'revokeLactationConflict',
+      'reassignLactationConflict',
+      'reassignLactationConflictsBulk',
+      'createLactationEvidence',
+      'deleteLactationEvidence',
+      'createWorkDisability',
+      'updateWorkDisability',
+      'deleteWorkDisability',
+      'createWorkDisabilityPeriod',
+      'updateWorkDisabilityPeriod',
+      'deleteWorkDisabilityPeriod',
+      'createWorkDisabilityNote',
+      'updateWorkDisabilityNote',
+      'deleteWorkDisabilityNote',
+      'createWorkDisabilityPeriodExpense',
+      'updateWorkDisabilityPeriodExpense',
+      'deleteWorkDisabilityPeriodExpense',
+    ]
+    assert.equal(expected.length, 25)
+
+    let joined = ''
+    for (const file of routeFiles) {
+      joined += await readFile(join(process.cwd(), file), 'utf8')
+    }
+    for (const key of expected) {
+      const needle = `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`
+      const count = joined.split(needle).length - 1
+      assert.equal(count, 1, `${key} debe aparecer exactamente una vez en rutas`)
+    }
+  })
+})
