@@ -453,6 +453,11 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       .json(childPayload(fixture!.employee.employeeId))
     assert.notEqual(childResponse.body()?.key, 'PERM.DENIED')
 
+    const banksBefore = await db
+      .from('employee_banks')
+      .where('employee_id', fixture!.employee.employeeId)
+      .count('* as total')
+      .first()
     const bankResponse = await client
       .post('/api/employee-banks')
       .loginAs(actor!.user)
@@ -460,12 +465,12 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       .json(bankPayload(fixture!.employee.employeeId, 101))
     bankResponse.assertStatus(403)
     assert.equal(bankResponse.body()?.key, 'PERM.DENIED')
-    const bank = await db
+    const banksAfter = await db
       .from('employee_banks')
       .where('employee_id', fixture!.employee.employeeId)
-      .where('employee_bank_account_clabe_last_numbers', '0101')
+      .count('* as total')
       .first()
-    assert.isNull(bank)
+    assert.equal(Number(banksAfter?.total), Number(banksBefore?.total))
 
     const bankId = await createBankFixture(fixture!, actor!.businessUnit.businessUnitId, 102)
     const deleteResponse = await client
@@ -590,5 +595,18 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     childDeleteResponse.assertStatus(403)
     assert.equal(childDeleteResponse.body()?.key, 'PERM.DENIED')
     assert.isNotNull(await db.from('employee_children').where('employee_children_id', childId).first())
+
+    const personDeleteResponse = await client
+      .delete(`/api/persons/${fixture!.person.personId}`)
+      .loginAs(actor!.user)
+    personDeleteResponse.assertStatus(403)
+    assert.equal(personDeleteResponse.body()?.key, 'PERM.DENIED')
+    assert.isNotNull(
+      await db
+        .from('people')
+        .where('person_id', fixture!.person.personId)
+        .whereNull('person_deleted_at')
+        .first()
+    )
   })
 })

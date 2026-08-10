@@ -74,3 +74,6 @@ Ejemplo canónico: escritura de datos personales de `Person` — exige
 un colaborador. Pilotos y sobrecargos son colaboradores (tienen fila en
 `employees`), así que quedan cubiertos aunque se editen desde otra pantalla.
 La persona de un cliente no queda cubierta.
+
+Los `DELETE` propios de piloto y sobrecargo quedan fuera de esta convención:
+son un gap preexistente y no se incluyen en esta historia.
