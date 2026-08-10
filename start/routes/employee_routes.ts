@@ -1,4 +1,5 @@
 import router from '@adonisjs/core/services/router'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { middleware } from '#start/kernel'
 
 router
@@ -20,14 +21,26 @@ router
     router.get('/without-user', '#controllers/employee_controller.indexWithOutUser')
     router.get('/', '#controllers/employee_controller.index')
     router.get('/to-assigned', '#controllers/employee_controller.indexToAssigned')
-    router.post('/', '#controllers/employee_controller.store')
-    router.put('/:employeeId', '#controllers/employee_controller.update')
-    router.delete('/:employeeId', '#controllers/employee_controller.delete')
+    router
+      .post('/', '#controllers/employee_controller.store')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployee))
+    router
+      .put('/:employeeId', '#controllers/employee_controller.update')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployee))
+    router
+      .delete('/:employeeId', '#controllers/employee_controller.delete')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.terminateEmployee))
     router.get('/get-by-id/:employeeId', '#controllers/employee_controller.getById')
     router.get('/:employeeId', '#controllers/employee_controller.show').where('employeeId', router.matchers.number())
-    router.put('/:employeeId/photo', '#controllers/employee_controller.uploadPhoto')
-    router.delete('/:employeeId/photo', '#controllers/employee_controller.deletePhoto')
-    router.put('/:employeeId/reactivate', '#controllers/employee_controller.reactivate')
+    router
+      .put('/:employeeId/photo', '#controllers/employee_controller.uploadPhoto')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.uploadEmployeePhoto))
+    router
+      .delete('/:employeeId/photo', '#controllers/employee_controller.deletePhoto')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeePhoto))
+    router
+      .put('/:employeeId/reactivate', '#controllers/employee_controller.reactivate')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.reactivateEmployee))
     router.get(
       '/:employeeId/proceeding-files',
       '#controllers/employee_controller.getProceedingFiles'
