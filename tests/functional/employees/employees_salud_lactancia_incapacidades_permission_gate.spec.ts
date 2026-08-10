@@ -11,6 +11,8 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import MedicalConditionType from '#models/medical_condition_type'
 import InsuranceCoverageType from '#models/insurance_coverage_type'
+import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import WorkDisability from '#models/work_disability'
 import { TenantContext } from '#utils/tenant_context'
 
 const TEST_PASSWORD = 'EmployeesSaludLactanciaIncapSoftRollout123!'
@@ -134,6 +136,40 @@ async function createSystemActor(roleSlug: string, emailPrefix: string): Promise
 
   await user.related('businessUnits').attach([businessUnit.businessUnitId])
   return { user, person, businessUnit, roleId: role.roleId }
+}
+
+async function cleanupSystemActor(actor: SystemActor | null) {
+  if (!actor) return
+  await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
+  await User.query().where('user_id', actor.user.userId).delete()
+  await Person.query().where('person_id', actor.person.personId).delete()
+}
+
+async function activeEmployeesGrants(roleId: number) {
+  return RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .whereNull('role_system_permission_deleted_at')
+    .whereHas('systemPermissions', (permissionQuery) =>
+      permissionQuery
+        .whereNull('system_permission_deleted_at')
+        .whereHas('systemModule', (moduleQuery) =>
+          moduleQuery.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
+        )
+    )
+}
+
+async function snapshotAndClearEmployeesGrants(roleId: number) {
+  const grants = await activeEmployeesGrants(roleId)
+  for (const grant of grants) {
+    await grant.delete()
+  }
+  return grants
+}
+
+async function restoreEmployeesGrants(grants: RoleSystemPermission[]) {
+  for (const grant of grants) {
+    await grant.restore()
+  }
 }
 
 async function createEmployeeFixture(businessUnitId: number, prefix: string): Promise<EmployeeFixture> {
@@ -335,5 +371,271 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate soft-rollout', (gro
 
     assert.equal(response.status(), 403)
     assert.equal(response.body()?.key, 'sin-permiso')
+  })
+})
+
+test.group('Salud/Lactancia/Incapacidades — PermissionGate exigencia ON', (group) => {
+  let employeesModule: SystemModule
+  let actor: TenantActor | null = null
+  let fixture: EmployeeFixture | null = null
+  let medicalConditionType: MedicalConditionType | null = null
+
+  group.setup(async () => {
+    employeesModule = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', 'employees')
+      .firstOrFail()
+    employeesModule.systemModulePermissionEnforcementActive = true
+    await employeesModule.save()
+    actor = await createActor('employees-salud-lactancia-incap-enforced')
+    fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'enforced')
+    medicalConditionType = await TenantContext.run(
+      [actor.businessUnit.businessUnitId],
+      async () => {
+        const type = new MedicalConditionType()
+        type.medicalConditionTypeName = `TEST-MCT-ON-${Date.now()}`
+        type.medicalConditionTypeDescription = 'fixture exigencia ON'
+        type.medicalConditionTypeActive = 1
+        await type.save()
+        return type
+      }
+    )
+  })
+
+  group.teardown(async () => {
+    let enforcementLeftDisabled = false
+    try {
+      if (medicalConditionType) {
+        await TenantContext.runUnscoped(async () => {
+          await MedicalConditionType.query()
+            .where('medicalConditionTypeId', medicalConditionType!.medicalConditionTypeId)
+            .delete()
+        }, 'limpieza tipo condición médica exigencia ON')
+      }
+      await cleanupEmployeeFixture(fixture)
+      await cleanupActor(actor)
+    } finally {
+      employeesModule.systemModulePermissionEnforcementActive = false
+      await employeesModule.save()
+      const moduleAfterTeardown = await SystemModule.findOrFail(employeesModule.systemModuleId)
+      enforcementLeftDisabled = moduleAfterTeardown.systemModulePermissionEnforcementActive === false
+    }
+    if (!enforcementLeftDisabled) {
+      throw new Error('La exigencia de permisos de empleados debe quedar apagada tras el suite.')
+    }
+  })
+
+  test('sin tab-condicion-medica-write, POST condición médica → PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['update-information'])
+    const response = await client
+      .post('/api/employee-medical-conditions')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({
+        employeeId: fixture!.employee.employeeId,
+        medicalConditionTypeId: medicalConditionType!.medicalConditionTypeId,
+        employeeMedicalConditionDiagnosis: 'Denied',
+      })
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('con write sin delete, DELETE condición médica → PERM.DENIED y el registro permanece', async ({
+    client,
+    assert,
+  }) => {
+    const condition = await EmployeeMedicalCondition.create({
+      employeeId: fixture!.employee.employeeId,
+      medicalConditionTypeId: medicalConditionType!.medicalConditionTypeId,
+      employeeMedicalConditionDiagnosis: 'Solo write',
+      employeeMedicalConditionActive: 1,
+    })
+    await grantOnly(actor!.role.roleId, ['tab-condicion-medica-write'])
+    const response = await client
+      .delete(`/api/employee-medical-conditions/${condition.employeeMedicalConditionId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+    assert.isNotNull(
+      await EmployeeMedicalCondition.query()
+        .where('employee_medical_condition_id', condition.employeeMedicalConditionId)
+        .whereNull('employee_medical_condition_deleted_at')
+        .first()
+    )
+  })
+
+  test('con manage-work-disabilities, DELETE incapacidad no responde PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    const coverage = await InsuranceCoverageType.query()
+      .whereNull('insurance_coverage_type_deleted_at')
+      .firstOrFail()
+    const disability = new WorkDisability()
+    disability.workDisabilityUuid = `test-wd-pg-${Date.now()}`
+    disability.employeeId = fixture!.employee.employeeId
+    disability.insuranceCoverageTypeId = coverage.insuranceCoverageTypeId
+    await disability.save()
+    await grantOnly(actor!.role.roleId, ['manage-work-disabilities'])
+    const response = await client
+      .delete(`/api/work-disabilities/${disability.workDisabilityId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('sin manage-work-disabilities, POST y DELETE incapacidad → PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    const coverage = await InsuranceCoverageType.query()
+      .whereNull('insurance_coverage_type_deleted_at')
+      .firstOrFail()
+    await grantOnly(actor!.role.roleId, ['update-information'])
+    const create = await client
+      .post('/api/work-disabilities')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({
+        employeeId: fixture!.employee.employeeId,
+        insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
+      })
+    assert.equal(create.status(), 403)
+    assert.equal(create.body()?.key, 'PERM.DENIED')
+
+    const disability = new WorkDisability()
+    disability.workDisabilityUuid = `test-wd-pg-del-${Date.now()}`
+    disability.employeeId = fixture!.employee.employeeId
+    disability.insuranceCoverageTypeId = coverage.insuranceCoverageTypeId
+    await disability.save()
+    const del = await client
+      .delete(`/api/work-disabilities/${disability.workDisabilityId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.equal(del.status(), 403)
+    assert.equal(del.body()?.key, 'PERM.DENIED')
+  })
+
+  test('lactancia: solo permiso nuevo sin update-information → mensaje legacy sin-permiso', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-periodos-lactancia-write'])
+    const response = await client
+      .post('/api/employee-lactation-periods')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({
+        employeeId: fixture!.employee.employeeId,
+        employeeLactationPeriodStartDate: '2026-01-01',
+        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodType: 'reduced_hour',
+      })
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'sin-permiso')
+  })
+
+  test('lactancia: solo update-information sin permiso nuevo → PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['update-information'])
+    const response = await client
+      .post('/api/employee-lactation-periods')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({
+        employeeId: fixture!.employee.employeeId,
+        employeeLactationPeriodStartDate: '2026-01-01',
+        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodType: 'reduced_hour',
+      })
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('lactancia: ambas autorizaciones permiten alta', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['update-information', 'tab-periodos-lactancia-write'])
+    const response = await client
+      .post('/api/employee-lactation-periods')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .json({
+        employeeId: fixture!.employee.employeeId,
+        employeeLactationPeriodStartDate: '2026-01-01',
+        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodType: 'reduced_hour',
+      })
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+    assert.notEqual(response.body()?.key, 'sin-permiso')
+  })
+
+  test('disparo manual de aviso exige tab-periodos-lactancia-write', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['update-information'])
+    const response = await client
+      .post('/api/employee-lactation-periods/notifications/run-expiring-check')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('owner evade el gate y super-administrador no', async ({ client, assert }) => {
+    const owner = await createSystemActor('owner', 'employees-salud-owner')
+    const superAdmin = await createSystemActor('super-administrador', 'employees-salud-super-admin')
+    let ownerGrants: RoleSystemPermission[] = []
+    let superAdminGrants: RoleSystemPermission[] = []
+    try {
+      ownerGrants = await snapshotAndClearEmployeesGrants(owner.roleId)
+      superAdminGrants = await snapshotAndClearEmployeesGrants(superAdmin.roleId)
+      const ownerResponse = await client
+        .post('/api/employee-medical-conditions')
+        .loginAs(owner.user)
+        .header('X-Business-Unit-Id', owner.businessUnit.businessUnitPublicId)
+        .json({
+          employeeId: fixture!.employee.employeeId,
+          medicalConditionTypeId: medicalConditionType!.medicalConditionTypeId,
+          employeeMedicalConditionDiagnosis: 'Owner bypass',
+        })
+      assert.notEqual(ownerResponse.body()?.key, 'PERM.DENIED')
+
+      const superAdminResponse = await client
+        .post('/api/employee-medical-conditions')
+        .loginAs(superAdmin.user)
+        .header('X-Business-Unit-Id', superAdmin.businessUnit.businessUnitPublicId)
+        .json({
+          employeeId: fixture!.employee.employeeId,
+          medicalConditionTypeId: medicalConditionType!.medicalConditionTypeId,
+          employeeMedicalConditionDiagnosis: 'DG denied',
+        })
+      assert.equal(superAdminResponse.status(), 403)
+      assert.equal(superAdminResponse.body()?.key, 'PERM.DENIED')
+    } finally {
+      await restoreEmployeesGrants(ownerGrants)
+      await restoreEmployeesGrants(superAdminGrants)
+      await cleanupSystemActor(owner)
+      await cleanupSystemActor(superAdmin)
+    }
+  })
+
+  test('GET condición médica e incapacidades por employeeId no responden PERM.DENIED sin grants', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const medical = await client
+      .get(`/api/employee-medical-conditions/employee/${fixture!.employee.employeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    const disabilities = await client
+      .get(`/api/work-disabilities/employee/${fixture!.employee.employeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.notEqual(medical.body()?.key, 'PERM.DENIED')
+    assert.notEqual(disabilities.body()?.key, 'PERM.DENIED')
   })
 })
