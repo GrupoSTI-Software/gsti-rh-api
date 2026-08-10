@@ -1,21 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import PermissionGateService from '#services/permission_gate_service'
-import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
+import { respondPermissionGateDenial } from '#helpers/permission_gate_http'
 import type { PermissionGateOptions } from '#constants/permission_gate'
-
-const ERR = {
-  DENIED: {
-    key: PERMISSION_GATE_ERROR_CODES.DENIED,
-    title: 'Sin permiso',
-    detail: 'No tienes permiso para realizar esta operación.',
-  },
-  UNRESOLVED: {
-    key: PERMISSION_GATE_ERROR_CODES.UNRESOLVED,
-    title: 'No se pudo verificar el permiso',
-    detail: 'No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.',
-  },
-} as const
 
 /**
  * Pieza única de control de acceso (USRH1785766406721): se declara sobre
@@ -33,12 +20,7 @@ export default class PermissionGateMiddleware {
       return next()
     }
 
-    const err = decision.reason === 'unresolved' ? ERR.UNRESOLVED : ERR.DENIED
-    return ctx.response.status(403).json({
-      title: err.title,
-      detail: err.detail,
-      key: err.key,
-    })
+    return respondPermissionGateDenial(ctx, decision)
   }
 }
 
