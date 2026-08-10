@@ -7,7 +7,10 @@ export interface EmployeeTerminationRecord {
 /** Misma normalización de fecha que EmployeeController (update/delete). */
 export function normalizeEmployeeTerminatedDate(value: unknown): string | null {
   if (!value) return null
-  return (String(value).split('T')[0] + ' 00:000:00').replace('"', '')
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10)
+  }
+  return String(value).replace('"', '').split(/[T\s]/)[0]
 }
 
 function normalizeToken(value: unknown): string | null {

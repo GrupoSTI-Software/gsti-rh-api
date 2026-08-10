@@ -1407,7 +1407,9 @@ export default class EmployeeController {
       const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
 
       let employeeTerminatedDate = request.input('employeeTerminatedDate')
-      employeeTerminatedDate = employeeTerminatedDate ? (employeeTerminatedDate.split('T')[0] + ' 00:000:00').replace('"', '') : null
+      employeeTerminatedDate = employeeTerminatedDate
+        ? employeeTerminatedDate.split('T')[0].replace('"', '')
+        : null
 
       const employee = {
         employeeId: employeeId,
@@ -1505,9 +1507,7 @@ export default class EmployeeController {
       if (
         isEmployeeTerminationRecordChanged(
           {
-            employeeTerminatedDate: currentEmployee.employeeTerminatedDate
-              ? String(currentEmployee.employeeTerminatedDate)
-              : null,
+            employeeTerminatedDate: currentEmployee.employeeTerminatedDate as string | null,
             employeeTerminationModality: this.normalizeTerminationInput(
               currentEmployee.employeeTerminationModality
             ),
