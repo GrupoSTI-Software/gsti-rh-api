@@ -9,6 +9,7 @@ router
     router.get('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
     router.post('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
     router.post('/import-shift-assignments', '#controllers/employee_controller.importShiftAssignments')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importShiftAssignmentsExcel))
     router.get('/template-excel', '#controllers/employee_controller.getTemplateExcel')
     router.get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
     router.get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
@@ -127,7 +128,9 @@ router
       '#controllers/employee_controller.exportShiftExceptionsToExcel'
     )
     router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importEmployeesExcel))
     router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.inverseSyncEmployee))
     router.post(
       '/:employeeId/vacation-deductions',
       '#controllers/employee_controller.applyVacationDeduction'
