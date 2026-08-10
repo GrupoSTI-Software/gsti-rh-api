@@ -117,3 +117,23 @@ test.group('employee_emergency_contact_routes — PermissionGate Persona', () =>
     )
   })
 })
+
+test.group('person_controller — PermissionGate condicional colaborador', () => {
+  test('update y delete usan personIsCollaborator y ensureSecondaryPermission', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'app/controllers/person_controller.ts'),
+      'utf8'
+    )
+    assert.include(content, "from '#helpers/person_is_collaborator'")
+    assert.include(content, "from '#helpers/permission_gate_secondary'")
+    assert.include(content, 'EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION')
+    assert.include(content, 'EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION')
+    assert.include(content, 'personIsCollaborator')
+    assert.include(content, 'ensureSecondaryPermission')
+    // No debe declarar gate incondicional en la ruta de persons
+    const routes = await readFile(join(process.cwd(), 'start/routes/person_routes.ts'), 'utf8')
+    assert.notInclude(routes, 'permissionGate')
+  })
+})
