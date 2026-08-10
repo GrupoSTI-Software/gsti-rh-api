@@ -1,4 +1,4 @@
-import Employee from '#models/employee'
+import db from '@adonisjs/lucid/services/db'
 
 /**
  * Indica si la persona está ligada a un colaborador no eliminado.
@@ -6,9 +6,11 @@ import Employee from '#models/employee'
  * Incluye colaboradores con baja operativa; excluye soft-delete.
  */
 export async function personIsCollaborator(personId: number): Promise<boolean> {
-  const employee = await Employee.query()
+  // Se consulta sin scope para conservar el gate aunque cambie el contexto de unidad de negocio.
+  const employee = await db
+    .from('employees')
     .whereNull('employee_deleted_at')
     .where('person_id', personId)
     .first()
-  return employee !== null
+  return Boolean(employee)
 }

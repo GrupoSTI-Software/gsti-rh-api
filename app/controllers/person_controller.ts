@@ -561,7 +561,7 @@ export default class PersonController {
         personPlaceOfBirthState: personPlaceOfBirthState,
         personPlaceOfBirthCity: personPlaceOfBirthCity,
       } as Person
-      if (!personId) {
+      if (!personId || !Number.isInteger(Number(personId))) {
         response.status(400)
         return {
           type: 'warning',
@@ -751,7 +751,7 @@ export default class PersonController {
     const { request, response, i18n } = ctx
     try {
       const personId = request.param('personId')
-      if (!personId) {
+      if (!personId || !Number.isInteger(Number(personId))) {
         response.status(400)
         return {
           type: 'warning',
