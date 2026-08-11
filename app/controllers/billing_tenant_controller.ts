@@ -212,10 +212,18 @@ export default class BillingTenantController {
    *     description: |
    *       Devuelve siempre `businessUnitOrigin` y la suscripción viva del tenant
    *       del header `X-Business-Unit-Id`, o `subscription: null` si no hay
-   *       contratación en curso. Incluye `minimumContractedEmployees` (número)
-   *       solo cuando la empresa es de origen `self_service` y no tiene
-   *       suscripción viva; en cualquier otro caso viene `null`. Nunca responde
-   *       404 por ausencia de suscripción.
+   *       contratación en curso. El snapshot incluye el periodo vigente
+   *       (`billingSubscriptionCurrentPeriodStart` / `billingSubscriptionCurrentPeriodEnd`);
+   *       el fin del periodo es la **fecha del próximo pago**.
+   *
+   *       `minimumContractedEmployees` es numérico para empresas `self_service`
+   *       (con o sin suscripción viva); en empresas `platform` viene `null`.
+   *       La pantalla de ajuste de cantidad consume ese mínimo; el muro global de
+   *       contratación lo ignora cuando hay suscripción viva.
+   *
+   *       **Sin gate de rol:** cualquier usuario autenticado con scope sobre la
+   *       empresa puede consultarlo (p. ej. el middleware del muro de contratación).
+   *       Nunca responde 404 por ausencia de suscripción.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -244,60 +252,76 @@ export default class BillingTenantController {
    *                   description: Response message
    *                 data:
    *                   type: object
+   *                   required:
+   *                     - businessUnitOrigin
+   *                     - subscription
+   *                     - minimumContractedEmployees
+   *                   properties:
+   *                     businessUnitOrigin:
+   *                       type: string
+   *                       enum: [platform, self_service]
+   *                     minimumContractedEmployees:
+   *                       type: integer
+   *                       nullable: true
+   *                       description: |
+   *                         Mínimo contratable en bloques de 10 para empresas
+   *                         self_service (también con suscripción viva). Null en platform.
+   *                     subscription:
+   *                       type: object
+   *                       nullable: true
+   *                       description: Snapshot de la suscripción viva o null
+   *                       properties:
+   *                         billingSubscriptionId:
+   *                           type: integer
+   *                         billingPlanId:
+   *                           type: integer
+   *                         billingPlanName:
+   *                           type: string
+   *                         billingSubscriptionStatus:
+   *                           type: string
+   *                           enum: [trialing, active, past_due]
+   *                         billingSubscriptionContractedEmployees:
+   *                           type: integer
+   *                         billingSubscriptionContractedUnitAmount:
+   *                           type: number
+   *                         billingSubscriptionDiscountPercent:
+   *                           type: number
+   *                         billingSubscriptionContractedCurrency:
+   *                           type: string
+   *                         billingSubscriptionContractedTaxRate:
+   *                           type: number
+   *                         billingSubscriptionContractedSubtotal:
+   *                           type: number
+   *                         billingSubscriptionContractedTaxAmount:
+   *                           type: number
+   *                         billingSubscriptionContractedTotal:
+   *                           type: number
+   *                         billingSubscriptionContractedTrialDays:
+   *                           type: integer
+   *                         billingSubscriptionTrialEndsAt:
+   *                           type: string
+   *                           format: date
+   *                           nullable: true
+   *                         firstPaymentDate:
+   *                           type: string
+   *                           format: date
+   *                           nullable: true
+   *                         billingSubscriptionCurrentPeriodStart:
+   *                           type: string
+   *                           format: date
+   *                           nullable: true
+   *                           description: Inicio del periodo vigente (fecha calendario ISO)
+   *                         billingSubscriptionCurrentPeriodEnd:
+   *                           type: string
+   *                           format: date
+   *                           nullable: true
+   *                           description: Fin del periodo vigente = fecha del próximo pago
    *       '400':
    *         description: Falta header X-Business-Unit-Id
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
    *       '401':
    *         description: No autenticado
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
    *       '404':
    *         description: Empresa fuera de alcance o inexistente
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
    */
   async mySubscription({ response }: HttpContext) {
     try {

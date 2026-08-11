@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import RoleSeeder from '#database/seeders/0006_role_seeder'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -14,9 +15,10 @@ import BillingSubscriptionService from '#services/billing_subscription_service'
 import { toCalendarIsoDate } from '#utils/business_date'
 
 /**
- * Tests funcionales — GET /api/billing/subscription/me (USRH1785441817226).
+ * Tests funcionales — GET /api/billing/subscription/me (USRH1785441817226,
+ * USRH1786107870865).
  *
- * Cubre CA-6 y CA-7. El origen `self_service` se siembra directamente porque
+ * Cubre CA-5, CA-6 y CA-7. El origen `self_service` se siembra directamente porque
  * la escritura en signup es responsabilidad de USRH1785441820858.
  */
 
@@ -73,13 +75,27 @@ async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor
   return { user, person, businessUnit }
 }
 
+async function ensureEmployeeRole(): Promise<Role> {
+  await new RoleSeeder({} as never).run()
+  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'empleado').first()
+  if (!role) {
+    throw new Error('Se requiere el rol empleado en BD para los tests de billing/subscription/me.')
+  }
+  return role
+}
+
 async function createTenantActor(options: {
   emailPrefix: string
   origin: 'platform' | 'self_service'
+  roleSlug?: 'root' | 'empleado'
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
+  const roleSlug = options.roleSlug ?? 'root'
+  const role =
+    roleSlug === 'empleado'
+      ? await ensureEmployeeRole()
+      : await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
   if (!role) {
     throw new Error('Se requiere el rol root en BD para los tests de billing/subscription/me.')
   }
@@ -282,6 +298,10 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
     assert.equal(data.subscription.billingSubscriptionContractedEmployees, 30)
     assert.property(data.subscription, 'billingPlanName')
     assert.property(data.subscription, 'firstPaymentDate')
+    assert.property(data.subscription, 'billingSubscriptionCurrentPeriodStart')
+    assert.property(data.subscription, 'billingSubscriptionCurrentPeriodEnd')
+    assert.isString(data.subscription.billingSubscriptionCurrentPeriodStart)
+    assert.isString(data.subscription.billingSubscriptionCurrentPeriodEnd)
     assert.notProperty(data.subscription, 'businessUnitId')
   })
 
@@ -324,12 +344,65 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
     const trialEndsAt = toCalendarIsoDate(subscription.billingSubscriptionTrialEndsAt)
     assert.equal(subscription.firstPaymentDate, trialEndsAt)
   })
+
+  test('expone el periodo vigente alineado con la suscripción persistida (USRH1786107870865)', async ({
+    client,
+    assert,
+  }) => {
+    const persisted = await BillingSubscription.findOrFail(liveSubscriptionId!)
+    const response = await client
+      .get('/api/billing/subscription/me')
+      .loginAs(selfServiceActor!.user)
+      .header('X-Business-Unit-Id', selfServiceActor!.businessUnit.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const subscription = response.body().data.subscription
+    assert.equal(
+      subscription.billingSubscriptionCurrentPeriodStart,
+      toCalendarIsoDate(persisted.billingSubscriptionCurrentPeriodStart)
+    )
+    assert.equal(
+      subscription.billingSubscriptionCurrentPeriodEnd,
+      toCalendarIsoDate(persisted.billingSubscriptionCurrentPeriodEnd)
+    )
+    assert.equal(
+      subscription.billingSubscriptionCurrentPeriodEnd,
+      toCalendarIsoDate(persisted.billingSubscriptionTrialEndsAt)
+    )
+  })
 })
+
+test.group(
+  'GET /api/billing/subscription/me — regresión muro (CA-5, USRH1786107870865)',
+  () => {
+    test('un usuario empleado recibe 200 sin gate de rol', async ({ client, assert }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-employee',
+        origin: 'self_service',
+        roleSlug: 'empleado',
+      })
+
+      try {
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.equal(response.body().data.businessUnitOrigin, 'self_service')
+        assert.isNull(response.body().data.subscription)
+        assert.equal(response.body().data.minimumContractedEmployees, 10)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+  }
+)
 
 test.group(
   'GET /api/billing/subscription/me — minimumContractedEmployees (USRH1785441822058)',
   () => {
-    test('devuelve el mínimo solo para self_service sin suscripción viva', async ({
+    test('devuelve el mínimo para self_service sin suscripción viva', async ({
       client,
       assert,
     }) => {
@@ -354,7 +427,10 @@ test.group(
       }
     })
 
-    test('devuelve null con suscripción viva self_service', async ({ client, assert }) => {
+    test('devuelve el mínimo también con suscripción viva self_service (USRH1786107870865)', async ({
+      client,
+      assert,
+    }) => {
       const stamp = Date.now()
       const planId = await createPublishedPlan(stamp)
       const actor = await createTenantActor({
@@ -380,7 +456,7 @@ test.group(
 
         response.assertStatus(200)
         assert.isObject(response.body().data.subscription)
-        assert.isNull(response.body().data.minimumContractedEmployees)
+        assert.equal(response.body().data.minimumContractedEmployees, 10)
       } finally {
         await cleanupSubscription(subscriptionId)
         await cleanupPlan(planId)
