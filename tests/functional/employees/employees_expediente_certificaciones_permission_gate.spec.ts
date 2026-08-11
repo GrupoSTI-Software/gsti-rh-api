@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
+import { DateTime } from 'luxon'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -11,6 +12,10 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import EmployeeRecordProperty from '#models/employee_record_property'
 import CertificationCategory from '#models/certification_category'
+import Certification from '#models/certification'
+import EmployeeCertification from '#models/employee_certification'
+import EmployeeProceedingFile from '#models/employee_proceeding_file'
+import EmployeeProceedingFileService from '#services/employee_proceeding_file_service'
 
 const TEST_PASSWORD = 'EmployeesExpedienteCertificacionesSoftRollout123!'
 
@@ -32,6 +37,13 @@ interface EmployeeFixture {
   person: Person
   departmentId: number
   positionId: number
+}
+
+interface SystemActor {
+  user: User
+  person: Person
+  businessUnit: BusinessUnit
+  roleId: number
 }
 
 async function permissionId(moduleSlug: string, permissionSlug: string): Promise<number> {
@@ -105,6 +117,67 @@ async function cleanupActor(actor: TenantActor | null) {
   await Person.query().where('person_id', actor.person.personId).delete()
   await Role.query().where('role_id', actor.role.roleId).delete()
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+}
+
+async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
+  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+  const businessUnit = await BusinessUnit.query()
+    .whereNull('business_unit_deleted_at')
+    .where('business_unit_active', 1)
+    .firstOrFail()
+  const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+  const email = `${emailPrefix}-${stamp}@gsti-tests.local`
+  const person = await Person.create({
+    personFirstname: 'ExpedienteCertificaciones',
+    personLastname: 'Sistema',
+    personSecondLastname: emailPrefix,
+    personEmail: email,
+  })
+  const user = await User.create({
+    userEmail: email,
+    userPassword: TEST_PASSWORD,
+    userActive: 1,
+    roleId: role.roleId,
+    personId: person.personId,
+    userEmailType: 'institutional',
+  })
+
+  await user.related('businessUnits').attach([businessUnit.businessUnitId])
+  return { user, person, businessUnit, roleId: role.roleId }
+}
+
+async function cleanupSystemActor(actor: SystemActor | null) {
+  if (!actor) return
+  await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
+  await User.query().where('user_id', actor.user.userId).delete()
+  await Person.query().where('person_id', actor.person.personId).delete()
+}
+
+async function activeEmployeesGrants(roleId: number) {
+  return RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .whereNull('role_system_permission_deleted_at')
+    .whereHas('systemPermissions', (permissionQuery) =>
+      permissionQuery
+        .whereNull('system_permission_deleted_at')
+        .whereHas('systemModule', (moduleQuery) =>
+          moduleQuery.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
+        )
+    )
+}
+
+async function snapshotAndClearEmployeesGrants(roleId: number) {
+  const grants = await activeEmployeesGrants(roleId)
+  for (const grant of grants) {
+    await grant.delete()
+  }
+  return grants
+}
+
+async function restoreEmployeesGrants(grants: RoleSystemPermission[]) {
+  for (const grant of grants) {
+    await grant.restore()
+  }
 }
 
 async function createEmployeeFixture(businessUnitId: number, prefix: string): Promise<EmployeeFixture> {
@@ -208,6 +281,30 @@ async function createProceedingFileTypeForArea(area: string): Promise<number> {
     proceeding_file_type_updated_at: now,
   })
   return Number(insert[0])
+}
+
+async function countProceedingFilesForType(typeId: number): Promise<number> {
+  const row = await db
+    .from('proceeding_files')
+    .whereNull('proceeding_file_deleted_at')
+    .where('proceeding_file_type_id', typeId)
+    .count('* as total')
+    .first()
+  return Number(row?.total ?? 0)
+}
+
+async function countCertificationUploads(
+  employeeId: number,
+  certificationId: number
+): Promise<number> {
+  const row = await db
+    .from('employee_certifications')
+    .whereNull('employee_certification_deleted_at')
+    .where('employee_id', employeeId)
+    .where('certification_id', certificationId)
+    .count('* as total')
+    .first()
+  return Number(row?.total ?? 0)
 }
 
 test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group) => {
@@ -324,5 +421,301 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
       .field('proceedingFileActive', 'true')
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
     assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
+  })
+})
+
+test.group('Expediente/Certificaciones — PermissionGate exigencia ON', (group) => {
+  let actor: TenantActor | null = null
+  let fixture: EmployeeFixture | null = null
+  let employeesModule: SystemModule
+  let certificationCategory: CertificationCategory
+  let employeeProceedingFileTypeId: number
+  let aircraftProceedingFileTypeId: number
+  let certificationId: number
+  let employeeProceedingFileLinkId: number
+  let currentUploadId: number
+  let olderUploadId: number
+  const createdProceedingFileTypeIds: number[] = []
+  let createdProceedingFileId: number | null = null
+
+  group.setup(async () => {
+    employeesModule = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', 'employees')
+      .firstOrFail()
+    employeesModule.systemModulePermissionEnforcementActive = true
+    await employeesModule.save()
+
+    actor = await createActor('employees-expediente-cert-on')
+    fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'on')
+    certificationCategory = await ensureCertificationCategory()
+    employeeProceedingFileTypeId = await createProceedingFileTypeForArea('employee')
+    aircraftProceedingFileTypeId = await createProceedingFileTypeForArea('aircraft')
+    createdProceedingFileTypeIds.push(employeeProceedingFileTypeId, aircraftProceedingFileTypeId)
+
+    const certification = await Certification.create({
+      categoryId: certificationCategory.certificationCategoryId,
+      certificationName: `Cert ON ${Date.now()}`,
+      isExternal: false,
+      renewalPeriodDays: 365,
+    })
+    certificationId = certification.certificationId
+
+    const now = new Date()
+    const proceedingFileInsert = await db.table('proceeding_files').insert({
+      proceeding_file_name: `link-on-${Date.now()}.pdf`,
+      proceeding_file_path: `link-on-${Date.now()}.pdf`,
+      proceeding_file_type_id: employeeProceedingFileTypeId,
+      proceeding_file_active: 1,
+      proceeding_file_uuid: `pf-on-${Date.now()}-${Math.floor(Math.random() * 100_000)}`,
+      proceeding_file_created_at: now,
+      proceeding_file_updated_at: now,
+    })
+    createdProceedingFileId = Number(proceedingFileInsert[0])
+
+    const link = await new EmployeeProceedingFileService().create(
+      Object.assign(new EmployeeProceedingFile(), {
+        employeeId: fixture.employee.employeeId,
+        proceedingFileId: createdProceedingFileId,
+      })
+    )
+    if (!link) {
+      throw new Error('No se pudo crear el vínculo employees-proceeding-files de la fixture ON.')
+    }
+    employeeProceedingFileLinkId = link.employeeProceedingFileId
+
+    const olderUpload = new EmployeeCertification()
+    olderUpload.employeeId = fixture.employee.employeeId
+    olderUpload.certificationId = certificationId
+    olderUpload.employeeCertificationCompliedAt = DateTime.fromISO('2026-06-01')
+    await olderUpload.save()
+    olderUploadId = olderUpload.employeeCertificationId
+
+    const currentUpload = new EmployeeCertification()
+    currentUpload.employeeId = fixture.employee.employeeId
+    currentUpload.certificationId = certificationId
+    currentUpload.employeeCertificationCompliedAt = DateTime.fromISO('2026-07-01')
+    await currentUpload.save()
+    currentUploadId = currentUpload.employeeCertificationId
+  })
+
+  group.teardown(async () => {
+    let enforcementLeftDisabled = false
+    try {
+      await db
+        .from('employee_certifications')
+        .whereIn('employee_certification_id', [currentUploadId, olderUploadId])
+        .delete()
+      await db
+        .from('employee_proceeding_files')
+        .where('employee_proceeding_file_id', employeeProceedingFileLinkId)
+        .delete()
+      if (createdProceedingFileId) {
+        await db.from('proceeding_files').where('proceeding_file_id', createdProceedingFileId).delete()
+      }
+      if (createdProceedingFileTypeIds.length) {
+        await db
+          .from('proceeding_files')
+          .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
+          .delete()
+        await db
+          .from('proceeding_file_types')
+          .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
+          .delete()
+      }
+      await db.from('business_unit_certifications').where('certification_id', certificationId).delete()
+      await db.from('certifications').where('certification_id', certificationId).delete()
+      await cleanupEmployeeFixture(fixture)
+      await cleanupActor(actor)
+    } finally {
+      // Si el cleanup arriba lanza, esta rama corre igual pero NO relanza: la excepción
+      // original del cleanup sigue propagándose y el throw de abajo nunca se alcanza,
+      // preservando el error original en vez de enmascararlo (evita no-unsafe-finally).
+      employeesModule.systemModulePermissionEnforcementActive = false
+      await employeesModule.save()
+      const moduleAfterTeardown = await SystemModule.findOrFail(employeesModule.systemModuleId)
+      enforcementLeftDisabled = moduleAfterTeardown.systemModulePermissionEnforcementActive === false
+    }
+    if (!enforcementLeftDisabled) {
+      throw new Error('La exigencia de permisos de empleados debe quedar apagada tras el suite.')
+    }
+  })
+
+  test('con tab-expediente-write, POST proceeding-files área employee no responde PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-expediente-write'])
+    const response = await client
+      .post('/api/proceeding-files')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .file('file', VALID_PDF_BUFFER, {
+        filename: 'with-write.pdf',
+        contentType: 'application/pdf',
+      })
+      .field('proceedingFileTypeId', String(employeeProceedingFileTypeId))
+      .field('proceedingFileName', 'with-write.pdf')
+      .field('proceedingFileActive', 'true')
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+    assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
+  })
+
+  test('sin tab-expediente-write, POST proceeding-files área employee → PERM.DENIED y no crea registro', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const before = await countProceedingFilesForType(employeeProceedingFileTypeId)
+    const response = await client
+      .post('/api/proceeding-files')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .file('file', VALID_PDF_BUFFER, {
+        filename: 'denied.pdf',
+        contentType: 'application/pdf',
+      })
+      .field('proceedingFileTypeId', String(employeeProceedingFileTypeId))
+      .field('proceedingFileName', 'denied.pdf')
+      .field('proceedingFileActive', 'true')
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+    const after = await countProceedingFilesForType(employeeProceedingFileTypeId)
+    assert.equal(after, before)
+  })
+
+  test('POST proceeding-files área aircraft sin permiso de expediente no responde PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const response = await client
+      .post('/api/proceeding-files')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .file('file', VALID_PDF_BUFFER, {
+        filename: 'aircraft.pdf',
+        contentType: 'application/pdf',
+      })
+      .field('proceedingFileTypeId', String(aircraftProceedingFileTypeId))
+      .field('proceedingFileName', 'aircraft.pdf')
+      .field('proceedingFileActive', 'true')
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('con write sin delete, DELETE employees-proceeding-files → PERM.DENIED y el vínculo permanece', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-expediente-write'])
+    const response = await client
+      .delete(`/api/employees-proceeding-files/${employeeProceedingFileLinkId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+    const stillThere = await db
+      .from('employee_proceeding_files')
+      .whereNull('employee_proceeding_file_deleted_at')
+      .where('employee_proceeding_file_id', employeeProceedingFileLinkId)
+      .first()
+    assert.isNotNull(stillThere)
+  })
+
+  test('sin tab-certificaciones-write, POST upload de cumplimiento → PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const before = await countCertificationUploads(
+      fixture!.employee.employeeId,
+      certificationId
+    )
+    const response = await client
+      .post(
+        `/api/employees/${fixture!.employee.employeeId}/certifications/${certificationId}/uploads`
+      )
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      .file('file', VALID_PDF_BUFFER, {
+        filename: 'cert-denied.pdf',
+        contentType: 'application/pdf',
+      })
+      .field('compliedAt', '2026-08-01')
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+    const after = await countCertificationUploads(fixture!.employee.employeeId, certificationId)
+    assert.equal(after, before)
+  })
+
+  test('sin tab-certificaciones-delete, DELETE upload → PERM.DENIED; historial intacto', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-certificaciones-write'])
+    const before = await countCertificationUploads(
+      fixture!.employee.employeeId,
+      certificationId
+    )
+    const response = await client
+      .delete(
+        `/api/employees/${fixture!.employee.employeeId}/certifications/${certificationId}/uploads/${currentUploadId}`
+      )
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.equal(response.status(), 403)
+    assert.equal(response.body()?.key, 'PERM.DENIED')
+    const after = await countCertificationUploads(fixture!.employee.employeeId, certificationId)
+    assert.equal(after, before)
+  })
+
+  test('con delete, borrar cumplimiento no reciente conserva el aviso propio (no PERM.*)', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [
+      'tab-certificaciones-write',
+      'tab-certificaciones-delete',
+    ])
+    const response = await client
+      .delete(
+        `/api/employees/${fixture!.employee.employeeId}/certifications/${certificationId}/uploads/${olderUploadId}`
+      )
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+    assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
+    // El servicio responde el aviso de negocio (código EC_* / mensaje
+    // "Solo se puede borrar el cumplimiento más reciente.").
+    assert.match(JSON.stringify(response.body()), /más reciente/i)
+  })
+
+  test('owner y root evaden el gate estándar sin grants', async ({ client, assert }) => {
+    const owner = await createSystemActor('owner', 'employees-expediente-owner')
+    const root = await createSystemActor('root', 'employees-expediente-root')
+    let ownerGrants: RoleSystemPermission[] = []
+    let rootGrants: RoleSystemPermission[] = []
+    try {
+      ownerGrants = await snapshotAndClearEmployeesGrants(owner.roleId)
+      rootGrants = await snapshotAndClearEmployeesGrants(root.roleId)
+      for (const systemActor of [owner, root]) {
+        const response = await client
+          .post('/api/certifications')
+          .loginAs(systemActor.user)
+          .json({
+            name: `Cert bypass ${systemActor.user.userEmail}`,
+            categoryId: certificationCategory.certificationCategoryId,
+            isExternal: false,
+            renewalPeriodDays: 365,
+            businessUnitIds: [systemActor.businessUnit.businessUnitId],
+          })
+        assert.notEqual(response.body()?.key, 'PERM.DENIED')
+      }
+    } finally {
+      await restoreEmployeesGrants(ownerGrants)
+      await restoreEmployeesGrants(rootGrants)
+      await cleanupSystemActor(root)
+      await cleanupSystemActor(owner)
+    }
   })
 })
