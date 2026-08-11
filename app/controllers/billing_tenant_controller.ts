@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import BillingTenantService from '#services/billing_tenant_service'
 import BillingSubscriptionChangeService from '#services/billing_subscription_change_service'
+import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { assertBillingOwner } from '../helpers/billing_owner_guard.js'
@@ -24,6 +25,7 @@ import {
 export default class BillingTenantController {
   private readonly service = new BillingTenantService()
   private readonly changeService = new BillingSubscriptionChangeService()
+  private readonly internalNotification = new BillingInternalNotificationService()
 
   /**
    * @swagger
@@ -662,6 +664,18 @@ export default class BillingTenantController {
       }
 
       const result = await this.changeService.requestIncrease(businessUnitId, body.employees)
+
+      this.internalNotification.dispatchSubscriptionChangeRequestedFromSession(
+        ctx,
+        businessUnitId,
+        result.billingSubscriptionChangeId,
+        {
+          event: 'increase_requested',
+          appliedImmediately: result.billingSubscriptionChangeStatus === 'applied',
+          resolveSupersededOnIncrease: true,
+        }
+      )
+
       return response.status(201).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
@@ -770,6 +784,18 @@ export default class BillingTenantController {
       }
 
       const result = await this.changeService.scheduleDecrease(businessUnitId, body.employees)
+
+      this.internalNotification.dispatchSubscriptionChangeRequestedFromSession(
+        ctx,
+        businessUnitId,
+        result.billingSubscriptionChangeId,
+        {
+          event: 'decrease_scheduled',
+          replacedChangeId: result.supersededBillingSubscriptionChangeId,
+          appliedImmediately: false,
+        }
+      )
+
       return response.status(201).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
@@ -861,6 +887,18 @@ export default class BillingTenantController {
       }
 
       const result = await this.changeService.cancelLiveChange(businessUnitId)
+
+      this.internalNotification.dispatchSubscriptionChangeRequestedFromSession(
+        ctx,
+        businessUnitId,
+        result.billingSubscriptionChangeId,
+        {
+          event: 'change_canceled',
+          replacedChangeId: null,
+          appliedImmediately: false,
+        }
+      )
+
       return response.status(200).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
