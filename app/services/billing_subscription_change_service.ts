@@ -116,6 +116,26 @@ export type ApplyIncreaseOutcome =
     }
   | { outcome: 'applied'; change: SubscriptionChangeRecord }
 
+export type ApplyScheduledDecreaseNotApplicableReason = 'cantidad-menor-a-plantilla-activa'
+
+export type ApplyScheduledDecreaseOutcome =
+  | { outcome: 'sin_cambio' }
+  | {
+      outcome: 'not_applicable'
+      change: SubscriptionChangeRecord
+      activeEmployees: number
+      minimumContractedEmployees: number
+      reason: ApplyScheduledDecreaseNotApplicableReason
+    }
+  | {
+      outcome: 'applied'
+      change: SubscriptionChangeRecord
+      previousEmployees: number
+      newEmployees: number
+      activeEmployees: number
+      minimumContractedEmployees: number
+    }
+
 export interface SubscriptionIncreaseRequestResult {
   billingSubscriptionChangeId: number
   billingSubscriptionId: number
@@ -420,6 +440,119 @@ export default class BillingSubscriptionChangeService {
   }
 
   /**
+   * Materializa una reducción `scheduled` cuya fecha de efecto ya se alcanzó
+   * (USRH1786107870859). Agnóstico de contexto HTTP: recibe la suscripción y la
+   * fecha de corte explícitas; no lee `TenantContext`.
+   *
+   * Algoritmo (transacción única por invocación):
+   *   1. Candado `FOR UPDATE` sobre la fila `decrease` + `scheduled` más antigua
+   *      con `effective_at <= businessDate`, filtrando por `billing_subscription_id`
+   *      y `business_unit_id`.
+   *   2. Revalidación contra la plantilla activa del momento (`countActiveEmployees`
+   *      + `resolveMinimumContractedEmployees`).
+   *   3. Desenlace `not_applicable` si la cantidad agendada quedó bajo el mínimo;
+   *      desenlace `applied` copiando los importes congelados (sin recotizar catálogo).
+   *
+   * No mueve `current_period_start/end`, `trial_ends_at` ni `status`. No cobra ni
+   * devuelve dinero. Idempotente: estados terminales (`applied`, `not_applicable`) no
+   * se reprocesan.
+   *
+   * @param subscription - Suscripción viva ya cargada por el barrido; se usa su id
+   *   y `businessUnitId` para aislamiento explícito entre empresas.
+   * @param businessDate - Fecha de corte civil CDMX (`YYYY-MM-DD`).
+   * @returns `sin_cambio` si no hay reducción vencida; `applied` o `not_applicable`
+   *   con el registro del cambio y conteos de revalidación.
+   */
+  async applyScheduledDecrease(
+    subscription: BillingSubscription,
+    businessDate: string
+  ): Promise<ApplyScheduledDecreaseOutcome> {
+    const businessDateEnd = DateTime.fromISO(businessDate, { zone: getBusinessTimeZone() }).endOf(
+      'day'
+    )
+
+    return db.transaction(async (trx) => {
+      const change = await BillingSubscriptionChange.query({ client: trx })
+        .where('billing_subscription_id', subscription.billingSubscriptionId)
+        .where('business_unit_id', subscription.businessUnitId)
+        .where('billing_subscription_change_type', 'decrease')
+        .where('billing_subscription_change_status', 'scheduled')
+        .whereNull('billing_subscription_change_deleted_at')
+        .where(
+          'billing_subscription_change_effective_at',
+          '<=',
+          businessDateEnd.toSQL({ includeOffset: false })!
+        )
+        .orderBy('billing_subscription_change_id', 'asc')
+        .forUpdate()
+        .first()
+
+      if (!change) {
+        return { outcome: 'sin_cambio' }
+      }
+
+      if (change.businessUnitId !== subscription.businessUnitId) {
+        throw new Error('El cambio agendado no pertenece a la empresa de la suscripción.')
+      }
+
+      const activeEmployees = await this.employeeQuotaService.countActiveEmployees(
+        subscription.businessUnitId,
+        trx
+      )
+      const minimumContractedEmployees =
+        this.tenantService.resolveMinimumContractedEmployees(activeEmployees)
+
+      if (change.billingSubscriptionChangeNewEmployees < minimumContractedEmployees) {
+        const updated = await this.markScheduledDecreaseNotApplicable(change, trx)
+        return {
+          outcome: 'not_applicable',
+          change: this.buildChangeRecord(updated, null),
+          activeEmployees,
+          minimumContractedEmployees,
+          reason: 'cantidad-menor-a-plantilla-activa',
+        }
+      }
+
+      const lockedSub = await BillingSubscription.query({ client: trx })
+        .where('billing_subscription_id', subscription.billingSubscriptionId)
+        .where('business_unit_id', subscription.businessUnitId)
+        .whereNull('billing_subscription_deleted_at')
+        .forUpdate()
+        .firstOrFail()
+
+      const previousEmployees = lockedSub.billingSubscriptionContractedEmployees
+
+      lockedSub.billingSubscriptionContractedEmployees = change.billingSubscriptionChangeNewEmployees
+      lockedSub.billingSubscriptionContractedUnitAmount =
+        change.billingSubscriptionChangeUnitAmount
+      lockedSub.billingSubscriptionDiscountPercent = change.billingSubscriptionChangeDiscountPercent
+      lockedSub.billingSubscriptionContractedTaxRate = change.billingSubscriptionChangeTaxRate
+      lockedSub.billingSubscriptionContractedSubtotal = change.billingSubscriptionChangeSubtotal
+      lockedSub.billingSubscriptionContractedTaxAmount = change.billingSubscriptionChangeTaxAmount
+      lockedSub.billingSubscriptionContractedTotal = change.billingSubscriptionChangeTotal
+      lockedSub.billingSubscriptionContractedEffectiveFrom = DateTime.fromISO(businessDate, {
+        zone: getBusinessTimeZone(),
+      })
+      await lockedSub.save()
+
+      change.useTransaction(trx)
+      change.billingSubscriptionChangeStatus = 'applied'
+      change.billingSubscriptionChangeAppliedAt = DateTime.now()
+      change.billingSubscriptionChangeNotApplicableReason = null
+      await change.save()
+
+      return {
+        outcome: 'applied',
+        change: this.buildChangeRecord(change, null),
+        previousEmployees,
+        newEmployees: change.billingSubscriptionChangeNewEmployees,
+        activeEmployees,
+        minimumContractedEmployees,
+      }
+    })
+  }
+
+  /**
    * Aplica un aumento `pending_payment` cuando el pago cubre el adeudo prorrateado
    * (USRH1786107870856). Mutar la suscripción en memoria; el caller persiste con `save()`.
    *
@@ -576,6 +709,18 @@ export default class BillingSubscriptionChangeService {
     })
 
     return this.buildChangeRecord(change, null)
+  }
+
+  private async markScheduledDecreaseNotApplicable(
+    change: BillingSubscriptionChange,
+    trx: TransactionClientContract
+  ): Promise<BillingSubscriptionChange> {
+    change.useTransaction(trx)
+    change.billingSubscriptionChangeStatus = 'not_applicable'
+    change.billingSubscriptionChangeNotApplicableReason = 'cantidad-menor-a-plantilla-activa'
+    change.billingSubscriptionChangeAppliedAt = null
+    await change.save()
+    return change
   }
 
   private async markChangeNotApplicable(

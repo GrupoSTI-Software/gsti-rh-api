@@ -1,18 +1,33 @@
 import { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
 import BillingSubscription from '#models/billing_subscription'
 import BillingSubscriptionTransition from '#models/billing_subscription_transition'
 import type { BillingSubscriptionTransitionReason } from '#models/billing_subscription_transition'
+import BillingSubscriptionChangeService, {
+  type ApplyScheduledDecreaseOutcome,
+} from '#services/billing_subscription_change_service'
 import { toBusinessDateString, isBusinessCalendarDateBefore } from '../utils/business_date.js'
 
 // ─── Tipos internos ──────────────────────────────────────────────────────────
 
+/** Resumen de una corrida de `billing:tick-subscriptions` (USRH1784574994921 + 0859). */
 export interface ClockRunResult {
   businessDate: string
+  /** Suscripciones no canceladas evaluadas (transición + reducción agendada). */
   processed: number
+  /** Suscripciones cuyo estado cambió en esta corrida. */
   transitioned: number
+  /** Suscripciones sin transición de estado en esta corrida. */
   skipped: number
   details: ClockTransitionDetail[]
+  /** Reducciones agendadas materializadas con desenlace `applied`. */
+  changesApplied: number
+  /** Reducciones agendadas resueltas como `not_applicable`. */
+  changesNotApplicable: number
+  /** Suscripciones con al menos un fallo (transición o reducción); se reintentan. */
+  failed: number
+  changeDetails: ClockScheduledChangeDetail[]
 }
 
 export interface ClockTransitionDetail {
@@ -21,6 +36,17 @@ export interface ClockTransitionDetail {
   toStatus: string
   reason: BillingSubscriptionTransitionReason
   idempotent: boolean
+}
+
+export interface ClockScheduledChangeDetail {
+  billingSubscriptionId: number
+  billingSubscriptionChangeId: number
+  outcome: 'applied' | 'not_applicable'
+  previousEmployees: number
+  newEmployees: number
+  activeEmployees: number
+  minimumContractedEmployees: number
+  reason: string | null
 }
 
 // ─── Servicio ────────────────────────────────────────────────────────────────
@@ -34,17 +60,30 @@ export interface ClockTransitionDetail {
  * `billing_subscriptions` y registra la transición en
  * `billing_subscription_transitions`.
  *
+ * Tras el gobierno de estados, aplica reducciones agendadas cuya fecha de
+ * efecto ya se alcanzó (USRH1786107870859) sin mover las fechas del periodo.
+ *
  * La idempotencia se garantiza en dos capas:
  *   1. Guards de estado: tras la transición el estado ya no cumple la condición.
  *   2. UNIQUE (billing_subscription_id, cut_date) en la bitácora; insertos
  *      duplicados se ignoran silenciosamente.
  */
 export default class BillingSubscriptionClockService {
+  private readonly changeService = new BillingSubscriptionChangeService()
+
   /**
    * Ejecuta el barrido para la fecha de corte dada (CDMX).
    *
+   * Por cada suscripción no cancelada, en orden:
+   *   1. Gobierno de estados (`resolveTransition` → `applyTransition`), transacción propia.
+   *   2. Materialización de reducción agendada (`applyScheduledDecrease`), transacción propia.
+   *
+   * Un fallo en cualquiera de los dos pasos se registra en `failed` y no aborta el lote
+   * (regla 14, USRH1786107870859). Las transacciones de cada paso son independientes.
+   *
    * @param businessDate - Fecha de corte en formato `YYYY-MM-DD` (CDMX).
    *                       Por defecto es el día actual en la zona de negocio.
+   * @returns Contadores de transiciones y desenlaces de reducción agendada.
    */
   async run(businessDate: string = toBusinessDateString()): Promise<ClockRunResult> {
     const result: ClockRunResult = {
@@ -53,6 +92,10 @@ export default class BillingSubscriptionClockService {
       transitioned: 0,
       skipped: 0,
       details: [],
+      changesApplied: 0,
+      changesNotApplicable: 0,
+      failed: 0,
+      changeDetails: [],
     }
 
     // R4: solo suscripciones no canceladas. SoftDeletes NO auto-filtra en este
@@ -64,26 +107,94 @@ export default class BillingSubscriptionClockService {
     for (const sub of subscriptions) {
       result.processed++
 
-      const transition = this.resolveTransition(sub, businessDate)
+      let subscriptionFailed = false
 
-      if (!transition) {
-        result.skipped++
-        continue
+      try {
+        const transition = this.resolveTransition(sub, businessDate)
+
+        if (!transition) {
+          result.skipped++
+        } else {
+          const wasIdempotent = await this.applyTransition(sub, transition, businessDate)
+
+          result.transitioned++
+          result.details.push({
+            billingSubscriptionId: sub.billingSubscriptionId,
+            fromStatus: transition.from,
+            toStatus: transition.to,
+            reason: transition.reason,
+            idempotent: wasIdempotent,
+          })
+        }
+      } catch (error: unknown) {
+        subscriptionFailed = true
+        logger.error(
+          {
+            err: error,
+            billingSubscriptionId: sub.billingSubscriptionId,
+            businessDate,
+          },
+          'billing:tick-subscriptions — fallo al transicionar suscripción'
+        )
       }
 
-      const wasIdempotent = await this.applyTransition(sub, transition, businessDate)
+      try {
+        const decreaseOutcome = await this.changeService.applyScheduledDecrease(sub, businessDate)
+        this.recordScheduledDecreaseOutcome(result, decreaseOutcome)
+      } catch (error: unknown) {
+        subscriptionFailed = true
+        logger.error(
+          {
+            err: error,
+            billingSubscriptionId: sub.billingSubscriptionId,
+            businessDate,
+          },
+          'billing:tick-subscriptions — fallo al aplicar reducción agendada'
+        )
+      }
 
-      result.transitioned++
-      result.details.push({
-        billingSubscriptionId: sub.billingSubscriptionId,
-        fromStatus: transition.from,
-        toStatus: transition.to,
-        reason: transition.reason,
-        idempotent: wasIdempotent,
-      })
+      if (subscriptionFailed) {
+        result.failed++
+      }
     }
 
     return result
+  }
+
+  private recordScheduledDecreaseOutcome(
+    result: ClockRunResult,
+    outcome: ApplyScheduledDecreaseOutcome
+  ): void {
+    if (outcome.outcome === 'sin_cambio') {
+      return
+    }
+
+    if (outcome.outcome === 'applied') {
+      result.changesApplied++
+      result.changeDetails.push({
+        billingSubscriptionId: outcome.change.billingSubscriptionId,
+        billingSubscriptionChangeId: outcome.change.billingSubscriptionChangeId,
+        outcome: 'applied',
+        previousEmployees: outcome.previousEmployees,
+        newEmployees: outcome.newEmployees,
+        activeEmployees: outcome.activeEmployees,
+        minimumContractedEmployees: outcome.minimumContractedEmployees,
+        reason: null,
+      })
+      return
+    }
+
+    result.changesNotApplicable++
+    result.changeDetails.push({
+      billingSubscriptionId: outcome.change.billingSubscriptionId,
+      billingSubscriptionChangeId: outcome.change.billingSubscriptionChangeId,
+      outcome: 'not_applicable',
+      previousEmployees: outcome.change.billingSubscriptionChangePreviousEmployees,
+      newEmployees: outcome.change.billingSubscriptionChangeNewEmployees,
+      activeEmployees: outcome.activeEmployees,
+      minimumContractedEmployees: outcome.minimumContractedEmployees,
+      reason: outcome.reason,
+    })
   }
 
   // ─── Reglas de transición ─────────────────────────────────────────────────
