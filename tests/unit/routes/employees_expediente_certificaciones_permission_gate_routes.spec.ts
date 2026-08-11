@@ -2,15 +2,29 @@ import { test } from '@japa/runner'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+function compact(source: string): string {
+  return source.replace(/\s+/g, '')
+}
+
 test.group('employee_record_routes — PermissionGate Expediente', () => {
   test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), 'start/routes/employee_record_routes.ts'), 'utf8')
     assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeRecord)')
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeRecord)')
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeRecord)')
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeRecord)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeRecord)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeRecord)'
+    )
     const matches =
-      content.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
     assert.equal(matches.length, 3)
   })
 })
@@ -23,19 +37,20 @@ test.group('employee_proceeding_file_routes — PermissionGate Expediente', () =
     )
     assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeProceedingFile)'
     )
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeProceedingFile)'
     )
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeProceedingFile)'
     )
     const matches =
-      content.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
     assert.equal(matches.length, 3)
     assert.notMatch(content, /download[\s\S]{0,120}permissionGate/)
   })
@@ -45,11 +60,21 @@ test.group('certifications_routes — PermissionGate', () => {
   test('escrituras del catálogo declaran permissionGate; lecturas no', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), 'start/routes/certifications_routes.ts'), 'utf8')
     assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createCertification)')
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateCertification)')
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCertification)')
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createCertification)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateCertification)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCertification)'
+    )
     const matches =
-      content.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
     assert.equal(matches.length, 3)
   })
 })
@@ -61,15 +86,16 @@ test.group('employee_certification_upload_routes — PermissionGate', () => {
       'utf8'
     )
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeCertificationUpload)'
     )
     assert.include(
-      content,
+      compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeCertificationUpload)'
     )
     const matches =
-      content.match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
     assert.equal(matches.length, 2)
     assert.notMatch(content, /download-url[\s\S]{0,160}permissionGate/)
   })
