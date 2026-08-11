@@ -695,6 +695,7 @@ test.group('Expediente/Certificaciones — PermissionGate exigencia ON', (group)
     const root = await createSystemActor('root', 'employees-expediente-root')
     let ownerGrants: RoleSystemPermission[] = []
     let rootGrants: RoleSystemPermission[] = []
+    const createdCertificationIds: number[] = []
     try {
       ownerGrants = await snapshotAndClearEmployeesGrants(owner.roleId)
       rootGrants = await snapshotAndClearEmployeesGrants(root.roleId)
@@ -710,8 +711,19 @@ test.group('Expediente/Certificaciones — PermissionGate exigencia ON', (group)
             businessUnitIds: [systemActor.businessUnit.businessUnitId],
           })
         assert.notEqual(response.body()?.key, 'PERM.DENIED')
+        const createdId: number | null = response.body()?.data?.certification?.id ?? null
+        if (createdId) {
+          createdCertificationIds.push(createdId)
+        }
       }
     } finally {
+      if (createdCertificationIds.length) {
+        await db
+          .from('business_unit_certifications')
+          .whereIn('certification_id', createdCertificationIds)
+          .delete()
+        await db.from('certifications').whereIn('certification_id', createdCertificationIds).delete()
+      }
       await restoreEmployeesGrants(ownerGrants)
       await restoreEmployeesGrants(rootGrants)
       await cleanupSystemActor(root)
