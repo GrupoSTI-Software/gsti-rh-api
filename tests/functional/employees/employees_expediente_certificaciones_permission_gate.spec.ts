@@ -218,6 +218,7 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
   let certificationCategory: CertificationCategory
   let employeeProceedingFileTypeId: number
   const createdProceedingFileTypeIds: number[] = []
+  let createdCertificationId: number | null = null
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()
@@ -236,20 +237,35 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
   })
 
   group.teardown(async () => {
-    if (createdProceedingFileTypeIds.length) {
-      await db
-        .from('proceeding_files')
-        .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
-        .delete()
-      await db
-        .from('proceeding_file_types')
-        .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
-        .delete()
+    let enforcementLeftDisabled = false
+    try {
+      if (createdProceedingFileTypeIds.length) {
+        await db
+          .from('proceeding_files')
+          .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
+          .delete()
+        await db
+          .from('proceeding_file_types')
+          .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
+          .delete()
+      }
+      if (createdCertificationId) {
+        await db
+          .from('business_unit_certifications')
+          .where('certification_id', createdCertificationId)
+          .delete()
+        await db.from('certifications').where('certification_id', createdCertificationId).delete()
+      }
+      await cleanupEmployeeFixture(fixture)
+      await cleanupActor(actor)
+    } finally {
+      // Si el cleanup arriba lanza, esta rama corre igual pero NO relanza: la excepción
+      // original del cleanup sigue propagándose y el throw de abajo nunca se alcanza,
+      // preservando el error original en vez de enmascararlo (evita no-unsafe-finally).
+      const moduleAfterTeardown = await SystemModule.findOrFail(employeesModule.systemModuleId)
+      enforcementLeftDisabled = moduleAfterTeardown.systemModulePermissionEnforcementActive === false
     }
-    await cleanupEmployeeFixture(fixture)
-    await cleanupActor(actor)
-    const moduleAfter = await SystemModule.findOrFail(employeesModule.systemModuleId)
-    if (moduleAfter.systemModulePermissionEnforcementActive) {
+    if (!enforcementLeftDisabled) {
       throw new Error('La exigencia de permisos de empleados debe quedar apagada tras el suite.')
     }
   })
@@ -285,6 +301,7 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
       renewalPeriodDays: 365,
       businessUnitIds: [actor!.businessUnit.businessUnitId],
     })
+    createdCertificationId = response.body()?.data?.certification?.id ?? null
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
     assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
   })
