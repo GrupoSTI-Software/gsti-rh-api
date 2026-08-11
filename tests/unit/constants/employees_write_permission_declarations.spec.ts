@@ -3,13 +3,15 @@ import {
   EMPLOYEES_WRITE_PERMISSION_DECLARATIONS,
   EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION,
   EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION,
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
 } from '#constants/employees_write_permission_declarations'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 65 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 76 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 65)
+    assert.equal(keys.length, 76)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -78,5 +80,27 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.createWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
     assert.equal(d.updateWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
     assert.equal(d.deleteWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
+  })
+
+  test('mapea Expediente documental y Certificaciones de escritura', ({ assert }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.equal(d.createEmployeeRecord.action, 'tab-expediente-write')
+    assert.equal(d.updateEmployeeRecord.action, 'tab-expediente-write')
+    assert.equal(d.deleteEmployeeRecord.action, 'tab-expediente-delete')
+    assert.equal(d.createEmployeeProceedingFile.action, 'tab-expediente-write')
+    assert.equal(d.updateEmployeeProceedingFile.action, 'tab-expediente-write')
+    assert.equal(d.deleteEmployeeProceedingFile.action, 'tab-expediente-delete')
+    assert.equal(d.createCertification.action, 'tab-certificaciones-write')
+    assert.equal(d.updateCertification.action, 'tab-certificaciones-write')
+    assert.equal(d.deleteCertification.action, 'tab-certificaciones-delete')
+    assert.equal(d.createEmployeeCertificationUpload.action, 'tab-certificaciones-write')
+    assert.equal(d.deleteEmployeeCertificationUpload.action, 'tab-certificaciones-delete')
+
+    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.action, 'tab-expediente-write')
+    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.action, 'tab-expediente-delete')
+    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.bypass, 'standard')
+    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.bypass, 'standard')
+    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.module, 'employees')
+    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.module, 'employees')
   })
 })

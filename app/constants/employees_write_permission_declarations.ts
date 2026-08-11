@@ -8,7 +8,7 @@ const employeesStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades).
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones).
  * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
@@ -77,6 +77,17 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createWorkDisabilityPeriodExpense: employeesStandard('manage-work-disabilities'),
   updateWorkDisabilityPeriodExpense: employeesStandard('manage-work-disabilities'),
   deleteWorkDisabilityPeriodExpense: employeesStandard('manage-work-disabilities'),
+  createEmployeeRecord: employeesStandard('tab-expediente-write'),
+  updateEmployeeRecord: employeesStandard('tab-expediente-write'),
+  deleteEmployeeRecord: employeesStandard('tab-expediente-delete'),
+  createEmployeeProceedingFile: employeesStandard('tab-expediente-write'),
+  updateEmployeeProceedingFile: employeesStandard('tab-expediente-write'),
+  deleteEmployeeProceedingFile: employeesStandard('tab-expediente-delete'),
+  createCertification: employeesStandard('tab-certificaciones-write'),
+  updateCertification: employeesStandard('tab-certificaciones-write'),
+  deleteCertification: employeesStandard('tab-certificaciones-delete'),
+  createEmployeeCertificationUpload: employeesStandard('tab-certificaciones-write'),
+  deleteEmployeeCertificationUpload: employeesStandard('tab-certificaciones-delete'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Permiso secundario cuando la edición toca el registro de baja. */
@@ -89,3 +100,11 @@ export const EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION: PermissionGateOptio
 /** Permiso cuando se borra una persona ligada a colaborador. */
 export const EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION: PermissionGateOptions =
   employeesStandard('tab-persona-delete')
+
+/** Permiso cuando se escribe un proceeding file / valor de propiedad del área employee. */
+export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION: PermissionGateOptions =
+  employeesStandard('tab-expediente-write')
+
+/** Permiso cuando se elimina un proceeding file / valor de propiedad del área employee. */
+export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION: PermissionGateOptions =
+  employeesStandard('tab-expediente-delete')
