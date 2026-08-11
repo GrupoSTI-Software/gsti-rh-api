@@ -345,7 +345,7 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate soft-rollout', (gro
       .json({
         employeeId: fixture!.employee.employeeId,
         employeeLactationPeriodStartDate: '2026-01-01',
-        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodEndDate: '2026-08-01',
         employeeLactationPeriodType: 'reduced_hour',
       })
 
@@ -365,7 +365,7 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate soft-rollout', (gro
       .json({
         employeeId: fixture!.employee.employeeId,
         employeeLactationPeriodStartDate: '2026-01-01',
-        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodEndDate: '2026-08-01',
         employeeLactationPeriodType: 'reduced_hour',
       })
 
@@ -532,7 +532,7 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate exigencia ON', (gro
       .json({
         employeeId: fixture!.employee.employeeId,
         employeeLactationPeriodStartDate: '2026-01-01',
-        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodEndDate: '2026-08-01',
         employeeLactationPeriodType: 'reduced_hour',
       })
     assert.equal(response.status(), 403)
@@ -551,7 +551,7 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate exigencia ON', (gro
       .json({
         employeeId: fixture!.employee.employeeId,
         employeeLactationPeriodStartDate: '2026-01-01',
-        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodEndDate: '2026-08-01',
         employeeLactationPeriodType: 'reduced_hour',
       })
     assert.equal(response.status(), 403)
@@ -567,7 +567,7 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate exigencia ON', (gro
       .json({
         employeeId: fixture!.employee.employeeId,
         employeeLactationPeriodStartDate: '2026-01-01',
-        employeeLactationPeriodEndDate: '2026-06-01',
+        employeeLactationPeriodEndDate: '2026-08-01',
         employeeLactationPeriodType: 'reduced_hour',
       })
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
