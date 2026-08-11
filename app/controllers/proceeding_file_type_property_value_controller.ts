@@ -8,6 +8,15 @@ import {
   createProceedingFileTypePropertyValueValidator,
   updateProceedingFileTypePropertyValueValidator,
 } from '#validators/proceeding_file_type_property_value'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  proceedingFileIsEmployeeArea,
+  proceedingFileTypePropertyValueIsEmployeeArea,
+} from '#helpers/proceeding_file_is_employee_area'
+import {
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
+} from '#constants/employees_write_permission_declarations'
 
 export default class ProceedingFileTypePropertyValueController {
   /**
@@ -139,8 +148,19 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
+      const proceedingFileIdInput = request.input('proceedingFileId')
+      if (await proceedingFileIsEmployeeArea(Number(proceedingFileIdInput))) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
       const proceedingFileTypePropertyValueValue = request.input(
         'proceedingFileTypePropertyValueValue'
       )
@@ -343,7 +363,8 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileTypePropertyValueId = request.param('proceedingFileTypePropertyValueId')
       const proceedingFileTypePropertyValueValue = request.input(
@@ -385,6 +406,19 @@ export default class ProceedingFileTypePropertyValueController {
           title: 'The proceeding file type property value was not found',
           message: 'The proceeding file type property value was not found with the entered ID',
           data: { ...proceedingFileTypePropertyValue },
+        }
+      }
+      if (
+        await proceedingFileTypePropertyValueIsEmployeeArea(
+          Number(proceedingFileTypePropertyValueId)
+        )
+      ) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()
@@ -548,7 +582,8 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileTypePropertyValueId = request.param('proceedingFileTypePropertyValueId')
       if (!proceedingFileTypePropertyValueId) {
@@ -571,6 +606,19 @@ export default class ProceedingFileTypePropertyValueController {
           title: 'The proceeding file type property value was not found',
           message: 'The proceeding file type property value was not found with the entered ID',
           data: { proceedingFileTypePropertyValueId },
+        }
+      }
+      if (
+        await proceedingFileTypePropertyValueIsEmployeeArea(
+          Number(proceedingFileTypePropertyValueId)
+        )
+      ) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()

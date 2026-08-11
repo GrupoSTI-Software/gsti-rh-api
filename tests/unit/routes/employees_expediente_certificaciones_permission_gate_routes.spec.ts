@@ -85,6 +85,16 @@ test.group('proceeding_file_routes — sin permissionGate de ruta (superficie co
   })
 })
 
+test.group('proceeding_file_type_property_value_routes — sin permissionGate de ruta', () => {
+  test('la ruta compartida no monta permissionGate', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/proceeding_file_type_property_value_routes.ts'),
+      'utf8'
+    )
+    assert.notInclude(content, 'permissionGate')
+  })
+})
+
 test.group('Deuda — catálogo de tipos y requisitos por puesto sin gate Empleados', () => {
   test('rutas del catálogo de tipos de documento no declaran permissionGate', async ({ assert }) => {
     for (const rel of [
