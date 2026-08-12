@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
-import { DateTime } from 'luxon'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
