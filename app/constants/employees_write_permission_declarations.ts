@@ -8,7 +8,7 @@ const employeesStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones).
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos).
  * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
@@ -113,6 +113,15 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   authorizeVacationWithSignature: employeesStandard('manage-vacation'),
   signVacationShiftExceptions: employeesStandard('manage-vacation'),
   importVacationExcel: employeesStandard('manage-vacation'),
+  uploadEmployeeFaceId: employeesStandard('upload-face-id'),
+  replaceEmployeeFaceId: employeesStandard('upload-face-id'),
+  deleteEmployeeFaceId: employeesStandard('tab-biometricos-delete'),
+  updateEmployeeFingers: employeesStandard('upload-fingers'),
+  createEmployeeBiometric: employeesStandard('tab-biometricos-write'),
+  updateEmployeeBiometric: employeesStandard('tab-biometricos-write'),
+  updateEmployeeFaceStatus: employeesStandard('tab-biometricos-write'),
+  updateEmployeeDeviceStatus: employeesStandard('tab-dispositivos-write'),
+  deleteEmployeeDevice: employeesStandard('tab-dispositivos-delete'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Permiso secundario cuando la edición toca el registro de baja. */

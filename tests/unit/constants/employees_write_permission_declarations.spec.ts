@@ -10,9 +10,9 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 101 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 110 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 101)
+    assert.equal(keys.length, 110)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -136,5 +136,18 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.action, 'manage-vacation')
     assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.module, 'employees')
     assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.bypass, 'standard')
+  })
+
+  test('mapea Biométricos y Dispositivos de escritura', ({ assert }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.equal(d.uploadEmployeeFaceId.action, 'upload-face-id')
+    assert.equal(d.replaceEmployeeFaceId.action, 'upload-face-id')
+    assert.equal(d.deleteEmployeeFaceId.action, 'tab-biometricos-delete')
+    assert.equal(d.updateEmployeeFingers.action, 'upload-fingers')
+    assert.equal(d.createEmployeeBiometric.action, 'tab-biometricos-write')
+    assert.equal(d.updateEmployeeBiometric.action, 'tab-biometricos-write')
+    assert.equal(d.updateEmployeeFaceStatus.action, 'tab-biometricos-write')
+    assert.equal(d.updateEmployeeDeviceStatus.action, 'tab-dispositivos-write')
+    assert.equal(d.deleteEmployeeDevice.action, 'tab-dispositivos-delete')
   })
 })
