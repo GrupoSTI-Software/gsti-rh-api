@@ -120,3 +120,49 @@ test.group('employee_assessment_routes — PermissionGate Assessments', () => {
     assert.notInclude(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeEvaluation)')
   })
 })
+
+test.group('career_path_candidate_routes — PermissionGate Ruta de carrera', () => {
+  test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/career_path_candidate_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createCareerPathCandidate)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateCareerPathCandidateStatus)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCareerPathCandidate)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+  })
+})
+
+test.group('Evaluaciones/Assessments/Ruta — total de gates en los cinco archivos', () => {
+  test('suma exactamente 16 permissionGate de declaraciones', async ({ assert }) => {
+    const files = [
+      'start/routes/employee_evaluation.ts',
+      'start/routes/employee_competency_evaluation.ts',
+      'start/routes/employee_kpi_evaluation.ts',
+      'start/routes/employee_assessment_routes.ts',
+      'start/routes/career_path_candidate_routes.ts',
+    ]
+    let total = 0
+    for (const relative of files) {
+      const content = await readFile(join(process.cwd(), relative), 'utf8')
+      const matches =
+        compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+        []
+      total += matches.length
+    }
+    assert.equal(total, 16)
+  })
+})
