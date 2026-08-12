@@ -69,3 +69,28 @@ test.group('employee_competency_evaluation — PermissionGate Evaluaciones (here
     assert.equal(matches.length, 3)
   })
 })
+
+test.group('employee_kpi_evaluation — PermissionGate Evaluaciones (herencia)', () => {
+  test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_kpi_evaluation.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeKpiEvaluation)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeKpiEvaluation)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeKpiEvaluation)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+  })
+})
