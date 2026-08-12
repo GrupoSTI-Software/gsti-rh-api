@@ -106,3 +106,33 @@ test.group('shift_exception_evidence_routes — PermissionGate', () => {
     assert.equal(matches.length, 3)
   })
 })
+
+test.group('exception_request_routes — PermissionGate + D-08', () => {
+  test('editar, borrar y status declaran gate; alta y GETs no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/exception_request_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequest)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteExceptionRequest)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequestStatus)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    // D-08: el store no lleva permissionGate en la misma declaración de ruta.
+    assert.notMatch(
+      compact(content),
+      /post\('\/',\s*'#controllers\/exception_requests_controller\.store'\)\.use\(middleware\.permissionGate/
+    )
+  })
+})
