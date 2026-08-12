@@ -131,10 +131,12 @@ router
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importEmployeesExcel))
     router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.inverseSyncEmployee))
-    router.post(
-      '/:employeeId/vacation-deductions',
-      '#controllers/employee_controller.applyVacationDeduction'
-    )
+    router
+      .post(
+        '/:employeeId/vacation-deductions',
+        '#controllers/employee_controller.applyVacationDeduction'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.applyVacationDeduction))
     router.get(
       '/:employeeId/vacation-deductions',
       '#controllers/employee_controller.getVacationDeductions'
@@ -146,6 +148,7 @@ router
       )
       .where('employeeId', router.matchers.number())
       .where('vacationDeductionId', router.matchers.number())
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteVacationDeduction))
 
   })
   .prefix('/api/employees')
