@@ -81,3 +81,28 @@ test.group('shift_exceptions_routes — PermissionGate', () => {
     assert.equal(matches.length, 4)
   })
 })
+
+test.group('shift_exception_evidence_routes — PermissionGate', () => {
+  test('escrituras declaran add-exception; lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/shift_exception_evidence_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createShiftExceptionEvidence)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateShiftExceptionEvidence)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteShiftExceptionEvidence)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+  })
+})
