@@ -3,7 +3,10 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
+    // Deprecada (USRH1783115930049): folio/passphrase en query string quedan en logs.
     router.get('/status', '#controllers/complaint_controller.consultStatus')
+    // Preferida: mismas credenciales, pero en el body (no se loguean).
+    router.post('/status', '#controllers/complaint_controller.consultStatusFromBody')
 
     router
       .get('/attachments/:id/download-url', '#controllers/complaint_attachment_controller.downloadUrl')
