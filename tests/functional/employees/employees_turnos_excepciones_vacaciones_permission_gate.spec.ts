@@ -312,6 +312,12 @@ function assertNotPermissionDenied(assert: any, response: any) {
   assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
 }
 
+function assertPermissionDenied(assert: any, response: any) {
+  assert.equal(response.status(), 403)
+  assert.equal(response.body()?.key, 'PERM.DENIED')
+  assert.equal(response.body()?.title, 'Sin permiso')
+}
+
 async function createCommonRequest(fixtures: TestFixtures, actor: TenantActor) {
   return ExceptionRequest.create({
     employeeId: fixtures.employee.employee.employeeId,
@@ -427,8 +433,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json(shiftPayload(fixtures!))
-    assert.equal(denied.status(), 403)
-    assert.equal(denied.body()?.key, 'PERM.DENIED')
+    assertPermissionDenied(assert, denied)
   })
 
   test('remove-shift-assigned-to-the-day es distinto de manage-shift', async ({
@@ -445,8 +450,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
       .delete(`/api/employee_shifts/${assignment.employeeShiftId}`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
-    assert.equal(denied.status(), 403)
-    assert.equal(denied.body()?.key, 'PERM.DENIED')
+    assertPermissionDenied(assert, denied)
     await grantOnly(actor!.role.roleId, ['remove-shift-assigned-to-the-day'])
     const allowed = await client
       .delete(`/api/employee_shifts/${assignment.employeeShiftId}`)
@@ -465,8 +469,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
       .post(`/api/exception-requests/${request.exceptionRequestId}/status`)
       .loginAs(actor!.user)
       .json({ status: 'accepted' })
-    assert.equal(denied.status(), 403)
-    assert.equal(denied.body()?.key, 'PERM.DENIED')
+    assertPermissionDenied(assert, denied)
     await grantOnly(actor!.role.roleId, ['add-exception'])
     const allowed = await client
       .post(`/api/exception-requests/${request.exceptionRequestId}/status`)
@@ -482,8 +485,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json(exceptionPayload(fixtures!, fixtures!.vacationType.exceptionTypeId))
-    assert.equal(denied.status(), 403)
-    assert.equal(denied.body()?.key, 'PERM.DENIED')
+    assertPermissionDenied(assert, denied)
     await grantOnly(actor!.role.roleId, ['add-exception', 'manage-vacation'])
     const allowed = await client
       .post('/api/shift-exception')
@@ -524,8 +526,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json(payload)
-    assert.equal(denied.status(), 403)
-    assert.equal(denied.body()?.key, 'PERM.DENIED')
+    assertPermissionDenied(assert, denied)
     await grantOnly(actor!.role.roleId, ['apply-exception-mass'])
     const allowed = await client
       .post('/api/shift-exception-apply-general')
@@ -547,8 +548,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json(payload)
-    assert.equal(denied.status(), 403)
-    assert.equal(denied.body()?.key, 'PERM.DENIED')
+    assertPermissionDenied(assert, denied)
     await grantOnly(actor!.role.roleId, ['manage-vacation'])
     const allowed = await client
       .post(`/api/employees/${fixtures!.employee.employee.employeeId}/vacation-deductions`)
@@ -590,8 +590,7 @@ test.group('Turnos/Excepciones/Vacaciones — matriz (exigencia ON)', (group) =>
           shiftId: 999999999,
           employeShiftsApplySince: '2030-01-01 08:00:00',
         })
-      assert.equal(denied.status(), 403)
-      assert.equal(denied.body()?.key, 'PERM.DENIED')
+      assertPermissionDenied(assert, denied)
     } finally {
       await restoreEmployeesGrants(superAdminGrants)
       await restoreEmployeesGrants(rootGrants)
