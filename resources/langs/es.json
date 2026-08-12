@@ -1223,6 +1223,7 @@
   "complaint_employee_not_found": "No tienes un registro de empleado asociado para reportar una queja",
   "complaint_person_not_found": "El usuario no tiene una persona asociada",
   "complaint_status_not_found": "Folio o clave de acceso incorrectos",
+  "complaint_rate_limited": "Demasiados intentos. Espera un momento antes de volver a intentarlo",
   "complaint_case_not_found_for_employee": "La queja no existe o no pertenece al empleado autenticado",
   "complaint_status_unchanged": "El estatus destino debe ser diferente al estatus actual",
   "complaint_folio_generation_failed": "No se pudo generar el folio de la queja. Intenta de nuevo.",

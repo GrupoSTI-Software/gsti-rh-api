@@ -1220,6 +1220,7 @@
   "complaint_employee_not_found": "You do not have an associated employee record to submit a complaint",
   "complaint_person_not_found": "The user does not have an associated person record",
   "complaint_status_not_found": "Incorrect case number or access key",
+  "complaint_rate_limited": "Too many attempts. Please wait a moment before trying again",
   "complaint_case_not_found_for_employee": "The complaint does not exist or does not belong to the authenticated employee",
   "complaint_status_unchanged": "The target status must be different from the current status",
   "complaint_folio_generation_failed": "Could not generate the complaint case number. Please try again.",
