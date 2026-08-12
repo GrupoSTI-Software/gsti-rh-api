@@ -16,7 +16,6 @@ export interface BadgeEmployeeContext {
   businessUnitLegalName: string
   businessUnitName: string
   positionName: string | null
-  systemSettingLogo: string | null
   repseFolio: string | null
   repseExpiresAt: DateTime | null
 }
@@ -45,7 +44,6 @@ export interface GafeteDto {
   fotoFaltante: boolean
   empresa: string
   puesto: string | null
-  logoUrl: string | null
   folioRepse: string | null
   folioVigente: boolean | null
   vinculoVigente: boolean
