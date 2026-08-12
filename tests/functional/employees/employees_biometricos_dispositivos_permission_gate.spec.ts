@@ -360,44 +360,76 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
     }
   })
 
-  test('sin grants: PUT fingers no responde PERM.DENIED', async ({ client, assert }) => {
+  test('sin grants: las nueve escrituras no responden PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
     await grantOnly(actor!.role.roleId, [])
-    await ensureBiometricFixture(fixture!.employee.employeeId, actor!.businessUnit.businessUnitId)
-    const response = await client
-      .put(`/api/employees/${fixture!.employee.employeeId}/biometrics/fingers`)
-      .loginAs(actor!.user)
-      .headers(buHeader(actor!))
-      .json({ Fingers: [1, 4, 7] })
-    assertNotPermissionDenied(assert, response)
-  })
+    const employeeId = fixture!.employee.employeeId
+    const biometric = await ensureBiometricFixture(employeeId, actor!.businessUnit.businessUnitId)
+    const biometricBefore = {
+      biometricId: biometric.employeeBiometricId,
+      data: biometric.employeeBiometricData,
+      status: biometric.employeeBiometricStatus,
+    }
+    const face = await ensureFaceIdFixture(employeeId, actor!.businessUnit.businessUnitId, 'soft')
+    const device = await ensureDeviceFixture(employeeId, actor!.businessUnit.businessUnitId, 'soft')
+    const storeFixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'soft-store')
 
-  test('sin grants: PUT device status no responde PERM.DENIED', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, [])
-    const device = await ensureDeviceFixture(
-      fixture!.employee.employeeId,
-      actor!.businessUnit.businessUnitId,
-      'soft-status'
-    )
-    const response = await client
-      .put(`/api/employee-devices/${device.employeeDeviceId}/status`)
-      .loginAs(actor!.user)
-      .headers(buHeader(actor!))
-      .json({ employeeDeviceActive: 0 })
-    assertNotPermissionDenied(assert, response)
-  })
+    try {
+      const ops = [
+        client
+          .post(`/api/employees/${employeeId}/biometric-face-id`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+        client
+          .put(`/api/employees/${employeeId}/biometric-face-id`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+        client
+          .delete(`/api/employees/${employeeId}/biometric-face-id`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!)),
+        client
+          .put(`/api/employees/${employeeId}/biometrics/fingers`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .json({ Fingers: [1, 4, 7] }),
+        client
+          .post(`/api/employees/${storeFixture.employee.employeeId}/biometrics`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .json({ Fingers: [1], Face: false }),
+        client
+          .put(`/api/employees/${employeeId}/biometrics`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .json({ Fingers: [1, 4], Face: true }),
+        client
+          .put(`/api/employees/${employeeId}/biometrics/face`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .json({ Face: false }),
+        client
+          .put(`/api/employee-devices/${device.employeeDeviceId}/status`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!))
+          .json({ employeeDeviceActive: 0 }),
+        client
+          .delete(`/api/employee-devices/${device.employeeDeviceId}`)
+          .loginAs(actor!.user)
+          .headers(buHeader(actor!)),
+      ]
 
-  test('sin grants: DELETE Face ID no responde PERM.DENIED', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, [])
-    await ensureFaceIdFixture(
-      fixture!.employee.employeeId,
-      actor!.businessUnit.businessUnitId,
-      'soft-delete'
-    )
-    const response = await client
-      .delete(`/api/employees/${fixture!.employee.employeeId}/biometric-face-id`)
-      .loginAs(actor!.user)
-      .headers(buHeader(actor!))
-    assertNotPermissionDenied(assert, response)
+      for (const pending of ops) {
+        const response = await pending
+        assertNotPermissionDenied(assert, response)
+      }
+    } finally {
+      await cleanupEmployeeFixture(storeFixture)
+    }
   })
 })
 
@@ -581,7 +613,12 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
     const employeeId = fixture!.employee.employeeId
     const device = await ensureDeviceFixture(employeeId, actor!.businessUnit.businessUnitId, 'nine')
     const face = await ensureFaceIdFixture(employeeId, actor!.businessUnit.businessUnitId, 'nine')
-    await ensureBiometricFixture(employeeId, actor!.businessUnit.businessUnitId)
+    const biometric = await ensureBiometricFixture(employeeId, actor!.businessUnit.businessUnitId)
+    const biometricBefore = {
+      biometricId: biometric.employeeBiometricId,
+      data: biometric.employeeBiometricData,
+      status: biometric.employeeBiometricStatus,
+    }
 
     const ops = [
       client
@@ -639,6 +676,13 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .whereNull('employee_biometric_face_id_deleted_at')
       .first()
     assert.isNotNull(faceStill)
+    const biometricStill = await EmployeeBiometric.query()
+      .where('employee_biometric_id', biometricBefore.biometricId)
+      .whereNull('employee_biometric_deleted_at')
+      .first()
+    assert.isNotNull(biometricStill)
+    assert.equal(biometricStill!.employeeBiometricData, biometricBefore.data)
+    assert.equal(biometricStill!.employeeBiometricStatus, biometricBefore.status)
     const deviceStill = await EmployeeDevice.query()
       .where('employee_device_id', device.employeeDeviceId)
       .whereNull('employee_device_deleted_at')
