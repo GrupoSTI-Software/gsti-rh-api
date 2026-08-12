@@ -427,6 +427,25 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
         const response = await pending
         assertNotPermissionDenied(assert, response)
       }
+
+      const faceGone = await EmployeeBiometricFaceId.query()
+        .where('employee_biometric_face_id_id', face.employeeBiometricFaceIdId)
+        .whereNull('employee_biometric_face_id_deleted_at')
+        .first()
+      assert.isNull(faceGone)
+
+      const biometricAfter = await EmployeeBiometric.query()
+        .where('employee_biometric_id', biometricBefore.biometricId)
+        .whereNull('employee_biometric_deleted_at')
+        .first()
+      assert.isNotNull(biometricAfter)
+      assert.notEqual(biometricAfter!.employeeBiometricData, biometricBefore.data)
+
+      const deviceGone = await EmployeeDevice.query()
+        .where('employee_device_id', device.employeeDeviceId)
+        .whereNull('employee_device_deleted_at')
+        .first()
+      assert.isNull(deviceGone)
     } finally {
       await cleanupEmployeeFixture(storeFixture)
     }
