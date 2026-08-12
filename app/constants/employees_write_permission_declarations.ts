@@ -8,7 +8,7 @@ const employeesStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos).
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos + Evaluaciones/Assessments/Ruta de carrera).
  * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
@@ -122,6 +122,22 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   updateEmployeeFaceStatus: employeesStandard('tab-biometricos-write'),
   updateEmployeeDeviceStatus: employeesStandard('tab-dispositivos-write'),
   deleteEmployeeDevice: employeesStandard('tab-dispositivos-delete'),
+  createEmployeeEvaluation: employeesStandard('tab-evaluaciones-write'),
+  updateEmployeeEvaluation: employeesStandard('tab-evaluaciones-write'),
+  updateEmployeeEvaluationPotential: employeesStandard('tab-evaluaciones-write'),
+  deleteEmployeeEvaluation: employeesStandard('tab-evaluaciones-delete'),
+  createEmployeeCompetencyEvaluation: employeesStandard('tab-evaluaciones-write'),
+  updateEmployeeCompetencyEvaluation: employeesStandard('tab-evaluaciones-write'),
+  deleteEmployeeCompetencyEvaluation: employeesStandard('tab-evaluaciones-delete'),
+  createEmployeeKpiEvaluation: employeesStandard('tab-evaluaciones-write'),
+  updateEmployeeKpiEvaluation: employeesStandard('tab-evaluaciones-write'),
+  deleteEmployeeKpiEvaluation: employeesStandard('tab-evaluaciones-delete'),
+  createEmployeeAssessment: employeesStandard('tab-assessments-write'),
+  updateEmployeeAssessment: employeesStandard('tab-assessments-write'),
+  deleteEmployeeAssessment: employeesStandard('tab-assessments-delete'),
+  createCareerPathCandidate: employeesStandard('tab-ruta-carrera-write'),
+  updateCareerPathCandidateStatus: employeesStandard('tab-ruta-carrera-write'),
+  deleteCareerPathCandidate: employeesStandard('tab-ruta-carrera-delete'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Permiso secundario cuando la edición toca el registro de baja. */

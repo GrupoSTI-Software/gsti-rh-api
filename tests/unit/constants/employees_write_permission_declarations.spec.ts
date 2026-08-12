@@ -10,9 +10,9 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 110 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 126 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 110)
+    assert.equal(keys.length, 126)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -149,5 +149,25 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.updateEmployeeFaceStatus.action, 'tab-biometricos-write')
     assert.equal(d.updateEmployeeDeviceStatus.action, 'tab-dispositivos-write')
     assert.equal(d.deleteEmployeeDevice.action, 'tab-dispositivos-delete')
+  })
+
+  test('mapea Evaluaciones, Assessments y Ruta de carrera de escritura', ({ assert }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.equal(d.createEmployeeEvaluation.action, 'tab-evaluaciones-write')
+    assert.equal(d.updateEmployeeEvaluation.action, 'tab-evaluaciones-write')
+    assert.equal(d.updateEmployeeEvaluationPotential.action, 'tab-evaluaciones-write')
+    assert.equal(d.deleteEmployeeEvaluation.action, 'tab-evaluaciones-delete')
+    assert.equal(d.createEmployeeCompetencyEvaluation.action, 'tab-evaluaciones-write')
+    assert.equal(d.updateEmployeeCompetencyEvaluation.action, 'tab-evaluaciones-write')
+    assert.equal(d.deleteEmployeeCompetencyEvaluation.action, 'tab-evaluaciones-delete')
+    assert.equal(d.createEmployeeKpiEvaluation.action, 'tab-evaluaciones-write')
+    assert.equal(d.updateEmployeeKpiEvaluation.action, 'tab-evaluaciones-write')
+    assert.equal(d.deleteEmployeeKpiEvaluation.action, 'tab-evaluaciones-delete')
+    assert.equal(d.createEmployeeAssessment.action, 'tab-assessments-write')
+    assert.equal(d.updateEmployeeAssessment.action, 'tab-assessments-write')
+    assert.equal(d.deleteEmployeeAssessment.action, 'tab-assessments-delete')
+    assert.equal(d.createCareerPathCandidate.action, 'tab-ruta-carrera-write')
+    assert.equal(d.updateCareerPathCandidateStatus.action, 'tab-ruta-carrera-write')
+    assert.equal(d.deleteCareerPathCandidate.action, 'tab-ruta-carrera-delete')
   })
 })
