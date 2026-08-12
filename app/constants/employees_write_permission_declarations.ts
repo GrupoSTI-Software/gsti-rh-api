@@ -8,7 +8,7 @@ const employeesStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones).
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones).
  * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
@@ -88,6 +88,31 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteCertification: employeesStandard('tab-certificaciones-delete'),
   createEmployeeCertificationUpload: employeesStandard('tab-certificaciones-write'),
   deleteEmployeeCertificationUpload: employeesStandard('tab-certificaciones-delete'),
+  createEmployeeShift: employeesStandard('manage-shift'),
+  updateEmployeeShift: employeesStandard('manage-shift'),
+  deleteEmployeeShift: employeesStandard('remove-shift-assigned-to-the-day'),
+  createEmployeeShiftChange: employeesStandard('manage-shift-change'),
+  deleteEmployeeShiftChange: employeesStandard('manage-shift-change'),
+  createShiftException: employeesStandard('add-exception'),
+  updateShiftException: employeesStandard('add-exception'),
+  deleteShiftException: employeesStandard('add-exception'),
+  applyExceptionMass: employeesStandard('apply-exception-mass'),
+  createShiftExceptionEvidence: employeesStandard('add-exception'),
+  updateShiftExceptionEvidence: employeesStandard('add-exception'),
+  deleteShiftExceptionEvidence: employeesStandard('add-exception'),
+  updateExceptionRequest: employeesStandard('exception-request'),
+  deleteExceptionRequest: employeesStandard('exception-request'),
+  updateExceptionRequestStatus: employeesStandard('add-exception'),
+  createEmployeeVacationArchive: employeesStandard('manage-vacation'),
+  deleteEmployeeVacationArchive: employeesStandard('manage-vacation'),
+  createEmployeeVacationArchiveContent: employeesStandard('manage-vacation'),
+  updateEmployeeVacationArchiveContent: employeesStandard('manage-vacation'),
+  deleteEmployeeVacationArchiveContent: employeesStandard('manage-vacation'),
+  applyVacationDeduction: employeesStandard('manage-vacation'),
+  deleteVacationDeduction: employeesStandard('manage-vacation'),
+  authorizeVacationWithSignature: employeesStandard('manage-vacation'),
+  signVacationShiftExceptions: employeesStandard('manage-vacation'),
+  importVacationExcel: employeesStandard('manage-vacation'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Permiso secundario cuando la edición toca el registro de baja. */
@@ -108,3 +133,7 @@ export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION: Permissio
 /** Permiso cuando se elimina un proceeding file / valor de propiedad del área employee. */
 export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION: PermissionGateOptions =
   employeesStandard('tab-expediente-delete')
+
+/** Permiso secundario cuando la escritura de excepción / aceptación de solicitud asienta o altera vacaciones. */
+export const EMPLOYEES_MANAGE_VACATION_PERMISSION: PermissionGateOptions =
+  employeesStandard('manage-vacation')

@@ -5,13 +5,14 @@ import {
   EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION,
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
+  EMPLOYEES_MANAGE_VACATION_PERMISSION,
 } from '#constants/employees_write_permission_declarations'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 76 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 101 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 76)
+    assert.equal(keys.length, 101)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -102,5 +103,38 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.module, 'employees')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.module, 'employees')
+  })
+
+  test('mapea Turnos, Excepciones y Vacaciones de escritura', ({ assert }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.equal(d.createEmployeeShift.action, 'manage-shift')
+    assert.equal(d.updateEmployeeShift.action, 'manage-shift')
+    assert.equal(d.deleteEmployeeShift.action, 'remove-shift-assigned-to-the-day')
+    assert.equal(d.createEmployeeShiftChange.action, 'manage-shift-change')
+    assert.equal(d.deleteEmployeeShiftChange.action, 'manage-shift-change')
+    assert.equal(d.createShiftException.action, 'add-exception')
+    assert.equal(d.updateShiftException.action, 'add-exception')
+    assert.equal(d.deleteShiftException.action, 'add-exception')
+    assert.equal(d.applyExceptionMass.action, 'apply-exception-mass')
+    assert.equal(d.createShiftExceptionEvidence.action, 'add-exception')
+    assert.equal(d.updateShiftExceptionEvidence.action, 'add-exception')
+    assert.equal(d.deleteShiftExceptionEvidence.action, 'add-exception')
+    assert.equal(d.updateExceptionRequest.action, 'exception-request')
+    assert.equal(d.deleteExceptionRequest.action, 'exception-request')
+    assert.equal(d.updateExceptionRequestStatus.action, 'add-exception')
+    assert.equal(d.createEmployeeVacationArchive.action, 'manage-vacation')
+    assert.equal(d.deleteEmployeeVacationArchive.action, 'manage-vacation')
+    assert.equal(d.createEmployeeVacationArchiveContent.action, 'manage-vacation')
+    assert.equal(d.updateEmployeeVacationArchiveContent.action, 'manage-vacation')
+    assert.equal(d.deleteEmployeeVacationArchiveContent.action, 'manage-vacation')
+    assert.equal(d.applyVacationDeduction.action, 'manage-vacation')
+    assert.equal(d.deleteVacationDeduction.action, 'manage-vacation')
+    assert.equal(d.authorizeVacationWithSignature.action, 'manage-vacation')
+    assert.equal(d.signVacationShiftExceptions.action, 'manage-vacation')
+    assert.equal(d.importVacationExcel.action, 'manage-vacation')
+
+    assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.action, 'manage-vacation')
+    assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.module, 'employees')
+    assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.bypass, 'standard')
   })
 })
