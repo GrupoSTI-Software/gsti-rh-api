@@ -43,3 +43,46 @@ test.group('employee_zone_routes — PermissionGate Zonas', () => {
     assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
   })
 })
+
+test.group('employee_annotation_routes — PermissionGate Anotaciones', () => {
+  test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_annotation_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeAnnotation)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeAnnotation)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeAnnotation)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    assert.notInclude(compact(content), "get('/').use(middleware.permissionGate")
+    assert.notInclude(
+      compact(content),
+      "get('/employee/:employeeId').use(middleware.permissionGate"
+    )
+    assert.notInclude(
+      compact(content),
+      "get('/:employeeAnnotationId').use(middleware.permissionGate"
+    )
+  })
+
+  test('el controlador de update conserva el mensaje de autoría vigente', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'app/controllers/employee_annotation_controller.ts'),
+      'utf8'
+    )
+    assert.include(content, 'Only the original creator can update this annotation')
+    assert.include(content, 'currentEmployeeAnnotation.userId !== user.userId')
+  })
+})
