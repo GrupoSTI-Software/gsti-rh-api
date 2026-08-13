@@ -471,6 +471,37 @@ test.group('Listado — PermissionGate exigencia ON', (group) => {
     assert.notEqual(withoutUser.body()?.key, 'PERM.DENIED')
   })
 
+  test('F-ON.8: el filtro de bajas sin permiso responde el mismo PERM.DENIED con o sin bajas en BD', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['read'])
+    const withoutTerminated = await client
+      .get(listUrl('?page=1&limit=10&onlyInactive=true'))
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assertPermissionDenied(assert, withoutTerminated)
+
+    const terminated = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'baja')
+    await db.from('employees').where('employee_id', terminated.employee.employeeId).update({
+      employee_terminated_date: '2024-01-15',
+      employee_termination_modality: 'Renuncia',
+      employee_termination_type: 'Jubilación',
+    })
+    try {
+      const withTerminated = await client
+        .get(listUrl('?page=1&limit=10&onlyInactive=true'))
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', buHeader(actor!))
+      assertPermissionDenied(assert, withTerminated)
+      assert.equal(withoutTerminated.body()?.key, withTerminated.body()?.key)
+      assert.equal(withoutTerminated.body()?.title, withTerminated.body()?.title)
+      assert.equal(withoutTerminated.body()?.detail, withTerminated.body()?.detail)
+    } finally {
+      await cleanupEmployeeFixture(terminated)
+    }
+  })
+
   test('read no amplía el alcance: filtrar Finanzas no entrega gente de otro departamento', async ({
     client,
     assert,
