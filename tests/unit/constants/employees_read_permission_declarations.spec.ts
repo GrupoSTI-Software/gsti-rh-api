@@ -8,7 +8,7 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 111 operaciones con module employees y bypass standard', ({
+  test('declara exactamente 120 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)

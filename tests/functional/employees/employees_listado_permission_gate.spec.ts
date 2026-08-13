@@ -229,7 +229,7 @@ async function cleanupEmployeeFixture(fixture: EmployeeFixture | null) {
   await db.from('employee_annotations').where('employee_id', employeeId).delete()
   await db.from('employee_banks').where('employee_id', employeeId).delete()
   await db.from('employee_medical_conditions').where('employee_id', employeeId).delete()
-  await Employee.query().where('employee_id', employeeId).delete()
+  await db.from('employees').where('employee_id', employeeId).delete()
   await db.from('positions').where('position_id', fixture.positionId).delete()
   await db.from('departments').where('department_id', fixture.departmentId).delete()
   if (!fixture.ownsPerson) {
@@ -334,9 +334,13 @@ test.group('Listado — PermissionGate soft-rollout', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
 
     assert.notEqual(list.body()?.key, 'PERM.DENIED')
+    assert.notEqual(list.status(), 403)
     assert.notEqual(bajas.body()?.key, 'PERM.DENIED')
+    assert.notEqual(bajas.status(), 403)
     assert.notEqual(birthday.body()?.key, 'PERM.DENIED')
+    assert.notEqual(birthday.status(), 403)
     assert.notEqual(types.body()?.key, 'PERM.DENIED')
+    assert.notEqual(types.status(), 403)
   })
 })
 
@@ -464,11 +468,17 @@ test.group('Listado — PermissionGate exigencia ON', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
 
     assert.notEqual(birthday.body()?.key, 'PERM.DENIED')
+    assert.notEqual(birthday.status(), 403)
     assert.notEqual(anniversary.body()?.key, 'PERM.DENIED')
+    assert.notEqual(anniversary.status(), 403)
     assert.notEqual(schedules.body()?.key, 'PERM.DENIED')
+    assert.notEqual(schedules.status(), 403)
     assert.notEqual(catalog.body()?.key, 'PERM.DENIED')
+    assert.notEqual(catalog.status(), 403)
     assert.notEqual(types.body()?.key, 'PERM.DENIED')
+    assert.notEqual(types.status(), 403)
     assert.notEqual(withoutUser.body()?.key, 'PERM.DENIED')
+    assert.notEqual(withoutUser.status(), 403)
   })
 
   test('F-ON.8: el filtro de bajas sin permiso responde el mismo PERM.DENIED con o sin bajas en BD', async ({
@@ -482,13 +492,10 @@ test.group('Listado — PermissionGate exigencia ON', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     assertPermissionDenied(assert, withoutTerminated)
 
-    const terminated = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'baja')
-    await db.from('employees').where('employee_id', terminated.employee.employeeId).update({
-      employee_terminated_date: '2024-01-15',
-      employee_termination_modality: 'Renuncia',
-      employee_termination_type: 'Jubilación',
-    })
+    let terminated: EmployeeFixture | null = null
     try {
+      terminated = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'baja')
+      await terminated.employee.delete()
       const withTerminated = await client
         .get(listUrl('?page=1&limit=10&onlyInactive=true'))
         .loginAs(actor!.user)
@@ -518,6 +525,7 @@ test.group('Listado — PermissionGate exigencia ON', (group) => {
         .loginAs(actor!.user)
         .header('X-Business-Unit-Id', buHeader(actor!))
       assert.notEqual(response.body()?.key, 'PERM.DENIED')
+      assert.notEqual(response.status(), 403)
       assert.exists(response.body()?.data?.employees)
       const rows = extractEmployeeIds(response.body())
       assert.notInclude(rows, finance.employee.employeeId)
@@ -577,7 +585,9 @@ test.group('Listado — PermissionGate bypass standard', (group) => {
         .loginAs(systemActor.user)
         .header('X-Business-Unit-Id', buHeader(systemActor))
       assert.notEqual(list.body()?.key, 'PERM.DENIED')
+      assert.notEqual(list.status(), 403)
       assert.notEqual(bajas.body()?.key, 'PERM.DENIED')
+      assert.notEqual(bajas.status(), 403)
     }
   })
 

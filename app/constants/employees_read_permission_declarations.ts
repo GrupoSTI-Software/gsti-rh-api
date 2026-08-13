@@ -9,7 +9,7 @@ const employeesStandard = (
 })
 
 /**
- * Mapa de declaraciones de permiso de lectura del expediente y del listado (USRH1785766406733).
+ * Mapa de declaraciones de permiso de lectura del expediente (USRH1785766406733) y del listado (USRH1785766406734).
  * Fuente única que consumen las rutas y los controladores de superficie compartida;
  * no concede nada ni enciende la exigencia del módulo.
  */

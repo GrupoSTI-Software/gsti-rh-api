@@ -97,3 +97,4 @@ Tener el primero no otorga el segundo.
 | Attendance-report y plantillas | Orden 21 |
 | Ficha `GET /:employeeId` | Orden 15 |
 | App / PWA | No consumen esta superficie |
+| `GET /api/employees-vacations/get-excel`, `/get-vacations-used-excel` y `/get-vacations-summary-excel` | Aceptan `onlyInactive` y no se gatean aquí (otra familia de rutas; deuda declarada) |
