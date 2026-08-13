@@ -12,6 +12,8 @@ import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_sea
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import UserService from '#services/user_service'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import VacationSetting from '#models/vacation_setting'
 import { DateTime } from 'luxon'
 import ExcelJS from 'exceljs'
@@ -1909,7 +1911,8 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -1920,6 +1923,14 @@ export default class EmployeeController {
           message: 'Missing data to process',
           data: { employeeId },
         }
+      }
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeId),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployee
+      )
+      if (!allowed) {
+        return
       }
       const employeeService = new EmployeeService(i18n)
       const showEmployee = await employeeService.show(employeeId)
@@ -2050,7 +2061,8 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async getById({ auth, request, response, i18n }: HttpContext) {
+  async getById(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
     try {
       await auth.check()
       const user = auth.user
@@ -2070,6 +2082,14 @@ export default class EmployeeController {
           message: 'The employee code was not found',
           data: { employeeCode },
         }
+      }
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeCode),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeById
+      )
+      if (!allowed) {
+        return
       }
       const employeeService = new EmployeeService(i18n)
       const showEmployee = await employeeService.getById(employeeCode, userResponsibleId)
