@@ -36,7 +36,7 @@ Criterios de elección usados en escrituras del colaborador (referencia):
 | Asignación responsable ↔ colaborador (crear / modificar / eliminar) | `manage-responsible-edit` **o** `manage-assigned-edit` (OR) |
 | Activos y suministros del colaborador (ciclo completo: asignación, retiro, contratos, fotografías) | `manage-employee-supplies` |
 
-En la tabla del §1, añadir filas de lectura (`Consultar ficha` → `tab-trabajo-read`, `Consultar bancos` → `tab-bancos-read`, etc.) o un puntero a `EMPLOYEES_READ_PERMISSION_DECLARATIONS`.
+Para las operaciones de lectura, la correspondencia entre la ruta y el permiso exigido se declara en el diccionario `EMPLOYEES_READ_PERMISSION_DECLARATIONS`.
 
 ## 2. Operación que toca dos asuntos de negocio
 
@@ -124,5 +124,5 @@ Igual que escritura: no montar `permissionGate` en `/api/persons`, `/api/proceed
 
 ## 9. Exención de la aplicación del colaborador
 
-Las URLs que también usa la app no llevan gate en la ruta. El controlador llama `ensureEmployeeTabRead` (identidad propia → permitir; si no, el permiso de pestaña). Rutas solo-app (`/api/employee-badges/me`, `/api/exception-requests/my-requests`, `/unread`, `/api/consent/me`) no declaran gate. No se concede permiso de backoffice al colaborador. Deuda: Wilvardo.
+Las URLs que también usa la app no llevan gate en la ruta. El controlador llama `ensureEmployeeTabRead` (identidad propia → permitir; si no, el permiso de pestaña). Rutas solo-app (`/api/employee-badges/me`, `/api/exception-requests/my-requests`, `/unread`, `/api/consent/me`) no declaran gate. No se concede permiso de backoffice al colaborador. Deuda: Wilvardo. Adicionalmente, `GET /api/employee-medical-conditions/employee/:employeeId` tiene una exención para el propio colaborador (para el censo del catálogo).
 
