@@ -387,6 +387,15 @@ const CATALOG_ENTRIES = [
   ...tabActionsWithDelete('certificaciones', 'Certificaciones'),
   ...tabActionsNoDelete('consentimiento', 'Consentimiento'),
 
+  // --- Suministros del colaborador (USRH1785766406727): un permiso para todo el ciclo ---
+  {
+    slug: 'manage-employee-supplies',
+    displayName: 'Administrar suministros del colaborador',
+    kind: 'write',
+    section: 'expediente',
+    exceptionProfile: 'standard',
+  },
+
   // --- C) Listado (nuevas) ---
   {
     slug: 'import-employees',

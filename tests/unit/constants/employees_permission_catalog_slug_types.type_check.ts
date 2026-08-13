@@ -21,6 +21,9 @@ import type { EmployeeActionSlug } from '#constants/employees_permission_catalog
 const validSlug: EmployeeActionSlug = 'tab-expediente-write'
 void validSlug
 
+const suppliesSlug: EmployeeActionSlug = 'manage-employee-supplies'
+void suppliesSlug
+
 // @ts-expect-error — slug inventado: no existe en el catálogo, debe fallar.
 const madeUpSlug: EmployeeActionSlug = 'totally-made-up-slug-xyz'
 void madeUpSlug

@@ -132,4 +132,21 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
     assert.equal(new Set(slugs).size, slugs.length)
     assert.doesNotThrow(() => validateCatalogIntegrity(SYSTEM_PERMISSION_CATALOG))
   })
+
+  test('declara manage-employee-supplies en expediente, independiente de manage-files', ({
+    assert,
+  }) => {
+    const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'manage-employee-supplies')
+    assert.exists(action)
+    assert.equal(action!.displayName, 'Administrar suministros del colaborador')
+    assert.equal(action!.kind, 'write')
+    assert.equal(action!.section, 'expediente')
+    assert.equal(action!.exceptionProfile, 'standard')
+    assert.isUndefined(action!.legacyEquivalence)
+    assert.isUndefined(action!.exemption)
+
+    const expedienteWrite = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'tab-expediente-write')
+    assert.exists(expedienteWrite)
+    assert.notEqual(expedienteWrite!.slug, action!.slug)
+  })
 })
