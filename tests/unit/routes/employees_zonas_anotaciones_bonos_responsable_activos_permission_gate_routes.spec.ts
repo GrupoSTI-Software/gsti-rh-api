@@ -117,3 +117,32 @@ test.group('employee_bonus_routes — PermissionGate Bonificaciones', () => {
     assert.notInclude(compact(content), "get('/:employeeBonusId').use(middleware.permissionGate")
   })
 })
+
+test.group('user_responsible_employee_routes — PermissionGate Responsable/Asignados', () => {
+  test('escrituras declaran un solo permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/user_responsible_employee_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createUserResponsibleEmployee)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateUserResponsibleEmployee)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteUserResponsibleEmployee)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    assert.notInclude(
+      compact(content),
+      "get('/:userResponsibleEmployeeId').use(middleware.permissionGate"
+    )
+  })
+})
