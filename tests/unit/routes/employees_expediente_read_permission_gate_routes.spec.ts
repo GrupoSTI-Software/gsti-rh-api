@@ -27,15 +27,9 @@ test.group('employee_routes — PermissionGate lectura Trabajo/Bancos/Zonas', ()
       'getDaysWorkDisabilityAll',
       'getBiometricsList',
     ]) {
-      assert.include(
-        content,
-        `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`,
-        key
-      )
+      assert.include(content, `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`, key)
     }
-    const showLine = content
-      .split('\n')
-      .find((line) => line.includes('employee_controller.show'))
+    const showLine = content.split('\n').find((line) => line.includes('employee_controller.show'))
     assert.exists(showLine)
     assert.notInclude(showLine!, 'permissionGate')
   })
@@ -181,7 +175,9 @@ test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente'
     }
   })
 
-  test('gafete/me y consentimiento download-url no declaran gate de lectura', async ({ assert }) => {
+  test('gafete/me y consentimiento download-url no declaran gate de lectura', async ({
+    assert,
+  }) => {
     const badges = await readFile(
       join(process.cwd(), 'app/modules/employee-badge/badge.routes.ts'),
       'utf8'
@@ -251,75 +247,173 @@ test.group('expediente — PermissionGate lectura de documentos', () => {
   })
 })
 
-test.group('responsable/asignados/zonas/anotaciones/biométricos/dispositivos — homologación', () => {
-  test('responsable/asignados homologan a tab-*-read con OR en el show del vínculo', async ({
-    assert,
-  }) => {
-    const responsible = await readFile(
-      join(process.cwd(), 'start/routes/user_responsible_employee_routes.ts'),
-      'utf8'
-    )
-    assert.include(
-      responsible,
-      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showUserResponsibleEmployee)'
-    )
-    assert.notInclude(responsible, 'manage-responsible-read')
-    assert.notInclude(responsible, 'manage-assigned-read')
+test.group(
+  'responsable/asignados/zonas/anotaciones/biométricos/dispositivos — homologación',
+  () => {
+    test('responsable/asignados homologan a tab-*-read con OR en el show del vínculo', async ({
+      assert,
+    }) => {
+      const responsible = await readFile(
+        join(process.cwd(), 'start/routes/user_responsible_employee_routes.ts'),
+        'utf8'
+      )
+      assert.include(
+        responsible,
+        'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showUserResponsibleEmployee)'
+      )
+      assert.notInclude(responsible, 'manage-responsible-read')
+      assert.notInclude(responsible, 'manage-assigned-read')
 
-    const users = await readFile(join(process.cwd(), 'start/routes/user_routes.ts'), 'utf8')
-    assert.include(
-      users,
-      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeesAssigned)'
-    )
-  })
+      const users = await readFile(join(process.cwd(), 'start/routes/user_routes.ts'), 'utf8')
+      assert.include(
+        users,
+        'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeesAssigned)'
+      )
+    })
 
-  test('biométricos declaran tab-biometricos-read y no show-face-id/show-fingers', async ({
-    assert,
-  }) => {
-    const bio = await readFile(
-      join(process.cwd(), 'start/routes/employee_biometric_routes.ts'),
-      'utf8'
-    )
-    const face = await readFile(
-      join(process.cwd(), 'start/routes/employee_biometric_face_id_routes.ts'),
-      'utf8'
-    )
-    assert.notInclude(bio, 'show-face-id')
-    assert.notInclude(bio, 'show-fingers')
-    assert.include(bio, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics')
-    assert.include(bio, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeFingers')
-    assert.include(face, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId')
-  })
+    test('biométricos declaran tab-biometricos-read y no show-face-id/show-fingers', async ({
+      assert,
+    }) => {
+      const bio = await readFile(
+        join(process.cwd(), 'start/routes/employee_biometric_routes.ts'),
+        'utf8'
+      )
+      const face = await readFile(
+        join(process.cwd(), 'start/routes/employee_biometric_face_id_routes.ts'),
+        'utf8'
+      )
+      assert.notInclude(bio, 'show-face-id')
+      assert.notInclude(bio, 'show-fingers')
+      assert.include(bio, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics')
+      assert.include(bio, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeFingers')
+      assert.include(face, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId')
+    })
 
-  test('zonas, anotaciones y dispositivos declaran sus gates de lectura', async ({ assert }) => {
+    test('zonas, anotaciones y dispositivos declaran sus gates de lectura', async ({ assert }) => {
+      const routes = [
+        {
+          file: 'start/routes/employee_zone_routes.ts',
+          keys: ['showEmployeeZone'],
+        },
+        {
+          file: 'start/routes/employee_annotation_routes.ts',
+          keys: ['indexEmployeeAnnotations', 'getAnnotationsByEmployee', 'showEmployeeAnnotation'],
+        },
+        {
+          file: 'start/routes/employee_device_routes.ts',
+          keys: ['indexEmployeeDevices', 'getDevicesByEmployee'],
+        },
+      ]
+
+      for (const { file, keys } of routes) {
+        const content = await readFile(join(process.cwd(), file), 'utf8')
+        for (const key of keys) {
+          assert.include(
+            content,
+            `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`,
+            `${file}: ${key}`
+          )
+        }
+      }
+    })
+  }
+)
+
+test.group('evaluaciones/assessments/ruta/certificaciones/incapacidades — lectura', () => {
+  test('las rutas de expediente declaran sus gates de lectura', async ({ assert }) => {
     const routes = [
       {
-        file: 'start/routes/employee_zone_routes.ts',
-        keys: ['showEmployeeZone'],
+        file: 'start/routes/employee_evaluation.ts',
+        keys: ['indexEmployeeEvaluations', 'showEmployeeEvaluation', 'getEvaluationsByEmployee'],
       },
       {
-        file: 'start/routes/employee_annotation_routes.ts',
-        keys: [
-          'indexEmployeeAnnotations',
-          'getAnnotationsByEmployee',
-          'showEmployeeAnnotation',
-        ],
+        file: 'start/routes/employee_competency_evaluation.ts',
+        keys: ['indexCompetencyEvaluations', 'showCompetencyEvaluation'],
       },
       {
-        file: 'start/routes/employee_device_routes.ts',
-        keys: ['indexEmployeeDevices', 'getDevicesByEmployee'],
+        file: 'start/routes/employee_kpi_evaluation.ts',
+        keys: ['indexKpiEvaluations', 'showKpiEvaluation'],
+      },
+      {
+        file: 'start/routes/employee_assessment_routes.ts',
+        keys: ['indexEmployeeAssessments', 'getAssessmentsByEmployee', 'showEmployeeAssessment'],
+      },
+      {
+        file: 'start/routes/career_path_candidate_routes.ts',
+        keys: ['indexCareerPathCandidates', 'showCareerPathCandidate', 'getCareerPathByEmployee'],
+      },
+      {
+        file: 'start/routes/employee_certification_routes.ts',
+        keys: ['getEmployeeCertifications'],
+      },
+      {
+        file: 'start/routes/employee_certification_upload_routes.ts',
+        keys: ['indexCertificationUploads'],
+      },
+      {
+        file: 'start/routes/employee_certification_expiration_routes.ts',
+        keys: ['getExpiredExpiringCertifications', 'indexEmployeeCertificationsExpiration'],
+      },
+      {
+        file: 'start/routes/work_disability_routes.ts',
+        keys: ['indexWorkDisabilities', 'showWorkDisability'],
+      },
+      {
+        file: 'start/routes/work_disability_period_routes.ts',
+        keys: ['showWorkDisabilityPeriod'],
+      },
+      {
+        file: 'start/routes/work_disability_note_routes.ts',
+        keys: ['showWorkDisabilityNote'],
+      },
+      {
+        file: 'start/routes/work_disability_period_expense_routes.ts',
+        keys: ['showWorkDisabilityPeriodExpense'],
       },
     ]
 
     for (const { file, keys } of routes) {
       const content = await readFile(join(process.cwd(), file), 'utf8')
+      const normalizedContent = content.replace(/\s+/g, '')
       for (const key of keys) {
         assert.include(
-          content,
+          normalizedContent,
           `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`,
           `${file}: ${key}`
         )
       }
     }
+  })
+})
+
+test.group('lectura — guards de fuera de alcance', () => {
+  test('listado, catálogos, descargas y app no declaran READ_PERMISSION', async ({ assert }) => {
+    const employeeRoutes = await readFile(
+      join(process.cwd(), 'start/routes/employee_routes.ts'),
+      'utf8'
+    )
+    for (const needle of [
+      'employee_controller.index',
+      'employee_controller.getExcel',
+      'employee_controller.getAttendanceReport',
+      'employee_controller.getBirthday',
+    ]) {
+      const line = employeeRoutes.split('\n').find((l) => l.includes(needle))
+      assert.exists(line, needle)
+      assert.notInclude(line!, 'READ_PERMISSION', needle)
+    }
+    const supplies = await readFile(
+      join(process.cwd(), 'start/routes/employee_supplies.ts'),
+      'utf8'
+    )
+    assert.notInclude(supplies, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
+    const zones = await readFile(join(process.cwd(), 'start/routes/zone_routes.ts'), 'utf8')
+    assert.notInclude(zones, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
+    const assessments = await readFile(
+      join(process.cwd(), 'start/routes/employee_assessment_routes.ts'),
+      'utf8'
+    )
+    const byPos = assessments.split('\n').find((l) => l.includes('getTemplatesByPosition'))
+    assert.notInclude(byPos!, 'permissionGate')
   })
 })
