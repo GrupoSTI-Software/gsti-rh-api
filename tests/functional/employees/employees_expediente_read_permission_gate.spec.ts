@@ -365,6 +365,7 @@ test.group('Expediente lectura — PermissionGate exigencia ON', (group) => {
       .get(`/api/employees/${fixture!.employee.employeeId}/banks`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
+    banks.assertStatus(200)
     assert.notEqual(banks.body()?.key, 'PERM.DENIED')
 
     const notes = await client
@@ -487,6 +488,9 @@ test.group('Expediente lectura — PermissionGate exigencia ON', (group) => {
 
     missing.assertStatus(403)
     existing.assertStatus(403)
+    assert.equal(missing.body()?.key, 'PERM.DENIED')
+    assert.equal(existing.body()?.key, 'PERM.DENIED')
+    assert.equal(missing.body()?.title, existing.body()?.title)
     assert.equal(missing.body()?.key, existing.body()?.key)
     assert.equal(missing.body()?.detail, existing.body()?.detail)
   })
