@@ -34,4 +34,20 @@ test.group('Ficha compuesta y Persona — PermissionGate lectura', () => {
     const serviceIdx = showFn.indexOf('personService.show')
     assert.isAbove(serviceIdx, collabIdx)
   })
+
+  test('calendario, contactos, médica, incapacidades y solicitud exigen lectura salvo propio', async ({
+    assert,
+  }) => {
+    const files = [
+      'app/controllers/employee_assist_calendar_controller.ts',
+      'app/controllers/employee_emergency_contact_controller.ts',
+      'app/controllers/employee_medical_condition_controller.ts',
+      'app/controllers/work_disability_controller.ts',
+      'app/controllers/exception_requests_controller.ts',
+    ]
+    for (const file of files) {
+      const content = await readFile(join(process.cwd(), file), 'utf8')
+      assert.include(content, 'ensureEmployeeTabRead', file)
+    }
+  })
 })
