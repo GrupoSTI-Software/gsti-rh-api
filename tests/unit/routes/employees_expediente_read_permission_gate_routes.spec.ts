@@ -393,10 +393,7 @@ test.group('lectura — guards de fuera de alcance', () => {
       'utf8'
     )
     for (const needle of [
-      'employee_controller.index',
-      'employee_controller.getExcel',
       'employee_controller.getAttendanceReport',
-      'employee_controller.getBirthday',
     ]) {
       const line = employeeRoutes.split('\n').find((l) => l.includes(needle))
       assert.exists(line, needle)

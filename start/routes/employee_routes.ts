@@ -6,6 +6,7 @@ import { middleware } from '#start/kernel'
 router
   .group(() => {
     router.get('/employee-generate-excel', '#controllers/employee_controller.getExcel')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeesExcel))
     router.get('/shift-assignment-template', '#controllers/employee_controller.getShiftAssignmentTemplate')
     router.get('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
     router.post('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
@@ -19,7 +20,9 @@ router
       .get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getDaysWorkDisabilityAll))
     router.get('/get-birthday', '#controllers/employee_controller.getBirthday')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBirthday))
     router.get('/get-anniversary', '#controllers/employee_controller.getAnniversary')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getAnniversary))
     router
       .get('/get-vacations', '#controllers/employee_controller.getVacations')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacations))
@@ -29,10 +32,15 @@ router
         middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getAllVacationsByPeriod)
       )
     router.get('/get-work-schedules', '#controllers/employee_controller.getWorkSchedules')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getWorkSchedules))
     router.get('/termination-catalog', '#controllers/employee_controller.getTerminationCatalog')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getTerminationCatalog))
     router.get('/without-user', '#controllers/employee_controller.indexWithOutUser')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexEmployeesWithoutUser))
     router.get('/', '#controllers/employee_controller.index')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexEmployees))
     router.get('/to-assigned', '#controllers/employee_controller.indexToAssigned')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexEmployeesToAssigned))
     router
       .post('/', '#controllers/employee_controller.store')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployee))
