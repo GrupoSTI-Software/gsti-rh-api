@@ -86,3 +86,34 @@ test.group('employee_annotation_routes — PermissionGate Anotaciones', () => {
     assert.include(content, 'currentEmployeeAnnotation.userId !== user.userId')
   })
 })
+
+test.group('employee_bonus_routes — PermissionGate Bonificaciones', () => {
+  test('escrituras declaran permissionGate de Trabajo y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_bonus_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeBonus)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBonus)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeBonus)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    assert.notInclude(compact(content), "get('/').use(middleware.permissionGate")
+    assert.notInclude(
+      compact(content),
+      "get('/concepts/:employeeId').use(middleware.permissionGate"
+    )
+    assert.notInclude(compact(content), "get('/:employeeBonusId').use(middleware.permissionGate")
+  })
+})
