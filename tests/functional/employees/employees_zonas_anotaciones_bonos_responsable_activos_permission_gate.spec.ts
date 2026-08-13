@@ -320,11 +320,6 @@ function assertSuccess(assert: any, response: any) {
   assert.isTrue(response.status() >= 200 && response.status() < 300)
 }
 
-function assertNotPermissionDenied(assert: any, response: any) {
-  assert.notEqual(response.body()?.key, 'PERM.DENIED')
-  assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
-}
-
 function assertPermissionDenied(assert: any, response: any) {
   assert.equal(response.status(), 403)
   assert.equal(response.body()?.key, 'PERM.DENIED')
@@ -373,56 +368,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - soft-rollout (exigenci
     } finally {
       await disableEnforcementAndVerify(employeesModule)
     }
-  })
-
-  test('sin grants: las 21 escrituras responden PERM.DENIED sin cambios parciales', async ({ client, assert }) => {
-    employeesModule.systemModulePermissionEnforcementActive = true
-    await employeesModule.save()
-    await grantOnly(actor!.role.roleId, [])
-    const employeeId = fixture!.employee.employeeId
-    const zone = await createZoneFixture('on-deny')
-    const supplyFixture = await createSupplyFixture('on-deny')
-    zones.push(zone)
-    supplies.push(supplyFixture)
-    const employeeZone = await EmployeeZone.create({ employeeId, zoneId: zone.zoneId })
-    const annotation = await EmployeeAnnotation.create({ employeeId, employeeAnnotationContent: 'Nota denegada', employeeAnnotationActive: true, userId: actor!.user.userId })
-    const bonus = await EmployeeBonus.create({ ...bonusPayload(employeeId), employeeBonusAssignmentDate: DateTime.fromISO('2027-08-01'), employeeBonusPaymentDate: DateTime.fromISO('2027-08-15') })
-    const responsible = await UserResponsibleEmployee.create(responsiblePayload(employeeId, actor!.user.userId))
-    const supply = await EmployeeSupplie.create({ employeeId, supplyId: supplyFixture.supply.supplyId, employeeSupplyStatus: 'active', employeeSupplyAssignamentDate: DateTime.now() })
-    const contract = await EmployeeSuppliesResponseContract.create({ employeeSupplyId: supply.employeeSupplyId, employeeSupplyResponseContractUuid: `deny-${await uniqueStamp()}`, employeeSupplyResponseContractFile: 'contracts/deny.png' })
-    const photo = await EmployeeSupplieAssignationPhoto.create({ employeeSupplyId: supply.employeeSupplyId, employeeSupplieAssignationPhotoType: 'assignation', employeeSupplieAssignationPhotoFile: 'photos/deny.png' })
-    const ops = [
-      client.post('/api/employee-zones').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, zoneId: zone.zoneId }),
-      client.put(`/api/employee-zones/${employeeZone.employeeZoneId}`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, zoneId: zone.zoneId }),
-      client.delete(`/api/employee-zones/${employeeZone.employeeZoneId}`).loginAs(actor!.user).headers(buHeader(actor!)),
-      client.post('/api/employee-annotations').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, employeeAnnotationContent: 'Nueva nota denegada' }),
-      client.put(`/api/employee-annotations/${annotation.employeeAnnotationId}`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeAnnotationContent: 'Cambio denegado' }),
-      client.delete(`/api/employee-annotations/${annotation.employeeAnnotationId}`).loginAs(actor!.user).headers(buHeader(actor!)),
-      client.post('/api/employee-bonuses').loginAs(actor!.user).headers(buHeader(actor!)).json(bonusPayload(employeeId)),
-      client.put(`/api/employee-bonuses/${bonus.employeeBonusId}`).loginAs(actor!.user).headers(buHeader(actor!)).json(bonusPayload(employeeId)),
-      client.delete(`/api/employee-bonuses/${bonus.employeeBonusId}`).loginAs(actor!.user).headers(buHeader(actor!)),
-      client.post('/api/user-responsible-employees').loginAs(actor!.user).headers(buHeader(actor!)).json(responsiblePayload(employeeId, actor!.user.userId)),
-      client.put(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`).loginAs(actor!.user).headers(buHeader(actor!)).json(responsiblePayload(employeeId, actor!.user.userId, 1)),
-      client.delete(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`).loginAs(actor!.user).headers(buHeader(actor!)),
-      client.post('/api/employee-supplies').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, supplyId: supplyFixture.supply.supplyId, employeeSupplyAssignamentDate: '2026-08-01' }),
-      client.put(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeSupplyAdditions: 'Cambio denegado' }),
-      client.post(`/api/employee-supplies/${supply.employeeSupplyId}/retire`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeSupplyRetirementReason: 'Denegado' }),
-      client.delete(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!)),
-      client.post('/api/employee-supplies-response-contracts').loginAs(actor!.user).headers(buHeader(actor!)).field('employeeSupplyIds', JSON.stringify([supply.employeeSupplyId])).file('file', VALID_PNG_BUFFER, { filename: 'contrato.png', contentType: 'image/png' }),
-      client.delete(`/api/employee-supplies-response-contracts/${contract.employeeSupplyResponseContractId}`).loginAs(actor!.user).headers(buHeader(actor!)),
-      client.post(`/api/employee-supply-assignation-photos/${supply.employeeSupplyId}/assignation`).loginAs(actor!.user).file('photos', VALID_PNG_BUFFER, { filename: 'entrega.png', contentType: 'image/png' }),
-      client.post(`/api/employee-supply-assignation-photos/${supply.employeeSupplyId}/return`).loginAs(actor!.user).file('photos', VALID_PNG_BUFFER, { filename: 'devolucion.png', contentType: 'image/png' }),
-      client.delete(`/api/employee-supply-assignation-photos/${photo.employeeSupplieAssignationPhotoId}`).loginAs(actor!.user),
-    ]
-    for (const pending of ops) assertPermissionDenied(assert, await pending)
-    assert.isNotNull(await EmployeeZone.query().where('employee_zone_id', employeeZone.employeeZoneId).whereNull('employee_zone_deleted_at').first())
-    assert.isNotNull(await EmployeeAnnotation.query().where('employee_annotation_id', annotation.employeeAnnotationId).whereNull('employee_annotation_deleted_at').first())
-    assert.isNotNull(await EmployeeBonus.query().where('employee_bonus_id', bonus.employeeBonusId).whereNull('employee_bonus_deleted_at').first())
-    assert.isNotNull(await UserResponsibleEmployee.query().where('user_responsible_employee_id', responsible.userResponsibleEmployeeId).whereNull('user_responsible_employee_deleted_at').first())
-    assert.isNotNull(await EmployeeSupplie.query().where('employee_supply_id', supply.employeeSupplyId).whereNull('employee_supply_deleted_at').first())
-    assert.isNotNull(await EmployeeSupplieAssignationPhoto.query().where('employee_supplie_assignation_photo_id', photo.employeeSupplieAssignationPhotoId).whereNull('employee_supplie_assignation_photo_deleted_at').first())
-    employeesModule.systemModulePermissionEnforcementActive = false
-    await employeesModule.save()
   })
 
   test('sin grants: las 21 escrituras responden con éxito y cada efecto persiste', async ({ client, assert }) => {
@@ -583,6 +528,63 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     }
   })
 
+  test('sin grants: las 21 escrituras responden PERM.DENIED sin cambios parciales', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const employeeId = fixture!.employee.employeeId
+    const zone = await createZoneFixture('on-deny')
+    const supplyFixture = await createSupplyFixture('on-deny')
+    zones.push(zone)
+    supplies.push(supplyFixture)
+    const employeeZone = await EmployeeZone.create({ employeeId, zoneId: zone.zoneId })
+    const annotation = await EmployeeAnnotation.create({ employeeId, employeeAnnotationContent: 'Nota denegada', employeeAnnotationActive: true, userId: actor!.user.userId })
+    const bonus = await EmployeeBonus.create({ ...bonusPayload(employeeId), employeeBonusAssignmentDate: DateTime.fromISO('2027-08-01'), employeeBonusPaymentDate: DateTime.fromISO('2027-08-15') })
+    const responsible = await UserResponsibleEmployee.create(responsiblePayload(employeeId, actor!.user.userId))
+    const supply = await EmployeeSupplie.create({ employeeId, supplyId: supplyFixture.supply.supplyId, employeeSupplyStatus: 'active', employeeSupplyAssignamentDate: DateTime.now() })
+    const contract = await EmployeeSuppliesResponseContract.create({ employeeSupplyId: supply.employeeSupplyId, employeeSupplyResponseContractUuid: `deny-${await uniqueStamp()}`, employeeSupplyResponseContractFile: 'contracts/deny.png' })
+    const photo = await EmployeeSupplieAssignationPhoto.create({ employeeSupplyId: supply.employeeSupplyId, employeeSupplieAssignationPhotoType: 'assignation', employeeSupplieAssignationPhotoFile: 'photos/deny.png' })
+    try {
+    const ops = [
+      client.post('/api/employee-zones').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, zoneId: zone.zoneId }),
+      client.put(`/api/employee-zones/${employeeZone.employeeZoneId}`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, zoneId: zone.zoneId }),
+      client.delete(`/api/employee-zones/${employeeZone.employeeZoneId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.post('/api/employee-annotations').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, employeeAnnotationContent: 'Nueva nota denegada' }),
+      client.put(`/api/employee-annotations/${annotation.employeeAnnotationId}`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeAnnotationContent: 'Cambio denegado' }),
+      client.delete(`/api/employee-annotations/${annotation.employeeAnnotationId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.post('/api/employee-bonuses').loginAs(actor!.user).headers(buHeader(actor!)).json(bonusPayload(employeeId)),
+      client.put(`/api/employee-bonuses/${bonus.employeeBonusId}`).loginAs(actor!.user).headers(buHeader(actor!)).json(bonusPayload(employeeId)),
+      client.delete(`/api/employee-bonuses/${bonus.employeeBonusId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.post('/api/user-responsible-employees').loginAs(actor!.user).headers(buHeader(actor!)).json(responsiblePayload(employeeId, actor!.user.userId)),
+      client.put(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`).loginAs(actor!.user).headers(buHeader(actor!)).json(responsiblePayload(employeeId, actor!.user.userId, 1)),
+      client.delete(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.post('/api/employee-supplies').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, supplyId: supplyFixture.supply.supplyId, employeeSupplyAssignamentDate: '2026-08-01' }),
+      client.put(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeSupplyAdditions: 'Cambio denegado' }),
+      client.post(`/api/employee-supplies/${supply.employeeSupplyId}/retire`).loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeSupplyRetirementReason: 'Denegado' }),
+      client.delete(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.post('/api/employee-supplies-response-contracts').loginAs(actor!.user).headers(buHeader(actor!)).field('employeeSupplyIds', JSON.stringify([supply.employeeSupplyId])).file('file', VALID_PNG_BUFFER, { filename: 'contrato.png', contentType: 'image/png' }),
+      client.delete(`/api/employee-supplies-response-contracts/${contract.employeeSupplyResponseContractId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.post(`/api/employee-supply-assignation-photos/${supply.employeeSupplyId}/assignation`).loginAs(actor!.user).file('photos', VALID_PNG_BUFFER, { filename: 'entrega.png', contentType: 'image/png' }),
+      client.post(`/api/employee-supply-assignation-photos/${supply.employeeSupplyId}/return`).loginAs(actor!.user).file('photos', VALID_PNG_BUFFER, { filename: 'devolucion.png', contentType: 'image/png' }),
+      client.delete(`/api/employee-supply-assignation-photos/${photo.employeeSupplieAssignationPhotoId}`).loginAs(actor!.user),
+    ]
+    for (const pending of ops) assertPermissionDenied(assert, await pending)
+    assert.isNotNull(await EmployeeZone.query().where('employee_zone_id', employeeZone.employeeZoneId).whereNull('employee_zone_deleted_at').first())
+    assert.isNotNull(await EmployeeAnnotation.query().where('employee_annotation_id', annotation.employeeAnnotationId).whereNull('employee_annotation_deleted_at').first())
+    assert.isNotNull(await EmployeeBonus.query().where('employee_bonus_id', bonus.employeeBonusId).whereNull('employee_bonus_deleted_at').first())
+    assert.isNotNull(await UserResponsibleEmployee.query().where('user_responsible_employee_id', responsible.userResponsibleEmployeeId).whereNull('user_responsible_employee_deleted_at').first())
+    assert.isNotNull(await EmployeeSupplie.query().where('employee_supply_id', supply.employeeSupplyId).whereNull('employee_supply_deleted_at').first())
+    assert.isNotNull(await EmployeeSupplieAssignationPhoto.query().where('employee_supplie_assignation_photo_id', photo.employeeSupplieAssignationPhotoId).whereNull('employee_supplie_assignation_photo_deleted_at').first())
+
+    } finally {
+      await db.from('employee_supplie_assignation_photos').where('employee_supply_id', supply.employeeSupplyId).delete()
+      await db.from('employee_supplies_response_contracts').where('employee_supply_id', supply.employeeSupplyId).delete()
+      await db.from('employee_supplies').where('employee_supply_id', supply.employeeSupplyId).delete()
+      await db.from('employee_zones').where('employee_zone_id', employeeZone.employeeZoneId).delete()
+      await db.from('employee_annotations').where('employee_annotation_id', annotation.employeeAnnotationId).delete()
+      await db.from('employee_bonuses').where('employee_bonus_id', bonus.employeeBonusId).delete()
+      await db.from('user_responsible_employees').where('user_responsible_employee_id', responsible.userResponsibleEmployeeId).delete()
+    }
+  })
+
   test('zonas sí y bonificaciones no: la zona queda y la bonificación no se registra', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, ['tab-zonas-write'])
     const zone = await createZoneFixture('sep')
@@ -591,10 +593,15 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     assertSuccess(assert, zoneRes)
     const storedZone = await EmployeeZone.query().where('employee_id', fixture!.employee.employeeId).where('zone_id', zone.zoneId).whereNull('employee_zone_deleted_at').first()
     assert.isNotNull(storedZone)
+    const bonusesBefore = await EmployeeBonus.query()
+      .where('employee_id', fixture!.employee.employeeId)
+      .whereNull('employee_bonus_deleted_at')
     const bonusRes = await client.post('/api/employee-bonuses').loginAs(actor!.user).headers(buHeader(actor!)).json(bonusPayload(fixture!.employee.employeeId))
     assertPermissionDenied(assert, bonusRes)
-    const bonusCount = await EmployeeBonus.query().where('employee_id', fixture!.employee.employeeId).whereNull('employee_bonus_deleted_at')
-    assert.equal(bonusCount.length, 0)
+    const bonusCount = await EmployeeBonus.query()
+      .where('employee_id', fixture!.employee.employeeId)
+      .whereNull('employee_bonus_deleted_at')
+    assert.equal(bonusCount.length, bonusesBefore.length)
   })
 
   test('tab-zonas-write permite POST y PUT, pero DELETE exige tab-zonas-delete', async ({ client, assert }) => {
