@@ -622,7 +622,7 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate exigencia ON', (gro
     }
   })
 
-  test('GET condición médica e incapacidades por employeeId no responden PERM.DENIED sin grants', async ({
+  test('GET condición médica e incapacidades por employeeId responden PERM.DENIED sin grants', async ({
     client,
     assert,
   }) => {
@@ -635,7 +635,9 @@ test.group('Salud/Lactancia/Incapacidades — PermissionGate exigencia ON', (gro
       .get(`/api/work-disabilities/employee/${fixture!.employee.employeeId}`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
-    assert.notEqual(medical.body()?.key, 'PERM.DENIED')
-    assert.notEqual(disabilities.body()?.key, 'PERM.DENIED')
+    assert.equal(medical.status(), 403)
+    assert.equal(medical.body()?.key, 'PERM.DENIED')
+    assert.equal(disabilities.status(), 403)
+    assert.equal(disabilities.body()?.key, 'PERM.DENIED')
   })
 })

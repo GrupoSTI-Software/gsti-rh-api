@@ -847,7 +847,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     )
   })
 
-  test('GET de las mismas familias sin permiso de escritura no responde PERM.DENIED', async ({
+  test('GET de zonas, anotaciones, bonos y responsable sin permiso de lectura responde PERM.DENIED', async ({
     client,
     assert,
   }) => {
@@ -870,14 +870,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     const responsible = await UserResponsibleEmployee.create(
       responsiblePayload(employeeId, actor!.user.userId)
     )
-    const supplyFixture = await createSupplyFixture('on-get')
-    supplies.push(supplyFixture)
-    const supply = await EmployeeSupplie.create({
-      employeeId,
-      supplyId: supplyFixture.supply.supplyId,
-      employeeSupplyStatus: 'active',
-      employeeSupplyAssignamentDate: DateTime.now(),
-    })
     const reads = [
       client.get(`/api/employee-zones/${employeeZone.employeeZoneId}`).loginAs(actor!.user).headers(buHeader(actor!)),
       client.get(`/api/employee-annotations/${annotation.employeeAnnotationId}`).loginAs(actor!.user).headers(buHeader(actor!)),
@@ -886,12 +878,29 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
         .get(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`)
         .loginAs(actor!.user)
         .headers(buHeader(actor!)),
-      client.get(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!)),
     ]
     for (const pending of reads) {
       const response = await pending
-      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+      assertPermissionDenied(assert, response)
     }
+  })
+
+  test('GET de activos sin permiso de escritura no responde PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const employeeId = fixture!.employee.employeeId
+    const supplyFixture = await createSupplyFixture('on-get')
+    supplies.push(supplyFixture)
+    const supply = await EmployeeSupplie.create({
+      employeeId,
+      supplyId: supplyFixture.supply.supplyId,
+      employeeSupplyStatus: 'active',
+      employeeSupplyAssignamentDate: DateTime.now(),
+    })
+    const response = await client.get(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!))
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
 
   test('catálogos de zonas e insumos no responden PERM.DENIED', async ({ client, assert }) => {
