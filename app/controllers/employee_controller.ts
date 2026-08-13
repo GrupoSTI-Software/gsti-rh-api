@@ -13,7 +13,11 @@ import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import UserService from '#services/user_service'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
-import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import {
+  EMPLOYEES_READ_PERMISSION_DECLARATIONS,
+  EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION,
+} from '#constants/employees_read_permission_declarations'
+import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
 import VacationSetting from '#models/vacation_setting'
 import { DateTime } from 'luxon'
 import ExcelJS from 'exceljs'
@@ -660,7 +664,8 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async index({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       await auth.check()
       const user = auth.user
@@ -693,6 +698,15 @@ export default class EmployeeController {
       const positionId = this.parseIdOrIds(request.input('positionId'))
       const employeeWorkSchedule = request.input('employeeWorkSchedule')
       const onlyInactive = request.input('onlyInactive')
+      if (isTerminatedEmployeesFilterRequested(onlyInactive)) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
       const employeeTypeId = request.input('employeeTypeId')
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
@@ -3527,6 +3541,15 @@ export default class EmployeeController {
       const employeeTypeId = request.qs().employeeTypeId
       const workSchedule = request.qs().workSchedule
       const onlyInactive = request.qs().onlyInactive
+      if (isTerminatedEmployeesFilterRequested(onlyInactive)) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
       const businessUnitId = request.qs().businessUnitId
 
       let queryEmployees = Employee.query()
@@ -3564,7 +3587,7 @@ export default class EmployeeController {
             query.where('position_id', positionId!)
           }
         })
-        .if(onlyInactive && (onlyInactive === 'true' || onlyInactive === true), (query) => {
+        .if(isTerminatedEmployeesFilterRequested(onlyInactive), (query) => {
           query.whereNotNull('employee_deleted_at')
           query.withTrashed()
         })
@@ -8361,7 +8384,8 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async indexToAssigned({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async indexToAssigned(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       await auth.check()
       const user = auth.user
@@ -8394,6 +8418,15 @@ export default class EmployeeController {
       const positionId = this.parseIdOrIds(request.input('positionId'))
       const employeeWorkSchedule = request.input('employeeWorkSchedule')
       const onlyInactive = request.input('onlyInactive')
+      if (isTerminatedEmployeesFilterRequested(onlyInactive)) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
       const employeeTypeId = request.input('employeeTypeId')
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)

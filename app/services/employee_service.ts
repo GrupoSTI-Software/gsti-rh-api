@@ -17,6 +17,7 @@ import User from '#models/user'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
+import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
@@ -437,7 +438,7 @@ export default class EmployeeService {
         query.where('employee_type_of_contract', 'Internal')
       })
       .if(
-        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        isTerminatedEmployeesFilterRequested(filters.onlyInactive),
         (query) => {
           query.whereNotNull('employee_deleted_at')
           query.withTrashed()
@@ -8281,7 +8282,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         query.where('employee_type_of_contract', 'Internal')
       })
       .if(
-        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        isTerminatedEmployeesFilterRequested(filters.onlyInactive),
         (query) => {
           query.whereNotNull('employee_deleted_at')
           query.withTrashed()
