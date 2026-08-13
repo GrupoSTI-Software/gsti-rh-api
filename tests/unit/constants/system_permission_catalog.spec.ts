@@ -62,8 +62,8 @@ test.group('Índice maestro — catálogo real', () => {
     assert.lengthOf(exempt, 6, 'los apartados de app colaborador no crean fila en BD')
     assert.lengthOf(
       actions,
-      108,
-      '28 legacy + 56 pestaña + 4 listado + 4 descargas + 10 sensibles + 6 exemption'
+      109,
+      '28 legacy + 56 pestaña + 1 suministros + 4 listado + 4 descargas + 10 sensibles + 6 exemption'
     )
   })
 
