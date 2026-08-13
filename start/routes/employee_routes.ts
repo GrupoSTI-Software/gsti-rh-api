@@ -1,4 +1,5 @@
 import router from '@adonisjs/core/services/router'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { middleware } from '#start/kernel'
 
@@ -11,12 +12,22 @@ router
     router.post('/import-shift-assignments', '#controllers/employee_controller.importShiftAssignments')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importShiftAssignmentsExcel))
     router.get('/template-excel', '#controllers/employee_controller.getTemplateExcel')
-    router.get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
-    router.get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
+    router
+      .get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricsList))
+    router
+      .get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getDaysWorkDisabilityAll))
     router.get('/get-birthday', '#controllers/employee_controller.getBirthday')
     router.get('/get-anniversary', '#controllers/employee_controller.getAnniversary')
-    router.get('/get-vacations', '#controllers/employee_controller.getVacations')
-    router.get('/get-all-vacations-by-period', '#controllers/employee_controller.getAllVacationsByPeriod')
+    router
+      .get('/get-vacations', '#controllers/employee_controller.getVacations')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacations))
+    router
+      .get('/get-all-vacations-by-period', '#controllers/employee_controller.getAllVacationsByPeriod')
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getAllVacationsByPeriod)
+      )
     router.get('/get-work-schedules', '#controllers/employee_controller.getWorkSchedules')
     router.get('/termination-catalog', '#controllers/employee_controller.getTerminationCatalog')
     router.get('/without-user', '#controllers/employee_controller.indexWithOutUser')
@@ -42,10 +53,9 @@ router
     router
       .put('/:employeeId/reactivate', '#controllers/employee_controller.reactivate')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.reactivateEmployee))
-    router.get(
-      '/:employeeId/proceeding-files',
-      '#controllers/employee_controller.getProceedingFiles'
-    )
+    router
+      .get('/:employeeId/proceeding-files', '#controllers/employee_controller.getProceedingFiles')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeProceedingFiles))
 
     router
       .post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
@@ -57,10 +67,12 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.unassignEmployeeBranchOffice)
       )
-    router.get(
-      '/:employeeId/branch-offices/history',
-      '#controllers/employee_branch_office_controller.history'
-    )
+    router
+      .get(
+        '/:employeeId/branch-offices/history',
+        '#controllers/employee_branch_office_controller.history'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBranchOfficeHistory))
 
     router
       .post(
@@ -70,10 +82,12 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createTemporaryAssignment)
       )
-    router.get(
-      '/:employeeId/temporary-assignments',
-      '#controllers/employee_temporary_assignment_controller.index'
-    )
+    router
+      .get(
+        '/:employeeId/temporary-assignments',
+        '#controllers/employee_temporary_assignment_controller.index'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexTemporaryAssignments))
     router
       .put(
         '/:employeeId/temporary-assignments/:id',
@@ -98,31 +112,55 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteTemporaryAssignment)
       )
-    router.get(
-      '/:employeeId/temporary-assignments/active',
-      '#controllers/employee_temporary_assignment_controller.showActive'
-    )
+    router
+      .get(
+        '/:employeeId/temporary-assignments/active',
+        '#controllers/employee_temporary_assignment_controller.showActive'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showActiveTemporaryAssignment))
 
-    router.get('/:employeeId/salary-history', '#controllers/employee_controller.salaryHistory')
-    router.get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
-    router.get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
-    router.get('/:employeeId/zones', '#controllers/employee_controller.getZones')
-    router.get('/:employeeId/get-days-work-disability', '#controllers/employee_controller.getDaysWorkDisability')
-    router.get('/:employeeId/user-responsible', '#controllers/employee_controller.getUserResponsible')
-    router.get('/:employeeId/user-responsible/:userId?', '#controllers/employee_controller.getUserResponsible')
-    router.get(
-      '/:employeeId/get-vacations-used',
-      '#controllers/employee_controller.getVacationsUsed'
-    )
-    router.get(
-      '/:employeeId/get-vacations-corresponding',
-      '#controllers/employee_controller.getVacationsCorresponding'
-    )
-    router.get('/:employeeId/get-years-worked', '#controllers/employee_controller.getYearsWorked')
-    router.get(
-      '/:employeeId/get-vacations-by-period',
-      '#controllers/employee_controller.getVacationsByPeriod'
-    )
+    router
+      .get('/:employeeId/salary-history', '#controllers/employee_controller.salaryHistory')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getSalaryHistory))
+    router
+      .get('/:employeeId/contracts', '#controllers/employee_controller.getContracts')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeContracts))
+    router
+      .get('/:employeeId/banks', '#controllers/employee_controller.getBanks')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeBanks))
+    router
+      .get('/:employeeId/zones', '#controllers/employee_controller.getZones')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeZones))
+    router
+      .get('/:employeeId/get-days-work-disability', '#controllers/employee_controller.getDaysWorkDisability')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getDaysWorkDisability))
+    router
+      .get('/:employeeId/user-responsible', '#controllers/employee_controller.getUserResponsible')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getUserResponsible))
+    router
+      .get(
+        '/:employeeId/user-responsible/:userId?',
+        '#controllers/employee_controller.getUserResponsible'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getUserResponsible))
+    router
+      .get('/:employeeId/get-vacations-used', '#controllers/employee_controller.getVacationsUsed')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacationsUsed))
+    router
+      .get(
+        '/:employeeId/get-vacations-corresponding',
+        '#controllers/employee_controller.getVacationsCorresponding'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacationsCorresponding))
+    router
+      .get('/:employeeId/get-years-worked', '#controllers/employee_controller.getYearsWorked')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getYearsWorked))
+    router
+      .get(
+        '/:employeeId/get-vacations-by-period',
+        '#controllers/employee_controller.getVacationsByPeriod'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacationsByPeriod))
     router.get(
       '/:employeeId/export-excel',
       '#controllers/employee_controller.exportShiftExceptionsToExcel'
@@ -137,10 +175,9 @@ router
         '#controllers/employee_controller.applyVacationDeduction'
       )
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.applyVacationDeduction))
-    router.get(
-      '/:employeeId/vacation-deductions',
-      '#controllers/employee_controller.getVacationDeductions'
-    )
+    router
+      .get('/:employeeId/vacation-deductions', '#controllers/employee_controller.getVacationDeductions')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacationDeductions))
     router
       .delete(
         '/:employeeId/vacation-deductions/:vacationDeductionId',

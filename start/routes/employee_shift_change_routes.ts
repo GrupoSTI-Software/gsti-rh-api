@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 
 router
@@ -15,11 +16,17 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeShiftChange)
       )
-    router.get('/:employeeShiftChangeId', '#controllers/employee_shift_change_controller.show')
-    router.get(
-      '/by-employee/:employeeId',
-      '#controllers/employee_shift_change_controller.getByEmployee'
-    )
+    router
+      .get('/:employeeShiftChangeId', '#controllers/employee_shift_change_controller.show')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeShiftChange))
+    router
+      .get(
+        '/by-employee/:employeeId',
+        '#controllers/employee_shift_change_controller.getByEmployee'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getShiftChangesByEmployee)
+      )
   })
   .use(middleware.auth())
   .use(middleware.businessScope())
