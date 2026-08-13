@@ -10,9 +10,9 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 126 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 147 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 126)
+    assert.equal(keys.length, 147)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -23,7 +23,10 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
         ]
       assert.equal(decl.module, 'employees')
       assert.equal(decl.bypass, 'standard')
-      assert.isTrue(catalogSlugs.has(decl.action), `slug ausente en catálogo: ${decl.action} (${key})`)
+      const actions = Array.isArray(decl.action) ? decl.action : [decl.action]
+      for (const slug of actions) {
+        assert.isTrue(catalogSlugs.has(slug), `slug ausente en catálogo: ${slug} (${key})`)
+      }
     }
   })
 
@@ -169,5 +172,45 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.createCareerPathCandidate.action, 'tab-ruta-carrera-write')
     assert.equal(d.updateCareerPathCandidateStatus.action, 'tab-ruta-carrera-write')
     assert.equal(d.deleteCareerPathCandidate.action, 'tab-ruta-carrera-delete')
+  })
+
+  test('mapea Zonas, Anotaciones, Bonificaciones, Responsable/Asignados y Activos de escritura', ({
+    assert,
+  }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.equal(d.createEmployeeZone.action, 'tab-zonas-write')
+    assert.equal(d.updateEmployeeZone.action, 'tab-zonas-write')
+    assert.equal(d.deleteEmployeeZone.action, 'tab-zonas-delete')
+
+    assert.equal(d.createEmployeeAnnotation.action, 'tab-anotaciones-write')
+    assert.equal(d.updateEmployeeAnnotation.action, 'tab-anotaciones-write')
+    assert.equal(d.deleteEmployeeAnnotation.action, 'tab-anotaciones-delete')
+
+    assert.equal(d.createEmployeeBonus.action, 'tab-trabajo-write')
+    assert.equal(d.updateEmployeeBonus.action, 'tab-trabajo-write')
+    assert.equal(d.deleteEmployeeBonus.action, 'tab-trabajo-delete')
+
+    assert.deepEqual(d.createUserResponsibleEmployee.action, [
+      'manage-responsible-edit',
+      'manage-assigned-edit',
+    ])
+    assert.deepEqual(d.updateUserResponsibleEmployee.action, [
+      'manage-responsible-edit',
+      'manage-assigned-edit',
+    ])
+    assert.deepEqual(d.deleteUserResponsibleEmployee.action, [
+      'manage-responsible-edit',
+      'manage-assigned-edit',
+    ])
+
+    assert.equal(d.createEmployeeSupply.action, 'manage-employee-supplies')
+    assert.equal(d.updateEmployeeSupply.action, 'manage-employee-supplies')
+    assert.equal(d.retireEmployeeSupply.action, 'manage-employee-supplies')
+    assert.equal(d.deleteEmployeeSupply.action, 'manage-employee-supplies')
+    assert.equal(d.createEmployeeSupplyResponseContract.action, 'manage-employee-supplies')
+    assert.equal(d.deleteEmployeeSupplyResponseContract.action, 'manage-employee-supplies')
+    assert.equal(d.uploadEmployeeSupplyAssignationPhoto.action, 'manage-employee-supplies')
+    assert.equal(d.uploadEmployeeSupplyReturnPhoto.action, 'manage-employee-supplies')
+    assert.equal(d.deleteEmployeeSupplyAssignationPhoto.action, 'manage-employee-supplies')
   })
 })

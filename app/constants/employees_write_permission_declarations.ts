@@ -1,6 +1,8 @@
 import type { PermissionGateOptions } from '#constants/permission_gate'
 
-const employeesStandard = (action: string): PermissionGateOptions => ({
+const employeesStandard = (
+  action: string | readonly string[]
+): PermissionGateOptions => ({
   module: 'employees',
   action,
   bypass: 'standard',
@@ -8,7 +10,7 @@ const employeesStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos + Evaluaciones/Assessments/Ruta de carrera).
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos + Evaluaciones/Assessments/Ruta de carrera + Zonas/Anotaciones/Bonificaciones/Responsable/Activos).
  * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
@@ -138,6 +140,36 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createCareerPathCandidate: employeesStandard('tab-ruta-carrera-write'),
   updateCareerPathCandidateStatus: employeesStandard('tab-ruta-carrera-write'),
   deleteCareerPathCandidate: employeesStandard('tab-ruta-carrera-delete'),
+  createEmployeeZone: employeesStandard('tab-zonas-write'),
+  updateEmployeeZone: employeesStandard('tab-zonas-write'),
+  deleteEmployeeZone: employeesStandard('tab-zonas-delete'),
+  createEmployeeAnnotation: employeesStandard('tab-anotaciones-write'),
+  updateEmployeeAnnotation: employeesStandard('tab-anotaciones-write'),
+  deleteEmployeeAnnotation: employeesStandard('tab-anotaciones-delete'),
+  createEmployeeBonus: employeesStandard('tab-trabajo-write'),
+  updateEmployeeBonus: employeesStandard('tab-trabajo-write'),
+  deleteEmployeeBonus: employeesStandard('tab-trabajo-delete'),
+  createUserResponsibleEmployee: employeesStandard([
+    'manage-responsible-edit',
+    'manage-assigned-edit',
+  ]),
+  updateUserResponsibleEmployee: employeesStandard([
+    'manage-responsible-edit',
+    'manage-assigned-edit',
+  ]),
+  deleteUserResponsibleEmployee: employeesStandard([
+    'manage-responsible-edit',
+    'manage-assigned-edit',
+  ]),
+  createEmployeeSupply: employeesStandard('manage-employee-supplies'),
+  updateEmployeeSupply: employeesStandard('manage-employee-supplies'),
+  retireEmployeeSupply: employeesStandard('manage-employee-supplies'),
+  deleteEmployeeSupply: employeesStandard('manage-employee-supplies'),
+  createEmployeeSupplyResponseContract: employeesStandard('manage-employee-supplies'),
+  deleteEmployeeSupplyResponseContract: employeesStandard('manage-employee-supplies'),
+  uploadEmployeeSupplyAssignationPhoto: employeesStandard('manage-employee-supplies'),
+  uploadEmployeeSupplyReturnPhoto: employeesStandard('manage-employee-supplies'),
+  deleteEmployeeSupplyAssignationPhoto: employeesStandard('manage-employee-supplies'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Permiso secundario cuando la edición toca el registro de baja. */

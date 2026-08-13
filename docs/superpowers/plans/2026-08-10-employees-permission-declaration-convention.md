@@ -13,6 +13,8 @@ Origen: exigir permiso en las 23 escrituras del colaborador y su ficha laboral.
 4. No encender `system_module_permission_enforcement_active` del módulo.
 5. No conceder el permiso a ningún rol como parte de la historia de declaración.
 
+Excepción documentada: `manage-employee-supplies` se registró en USRH1785766406727 porque el módulo Activos del menú no tiene permisos sembrados y declarar el permiso ahí lo dejaría fuera del interruptor de Empleados.
+
 Criterios de elección usados en escrituras del colaborador (referencia):
 
 | Tipo de operación | Slug |
@@ -25,6 +27,14 @@ Criterios de elección usados en escrituras del colaborador (referencia):
 | Carga masiva de personal (Excel) | `import-employees` |
 | Carga masiva de asignaciones de turno (Excel) | `import-shift-assignments` |
 | Sincronización con equipo biométrico (todas las variantes) | `manage-biotime` |
+| Zonas de trabajo del colaborador (asignar / modificar) | `tab-zonas-write` |
+| Quitar zona de trabajo del colaborador | `tab-zonas-delete` |
+| Anotaciones del historial (agregar / corregir) | `tab-anotaciones-write` |
+| Eliminar anotación del historial | `tab-anotaciones-delete` |
+| Bonificaciones (registrar / modificar) | `tab-trabajo-write` |
+| Eliminar bonificación | `tab-trabajo-delete` |
+| Asignación responsable ↔ colaborador (crear / modificar / eliminar) | `manage-responsible-edit` **o** `manage-assigned-edit` (OR) |
+| Activos y suministros del colaborador (ciclo completo: asignación, retiro, contratos, fotografías) | `manage-employee-supplies` |
 
 ## 2. Operación que toca dos asuntos de negocio
 
@@ -77,3 +87,17 @@ La persona de un cliente no queda cubierta.
 
 Los `DELETE` propios de piloto y sobrecargo quedan fuera de esta convención:
 son un gap preexistente y no se incluyen en esta historia.
+
+## 5. Operación que acepta cualquiera de varios permisos (OR)
+
+Cuando una misma operación HTTP sirve a dos pestañas del expediente y el
+servidor no puede saber desde cuál se ejecuta (responsable y asignados):
+
+1. Declarar un solo `permissionGate` en la ruta (no apilar dos gates: eso sería AND).
+2. Pasar `action` como lista de slugs. `PermissionGateService.evaluate` permite
+   si el rol tiene **cualquiera**.
+3. Quien no tiene ninguno recibe la misma 403 (`PERM.DENIED` / `PERM.UNRESOLVED`).
+4. Los permisos de consultar de esas pestañas no se declaran aquí: son lectura.
+
+Ejemplo canónico: `POST/PUT/DELETE /api/user-responsible-employees` exige
+`manage-responsible-edit` o `manage-assigned-edit`.
