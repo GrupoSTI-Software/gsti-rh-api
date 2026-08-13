@@ -1,6 +1,7 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 /**
  * USRH1783821206584: todo el grupo es administración desde el Backoffice con
@@ -11,10 +12,12 @@ import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_wr
  */
 router
   .group(() => {
-    router.get(
-      '/:employeeId/biometric-face-id',
-      '#controllers/employee_biometric_face_id_controller.getPhoto'
-    )
+    router
+      .get(
+        '/:employeeId/biometric-face-id',
+        '#controllers/employee_biometric_face_id_controller.getPhoto'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId))
     router
       .post(
         '/:employeeId/biometric-face-id',
@@ -33,14 +36,26 @@ router
         '#controllers/employee_biometric_face_id_controller.deletePhoto'
       )
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeFaceId))
-    router.get(
-      '/:employeeId/biometric-face-id-with-token/:token',
-      '#controllers/employee_biometric_face_id_controller.getPhotoToken'
-    )
-    router.get(
-      '/:employeeId/biometric-face-id-photo',
-      '#controllers/employee_biometric_photos_controller.streamPhoto'
-    )
+    router
+      .get(
+        '/:employeeId/biometric-face-id-with-token/:token',
+        '#controllers/employee_biometric_face_id_controller.getPhotoToken'
+      )
+      .use(
+        middleware.permissionGate(
+          EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceIdWithToken
+        )
+      )
+    router
+      .get(
+        '/:employeeId/biometric-face-id-photo',
+        '#controllers/employee_biometric_photos_controller.streamPhoto'
+      )
+      .use(
+        middleware.permissionGate(
+          EMPLOYEES_READ_PERMISSION_DECLARATIONS.streamBiometricFacePhoto
+        )
+      )
   })
   .prefix('/api/employees')
   .use(middleware.auth())

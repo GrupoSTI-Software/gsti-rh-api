@@ -1,6 +1,7 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 router
   .group(() => {
@@ -18,10 +19,14 @@ router
           EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateUserResponsibleEmployee
         )
       )
-    router.get(
-      '/:userResponsibleEmployeeId',
-      '#controllers/user_responsible_employee_controller.show'
-    )
+    router
+      .get(
+        '/:userResponsibleEmployeeId',
+        '#controllers/user_responsible_employee_controller.show'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showUserResponsibleEmployee)
+      )
     router
       .delete(
         '/:userResponsibleEmployeeId',

@@ -250,3 +250,76 @@ test.group('expediente — PermissionGate lectura de documentos', () => {
     assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
   })
 })
+
+test.group('responsable/asignados/zonas/anotaciones/biométricos/dispositivos — homologación', () => {
+  test('responsable/asignados homologan a tab-*-read con OR en el show del vínculo', async ({
+    assert,
+  }) => {
+    const responsible = await readFile(
+      join(process.cwd(), 'start/routes/user_responsible_employee_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      responsible,
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showUserResponsibleEmployee)'
+    )
+    assert.notInclude(responsible, 'manage-responsible-read')
+    assert.notInclude(responsible, 'manage-assigned-read')
+
+    const users = await readFile(join(process.cwd(), 'start/routes/user_routes.ts'), 'utf8')
+    assert.include(
+      users,
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeesAssigned)'
+    )
+  })
+
+  test('biométricos declaran tab-biometricos-read y no show-face-id/show-fingers', async ({
+    assert,
+  }) => {
+    const bio = await readFile(
+      join(process.cwd(), 'start/routes/employee_biometric_routes.ts'),
+      'utf8'
+    )
+    const face = await readFile(
+      join(process.cwd(), 'start/routes/employee_biometric_face_id_routes.ts'),
+      'utf8'
+    )
+    assert.notInclude(bio, 'show-face-id')
+    assert.notInclude(bio, 'show-fingers')
+    assert.include(bio, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics')
+    assert.include(bio, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeFingers')
+    assert.include(face, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId')
+  })
+
+  test('zonas, anotaciones y dispositivos declaran sus gates de lectura', async ({ assert }) => {
+    const routes = [
+      {
+        file: 'start/routes/employee_zone_routes.ts',
+        keys: ['showEmployeeZone'],
+      },
+      {
+        file: 'start/routes/employee_annotation_routes.ts',
+        keys: [
+          'indexEmployeeAnnotations',
+          'getAnnotationsByEmployee',
+          'showEmployeeAnnotation',
+        ],
+      },
+      {
+        file: 'start/routes/employee_device_routes.ts',
+        keys: ['indexEmployeeDevices', 'getDevicesByEmployee'],
+      },
+    ]
+
+    for (const { file, keys } of routes) {
+      const content = await readFile(join(process.cwd(), file), 'utf8')
+      for (const key of keys) {
+        assert.include(
+          content,
+          `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`,
+          `${file}: ${key}`
+        )
+      }
+    }
+  })
+})
