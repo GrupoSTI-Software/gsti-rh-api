@@ -9,6 +9,12 @@ import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import UserResponsibleEmployee from '#models/user_responsible_employee'
+import WorkDisability from '#models/work_disability'
+import InsuranceCoverageType from '#models/insurance_coverage_type'
+import ProceedingFile from '#models/proceeding_file'
+import ProceedingFileType from '#models/proceeding_file_type'
+import EmployeeAnnotation from '#models/employee_annotation'
 
 const TEST_PASSWORD = 'EmployeesExpedienteReadPermissionGate123!'
 
@@ -310,6 +316,29 @@ test.group('Expediente lectura — PermissionGate soft-rollout', (group) => {
 
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
+
+  test('con exigencia apagada, GET badges/me no responde PERM.DENIED', async ({ client, assert }) => {
+    const response = await client
+      .get('/api/employee-badges/me')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('con exigencia apagada, GET users no responde PERM.DENIED', async ({ client, assert }) => {
+    const list = await client
+      .get('/api/users/')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    const single = await client
+      .get(`/api/users/${actor!.user.userId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+
+    assert.notEqual(list.body()?.key, 'PERM.DENIED')
+    assert.notEqual(single.body()?.key, 'PERM.DENIED')
+  })
 })
 
 test.group('Expediente lectura — PermissionGate exigencia ON', (group) => {
@@ -503,5 +532,178 @@ test.group('Expediente lectura — PermissionGate exigencia ON', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
 
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('F-ON.4 homologation: GET responsable con tab-responsable-read → 200; con manage-responsible-read y sin tab → 403', async ({ client, assert }) => {
+    const responsible = await UserResponsibleEmployee.create({
+      employeeId: fixture!.employee.employeeId,
+      userId: actor!.user.userId,
+      userResponsibleEmployeeDirectBoss: 1,
+      userResponsibleEmployeeReadonly: 0,
+    })
+
+    await grantOnly(actor!.role.roleId, ['tab-responsable-read'])
+    const res200 = await client
+      .get(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.notEqual(res200.body()?.key, 'PERM.DENIED')
+
+    await grantOnly(actor!.role.roleId, ['manage-responsible-read'])
+    const res403 = await client
+      .get(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(res403.status(), 403)
+    assert.equal(res403.body()?.key, 'PERM.DENIED')
+
+    await db.from('user_responsible_employees').where('user_responsible_employee_id', responsible.userResponsibleEmployeeId).delete()
+  })
+
+  test('F-ON.5 OR: show of the responsable link con solo tab-asignados-read → 200', async ({ client, assert }) => {
+    const responsible = await UserResponsibleEmployee.create({
+      employeeId: fixture!.employee.employeeId,
+      userId: actor!.user.userId,
+      userResponsibleEmployeeDirectBoss: 1,
+      userResponsibleEmployeeReadonly: 0,
+    })
+
+    await grantOnly(actor!.role.roleId, ['tab-asignados-read'])
+    const res200 = await client
+      .get(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.notEqual(res200.body()?.key, 'PERM.DENIED')
+
+    await db.from('user_responsible_employees').where('user_responsible_employee_id', responsible.userResponsibleEmployeeId).delete()
+  })
+
+  test('F-ON.6 incapacidades: read-work-disabilities → 200; tab-expediente-read no basta → 403', async ({ client, assert }) => {
+    const coverage = await InsuranceCoverageType.query().whereNull('insurance_coverage_type_deleted_at').firstOrFail()
+    const disability = await WorkDisability.create({
+      employeeId: fixture!.employee.employeeId,
+      insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
+      workDisabilityUuid: `wd-${Date.now()}`
+    })
+
+    await grantOnly(actor!.role.roleId, ['read-work-disabilities'])
+    const res200 = await client
+      .get(`/api/work-disabilities/employee/${fixture!.employee.employeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.notEqual(res200.body()?.key, 'PERM.DENIED')
+
+    await grantOnly(actor!.role.roleId, ['tab-expediente-read'])
+    const res403 = await client
+      .get(`/api/work-disabilities/employee/${fixture!.employee.employeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(res403.status(), 403)
+    assert.equal(res403.body()?.key, 'PERM.DENIED')
+
+    await db.from('work_disabilities').where('work_disability_id', disability.workDisabilityId).delete()
+  })
+
+  test('F-ON.9 proceeding-file area employee sin tab-expediente-read → 403; area aircraft → 200', async ({ client, assert }) => {
+    const stamp = Date.now()
+    const typeEmployee = await ProceedingFileType.create({
+      proceedingFileTypeName: `PFType Emp ${stamp}`,
+      proceedingFileTypeSlug: `pftype-emp-${stamp}`,
+      proceedingFileTypeAreaToUse: 'employee',
+      proceedingFileTypeActive: 1,
+    })
+    const typeAircraft = await ProceedingFileType.create({
+      proceedingFileTypeName: `PFType Air ${stamp}`,
+      proceedingFileTypeSlug: `pftype-air-${stamp}`,
+      proceedingFileTypeAreaToUse: 'aircraft',
+      proceedingFileTypeActive: 1,
+    })
+
+    const fileEmployee = await ProceedingFile.create({
+      proceedingFileName: `file-emp-${stamp}.pdf`,
+      proceedingFilePath: `file-emp-${stamp}.pdf`,
+      proceedingFileTypeId: typeEmployee.proceedingFileTypeId,
+      proceedingFileActive: 1,
+      proceedingFileUuid: `pf-emp-${stamp}`,
+    })
+    const fileAircraft = await ProceedingFile.create({
+      proceedingFileName: `file-air-${stamp}.pdf`,
+      proceedingFilePath: `file-air-${stamp}.pdf`,
+      proceedingFileTypeId: typeAircraft.proceedingFileTypeId,
+      proceedingFileActive: 1,
+      proceedingFileUuid: `pf-air-${stamp}`,
+    })
+
+    await grantOnly(actor!.role.roleId, [])
+    const res403 = await client
+      .get(`/api/proceeding-files/${fileEmployee.proceedingFileId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(res403.status(), 403)
+    assert.equal(res403.body()?.key, 'PERM.DENIED')
+
+    const res200 = await client
+      .get(`/api/proceeding-files/${fileAircraft.proceedingFileId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.notEqual(res200.body()?.key, 'PERM.DENIED')
+
+    await db.from('proceeding_files').whereIn('proceeding_file_id', [fileEmployee.proceedingFileId, fileAircraft.proceedingFileId]).delete()
+    await db.from('proceeding_file_types').whereIn('proceeding_file_type_id', [typeEmployee.proceedingFileTypeId, typeAircraft.proceedingFileTypeId]).delete()
+  })
+
+  test('F-ON.12 con tab-anotaciones-read, anotaciones de otra unidad/departamento sigue rejection de businessScope', async ({ client, assert }) => {
+    const otherBu = await BusinessUnit.create({
+      businessUnitName: `Other BU ${Date.now()}`,
+      businessUnitSlug: `other-bu-${Date.now()}`,
+      businessUnitLegalName: `Other BU Legal ${Date.now()}`,
+      businessUnitActive: 1,
+      businessUnitOrigin: 'platform',
+    })
+    const otherFixture = await createEmployeeFixture(otherBu.businessUnitId, 'otherbu')
+    const annotation = await EmployeeAnnotation.create({
+      employeeId: otherFixture.employee.employeeId,
+      employeeAnnotationContent: 'Nota ajena',
+      employeeAnnotationActive: true,
+      userId: actor!.user.userId,
+    })
+
+    await grantOnly(actor!.role.roleId, ['tab-anotaciones-read'])
+    const res = await client
+      .get(`/api/employee-annotations/${annotation.employeeAnnotationId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    
+    assert.notEqual(res.status(), 200)
+
+    await db.from('employee_annotations').where('employee_annotation_id', annotation.employeeAnnotationId).delete()
+    await cleanupEmployeeFixture(otherFixture)
+    await BusinessUnit.query().where('business_unit_id', otherBu.businessUnitId).delete()
+  })
+
+  test('F-ON.7: colaborador no puede leer bancos de otro empleado', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const res403 = await client
+      .get(`/api/employees/${fixture!.employee.employeeId}/banks`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(res403.status(), 403)
+    assert.equal(res403.body()?.key, 'PERM.DENIED')
+  })
+
+  test('F-ON.8: GET /api/persons/:id colaborador de otra persona → 403; propio → 200', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const res403 = await client
+      .get(`/api/persons/${fixture!.person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(res403.status(), 403)
+    assert.equal(res403.body()?.key, 'PERM.DENIED')
+
+    const res200 = await client
+      .get(`/api/persons/${ownFixture!.person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.notEqual(res200.body()?.key, 'PERM.DENIED')
   })
 })
