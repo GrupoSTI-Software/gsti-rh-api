@@ -1,6 +1,7 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 router
   .group(() => {
@@ -13,7 +14,9 @@ router
     router
       .delete('/:employeeSpouseId', '#controllers/employee_spouse_controller.delete')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeSpouse))
-    router.get('/:employeeSpouseId', '#controllers/employee_spouse_controller.show')
+    router
+      .get('/:employeeSpouseId', '#controllers/employee_spouse_controller.show')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeSpouse))
   })
   .prefix('/api/employee-spouses')
   .use(middleware.auth())

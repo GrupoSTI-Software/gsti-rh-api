@@ -99,3 +99,100 @@ test.group('contratos/turnos/vacaciones/bonos/excepciones — PermissionGate lec
     assert.notInclude(show!, 'permissionGate')
   })
 })
+
+test.group('persona/domicilio/bancos/salud — PermissionGate lectura expediente', () => {
+  test('GET de persona, domicilio, bancos y médica declaran sus gates', async ({ assert }) => {
+    const routes = [
+      {
+        file: 'start/routes/employee_children_routes.ts',
+        keys: ['showEmployeeChild'],
+      },
+      {
+        file: 'start/routes/employee_spouse_routes.ts',
+        keys: ['showEmployeeSpouse'],
+      },
+      {
+        file: 'start/routes/employee_emergency_contact_routes.ts',
+        keys: ['showEmployeeEmergencyContact'],
+      },
+      {
+        file: 'start/routes/employee_address_routes.ts',
+        keys: ['indexEmployeeAddress', 'showEmployeeAddress'],
+      },
+      {
+        file: 'start/routes/employee_bank_routes.ts',
+        keys: ['showEmployeeBank'],
+      },
+      {
+        file: 'start/routes/employee_medical_condition_routes.ts',
+        keys: ['indexEmployeeMedicalConditions', 'showEmployeeMedicalCondition'],
+      },
+      {
+        file: 'start/routes/medical_condition_type_property_value_routes.ts',
+        keys: ['indexMedicalConditionPropertyValues', 'showMedicalConditionPropertyValue'],
+      },
+    ]
+
+    for (const { file, keys } of routes) {
+      const content = await readFile(join(process.cwd(), file), 'utf8')
+      for (const key of keys) {
+        assert.include(
+          content,
+          `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`,
+          `${file}: ${key}`
+        )
+      }
+    }
+  })
+})
+
+test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente', () => {
+  test('GET de lactancia, consentimiento y gafete declaran sus gates', async ({ assert }) => {
+    const routes = [
+      {
+        file: 'start/routes/employee_lactation_periods_routes.ts',
+        keys: [
+          'indexLactationPeriods',
+          'lactationComplianceReport',
+          'listAllLactationConflicts',
+          'listLactationConflicts',
+          'indexLactationEvidences',
+        ],
+      },
+      {
+        file: 'app/modules/consent/physical/physical_consent.routes.ts',
+        keys: ['getEmployeeConsentStatus'],
+      },
+      {
+        file: 'app/modules/employee-badge/badge.routes.ts',
+        keys: ['showEmployeeBadge', 'getEmployeeBadgePdf', 'getEmployeeBadgePng'],
+      },
+    ]
+
+    for (const { file, keys } of routes) {
+      const content = await readFile(join(process.cwd(), file), 'utf8')
+      for (const key of keys) {
+        assert.include(
+          content,
+          `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`,
+          `${file}: ${key}`
+        )
+      }
+    }
+  })
+
+  test('gafete/me y consentimiento download-url no declaran gate de lectura', async ({ assert }) => {
+    const badges = await readFile(
+      join(process.cwd(), 'app/modules/employee-badge/badge.routes.ts'),
+      'utf8'
+    )
+    const me = badges.split('\n').find((l) => l.includes('badge.controller.me'))
+    assert.notInclude(me!, 'permissionGate')
+    const consent = await readFile(
+      join(process.cwd(), 'app/modules/consent/physical/physical_consent.routes.ts'),
+      'utf8'
+    )
+    const dl = consent.split('\n').find((l) => l.includes('evidence-download-url'))
+    assert.notInclude(dl!, 'READ_PERMISSION')
+  })
+})

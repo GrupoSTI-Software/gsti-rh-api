@@ -1,6 +1,7 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 router
   .group(() => {
@@ -8,6 +9,9 @@ router
       '/employee-lactation-periods',
       '#controllers/employee_lactation_periods_controller.index'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexLactationPeriods)
+      )
     // prettier-ignore
     router
       .post(
@@ -22,6 +26,9 @@ router
       '/employee-lactation-periods/compliance-report',
       '#controllers/employee_lactation_periods_controller.complianceReport'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.lactationComplianceReport)
+      )
     router.get(
       '/employee-lactation-periods/compliance-report/export',
       '#controllers/employee_lactation_periods_controller.complianceReportExport'
@@ -44,6 +51,9 @@ router
       '/employee-lactation-periods/conflicts',
       '#controllers/employee_lactation_periods_controller.listAllConflicts'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.listAllLactationConflicts)
+      )
     // prettier-ignore
     router
       .put(
@@ -76,6 +86,9 @@ router
       '/employee-lactation-periods/:id/conflicts',
       '#controllers/employee_lactation_periods_controller.listConflicts'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.listLactationConflicts)
+      )
     // Reasignación BULK del periodo. OJO: va ANTES de
     // `/:id/conflicts/:shiftExceptionId` para que el segmento literal
     // `reassign-bulk` no se interprete como un `shiftExceptionId`.
@@ -106,6 +119,9 @@ router
       '/employee-lactation-periods/:periodId/evidences',
       '#controllers/employee_lactation_period_evidences_controller.index'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexLactationEvidences)
+      )
     // prettier-ignore
     router
       .post(
