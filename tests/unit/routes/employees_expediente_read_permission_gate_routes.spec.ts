@@ -196,3 +196,57 @@ test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente'
     assert.notInclude(dl!, 'READ_PERMISSION')
   })
 })
+
+test.group('expediente — PermissionGate lectura de documentos', () => {
+  test('employees-proceeding-files GET declaran tab-expediente-read salvo download', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_proceeding_file_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexEmployeeProceedingFiles)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeProceedingFile)'
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getExpiredExpiringProceedingFiles)'
+    )
+    const dl = content.split('\n').find((l) => l.includes('download'))
+    assert.notInclude(dl!, 'READ_PERMISSION')
+  })
+
+  test('las rutas exclusivas de expediente declaran sus gates de lectura', async ({ assert }) => {
+    const routes = [
+      {
+        file: 'start/routes/employee_record_routes.ts',
+        key: 'showEmployeeRecord',
+      },
+      {
+        file: 'start/routes/employee_record_property_routes.ts',
+        key: 'getEmployeeRecordCategories',
+      },
+      {
+        file: 'start/routes/proceeding_file_type_property_routes.ts',
+        key: 'getProceedingFileTypePropertyCategoriesByEmployee',
+      },
+    ]
+    for (const { file, key } of routes) {
+      const content = await readFile(join(process.cwd(), file), 'utf8')
+      assert.include(content, `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`, file)
+    }
+  })
+
+  test('la superficie compartida de archivos no declara gate de ruta', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/proceeding_file_routes.ts'),
+      'utf8'
+    )
+    assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
+  })
+})

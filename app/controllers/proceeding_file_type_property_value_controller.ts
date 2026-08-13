@@ -17,6 +17,7 @@ import {
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
 } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION } from '#constants/employees_read_permission_declarations'
 
 export default class ProceedingFileTypePropertyValueController {
   /**
@@ -743,7 +744,8 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileTypePropertyValueId = request.param('proceedingFileTypePropertyValueId')
       if (!proceedingFileTypePropertyValueId) {
@@ -753,6 +755,19 @@ export default class ProceedingFileTypePropertyValueController {
           title: 'Missing data to process',
           message: 'The proceeding file type property value Id was not found',
           data: { proceedingFileTypePropertyValueId },
+        }
+      }
+      if (
+        await proceedingFileTypePropertyValueIsEmployeeArea(
+          Number(proceedingFileTypePropertyValueId)
+        )
+      ) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()

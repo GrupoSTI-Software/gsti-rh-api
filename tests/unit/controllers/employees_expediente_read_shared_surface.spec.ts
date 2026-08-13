@@ -51,3 +51,42 @@ test.group('Ficha compuesta y Persona — PermissionGate lectura', () => {
     }
   })
 })
+
+test.group('Expediente compartido — PermissionGate lectura', () => {
+  test('proceeding_file_controller.show deriva área employee antes de devolver datos', async ({
+    assert,
+  }) => {
+    const routes = await readFile(
+      join(process.cwd(), 'start/routes/proceeding_file_routes.ts'),
+      'utf8'
+    )
+    assert.notInclude(routes, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
+    const content = await readFile(
+      join(process.cwd(), 'app/controllers/proceeding_file_controller.ts'),
+      'utf8'
+    )
+    assert.include(content, 'proceedingFileIsEmployeeArea')
+    assert.include(content, 'EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION')
+    const showFn = content.slice(content.indexOf('async show('))
+    assert.isBelow(
+      showFn.indexOf('proceedingFileIsEmployeeArea'),
+      showFn.indexOf('proceedingFileService.show')
+    )
+  })
+
+  test('proceeding_file_type_property_value_controller.show deriva área employee antes de devolver datos', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'app/controllers/proceeding_file_type_property_value_controller.ts'),
+      'utf8'
+    )
+    assert.include(content, 'proceedingFileTypePropertyValueIsEmployeeArea')
+    assert.include(content, 'EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION')
+    const showFn = content.slice(content.indexOf('async show('))
+    assert.isBelow(
+      showFn.indexOf('proceedingFileTypePropertyValueIsEmployeeArea'),
+      showFn.indexOf('proceedingFileTypePropertyValueService.show')
+    )
+  })
+})

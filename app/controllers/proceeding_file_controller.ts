@@ -23,6 +23,7 @@ import {
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
 } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION } from '#constants/employees_read_permission_declarations'
 
 export type ProceedingFileMultipartStoreOptions = {
   /** systemSettingId fijado por la ruta (POST /api/system-settings-proceeding-files); si no, se toma del multipart/query */
@@ -1134,7 +1135,8 @@ export default class ProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileId = request.param('proceedingFileId')
       if (!proceedingFileId) {
@@ -1144,6 +1146,15 @@ export default class ProceedingFileController {
           title: 'The proceeding file Id was not found',
           message: 'Missing data to process',
           data: { proceedingFileId },
+        }
+      }
+      if (await proceedingFileIsEmployeeArea(Number(proceedingFileId))) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const proceedingFileService = new ProceedingFileService()
