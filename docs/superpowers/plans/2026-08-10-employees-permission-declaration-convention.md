@@ -126,3 +126,12 @@ Igual que escritura: no montar `permissionGate` en `/api/persons`, `/api/proceed
 
 Las URLs que también usa la app no llevan gate en la ruta. El controlador llama `ensureEmployeeTabRead` (identidad propia → permitir; si no, el permiso de pestaña). Rutas solo-app (`/api/employee-badges/me`, `/api/exception-requests/my-requests`, `/unread`, `/api/consent/me`) no declaran gate. No se concede permiso de backoffice al colaborador. Deuda: Wilvardo. Adicionalmente, `GET /api/employee-medical-conditions/employee/:employeeId` tiene una exención para el propio colaborador (para el censo del catálogo).
 
+## 10. Listado de colaboradores y personal dado de baja
+
+1. Buscar en `EMPLOYEES_PERMISSION_CATALOG` el slug `read` (Consultar listado de colaboradores). No usar `tab-trabajo-read` para el listado ni para cumpleaños/aniversarios.
+2. Declarar en la ruta: `middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.<clave>)` después de `auth()` y de `businessScope()` si la ruta ya lo usa.
+3. Catálogos del propio módulo que alimentan filtros del listado (`get-work-schedules`, `employee-types`, `termination-catalog`): el mismo `read`.
+4. El exportable `GET /api/employees/employee-generate-excel` se mapea a `read` en esta historia porque acepta el filtro de bajas (regla 4). `download-employees-list` queda para la historia de descargas.
+5. Si `isTerminatedEmployeesFilterRequested(onlyInactive)` es verdadero, exigir además `EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION` con `ensureSecondaryPermission` **antes** de consultar. Si falta, rechazar toda la petición con la 403 del middleware. Nunca quitar el filtro ni devolver solo activos.
+6. Tener `read` no otorga `read-terminated-employees`.
+

@@ -9,7 +9,7 @@ const employeesStandard = (
 })
 
 /**
- * Mapa de declaraciones de permiso de lectura del expediente (USRH1785766406733).
+ * Mapa de declaraciones de permiso de lectura del expediente y del listado (USRH1785766406733).
  * Fuente única que consumen las rutas y los controladores de superficie compartida;
  * no concede nada ni enciende la exigencia del módulo.
  */
@@ -128,6 +128,15 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   showWorkDisabilityPeriodExpense: employeesStandard('read-work-disabilities'),
   getDaysWorkDisability: employeesStandard('read-work-disabilities'),
   getDaysWorkDisabilityAll: employeesStandard('read-work-disabilities'),
+  indexEmployees: employeesStandard('read'),
+  indexEmployeesToAssigned: employeesStandard('read'),
+  indexEmployeesWithoutUser: employeesStandard('read'),
+  getBirthday: employeesStandard('read'),
+  getAnniversary: employeesStandard('read'),
+  getWorkSchedules: employeesStandard('read'),
+  getTerminationCatalog: employeesStandard('read'),
+  getEmployeesExcel: employeesStandard('read'),
+  indexEmployeeTypes: employeesStandard('read'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 export const EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION: PermissionGateOptions =
@@ -135,4 +144,7 @@ export const EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION: PermissionGateOption
 
 export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION: PermissionGateOptions =
   employeesStandard('tab-expediente-read')
+
+export const EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION: PermissionGateOptions =
+  employeesStandard('read-terminated-employees')
 

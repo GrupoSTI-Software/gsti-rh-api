@@ -3,6 +3,7 @@ import {
   EMPLOYEES_READ_PERMISSION_DECLARATIONS,
   EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION,
   EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION,
+  EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION,
 } from '#constants/employees_read_permission_declarations'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
@@ -11,7 +12,7 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 111)
+    assert.equal(keys.length, 120)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
@@ -69,6 +70,32 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert.equal(EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION.action, 'tab-expediente-read')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION.module, 'employees')
+  })
+
+  test('el listado y sus variantes cuelgan de read; las bajas son un permiso distinto', ({
+    assert,
+  }) => {
+    const d = EMPLOYEES_READ_PERMISSION_DECLARATIONS
+    assert.equal(d.indexEmployees.action, 'read')
+    assert.equal(d.indexEmployeesToAssigned.action, 'read')
+    assert.equal(d.indexEmployeesWithoutUser.action, 'read')
+    assert.equal(d.getBirthday.action, 'read')
+    assert.equal(d.getAnniversary.action, 'read')
+    assert.equal(d.getWorkSchedules.action, 'read')
+    assert.equal(d.getTerminationCatalog.action, 'read')
+    assert.equal(d.getEmployeesExcel.action, 'read')
+    assert.equal(d.indexEmployeeTypes.action, 'read')
+    assert.equal(d.indexEmployees.bypass, 'standard')
+    assert.notEqual(d.indexEmployees.action, 'read-terminated-employees')
+    assert.notEqual(d.indexEmployees.action, 'tab-trabajo-read')
+  })
+
+  test('la constante de bajas exige read-terminated-employees con bypass standard', ({
+    assert,
+  }) => {
+    assert.equal(EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION.module, 'employees')
+    assert.equal(EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION.action, 'read-terminated-employees')
+    assert.equal(EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION.bypass, 'standard')
   })
 })
 
