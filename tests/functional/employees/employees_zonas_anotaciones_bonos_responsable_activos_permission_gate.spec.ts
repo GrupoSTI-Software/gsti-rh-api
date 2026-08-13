@@ -765,6 +765,166 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     assertSuccess(assert, deleted)
     assert.isNull(await EmployeeSupplie.query().where('employee_supply_id', assignment.employeeSupplyId).whereNull('employee_supply_deleted_at').first())
   })
+
+  test('tab-trabajo-write permite POST y PUT de bono, DELETE exige tab-trabajo-delete', async ({
+    client,
+    assert,
+  }) => {
+    const employeeId = fixture!.employee.employeeId
+    await grantOnly(actor!.role.roleId, ['tab-trabajo-write'])
+    const created = await client
+      .post('/api/employee-bonuses')
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+      .json(bonusPayload(employeeId))
+    assertSuccess(assert, created)
+    const bonus = await EmployeeBonus.query()
+      .where('employee_id', employeeId)
+      .whereNull('employee_bonus_deleted_at')
+      .firstOrFail()
+    const updated = await client
+      .put(`/api/employee-bonuses/${bonus.employeeBonusId}`)
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+      .json({ ...bonusPayload(employeeId), employeeBonusConcept: 'Bono corregido ON' })
+    assertSuccess(assert, updated)
+    const denied = await client
+      .delete(`/api/employee-bonuses/${bonus.employeeBonusId}`)
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+    assertPermissionDenied(assert, denied)
+    assert.isNotNull(
+      await EmployeeBonus.query()
+        .where('employee_bonus_id', bonus.employeeBonusId)
+        .whereNull('employee_bonus_deleted_at')
+        .first()
+    )
+    await grantOnly(actor!.role.roleId, ['tab-trabajo-delete'])
+    const deleted = await client
+      .delete(`/api/employee-bonuses/${bonus.employeeBonusId}`)
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+    assertSuccess(assert, deleted)
+    assert.isNull(
+      await EmployeeBonus.query()
+        .where('employee_bonus_id', bonus.employeeBonusId)
+        .whereNull('employee_bonus_deleted_at')
+        .first()
+    )
+  })
+
+  test('consultar responsable o asignados no permite escribir la asignación', async ({
+    client,
+    assert,
+  }) => {
+    const employeeId = fixture!.employee.employeeId
+    await grantOnly(actor!.role.roleId, ['manage-responsible-read', 'manage-assigned-read'])
+    const existing = await UserResponsibleEmployee.create(
+      responsiblePayload(employeeId, actor!.user.userId)
+    )
+    const deniedPost = await client
+      .post('/api/user-responsible-employees')
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+      .json(responsiblePayload(employeeId, actor!.user.userId))
+    const deniedPut = await client
+      .put(`/api/user-responsible-employees/${existing.userResponsibleEmployeeId}`)
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+      .json(responsiblePayload(employeeId, actor!.user.userId, 1))
+    const deniedDelete = await client
+      .delete(`/api/user-responsible-employees/${existing.userResponsibleEmployeeId}`)
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+    assertPermissionDenied(assert, deniedPost)
+    assertPermissionDenied(assert, deniedPut)
+    assertPermissionDenied(assert, deniedDelete)
+    assert.isNotNull(
+      await UserResponsibleEmployee.query()
+        .where('user_responsible_employee_id', existing.userResponsibleEmployeeId)
+        .whereNull('user_responsible_employee_deleted_at')
+        .first()
+    )
+  })
+
+  test('GET de las mismas familias sin permiso de escritura no responde PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const employeeId = fixture!.employee.employeeId
+    const zone = await createZoneFixture('on-get')
+    zones.push(zone)
+    const employeeZone = await EmployeeZone.create({ employeeId, zoneId: zone.zoneId })
+    const annotation = await EmployeeAnnotation.create({
+      employeeId,
+      employeeAnnotationContent: 'Nota GET',
+      employeeAnnotationActive: true,
+      userId: actor!.user.userId,
+    })
+    const bonus = await EmployeeBonus.create({
+      ...bonusPayload(employeeId),
+      employeeBonusAssignmentDate: DateTime.fromISO('2027-08-01'),
+      employeeBonusPaymentDate: DateTime.fromISO('2027-08-15'),
+    })
+    const responsible = await UserResponsibleEmployee.create(
+      responsiblePayload(employeeId, actor!.user.userId)
+    )
+    const supplyFixture = await createSupplyFixture('on-get')
+    supplies.push(supplyFixture)
+    const supply = await EmployeeSupplie.create({
+      employeeId,
+      supplyId: supplyFixture.supply.supplyId,
+      employeeSupplyStatus: 'active',
+      employeeSupplyAssignamentDate: DateTime.now(),
+    })
+    const reads = [
+      client.get(`/api/employee-zones/${employeeZone.employeeZoneId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.get(`/api/employee-annotations/${annotation.employeeAnnotationId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client.get(`/api/employee-bonuses/${bonus.employeeBonusId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+      client
+        .get(`/api/user-responsible-employees/${responsible.userResponsibleEmployeeId}`)
+        .loginAs(actor!.user)
+        .headers(buHeader(actor!)),
+      client.get(`/api/employee-supplies/${supply.employeeSupplyId}`).loginAs(actor!.user).headers(buHeader(actor!)),
+    ]
+    for (const pending of reads) {
+      const response = await pending
+      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+    }
+  })
+
+  test('catálogos de zonas e insumos no responden PERM.DENIED', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, [])
+    for (const path of ['/api/zones', '/api/supplies', '/api/supply-types']) {
+      const response = await client.get(path).loginAs(actor!.user).headers(buHeader(actor!))
+      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+    }
+  })
+
+  test('sin sesión las escrituras no responden PERM.DENIED', async ({ client, assert }) => {
+    const response = await client.post('/api/employee-zones').json({ employeeId: 1, zoneId: 1 })
+    assert.equal(response.status(), 401)
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
+
+  test('full-employee-assigned no abre escritura de zona ni bono', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['full-employee-assigned'])
+    const zone = await createZoneFixture('full-assigned')
+    zones.push(zone)
+    const zoneRes = await client
+      .post('/api/employee-zones')
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+      .json({ employeeId: fixture!.employee.employeeId, zoneId: zone.zoneId })
+    assertPermissionDenied(assert, zoneRes)
+    const bonusRes = await client
+      .post('/api/employee-bonuses')
+      .loginAs(actor!.user)
+      .headers(buHeader(actor!))
+      .json(bonusPayload(fixture!.employee.employeeId))
+    assertPermissionDenied(assert, bonusRes)
+  })
 })
 
 test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - bypass standard', (group) => {
