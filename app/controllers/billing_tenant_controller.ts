@@ -221,6 +221,10 @@ export default class BillingTenantController {
    *       La pantalla de ajuste de cantidad consume ese mínimo; el muro global de
    *       contratación lo ignora cuando hay suscripción viva.
    *
+   *       Cuando hay suscripción viva, el snapshot puede incluir `liveChange`
+   *       (USRH1786107870871): el movimiento de cantidad en curso (`pending_payment`
+   *       o `scheduled`), o `null` si no hay ninguno.
+   *
    *       **Sin gate de rol:** cualquier usuario autenticado con scope sobre la
    *       empresa puede consultarlo (p. ej. el middleware del muro de contratación).
    *       Nunca responde 404 por ausencia de suscripción.
@@ -316,6 +320,54 @@ export default class BillingTenantController {
    *                           format: date
    *                           nullable: true
    *                           description: Fin del periodo vigente = fecha del próximo pago
+   *                         liveChange:
+   *                           type: object
+   *                           nullable: true
+   *                           description: |
+   *                             Cambio de cantidad en curso (aumento pendiente de pago o
+   *                             reducción agendada). Null cuando no hay movimiento vivo.
+   *                           properties:
+   *                             billingSubscriptionChangeId:
+   *                               type: integer
+   *                             type:
+   *                               type: string
+   *                               enum: [increase, decrease]
+   *                             status:
+   *                               type: string
+   *                               enum: [pending_payment, scheduled]
+   *                             previousEmployees:
+   *                               type: integer
+   *                             newEmployees:
+   *                               type: integer
+   *                             newAmounts:
+   *                               type: object
+   *                               properties:
+   *                                 subtotal:
+   *                                   type: number
+   *                                 taxRate:
+   *                                   type: number
+   *                                 taxAmount:
+   *                                   type: number
+   *                                 total:
+   *                                   type: number
+   *                             proration:
+   *                               type: object
+   *                               nullable: true
+   *                               description: Adeudo prorrateado; null en reducción agendada
+   *                               properties:
+   *                                 amountCents:
+   *                                   type: integer
+   *                                 amountPesos:
+   *                                   type: number
+   *                             effectiveAt:
+   *                               type: string
+   *                               format: date
+   *                               nullable: true
+   *                               description: Fecha de efecto; solo en reducción agendada
+   *                             requestedAt:
+   *                               type: string
+   *                               format: date-time
+   *                               description: Momento en que se registró la solicitud
    *       '400':
    *         description: Falta header X-Business-Unit-Id
    *       '401':
