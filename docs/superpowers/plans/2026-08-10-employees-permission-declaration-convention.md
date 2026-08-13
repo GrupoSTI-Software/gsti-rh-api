@@ -36,6 +36,8 @@ Criterios de elección usados en escrituras del colaborador (referencia):
 | Asignación responsable ↔ colaborador (crear / modificar / eliminar) | `manage-responsible-edit` **o** `manage-assigned-edit` (OR) |
 | Activos y suministros del colaborador (ciclo completo: asignación, retiro, contratos, fotografías) | `manage-employee-supplies` |
 
+En la tabla del §1, añadir filas de lectura (`Consultar ficha` → `tab-trabajo-read`, `Consultar bancos` → `tab-bancos-read`, etc.) o un puntero a `EMPLOYEES_READ_PERMISSION_DECLARATIONS`.
+
 ## 2. Operación que toca dos asuntos de negocio
 
 Cuando una sola petición puede alterar dos asuntos distintos:
@@ -101,3 +103,26 @@ servidor no puede saber desde cuál se ejecuta (responsable y asignados):
 
 Ejemplo canónico: `POST/PUT/DELETE /api/user-responsible-employees` exige
 `manage-responsible-edit` o `manage-assigned-edit`.
+
+## 6. Cómo elegir el permiso de una consulta
+
+1. Buscar en `EMPLOYEES_PERMISSION_CATALOG` el slug `tab-<pestaña>-read` de la pestaña (no inventar slugs).
+2. Consulta anidada: el mismo slug de lectura de la pestaña padre.
+3. Calendario, turnos, vacaciones, excepciones de turno y bonificaciones: `tab-trabajo-read`.
+4. Incapacidades: `read-work-disabilities` (no hay pestaña propia).
+5. Homologación: no declarar `manage-responsible-read`, `manage-assigned-read`, `read-only-files`, `show-face-id` ni `show-fingers`; usar el `tab-*-read` equivalente.
+6. Declarar en la ruta: `middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.<clave>)` después de `auth()` y de `businessScope()` si la ruta ya lo usa.
+7. Fuente: `EMPLOYEES_READ_PERMISSION_DECLARATIONS`. No mezclar claves de escritura.
+
+## 7. Respuesta compuesta
+
+`GET /api/employees/:employeeId` y `GET /api/employees/get-by-id/:employeeId` exigen solo `tab-trabajo-read`. No recortar secciones ni rechazar por las incluidas. Los campos sensibles los gobierna la historia de categoría legal.
+
+## 8. Superficie de consulta compartida (C-13)
+
+Igual que escritura: no montar `permissionGate` en `/api/persons`, `/api/proceeding-files` ni `/api/proceeding-file-type-property-values`. Derivar el vínculo y exigir con `ensureSecondaryPermission` + constantes `EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION` / `EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION`. Si no es colaborador / no es área `employee`, no exigir permiso de Empleados.
+
+## 9. Exención de la aplicación del colaborador
+
+Las URLs que también usa la app no llevan gate en la ruta. El controlador llama `ensureEmployeeTabRead` (identidad propia → permitir; si no, el permiso de pestaña). Rutas solo-app (`/api/employee-badges/me`, `/api/exception-requests/my-requests`, `/unread`, `/api/consent/me`) no declaran gate. No se concede permiso de backoffice al colaborador. Deuda: Wilvardo.
+
