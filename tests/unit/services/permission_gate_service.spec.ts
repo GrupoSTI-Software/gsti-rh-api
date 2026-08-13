@@ -294,4 +294,82 @@ test.group('PermissionGateService', (group) => {
       await grant.delete()
     }
   })
+
+  test('action lista: permite si cualquiera de los slugs está concedido', async ({ assert }) => {
+    testModule.systemModulePermissionEnforcementActive = true
+    await testModule.save()
+
+    const writePermission = await SystemPermission.create({
+      systemPermissionName: 'Write',
+      systemPermissionSlug: 'write',
+      systemModuleId: testModule.systemModuleId,
+    })
+    const grant = await RoleSystemPermission.create({
+      roleId: plainRole.roleId,
+      systemPermissionId: writePermission.systemPermissionId,
+    })
+
+    try {
+      const service = new PermissionGateService()
+      const firstOnly = await service.evaluate(fakeUser(plainRole.roleId), {
+        module: MODULE_SLUG,
+        action: ['read', 'write'],
+        bypass: 'strict',
+      })
+      assert.isTrue(firstOnly.allowed)
+      assert.equal(firstOnly.reason, 'granted')
+
+      const serviceSecond = new PermissionGateService()
+      const neither = await serviceSecond.evaluate(fakeUser(plainRole.roleId), {
+        module: MODULE_SLUG,
+        action: ['missing-a', 'missing-b'],
+        bypass: 'strict',
+      })
+      assert.isFalse(neither.allowed)
+      assert.equal(neither.reason, 'denied')
+    } finally {
+      await grant.forceDelete()
+      await SystemPermission.query()
+        .where('system_permission_id', writePermission.systemPermissionId)
+        .delete()
+    }
+  })
+
+  test('action lista: interruptor apagado permite sin resolver identidad', async ({ assert }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const service = new PermissionGateService()
+    const decision = await service.evaluate(null, {
+      module: MODULE_SLUG,
+      action: ['read', 'write'],
+      bypass: 'strict',
+    })
+
+    assert.isTrue(decision.allowed)
+    assert.equal(decision.reason, 'module-not-enforced')
+  })
+
+  test('action lista: basta el segundo slug si el primero no está concedido', async ({ assert }) => {
+    testModule.systemModulePermissionEnforcementActive = true
+    await testModule.save()
+
+    const grant = await RoleSystemPermission.create({
+      roleId: plainRole.roleId,
+      systemPermissionId: readPermission.systemPermissionId,
+    })
+
+    try {
+      const service = new PermissionGateService()
+      const decision = await service.evaluate(fakeUser(plainRole.roleId), {
+        module: MODULE_SLUG,
+        action: ['write', 'read'],
+        bypass: 'strict',
+      })
+      assert.isTrue(decision.allowed)
+      assert.equal(decision.reason, 'granted')
+    } finally {
+      await grant.delete()
+    }
+  })
 })

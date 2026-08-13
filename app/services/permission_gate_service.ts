@@ -59,7 +59,8 @@ export default class PermissionGateService {
       }
 
       const granted = await this.grantedActionSlugs(identity.roleId, options.module)
-      if (granted?.has(options.action)) {
+      const actions = Array.isArray(options.action) ? options.action : [options.action]
+      if (actions.some((slug) => granted?.has(slug))) {
         return { allowed: true, reason: 'granted' }
       }
       return { allowed: false, reason: 'denied' }

@@ -14,6 +14,10 @@ export type PermissionGateBypass = 'standard' | 'expanded' | 'platformReserved' 
  */
 export interface PermissionGateOptions {
   module: string
-  action: string
+  /**
+   * Slug de la acción, o lista de slugs en OR: basta con que el rol tenga
+   * cualquiera. Un solo permissionGate por ruta; no apilar dos gates.
+   */
+  action: string | readonly string[]
   bypass: PermissionGateBypass
 }
