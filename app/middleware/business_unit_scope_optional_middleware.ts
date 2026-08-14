@@ -2,6 +2,7 @@ import type { NextFn } from '@adonisjs/core/types/http'
 import type { HttpContext } from '@adonisjs/core/http'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
 import { resolveLegacyCompanyIdParam } from '#helpers/resolve_legacy_company_id_param'
+import { resolveBusinessUnitIdParam } from '#helpers/resolve_business_unit_id_param'
 import { TenantContext } from '#utils/tenant_context'
 
 /** Header que el cliente envía para seleccionar la unidad de negocio activa. */
@@ -63,43 +64,21 @@ export default class BusinessUnitScopeOptionalMiddleware {
       })
     }
 
-    // ── Query param / body businessUnitId ────────────────────────────────────
-    // Acepta dos formatos para compatibilidad progresiva:
-    //  a) UUID v4 → se resuelve al ID interno y se inyecta.
-    //  b) Entero positivo (legacy) → se valida en scope y se deja intacto.
-    // Si está ausente, se inyecta el ID resuelto desde el header.
-    const rawQueryId = ctx.request.qs().businessUnitId
-    const rawBodyId = ctx.request.body().businessUnitId
-    const candidateRaw = rawQueryId ?? rawBodyId
-
-    if (candidateRaw) {
-      const candidateStr = String(candidateRaw)
-      const resolvedFromParam = await scopeService.resolveInternalId(candidateStr, fullScope)
-
-      if (resolvedFromParam !== null) {
-        ctx.request.updateQs({ ...ctx.request.qs(), businessUnitId: resolvedFromParam })
-        ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: resolvedFromParam })
-      } else {
-        const candidateNumber = Number(candidateRaw)
-        if (!Number.isInteger(candidateNumber) || candidateNumber <= 0) {
-          return ctx.response.status(404).json({
-            title: ERR.NOT_IN_SCOPE.title,
-            detail: 'El recurso solicitado no existe o no tienes acceso a él.',
-            key: ERR.NOT_IN_SCOPE.key,
-          })
-        }
-        if (!fullScope.includes(candidateNumber)) {
-          return ctx.response.status(404).json({
-            title: ERR.NOT_IN_SCOPE.title,
-            detail: 'El recurso solicitado no existe o no tienes acceso a él.',
-            key: ERR.NOT_IN_SCOPE.key,
-          })
-        }
+    for (const paramName of ['businessUnitId', 'payrollBusinessUnitId'] as const) {
+      const resolved = await resolveBusinessUnitIdParam(
+        ctx,
+        scopeService,
+        fullScope,
+        paramName,
+        requestedId
+      )
+      if (resolved === 'not-in-scope') {
+        return ctx.response.status(404).json({
+          title: ERR.NOT_IN_SCOPE.title,
+          detail: 'El recurso solicitado no existe o no tienes acceso a él.',
+          key: ERR.NOT_IN_SCOPE.key,
+        })
       }
-    } else {
-      // Ausente, nulo o vacío → inyectar el ID interno resuelto desde el header
-      ctx.request.updateQs({ ...ctx.request.qs(), businessUnitId: requestedId })
-      ctx.request.updateBody({ ...ctx.request.body(), businessUnitId: requestedId })
     }
 
     // Alias legacy NOM035: `companyId` también puede llegar como UUID v4.

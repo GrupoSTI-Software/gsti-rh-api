@@ -31,6 +31,8 @@ export const COMPLAINT_ERROR_CODES = {
   DATE_RANGE_INVALID: 'CMPL.VAL.DATE.001',
   /** Slug de categoría inexistente o inactivo en el catálogo */
   CATEGORY_NOT_FOUND: 'CMPL.VAL.CATEGORY.001',
+  /** Límite de intentos fallidos excedido (folio o IP) al consultar estatus */
+  RATE_LIMITED: 'CMPL.RL.001',
 } as const
 
 export type ComplaintErrorCode =

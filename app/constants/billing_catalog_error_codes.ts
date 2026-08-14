@@ -29,6 +29,10 @@ export const BILLING_CATALOG_ERROR_CODES = {
   CLONE_SOURCE_DEACTIVATED: 'PLT.CAT.CLONE_SOURCE_DEACTIVATED',
   /** Ya existe un borrador clon vivo para el mismo plan origen */
   CLONE_DRAFT_EXISTS: 'PLT.CAT.CLONE_DRAFT_EXISTS',
+  /** Intento de renombrar un plan publicado (el nombre solo se edita en borrador) */
+  PLAN_NAME_IMMUTABLE: 'PLT.CAT.PLAN_NAME_IMMUTABLE',
+  /** Tramo inexistente en el plan indicado (o eliminado lógicamente) */
+  TIER_NOT_FOUND: 'PLT.CAT.TIER_NOT_FOUND',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.CAT.SYS_UNHANDLED',
 } as const
