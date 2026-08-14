@@ -76,7 +76,6 @@ export default class BadgeController {
    *                       fotoUrl: "https://cdn.example.com/employees/123.jpg"
    *                       fotoFaltante: false
    *                       empresa: "Seguridad Integral SA de CV"
-   *                       logoUrl: "https://cdn.example.com/logo.png"
    *                       folioRepse: "REPSE-12345-2024"
    *                       folioVigente: true
    *                       vinculoVigente: true
@@ -95,7 +94,6 @@ export default class BadgeController {
    *                       fotoUrl: null
    *                       fotoFaltante: true
    *                       empresa: "Distribuidora El Roble S. de R.L."
-   *                       logoUrl: null
    *                       folioRepse: null
    *                       folioVigente: null
    *                       vinculoVigente: true
@@ -240,7 +238,6 @@ export default class BadgeController {
         fotoUrl: dto.fotoUrl,
         empresa: dto.empresa,
         puesto: dto.puesto,
-        logoUrl: dto.logoUrl,
         folioRepse: dto.folioRepse,
         folioVigente: dto.folioVigente,
         urlVerificacion: dto.urlVerificacion,
@@ -341,7 +338,6 @@ export default class BadgeController {
         fotoUrl: dto.fotoUrl,
         empresa: dto.empresa,
         puesto: dto.puesto,
-        logoUrl: dto.logoUrl,
         folioRepse: dto.folioRepse,
         folioVigente: dto.folioVigente,
         urlVerificacion: dto.urlVerificacion,
@@ -509,7 +505,6 @@ export default class BadgeController {
    *                   fotoUrl: "https://cdn.example.com/employees/123.jpg"
    *                   fotoFaltante: false
    *                   empresa: "Seguridad Integral SA de CV"
-   *                   logoUrl: "https://cdn.example.com/logo.png"
    *                   folioRepse: "REPSE-12345-2024"
    *                   folioVigente: true
    *                   vinculoVigente: true

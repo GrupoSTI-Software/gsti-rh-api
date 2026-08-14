@@ -73,3 +73,15 @@ scheduler.command('billing:tick-subscriptions').cron('0 13 * * *')
  * superficie de seguridad: credenciales de práctica olvidadas.
  */
 scheduler.command('onboarding:purge-abandoned-demo').cron('0 13 * * *')
+
+/**
+ * Limpieza de jobs de reporte asíncronos (USRH1785766125019):
+ *   1. Recupera jobs que quedaron en `processing` tras un reinicio del servidor
+ *      (ventana: actualizados hace más de 30 min) y los reencola.
+ *   2. Elimina de S3 y de la BD los jobs completados cuyo `expires_at` ya venció
+ *      (TTL de 24 h) y los jobs fallidos/pendientes con más de 48 h.
+ *
+ * Se programa cada hora para que los archivos temporales no acumulen en S3 y
+ * los jobs atorados se recuperen con latencia razonable sin sobrecargar la BD.
+ */
+scheduler.command('report-jobs:cleanup').cron('0 * * * *')
