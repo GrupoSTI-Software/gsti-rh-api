@@ -22,3 +22,25 @@ export const contractTenantSubscriptionValidator = vine.compile(
     contractedEmployees: vine.number().positive().withoutDecimals(),
   })
 )
+
+/**
+ * Query para `GET /api/billing/subscription/change-preview`.
+ * Solo valida la forma; las reglas comerciales viven en
+ * `BillingSubscriptionChangeService` y en `BillingTenantService`.
+ */
+export const previewSubscriptionChangeQueryValidator = vine.compile(
+  vine.object({
+    employees: vine.number().positive().withoutDecimals(),
+  })
+)
+
+/**
+ * Body para `POST /api/billing/subscription/changes/increase` (USRH1786107870850).
+ * Solo valida forma; las reglas comerciales y el cálculo viven en
+ * `BillingSubscriptionChangeService`.
+ */
+export const requestSubscriptionIncreaseValidator = vine.compile(
+  vine.object({
+    employees: vine.number().positive().withoutDecimals(),
+  })
+)

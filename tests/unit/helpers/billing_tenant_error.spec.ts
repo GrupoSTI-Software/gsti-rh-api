@@ -3,14 +3,20 @@ import { BILLING_CATALOG_ERROR_CODES } from '../../../app/constants/billing_cata
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../../../app/constants/billing_subscription_error_codes.js'
 import { BillingCatalogServiceError } from '../../../app/exceptions/billing_catalog_service_error.js'
 import {
+  changeNotAnIncreaseError,
   employeesAboveSafetyCapError,
   employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
   mapCatalogErrorForPublicSurface,
+  noLiveSubscriptionError,
+  onlyAccountOwnerError,
   originNotSelfServiceError,
+  periodNotProratableError,
   planNotSelectedError,
   planUnavailableError,
   rethrowCatalogErrorForPublicSurface,
+  subscriptionChangeConflictError,
+  subscriptionPastDueError,
 } from '../../../app/helpers/billing_tenant_error.js'
 import { resolveBillingSubscriptionApiError } from '../../../app/helpers/billing_subscription_api_error.js'
 
@@ -136,5 +142,52 @@ test.group('billing_tenant_error — factories de cantidad', () => {
 
     const resolved = resolveBillingSubscriptionApiError(error)
     assert.deepEqual(resolved.data, { active: 47, minimum: 50 })
+  })
+})
+
+test.group('billing_tenant_error — previsualización de cambio (USRH1786107870847)', () => {
+  test('noLiveSubscriptionError expone key y code del contrato', ({ assert }) => {
+    const error = noLiveSubscriptionError()
+    assert.equal(error.key, 'sin-suscripcion-viva')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_SUBSCRIPTION)
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('subscriptionPastDueError expone key y code del contrato', ({ assert }) => {
+    const error = subscriptionPastDueError()
+    assert.equal(error.key, 'suscripcion-con-pago-atrasado')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_PAST_DUE)
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('periodNotProratableError expone key y code del contrato', ({ assert }) => {
+    const error = periodNotProratableError()
+    assert.equal(error.key, 'periodo-sin-dias-por-prorratear')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.PERIOD_NOT_PRORATABLE)
+    assert.equal(error.httpStatus, 422)
+  })
+
+  test('onlyAccountOwnerError responde 403', ({ assert }) => {
+    const error = onlyAccountOwnerError()
+    assert.equal(error.key, 'solo-el-dueno-de-la-cuenta')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
+    assert.equal(error.httpStatus, 403)
+  })
+})
+
+test.group('billing_tenant_error — solicitud de aumento (USRH1786107870850)', () => {
+  test('changeNotAnIncreaseError expone key, code y data del contrato', ({ assert }) => {
+    const error = changeNotAnIncreaseError(100, 90)
+    assert.equal(error.key, 'cantidad-no-es-aumento')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_NOT_AN_INCREASE)
+    assert.equal(error.httpStatus, 422)
+    assert.deepEqual(error.data, { contracted: 100, requested: 90 })
+  })
+
+  test('subscriptionChangeConflictError responde 409', ({ assert }) => {
+    const error = subscriptionChangeConflictError()
+    assert.equal(error.key, 'cambio-en-conflicto')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_CONFLICT)
+    assert.equal(error.httpStatus, 409)
   })
 })
