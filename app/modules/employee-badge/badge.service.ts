@@ -79,15 +79,12 @@ export default class BadgeService {
    * Contexto de render para E2/E5/E6 — resuelve token perezoso y campos visuales
    * sin generar `qrDataUrl` (innecesario para PDF/PNG binario).
    */
-  async buildRenderContext(
-    context: BadgeEmployeeContext,
-    logoBuffer?: Buffer | null
-  ): Promise<BadgeRenderContext> {
+  async buildRenderContext(context: BadgeEmployeeContext): Promise<BadgeRenderContext> {
     const token = await this.repository.resolveOrCreateToken(context.employeeId)
     const urlVerificacion = this.buildVerificationUrl(token)
     const { folioRepse, folioVigente } = this.resolveFolio(context.repseFolio, context.repseExpiresAt)
 
-    const renderContext: BadgeRenderContext = {
+    return {
       employeeId: context.employeeId,
       nombreCompleto: this.buildFullName(
         context.personFirstname,
@@ -97,17 +94,10 @@ export default class BadgeService {
       fotoUrl: this.resolvePhotoUrl(context.employeePhoto),
       empresa: context.businessUnitLegalName || context.businessUnitName,
       puesto: context.positionName,
-      logoUrl: context.systemSettingLogo ?? null,
       folioRepse,
       folioVigente,
       urlVerificacion,
     }
-
-    if (logoBuffer !== undefined) {
-      renderContext.logoBuffer = logoBuffer
-    }
-
-    return renderContext
   }
 
   /**
@@ -158,7 +148,6 @@ export default class BadgeService {
       fotoFaltante: this.resolvePhotoUrl(context.employeePhoto) === null,
       empresa: context.businessUnitLegalName || context.businessUnitName,
       puesto: context.positionName,
-      logoUrl: context.systemSettingLogo ?? null,
       folioRepse,
       folioVigente,
       // En las superficies de generación el empleado consultable está activo

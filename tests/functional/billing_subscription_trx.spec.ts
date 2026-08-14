@@ -7,6 +7,7 @@ import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
+import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 
 async function createPublishedPlan(stamp: number): Promise<number> {
   const catalog = new BillingCatalogService()
@@ -122,5 +123,74 @@ test.group('BillingSubscriptionService.createSubscription — trx compartida (CA
     assert.isNull(businessUnit)
 
     await cleanupPlan(planId)
+  })
+})
+
+test.group('BillingSubscriptionService.createSubscription — skipTrial (USRH1785441822058)', () => {
+  test('sin skipTrial nace en trialing con fin de prueba del catálogo', async ({ assert }) => {
+    const stamp = Date.now()
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Skip Trial Default BU ${stamp}`
+    businessUnit.businessUnitSlug = `skip-trial-default-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Skip Trial Default Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+    const today = toBusinessDateString()
+
+    try {
+      const subscription = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 20,
+      })
+
+      assert.equal(subscription.billingSubscriptionStatus, 'trialing')
+      assert.equal(subscription.billingSubscriptionContractedTrialDays, 7)
+      assert.isNotNull(subscription.billingSubscriptionTrialEndsAt)
+      assert.equal(
+        toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd),
+        toCalendarIsoDate(subscription.billingSubscriptionTrialEndsAt)
+      )
+      assert.notEqual(toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd), today)
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('con skipTrial nace active sin prueba y periodo cubierto hasta hoy', async ({ assert }) => {
+    const stamp = Date.now() + 1
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Skip Trial Active BU ${stamp}`
+    businessUnit.businessUnitSlug = `skip-trial-active-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Skip Trial Active Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+    const today = toBusinessDateString()
+
+    try {
+      const subscription = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 20,
+        skipTrial: true,
+      })
+
+      assert.equal(subscription.billingSubscriptionStatus, 'active')
+      assert.equal(subscription.billingSubscriptionContractedTrialDays, 0)
+      assert.isNull(subscription.billingSubscriptionTrialEndsAt)
+      assert.equal(toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd), today)
+      assert.isAbove(subscription.billingSubscriptionContractedSubtotal, 0)
+      assert.isAbove(subscription.billingSubscriptionContractedTotal, 0)
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
   })
 })

@@ -122,6 +122,11 @@ export default class BillingPlanController {
    *     tags:
    *       - Platform Billing
    *     summary: Actualizar metadatos de un plan
+   *     description: >
+   *       El nombre del plan (billingPlanName) solo se puede editar mientras
+   *       el plan está en borrador. Con el plan publicado el cambio de
+   *       nombre se rechaza con 422 PLT.CAT.PLAN_NAME_IMMUTABLE — para
+   *       cambiar el nombre de una oferta publicada, clónala.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -153,6 +158,8 @@ export default class BillingPlanController {
    *         description: Plan actualizado
    *       '404':
    *         description: Plan no encontrado
+   *       '422':
+   *         description: Nombre inmutable (plan publicado) — código PLT.CAT.PLAN_NAME_IMMUTABLE
    */
   async update({ params, request, response }: HttpContext) {
     try {
