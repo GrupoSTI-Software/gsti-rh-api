@@ -3,11 +3,17 @@ import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BusinessUnit, { type BusinessUnitOrigin } from '#models/business_unit'
 import BillingCatalogService, { type ResolvedPrice } from '#services/billing_catalog_service'
+import BillingSubscriptionService from '#services/billing_subscription_service'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import {
   employeesAboveSafetyCapError,
+  employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
+  MIN_CONTRACTED_EMPLOYEES,
+  EMPLOYEE_BLOCK_SIZE,
+  originNotSelfServiceError,
   planUnavailableError,
   PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
   rethrowCatalogErrorForPublicSurface,
@@ -71,11 +77,40 @@ export interface TenantSubscriptionSnapshot {
   billingSubscriptionContractedTrialDays: number
   billingSubscriptionTrialEndsAt: string | null
   firstPaymentDate: string | null
+  /** Inicio del periodo vigente, fecha calendario ISO (USRH1786107870865). */
+  billingSubscriptionCurrentPeriodStart: string | null
+  /** Fin del periodo vigente = fecha del próximo pago, fecha calendario ISO (USRH1786107870865). */
+  billingSubscriptionCurrentPeriodEnd: string | null
 }
 
 export interface MySubscriptionResult {
   businessUnitOrigin: BusinessUnitOrigin
   subscription: TenantSubscriptionSnapshot | null
+  /**
+   * Mínimo contratable para empresas `self_service` (con o sin suscripción viva).
+   * El muro de contratación lo ignora cuando hay suscripción viva; la pantalla de
+   * ajuste de cantidad (orden 8) lo consume.
+   */
+  minimumContractedEmployees: number | null
+}
+
+/** Respuesta 201 de `POST /api/billing/subscription` (lista blanca). */
+export interface ContractSubscriptionResult {
+  billingSubscriptionId: number
+  billingPlanId: number
+  billingPlanName: string
+  billingSubscriptionStatus: BillingSubscription['billingSubscriptionStatus']
+  billingSubscriptionContractedEmployees: number
+  billingSubscriptionContractedUnitAmount: number
+  billingSubscriptionDiscountPercent: number
+  billingSubscriptionContractedCurrency: string
+  billingSubscriptionContractedTaxRate: number
+  billingSubscriptionContractedSubtotal: number
+  billingSubscriptionContractedTaxAmount: number
+  billingSubscriptionContractedTotal: number
+  billingSubscriptionContractedTrialDays: number
+  billingSubscriptionTrialEndsAt: string | null
+  firstPaymentDate: string
 }
 
 /**
@@ -85,6 +120,88 @@ export interface MySubscriptionResult {
  */
 export default class BillingTenantService {
   private readonly catalog = new BillingCatalogService()
+  private readonly subscriptionService = new BillingSubscriptionService()
+  private readonly employeeQuotaService = new EmployeeQuotaService()
+
+  /**
+   * Mínimo contratable: el siguiente bloque de 10 por encima de la plantilla activa.
+   * Con 0 activos devuelve el mínimo general de la superficie self-service (10).
+   */
+  resolveMinimumContractedEmployees(activeEmployees: number): number {
+    if (activeEmployees <= 0) {
+      return MIN_CONTRACTED_EMPLOYEES
+    }
+    return Math.max(
+      MIN_CONTRACTED_EMPLOYEES,
+      Math.ceil(activeEmployees / EMPLOYEE_BLOCK_SIZE) * EMPLOYEE_BLOCK_SIZE
+    )
+  }
+
+  /**
+   * Re-contratación self-service desde el tenant autenticado (USRH1785441822058).
+   * Solo empresas de origen `self_service` sin suscripción viva; nace sin periodo de prueba.
+   */
+  async contractSubscription(
+    billingPlanId: number,
+    contractedEmployees: number
+  ): Promise<ContractSubscriptionResult> {
+    const businessUnitId = TenantContext.getScope()[0]
+
+    if (!businessUnitId || businessUnitId <= 0) {
+      throw new BillingSubscriptionServiceError(
+        'No se pudo resolver la empresa activa del tenant',
+        BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+        500,
+        'empresa-no-resuelta',
+        'No se pudo determinar la empresa activa para contratar.'
+      )
+    }
+
+    const businessUnit = await BusinessUnit.query()
+      .where('business_unit_id', businessUnitId)
+      .whereNull('business_unit_deleted_at')
+      .first()
+
+    if (!businessUnit) {
+      throw new BillingSubscriptionServiceError(
+        `Empresa ${businessUnitId} no encontrada`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+        404,
+        'empresa-no-encontrada',
+        'La empresa solicitada no existe.'
+      )
+    }
+
+    if (businessUnit.businessUnitOrigin !== 'self_service') {
+      throw originNotSelfServiceError()
+    }
+
+    this.assertContractedEmployees(contractedEmployees)
+
+    const activeEmployees = await this.employeeQuotaService.countActiveEmployees(
+      businessUnitId
+    )
+    const minimum = this.resolveMinimumContractedEmployees(activeEmployees)
+
+    if (minimum > PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP) {
+      throw employeesAboveSafetyCapError()
+    }
+
+    if (contractedEmployees < minimum) {
+      throw employeesBelowActiveHeadcountError(activeEmployees, minimum)
+    }
+
+    const subscription = await this.subscriptionService.createSubscription({
+      businessUnitPublicId: businessUnit.businessUnitPublicId,
+      billingPlanId,
+      contractedEmployees,
+      skipTrial: true,
+    })
+
+    await subscription.load('plan')
+
+    return this.toContractSubscriptionResult(subscription)
+  }
 
   /**
    * Regla 3 — cantidad contratada en bloques de 10 (mínimo 10) con tope defensivo.
@@ -95,7 +212,7 @@ export default class BillingTenantService {
       throw employeesAboveSafetyCapError()
     }
 
-    if (employeeCount < 10 || employeeCount % 10 !== 0) {
+    if (employeeCount < MIN_CONTRACTED_EMPLOYEES || employeeCount % EMPLOYEE_BLOCK_SIZE !== 0) {
       throw employeesNotBlockOfTenError()
     }
   }
@@ -265,9 +382,19 @@ export default class BillingTenantService {
       .orderBy('billing_subscription_id', 'desc')
       .first()
 
+    let minimumContractedEmployees: number | null = null
+
+    if (businessUnit.businessUnitOrigin === 'self_service') {
+      const activeEmployees = await this.employeeQuotaService.countActiveEmployees(
+        businessUnitId
+      )
+      minimumContractedEmployees = this.resolveMinimumContractedEmployees(activeEmployees)
+    }
+
     return {
       businessUnitOrigin: businessUnit.businessUnitOrigin,
       subscription: subscription ? this.toTenantSubscriptionSnapshot(subscription) : null,
+      minimumContractedEmployees,
     }
   }
 
@@ -367,6 +494,43 @@ export default class BillingTenantService {
       billingSubscriptionContractedTrialDays: subscription.billingSubscriptionContractedTrialDays,
       billingSubscriptionTrialEndsAt: trialEndsAtIso,
       firstPaymentDate: trialEndsAtIso,
+      billingSubscriptionCurrentPeriodStart: toCalendarIsoDate(
+        subscription.billingSubscriptionCurrentPeriodStart
+      ),
+      billingSubscriptionCurrentPeriodEnd: toCalendarIsoDate(
+        subscription.billingSubscriptionCurrentPeriodEnd
+      ),
+    }
+  }
+
+  private toContractSubscriptionResult(
+    subscription: BillingSubscription
+  ): ContractSubscriptionResult {
+    const trialEndsAtIso = toCalendarIsoDate(subscription.billingSubscriptionTrialEndsAt)
+    const firstPaymentDate = toBusinessDateString()
+
+    return {
+      billingSubscriptionId: subscription.billingSubscriptionId,
+      billingPlanId: subscription.billingPlanId,
+      billingPlanName: subscription.plan?.billingPlanName ?? '',
+      billingSubscriptionStatus: subscription.billingSubscriptionStatus,
+      billingSubscriptionContractedEmployees: subscription.billingSubscriptionContractedEmployees,
+      billingSubscriptionContractedUnitAmount: Number(
+        subscription.billingSubscriptionContractedUnitAmount
+      ),
+      billingSubscriptionDiscountPercent: subscription.billingSubscriptionDiscountPercent,
+      billingSubscriptionContractedCurrency: subscription.billingSubscriptionContractedCurrency,
+      billingSubscriptionContractedTaxRate: Number(subscription.billingSubscriptionContractedTaxRate),
+      billingSubscriptionContractedSubtotal: Number(
+        subscription.billingSubscriptionContractedSubtotal
+      ),
+      billingSubscriptionContractedTaxAmount: Number(
+        subscription.billingSubscriptionContractedTaxAmount
+      ),
+      billingSubscriptionContractedTotal: Number(subscription.billingSubscriptionContractedTotal),
+      billingSubscriptionContractedTrialDays: subscription.billingSubscriptionContractedTrialDays,
+      billingSubscriptionTrialEndsAt: trialEndsAtIso,
+      firstPaymentDate,
     }
   }
 }

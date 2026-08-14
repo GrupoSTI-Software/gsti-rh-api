@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import mail from '@adonisjs/mail/services/main'
 import SignupDraft from '#models/signup_draft'
 import User from '#models/user'
 import Person from '#models/person'
@@ -11,6 +12,7 @@ import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
+import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
 
 /**
  * Test funcional — flujo completo de signup self-service (USRH1783712837561 +
@@ -26,8 +28,10 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
   let createdPersonId: number | null = null
   let signupEmail: string
   let publishedPlanId: number | null = null
+  let mailFake: ReturnType<typeof mail.fake> | null = null
 
   group.setup(async () => {
+    mailFake = mail.fake()
     signupEmail = `owner-signup-${Date.now()}@gsti-tests.local`
 
     const catalog = new BillingCatalogService()
@@ -89,6 +93,9 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
         await plan.delete()
       }
     }
+
+    mail.restore()
+    mailFake = null
   })
 
   test('el usuario nace con rol owner y recibe su par de tokens', async ({ client, assert }) => {
@@ -166,5 +173,11 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
       .where('signup_draft_id', signupDraftId)
       .first()
     assert.isNull(draftAfterComplete, 'El draft debe eliminarse tras completar el registro')
+
+    mailFake!.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
+      message.assertHtmlIncludes(businessUnit.businessUnitName)
+      message.assertHtmlIncludes('Contratación self-service')
+      return true
+    })
   })
 })

@@ -61,21 +61,202 @@ export default class BillingPaymentController {
   }
 
   /**
+   * @swagger
+   * /api/platform/billing/subscriptions/{subscriptionId}/payments:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Platform Billing
+   *     summary: Registrar pago con comprobante
+   *     description: |
+   *       Registra un pago manual sobre una suscripción no cancelada. De forma atómica:
+   *       sube el comprobante privado, inserta el pago, intenta aplicar un aumento
+   *       `pending_payment` si el monto cubre el adeudo prorrateado (USRH1786107870856),
+   *       avanza el periodo un mes y pone la suscripción en `active`.
+   *       `appliedChange` es null si no había cambio vivo o el pago fue insuficiente.
+   *     operationId: registerBillingPayment
+   *     parameters:
+   *       - in: path
+   *         name: subscriptionId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID interno de la suscripción
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - amountCents
+   *               - method
+   *               - paidAt
+   *               - receipt
+   *             properties:
+   *               amountCents:
+   *                 type: integer
+   *                 minimum: 100
+   *                 description: Monto en centavos MXN
+   *               method:
+   *                 type: string
+   *                 enum: [transfer, cash, other]
+   *               reference:
+   *                 type: string
+   *                 maxLength: 191
+   *               paidAt:
+   *                 type: string
+   *                 format: date-time
+   *               receipt:
+   *                 type: string
+   *                 format: binary
+   *                 description: Comprobante PDF, JPG o PNG (máx. 10 MB)
+   *     responses:
+   *       '201':
+   *         description: Pago registrado; puede incluir cambio aplicado o not_applicable
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   enum: [success]
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     billingPaymentId:
+   *                       type: integer
+   *                     billingSubscriptionId:
+   *                       type: integer
+   *                     amountCents:
+   *                       type: integer
+   *                     method:
+   *                       type: string
+   *                       enum: [transfer, cash, other]
+   *                     reference:
+   *                       type: string
+   *                       nullable: true
+   *                     paidAt:
+   *                       type: string
+   *                       format: date-time
+   *                     periodStart:
+   *                       type: string
+   *                       format: date
+   *                     periodEnd:
+   *                       type: string
+   *                       format: date
+   *                     hasReceipt:
+   *                       type: boolean
+   *                     subscription:
+   *                       type: object
+   *                       properties:
+   *                         billingSubscriptionId:
+   *                           type: integer
+   *                         status:
+   *                           type: string
+   *                         currentPeriodStart:
+   *                           type: string
+   *                           format: date
+   *                           nullable: true
+   *                         currentPeriodEnd:
+   *                           type: string
+   *                           format: date
+   *                           nullable: true
+   *                     appliedChange:
+   *                       nullable: true
+   *                       type: object
+   *                       description: Cambio de aumento aplicado o not_applicable (0856)
+   *                       properties:
+   *                         billingSubscriptionChangeId:
+   *                           type: integer
+   *                         billingSubscriptionChangeStatus:
+   *                           type: string
+   *                           enum: [applied, not_applicable]
+   *                         billingSubscriptionChangePreviousEmployees:
+   *                           type: integer
+   *                         billingSubscriptionChangeNewEmployees:
+   *                           type: integer
+   *                         billingSubscriptionChangeProratedAmountCents:
+   *                           type: integer
+   *       '404':
+   *         description: Suscripción no encontrada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   example: PLT.PAY.SUBSCRIPTION_NOT_FOUND
+   *       '422':
+   *         description: Validación, suscripción cancelada o comprobante inválido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   enum:
+   *                     - PLT.PAY.SUBSCRIPTION_CANCELED
+   *                     - PLT.PAY.AMOUNT_INVALID
+   *                     - PLT.PAY.RECEIPT_INVALID
+   *                     - PLT.PAY.VAL_INPUT
+   *       '500':
+   *         description: Fallo al aplicar aumento, snapshot inconsistente o error interno
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                   enum:
+   *                     - PLT.PAY.CHANGE_APPLY_FAILED
+   *                     - PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT
+   *                     - PLT.PAY.RECEIPT_UPLOAD_FAILED
+   *                     - PLT.PAY.SYS_UNHANDLED
+   */
+  /**
    * @store
    * @summary Registrar pago con comprobante
    * @description Registra un pago manual sobre una suscripción existente y no cancelada.\
    *   De forma atómica: sube el comprobante privado, inserta el pago en el histórico,\
+   *   intenta aplicar un aumento `pending_payment` si el monto cubre el adeudo (0856),\
    *   avanza el periodo un ciclo mensual y pone la suscripción en estado `active`.\
    *   El monto se recibe en centavos; el avance del periodo lo calcula el servidor.\
+   *   `appliedChange` es null si no había cambio vivo, el pago fue insuficiente o no surtió efecto;\
+   *   trae el registro del cambio cuando quedó `applied` o `not_applicable`.\
    *   La descarga del comprobante es del endpoint de histórico (04-05).
    * @tag Billing · Payments
    * @operationId registerBillingPayment
    * @security [{"bearerAuth": []}]
    * @paramPath subscriptionId - ID interno de la suscripción - integer
    * @requestBody {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["amountCents", "method", "paidAt", "receipt"], "properties": {"amountCents": {"type": "integer", "minimum": 100}, "method": {"type": "string", "enum": ["transfer", "cash", "other"]}, "reference": {"type": "string", "maxLength": 191}, "paidAt": {"type": "string", "format": "date-time"}, "receipt": {"type": "string", "format": "binary"}}}}}}
-   * @responseBody 201 - {"type": "success", "data": {"billingPaymentId": 1, "billingSubscriptionId": 7, "amountCents": 927800, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-07-28T15:04:00.000-06:00", "periodStart": "2026-07-28", "periodEnd": "2026-08-28", "hasReceipt": true, "subscription": {"billingSubscriptionId": 7, "status": "active", "currentPeriodStart": "2026-07-28", "currentPeriodEnd": "2026-08-28"}}}
+   * @responseBody 201 - {"type": "success", "data": {"billingPaymentId": 1, "billingSubscriptionId": 7, "amountCents": 927800, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-07-28T15:04:00.000-06:00", "periodStart": "2026-07-28", "periodEnd": "2026-08-28", "hasReceipt": true, "subscription": {"billingSubscriptionId": 7, "status": "active", "currentPeriodStart": "2026-07-28", "currentPeriodEnd": "2026-08-28"}, "appliedChange": {"billingSubscriptionChangeId": 42, "billingSubscriptionId": 7, "billingSubscriptionChangeType": "increase", "billingSubscriptionChangeStatus": "applied", "billingSubscriptionChangePreviousEmployees": 100, "billingSubscriptionChangeNewEmployees": 150, "billingSubscriptionChangeProratedAmountCents": 91210, "billingSubscriptionChangeAppliedAt": "2026-07-28T15:04:01.000-06:00", "supersededBillingSubscriptionChangeId": null}}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_NOT_FOUND"}
    * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
+   * @responseBody 500 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.CHANGE_APPLY_FAILED|PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT|PLT.PAY.RECEIPT_UPLOAD_FAILED|PLT.PAY.SYS_UNHANDLED"}
    */
   async store({ params, request, response }: HttpContext) {
     try {

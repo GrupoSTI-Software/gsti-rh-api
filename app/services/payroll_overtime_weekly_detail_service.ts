@@ -131,10 +131,47 @@ export default class PayrollOvertimeWeeklyDetailService {
       return existing
     }
 
-    return OvertimeWeeklyDetail.create({
-      ...searchKeys,
-      ...payload,
-    })
+    try {
+      return await OvertimeWeeklyDetail.create({
+        ...searchKeys,
+        ...payload,
+      })
+    } catch (error: unknown) {
+      // Condición de carrera: dos jobs de reporte concurrentes (ver
+      // USRH1785766125045) pueden pasar ambos por el `!existing` de arriba
+      // antes de que cualquiera inserte. El segundo `create` choca con la
+      // unique key (employee_id, iso_year, iso_week) vía `ER_DUP_ENTRY`;
+      // en ese caso se trata como un `update` sobre la fila que sí se creó.
+      if (!this.isDuplicateEntryError(error)) {
+        throw error
+      }
+      const winner = await OvertimeWeeklyDetail.query()
+        .withTrashed()
+        .where('employeeId', week.employeeId)
+        .where('overtimeWeeklyDetailIsoYear', week.isoWeekYear)
+        .where('overtimeWeeklyDetailIsoWeek', week.isoWeek)
+        .first()
+      if (!winner) {
+        throw error
+      }
+      if (winner.deletedAt) {
+        await winner.restore()
+      }
+      winner.merge(payload)
+      await winner.save()
+      return winner
+    }
+  }
+
+  /**
+   * Detecta `ER_DUP_ENTRY` (MySQL) sin acoplarse al driver: revisa el
+   * código de error que Knex/mysql2 adjuntan al objeto de error original.
+   */
+  private isDuplicateEntryError(error: unknown): boolean {
+    const code = (error as { code?: string } | null)?.code
+    if (code === 'ER_DUP_ENTRY') return true
+    const originalCode = (error as { original?: { code?: string } } | null)?.original?.code
+    return originalCode === 'ER_DUP_ENTRY'
   }
 
   /**

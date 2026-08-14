@@ -43,8 +43,12 @@ import type {
   ComplaintReportResult,
 } from '../interfaces/complaint_interface.js'
 import type { ParsedComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
+import { randomStringFromAlphabet } from '../helpers/csprng_string.js'
 
 const PASSPHRASE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+/** Primer dígito del folio nunca es 0 (mismo rango 100000-999999 de siempre). */
+const FOLIO_SUFFIX_FIRST_DIGIT_ALPHABET = '123456789'
+const FOLIO_SUFFIX_REST_ALPHABET = '0123456789'
 
 const COMPLAINT_RESOLVED_STATUSES: ComplaintStatus[] = ['resuelto', 'cerrado']
 
@@ -734,20 +738,25 @@ export default class ComplaintService {
     )
   }
 
+  /**
+   * CSPRNG (USRH1783115930049): `randomStringFromAlphabet` reemplaza el
+   * generador pseudoaleatorio anterior — mismo largo, mismo alfabeto,
+   * solo cambia la fuente de aleatoriedad (deja de ser predecible).
+   */
   private generatePassphrase(): string {
-    let value = ''
-    for (let index = 0; index < COMPLAINT_PASSPHRASE_LENGTH; index++) {
-      const randomIndex = Math.floor(Math.random() * PASSPHRASE_ALPHABET.length)
-      value += PASSPHRASE_ALPHABET.charAt(randomIndex)
-    }
-    return value
+    return randomStringFromAlphabet(PASSPHRASE_ALPHABET, COMPLAINT_PASSPHRASE_LENGTH)
   }
 
   private async generateUniqueFolio(): Promise<string> {
     const year = DateTime.utc().year
 
     for (let attempt = 0; attempt < 8; attempt++) {
-      const suffix = String(Math.floor(100000 + Math.random() * 900000))
+      // CSPRNG (USRH1783115930049): mismo rango 100000-999999 de siempre
+      // (primer dígito nunca 0), generado con `randomStringFromAlphabet`
+      // en vez del generador pseudoaleatorio anterior.
+      const suffix =
+        randomStringFromAlphabet(FOLIO_SUFFIX_FIRST_DIGIT_ALPHABET, 1) +
+        randomStringFromAlphabet(FOLIO_SUFFIX_REST_ALPHABET, 5)
       const folio = `${COMPLAINT_FOLIO_PREFIX}-${year}-${suffix}`
       const existing = await Complaint.query().where('complaint_folio', folio).first()
       if (!existing) {

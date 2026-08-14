@@ -101,7 +101,7 @@ export default class BillingTierController {
    *   patch:
    *     tags:
    *       - Platform Billing
-   *     summary: Actualizar descuento de un tramo en un plan borrador
+   *     summary: Actualizar mínimo de empleados y/o descuento de un tramo en un plan borrador
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -122,6 +122,9 @@ export default class BillingTierController {
    *           schema:
    *             type: object
    *             properties:
+   *               billingVolumeTierMinEmployees:
+   *                 type: integer
+   *                 minimum: 1
    *               billingVolumeTierDiscountPercent:
    *                 type: number
    *                 minimum: 0
@@ -130,9 +133,11 @@ export default class BillingTierController {
    *       '200':
    *         description: Tramo actualizado
    *       '404':
-   *         description: Tramo no encontrado
+   *         description: Tramo no encontrado — código PLT.CAT.TIER_NOT_FOUND
+   *       '409':
+   *         description: Ya existe un tramo con ese mínimo de empleados (incluye eliminados) — PLT.CAT.TIER_DUPLICATE
    *       '422':
-   *         description: Plan publicado (tramos congelados) o datos inválidos
+   *         description: Plan publicado, sin campos a actualizar o datos inválidos — PLT.CAT.TIER_PLAN_PUBLISHED / PLT.CAT.TIER_INVALID
    */
   async update({ params, request, response }: HttpContext) {
     try {
