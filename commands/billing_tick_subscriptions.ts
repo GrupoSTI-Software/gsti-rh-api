@@ -7,8 +7,9 @@ import { toBusinessDateString } from '../app/utils/business_date.js'
 /**
  * Reloj de suscripción (USRH1784574994921): evalúa todas las suscripciones
  * no canceladas y transiciona sus estados según las fechas de prueba y periodo
- * (R0-R7 del spec). El barrido es idempotente: correrlo dos veces el mismo
- * día produce el mismo resultado.
+ * (R0-R7 del spec). Tras el gobierno de estados, materializa reducciones
+ * agendadas cuya fecha de efecto ya se alcanzó (USRH1786107870859). El barrido
+ * es idempotente: correrlo dos veces el mismo día produce el mismo resultado.
  *
  * Disparo normal: scheduler (ver `start/scheduler.ts`), una vez al día a las
  * 07:00 CDMX (13:00 UTC).
@@ -24,7 +25,7 @@ import { toBusinessDateString } from '../app/utils/business_date.js'
 export default class BillingTickSubscriptions extends BaseCommand {
   static readonly commandName = 'billing:tick-subscriptions'
   static readonly description =
-    'Reloj de suscripción: evalúa fechas y mueve estados trialing/active/past_due (idempotente)'
+    'Reloj de suscripción: transiciona estados y aplica reducciones agendadas vencidas (idempotente)'
 
   static readonly options: CommandOptions = {
     startApp: true,
@@ -60,7 +61,8 @@ export default class BillingTickSubscriptions extends BaseCommand {
       this.logger.info(
         `billing:tick-subscriptions — fin: corte=${result.businessDate} ` +
           `evaluadas=${result.processed} transicionadas=${result.transitioned} ` +
-          `sin cambio=${result.skipped}`
+          `sin cambio=${result.skipped} reducciones_aplicadas=${result.changesApplied} ` +
+          `reducciones_no_aplicables=${result.changesNotApplicable} fallidas=${result.failed}`
       )
 
       for (const detail of result.details) {
@@ -68,6 +70,17 @@ export default class BillingTickSubscriptions extends BaseCommand {
         this.logger.info(
           `  ${tag} sub#${detail.billingSubscriptionId} ` +
             `${detail.fromStatus} → ${detail.toStatus} (${detail.reason})`
+        )
+      }
+
+      for (const detail of result.changeDetails) {
+        const tag = detail.outcome === 'applied' ? '[aplicada]' : '[no-aplicable]'
+        const reasonSuffix = detail.reason ? `, ${detail.reason}` : ''
+        this.logger.info(
+          `  ${tag} sub#${detail.billingSubscriptionId} ` +
+            `change#${detail.billingSubscriptionChangeId} ` +
+            `${detail.previousEmployees} → ${detail.newEmployees} ` +
+            `(activos=${detail.activeEmployees}, mínimo=${detail.minimumContractedEmployees}${reasonSuffix})`
         )
       }
     } catch (error: unknown) {

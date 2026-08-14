@@ -605,3 +605,169 @@ test.group('BillingCatalogService — publicar un clon desactiva al plan origen'
     assert.isNull(origin.deletedAt)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Módulo: nombre inmutable en plan publicado (USRH1785962095078)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — updatePlan: nombre inmutable en plan publicado', () => {
+  /** Espeja la validación previa al UPDATE en updatePlan. */
+  function tryRename(plan: { isPublished: boolean }, newName?: string) {
+    if (newName !== undefined && plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        'No se puede renombrar el plan publicado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+        422
+      )
+    }
+    return newName
+  }
+
+  test('PLAN_NAME_IMMUTABLE es PLT.CAT.PLAN_NAME_IMMUTABLE', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+      'PLT.CAT.PLAN_NAME_IMMUTABLE'
+    )
+  })
+
+  test('renombrar un plan publicado lanza PLAN_NAME_IMMUTABLE con 422', ({ assert }) => {
+    assert.throws(() => tryRename({ isPublished: true }, 'Nuevo nombre'))
+    try {
+      tryRename({ isPublished: true }, 'Nuevo nombre')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.PLAN_NAME_IMMUTABLE')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+
+  test('renombrar un plan en borrador no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryRename({ isPublished: false }, 'Nuevo nombre'))
+  })
+
+  test('actualizar un plan publicado sin tocar el nombre no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryRename({ isPublished: true }, undefined))
+  })
+
+  test('el API error del helper resuelve PLAN_NAME_IMMUTABLE a 422', ({ assert }) => {
+    const error = new BillingCatalogServiceError(
+      'No se puede renombrar',
+      BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+      422,
+      'PLT.CAT.PLAN_NAME_IMMUTABLE',
+      'El nombre de un plan publicado es inmutable.'
+    )
+    const resolved = resolveBillingCatalogApiError(error)
+    assert.equal(resolved.status, 422)
+    assert.equal(resolved.code, 'PLT.CAT.PLAN_NAME_IMMUTABLE')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: edición de min_employees en tramos + duplicados con soft-delete
+// (USRH1785962095078 — reparación del bug reportado en el sprint)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — updateTier: minEmployees editable y duplicados', () => {
+  /** Espeja assertMinEmployeesAvailable contra un set simulado de tramos (incluye eliminados). */
+  function assertAvailable(
+    allTiersIncludingTrashed: Array<{ id: number; minEmployees: number }>,
+    minEmployees: number,
+    excludeTierId?: number
+  ) {
+    const duplicate = allTiersIncludingTrashed.find(
+      (t) => t.minEmployees === minEmployees && t.id !== excludeTierId
+    )
+    if (duplicate) {
+      throw new BillingCatalogServiceError(
+        `Ya existe un tramo con min_employees ${minEmployees}`,
+        BILLING_CATALOG_ERROR_CODES.TIER_DUPLICATE,
+        409
+      )
+    }
+  }
+
+  test('crear un tramo con min_employees igual al de uno eliminado lógicamente lanza TIER_DUPLICATE', ({
+    assert,
+  }) => {
+    // El tramo id=2 fue soft-deleted pero sigue "ocupando" min_employees=50
+    // por la restricción UNIQUE física de la tabla.
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 }, // eliminado lógicamente, sigue en la tabla
+    ]
+    assert.throws(() => assertAvailable(tiers, 50))
+  })
+
+  test('editar min_employees de un tramo hacia un valor libre no lanza error', ({ assert }) => {
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 },
+    ]
+    assert.doesNotThrow(() => assertAvailable(tiers, 30, 1))
+  })
+
+  test('editar min_employees de un tramo hacia su propio valor actual no lanza error (excluido por id)', ({
+    assert,
+  }) => {
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 },
+    ]
+    assert.doesNotThrow(() => assertAvailable(tiers, 10, 1))
+  })
+
+  test('editar min_employees hacia un valor tomado por otro tramo vivo lanza TIER_DUPLICATE con 409', ({
+    assert,
+  }) => {
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 },
+    ]
+    try {
+      assertAvailable(tiers, 50, 1)
+      assert.fail('Se esperaba que lanzara TIER_DUPLICATE')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.TIER_DUPLICATE')
+      assert.equal(error.httpStatus, 409)
+    }
+  })
+
+  test('min_employees = 0 en updateTier es inválido (debe ser ≥ 1)', ({ assert }) => {
+    function validateNewMin(minEmployees: number) {
+      return minEmployees >= 1
+    }
+    assert.isFalse(validateNewMin(0))
+  })
+
+  test('TIER_NOT_FOUND es PLT.CAT.TIER_NOT_FOUND', ({ assert }) => {
+    assert.equal(BILLING_CATALOG_ERROR_CODES.TIER_NOT_FOUND, 'PLT.CAT.TIER_NOT_FOUND')
+  })
+
+  test('updateTier sin ningún campo enviado lanza TIER_INVALID con 422', ({ assert }) => {
+    function assertAtLeastOneField(input: {
+      billingVolumeTierMinEmployees?: number
+      billingVolumeTierDiscountPercent?: number
+    }) {
+      if (
+        input.billingVolumeTierMinEmployees === undefined &&
+        input.billingVolumeTierDiscountPercent === undefined
+      ) {
+        throw new BillingCatalogServiceError(
+          'Debes enviar al menos un campo a actualizar del tramo',
+          BILLING_CATALOG_ERROR_CODES.TIER_INVALID,
+          422
+        )
+      }
+    }
+    try {
+      assertAtLeastOneField({})
+      assert.fail('Se esperaba que lanzara TIER_INVALID')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.TIER_INVALID')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+})

@@ -96,23 +96,11 @@ export default class BadgeBulkService {
       )
     }
 
-    const logoCache = new Map<number, Buffer | null>()
-
     if (input.formato === 'png') {
-      await this.streamBulkZip(employees, logoCache, input.response)
+      await this.streamBulkZip(employees, input.response)
     } else {
-      await this.streamBulkPdf(employees, logoCache, input.response)
+      await this.streamBulkPdf(employees, input.response)
     }
-  }
-
-  private async resolveLogoBuffer(context: BadgeEmployeeContext, cache: Map<number, Buffer | null>) {
-    if (cache.has(context.businessUnitId)) {
-      return cache.get(context.businessUnitId)!
-    }
-
-    const buffer = await this.renderService.fetchImageTolerant(context.systemSettingLogo)
-    cache.set(context.businessUnitId, buffer)
-    return buffer
   }
 
   private setBinaryHeaders(
@@ -128,7 +116,6 @@ export default class BadgeBulkService {
 
   private async streamBulkPdf(
     employees: BadgeEmployeeContext[],
-    logoCache: Map<number, Buffer | null>,
     response: HttpContext['response']
   ): Promise<void> {
     this.setBinaryHeaders(response, 'application/pdf', buildBulkDownloadFilename('pdf'))
@@ -143,8 +130,7 @@ export default class BadgeBulkService {
         }
 
         const { x, y } = computeBadgeCellPosition(index)
-        const logoBuffer = await this.resolveLogoBuffer(employee, logoCache)
-        const renderContext = await this.badgeService.buildRenderContext(employee, logoBuffer)
+        const renderContext = await this.badgeService.buildRenderContext(employee)
         const pngBuffer = await this.renderService.renderBadgePng(renderContext)
 
         doc.image(pngBuffer, x, y, { width: BULK_CELL_WIDTH, height: BULK_CELL_HEIGHT })
@@ -161,7 +147,6 @@ export default class BadgeBulkService {
 
   private async streamBulkZip(
     employees: BadgeEmployeeContext[],
-    logoCache: Map<number, Buffer | null>,
     response: HttpContext['response']
   ): Promise<void> {
     this.setBinaryHeaders(response, 'application/zip', buildBulkDownloadFilename('png'))
@@ -171,8 +156,7 @@ export default class BadgeBulkService {
 
     try {
       for (const employee of employees) {
-        const logoBuffer = await this.resolveLogoBuffer(employee, logoCache)
-        const renderContext = await this.badgeService.buildRenderContext(employee, logoBuffer)
+        const renderContext = await this.badgeService.buildRenderContext(employee)
         const pngBuffer = await this.renderService.renderBadgePng(renderContext)
         const entryName = `${employee.employeeId}-${sanitizeBulkEntryName(
           renderContext.nombreCompleto

@@ -39,7 +39,6 @@ import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import SystemSettingsEmployee from '#models/system_settings_employee'
 import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
@@ -51,6 +50,12 @@ import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
 import Holiday from '#models/holiday'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
+import EmployeeQuotaService from './employee_quota_service.js'
+import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
+import {
+  employeeImportQuotaExceededError,
+  employeeImportQuotaNoPlanError,
+} from '../helpers/employee_quota_api_error.js'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
@@ -115,6 +120,7 @@ const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
 export default class EmployeeService {
 
   private i18n: I18n
+  private readonly quotaService = new EmployeeQuotaService()
 
   constructor(i18n: I18n) {
     this.i18n = i18n
@@ -202,11 +208,7 @@ export default class EmployeeService {
     try {
       // Verificar límite de empleados dentro del try-catch
       const businessUnitId = employee.businessUnitId || 1
-      const limitCheck = await this.verifyEmployeeLimit(businessUnitId)
-
-      if (limitCheck.status !== 200) {
-        throw new Error(limitCheck.message)
-      }
+      await this.verifyEmployeeLimit(businessUnitId)
 
       const newEmployee = new Employee()
 
@@ -476,6 +478,7 @@ export default class EmployeeService {
       })
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('address')
@@ -692,11 +695,6 @@ export default class EmployeeService {
     const personIdCandidate = employee.personId || null
 
     try {
-      // Verificar límite de empleados dentro del try-catch
-      const limitCheck = await this.verifyEmployeeLimit(employee.businessUnitId)
-      if (limitCheck.status !== 200) {
-        throw new Error(limitCheck.message)
-      }
       const newEmployee = new Employee()
       newEmployee.employeeFirstName = employee.employeeFirstName
       newEmployee.employeeLastName = employee.employeeLastName
@@ -724,6 +722,9 @@ export default class EmployeeService {
       newEmployee.companyId = employee.companyId
       newEmployee.departmentId = employee.departmentId
       newEmployee.positionId = employee.positionId
+      // Nivel del puesto (USRH1785964117188): el controller ya validó la
+      // pertenencia; `syncCreate` (biométricos) no lo trae y nace con NULL.
+      newEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
       newEmployee.personId = employee.personId
       newEmployee.businessUnitId = employee.businessUnitId
       newEmployee.dailySalary = employee.dailySalary || 0
@@ -749,6 +750,7 @@ export default class EmployeeService {
       // Alta todo-o-nada (USRH1785436961832): empleado, slug y responsables
       // en una sola transacción — un fallo en cualquier paso revierte todo.
       await db.transaction(async (trx) => {
+        await this.verifyEmployeeLimit(employee.businessUnitId, trx)
         newEmployee.useTransaction(trx)
         await newEmployee.save()
         await this.updateEmployeeSlug(newEmployee, trx)
@@ -821,6 +823,12 @@ export default class EmployeeService {
     currentEmployee.companyId = employee.companyId
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
+    // Nivel del puesto (USRH1785964117188): propiedad ausente = conservar el
+    // nivel actual; el controller solo la fija cuando el payload la trajo
+    // (null explícito = limpiar). No copiar `?? null` a ciegas.
+    if ('positionLevelConfigId' in employee) {
+      currentEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
+    }
     currentEmployee.businessUnitId = employee.businessUnitId
     currentEmployee.dailySalary = salarioNuevo
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
@@ -868,10 +876,13 @@ export default class EmployeeService {
     }
     currentEmployee.employeePhoto = photoUrl
     await currentEmployee.save()
+    // `positionLevelConfig` viaja también aquí: esta respuesta reemplaza el
+    // item del listado en el BO — sin él, subir foto borraría el nivel del card.
     return Employee.query()
       .preload('person')
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .where('employee_id', employeeId)
       .first()
   }
@@ -1044,11 +1055,7 @@ export default class EmployeeService {
    * @returns Promise<Employee>
    */
   async reactivate(currentEmployee: Employee) {
-    // Verificar límite de empleados antes de reactivar
-    const limitCheck = await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
-    if (limitCheck.status !== 200) {
-      throw new Error(limitCheck.message)
-    }
+    await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
 
     // Restaurar el empleado eliminado
     await currentEmployee.restore()
@@ -1068,6 +1075,7 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('payrollBusinessUnit')
@@ -1106,6 +1114,7 @@ export default class EmployeeService {
       )
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('payrollBusinessUnit')
@@ -2647,106 +2656,20 @@ export default class EmployeeService {
    * @param businessUnitId - ID de la unidad de negocio
    * @returns Promise<{status: number, type: string, title: string, message: string, data: any}>
    */
-  async verifyEmployeeLimit(businessUnitId: number): Promise<{status: number, type: string, title: string, message: string, data: any}> {
-    try {
-      // Obtener el límite de empleados para la unidad de negocio
-      const employeeLimit = await this.getEmployeeLimitForBusinessUnit(businessUnitId)
+  async verifyEmployeeLimit(
+    businessUnitId: number,
+    trx?: TransactionClientContract
+  ): Promise<{ status: number; type: string; title: string; message: string; data: Record<string, unknown> }> {
+    await this.quotaService.assertWithinQuota(businessUnitId, 1, trx)
+    const quota = await this.quotaService.resolveQuota(businessUnitId, trx)
+    const active = await this.quotaService.countActiveEmployees(businessUnitId, trx)
 
-      if (employeeLimit === null) {
-        // No hay límite establecido, permitir creación
-        return {
-          status: 200,
-          type: 'success',
-          title: 'Employee limit verification',
-          message: 'No employee limit is set for this business unit',
-          data: { businessUnitId, limit: null }
-        }
-      }
-
-      // Contar empleados activos en la unidad de negocio
-      const activeEmployees = await Employee.query()
-        .whereNull('employee_deleted_at')
-        .where('businessUnitId', businessUnitId)
-      const activeEmployeesCount = activeEmployees.length
-
-      if (activeEmployeesCount >= employeeLimit) {
-        return {
-          status: 400,
-          type: 'warning',
-          title: 'Employee limit exceeded',
-          message: `Cannot create employee. The business unit has reached its limit of ${employeeLimit} employees. Current count: ${activeEmployeesCount}`,
-          data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
-        }
-      }
-
-      return {
-        status: 200,
-        type: 'success',
-        title: 'Employee limit verification',
-        message: 'Employee can be created within the established limit',
-        data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
-      }
-    } catch (error) {
-      return {
-        status: 400,
-        type: 'error',
-        title: 'Error verifying employee limit',
-        message: 'An error occurred while verifying the employee limit',
-        data: { businessUnitId, error: error.message }
-      }
-    }
-  }
-
-  /**
-   * Obtener el límite de empleados para una unidad de negocio específica
-   * @param businessUnitId - ID de la unidad de negocio
-   * @returns Promise<number | null>
-   */
-  private async getEmployeeLimitForBusinessUnit(businessUnitId: number): Promise<number | null> {
-    try {
-      // Obtener el slug de la unidad de negocio del empleado (USRH1783821206455:
-      // ya no se empareja contra la lista global, sino contra la unidad concreta).
-      const businessUnit = await BusinessUnit.find(businessUnitId)
-      if (!businessUnit) {
-        console.error('Business unit not found:', businessUnitId)
-        return null
-      }
-
-      // Buscar el system_setting que contenga la unidad de negocio
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .select('system_setting_id', 'system_setting_business_units')
-
-      let matchingSystemSettingId: number | null = null
-
-      for (const setting of systemSettings) {
-        const settingBusinessUnits = setting.systemSettingBusinessUnits.split(',').map((unit: string) => unit.trim())
-
-        // Verificar si el setting incluye la unidad de negocio del empleado
-        const hasMatch = settingBusinessUnits.includes(businessUnit.businessUnitSlug)
-
-        if (hasMatch) {
-          matchingSystemSettingId = setting.systemSettingId
-          break
-        }
-      }
-
-      if (!matchingSystemSettingId) {
-        return null
-      }
-
-      // Buscar el límite de empleados activo para el system_setting encontrado
-      const result = await SystemSettingsEmployee.query()
-        .where('is_active', 1)
-        .where('system_setting_id', matchingSystemSettingId)
-        .whereNull('system_setting_employee_deleted_at')
-        .first()
-
-      return result ? result.employeeLimit : null
-    } catch (error) {
-      console.error('Error getting employee limit for business unit:', error)
-      return null
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Employee limit verification',
+      message: 'Employee can be created within the established limit',
+      data: { limit: quota.limit, currentCount: active },
     }
   }
 
@@ -2828,14 +2751,12 @@ export default class EmployeeService {
         existingEmployees.map((emp) => [emp.employeeId, emp])
       )
 
-      // Verificar límite de empleados (se verificará por unidad de negocio individual)
-
+      // Índice O(1) por ID para `findExistingEmployeeForImport`
       let totalRows = 0
       let processed = 0
       let created = 0
       let updated = 0
       let skipped = 0
-      let limitReached = false
       const rowErrors: EmployeeImportRowError[] = []
       const warnings: string[] = []
 
@@ -2984,55 +2905,11 @@ export default class EmployeeService {
         }
       }
 
-      // Verificar límite general de empleados
-      if (newEmployeesCount > 0) {
-        // Obtener el límite general del sistema (usando la primera unidad de negocio como referencia)
-        const firstBusinessUnit = businessUnits[0]
-        const employeeLimit = firstBusinessUnit ? await this.getEmployeeLimitForBusinessUnit(firstBusinessUnit.businessUnitId) : null
+      await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
 
-        if (employeeLimit) {
-          const currentTotalCount = await Employee.query()
-            .whereNull('deletedAt')
-            .count('* as total')
-          const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
+      const createdEmployees: Employee[] = []
 
-          if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
-            limitReached = true
-            warnings.push(
-              `Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`
-            )
-          }
-        }
-      }
-
-      // Si se alcanzó el límite, no procesar más empleados nuevos
-      if (limitReached) {
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
-          if (!isUpdate) {
-            skipped++
-            warnings.push(
-              `Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`
-            )
-            continue
-          }
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
-          if (!existingEmployee) continue
-          try {
-            await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-            if (employeeData.employeeWorkScheduleHybridAttempt) {
-              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
-            }
-            updated++
-            processed++
-          } catch (error: any) {
-            skipped++
-            rowErrors.push({ row: rowNumber, message: error.message })
-          }
-        }
-      } else {
-        const createdEmployees: Employee[] = []
-
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
+      for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
           try {
             if (isUpdate) {
               const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
@@ -3106,7 +2983,6 @@ export default class EmployeeService {
             warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
           }
         }
-      }
 
       return this.finalizeEmployeeImportResult({
         totalRows,
@@ -3114,7 +2990,7 @@ export default class EmployeeService {
         created,
         updated,
         skipped,
-        limitReached,
+        limitReached: false,
         rowErrors,
         warnings,
       })
@@ -3126,7 +3002,62 @@ export default class EmployeeService {
       if (error.isHeaderValidationError || error.isRowLimitError) {
         throw error
       }
+      if (error instanceof EmployeeQuotaError) {
+        throw error
+      }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
+    }
+  }
+
+  /**
+   * Empresa activa para cupo en importación masiva (USRH1785441818458).
+   * Solo el scope del request (`allowedBusinessUnitIds` / middleware businessScope),
+   * nunca la primera unidad del listado Excel (`businessUnits[0]`).
+   */
+  private resolveImportScopeBusinessUnitId(allowedBusinessUnitIds: number[]): number {
+    const scopedIds = allowedBusinessUnitIds.filter((id) => Number.isFinite(id) && id > 0)
+    if (scopedIds.length === 1) {
+      return scopedIds[0]
+    }
+    if (scopedIds.length > 1) {
+      throw new Error(
+        'El scope de empresa para validar el cupo de la importación debe ser una sola unidad de negocio'
+      )
+    }
+
+    const contextScope = TenantContext.getScope().filter((id) => Number.isFinite(id) && id > 0)
+    if (contextScope.length === 1) {
+      return contextScope[0]
+    }
+
+    throw new Error(
+      'No se pudo resolver la empresa activa para validar el cupo de la importación'
+    )
+  }
+
+  /**
+   * Cupo de empleados en carga masiva: todo-o-nada antes de la pasada 2 (USRH1785441818458).
+   * Usa la misma fuente que el alta individual; solo evalúa filas de alta nueva.
+   */
+  private async assertImportWithinQuota(
+    allowedBusinessUnitIds: number[],
+    newEmployeesCount: number
+  ): Promise<void> {
+    if (newEmployeesCount <= 0) {
+      return
+    }
+
+    const businessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+
+    const quota = await this.quotaService.resolveQuota(businessUnitId)
+    const active = await this.quotaService.countActiveEmployees(businessUnitId)
+
+    if (quota.source === 'no_plan') {
+      throw employeeImportQuotaNoPlanError(active, newEmployeesCount)
+    }
+
+    if (quota.limit !== null && active + newEmployeesCount > quota.limit) {
+      throw employeeImportQuotaExceededError(quota.limit, active, newEmployeesCount)
     }
   }
 

@@ -19,6 +19,9 @@ router
     router
       .get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getDaysWorkDisabilityAll))
+    router.get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
+    router.get('/quota', '#controllers/employee_controller.getQuota')
+    router.get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
     router.get('/get-birthday', '#controllers/employee_controller.getBirthday')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBirthday))
     router.get('/get-anniversary', '#controllers/employee_controller.getAnniversary')
