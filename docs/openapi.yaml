@@ -3695,13 +3695,122 @@ components:
           type: object
           nullable: true
 
+    EmployeeImportQuotaApiError:
+      type: object
+      description: |
+        Rechazo por cupo en carga masiva (USRH1785441818458). Todo-o-nada: no se aplica
+        ninguna fila del archivo (ni altas ni correcciones).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+          enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+        code:
+          type: string
+          enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+        data:
+          type: object
+          description: Solo cantidades; nunca identificadores internos de empresa
+          properties:
+            contracted:
+              type: integer
+              description: Cupo efectivo (contratación o legacy)
+            active:
+              type: integer
+              description: Empleados vigentes al momento del rechazo
+            incoming:
+              type: integer
+              description: Altas nuevas detectadas en el archivo (filas sin ID Empleado)
+
+    EmployeeQuotaMeData:
+      type: object
+      description: Cupo efectivo y conteo de vigentes para la empresa activa (USRH1785441819658).
+      properties:
+        limit:
+          type: integer
+          nullable: true
+          description: Cupo máximo; null cuando la empresa no tiene tope configurado
+        active:
+          type: integer
+          description: Empleados vigentes al momento de la consulta
+        remaining:
+          type: integer
+          nullable: true
+          description: Lugares restantes; null si limit es null; puede ser negativo si ya excedía
+        hasPlan:
+          type: boolean
+          description: false cuando la empresa self-service no tiene contratación viva
+
 paths:
+  /api/employees/quota:
+    get:
+      summary: Consultar cupo de empleados de la empresa activa
+      description: |
+        Lectura del cupo efectivo y del conteo de empleados vigentes. Requiere Bearer token
+        y header X-Business-Unit-Id. No expone el origen del cupo ni identificadores internos.
+      tags: [Employees]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Cupo resuelto
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/EmployeeQuotaMeData'
+        '400':
+          description: Falta header X-Business-Unit-Id
+        '401':
+          description: No autenticado
+        '404':
+          description: Empresa fuera de alcance o inexistente
+
   /api/employees/import-excel:
     post:
       summary: Importar empleados desde archivo Excel
       description: |
         Carga masiva de empleados. Requiere Bearer token y header X-Business-Unit-Id.
         La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado.
+        Si el archivo incluye altas nuevas y rebasa el cupo efectivo, responde **409** y
+        no aplica ninguna fila (todo-o-nada). Un archivo con solo correcciones no evalúa cupo.
       tags: [Employees]
       security:
         - bearerAuth: []
@@ -3770,6 +3879,8 @@ paths:
                             type: integer
                           limitReached:
                             type: boolean
+                            deprecated: true
+                            description: Siempre false. Si el cupo no alcanza, la API responde 409 sin escribir nada.
                       rowErrors:
                         type: array
                         items:
@@ -3850,6 +3961,39 @@ paths:
                       multipartField: file
                       acceptedExtensions: ['.xlsx', '.xls']
                       contentType: multipart/form-data
+        '409':
+          description: |
+            El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+            No se aplica ninguna fila del Excel (todo-o-nada).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeImportQuotaApiError'
+              examples:
+                cupoRebasado:
+                  value:
+                    type: error
+                    title: El archivo rebasa tu cupo de empleados
+                    message: El archivo daría de alta 5 empleados y solo te quedan 2 lugares.
+                    detail: 'Contratados: 20. Vigentes: 18. Altas en el archivo: 5. No se aplicó ninguna línea del archivo; escríbenos a hola@valanserh.com para ampliar tu cupo.'
+                    key: cupo-empleados-agotado-importacion
+                    code: EMP.IMPORT.QUOTA_EXCEEDED
+                    data:
+                      contracted: 20
+                      active: 18
+                      incoming: 5
+                sinPlan:
+                  value:
+                    type: error
+                    title: No tienes un plan vigente
+                    message: No se aplicó ninguna línea del archivo porque tu empresa no tiene un plan vigente.
+                    detail: El archivo traía 3 altas y no se aplicó ninguna. Escríbenos a hola@valanserh.com para activar tu plan y vuelve a subirlo.
+                    key: sin-plan-contratado-importacion
+                    code: EMP.IMPORT.NO_PLAN
+                    data:
+                      contracted: 0
+                      active: 12
+                      incoming: 3
         '500':
           description: Error inesperado del servidor
           content:
