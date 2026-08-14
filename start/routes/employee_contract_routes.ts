@@ -1,12 +1,19 @@
 /* eslint-disable prettier/prettier */
 import router from '@adonisjs/core/services/router'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { middleware } from '#start/kernel'
 
 router
   .group(() => {
-    router.post('/', '#controllers/employee_contract_controller.store')
-    router.put('/:employeeContractId', '#controllers/employee_contract_controller.update')
-    router.delete('/:employeeContractId', '#controllers/employee_contract_controller.delete')
+    router
+      .post('/', '#controllers/employee_contract_controller.store')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeContract))
+    router
+      .put('/:employeeContractId', '#controllers/employee_contract_controller.update')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeContract))
+    router
+      .delete('/:employeeContractId', '#controllers/employee_contract_controller.delete')
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeContract))
     router.get('/:employeeContractId', '#controllers/employee_contract_controller.show')
     router
       .get('/:employeeContractId/download', '#controllers/employee_contract_controller.download')

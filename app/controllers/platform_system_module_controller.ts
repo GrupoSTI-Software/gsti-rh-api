@@ -1,6 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import PlatformSystemModuleService from '#services/platform_system_module_service'
-import { updateSystemModuleActiveValidator } from '#validators/platform_system_module'
+import {
+  updateSystemModuleActiveValidator,
+  updateSystemModulePermissionEnforcementValidator,
+} from '#validators/platform_system_module'
 import { resolvePlatformSystemModuleApiError } from '../helpers/platform_system_module_api_error.js'
 
 /**
@@ -82,6 +85,61 @@ export default class PlatformSystemModuleController {
     try {
       const { active } = await request.validateUsing(updateSystemModuleActiveValidator)
       const systemModule = await this.service.setActive(Number(params.systemModuleId), active)
+      return response.status(200).json({ type: 'success', data: { systemModule } })
+    } catch (error) {
+      const { status, ...body } = resolvePlatformSystemModuleApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/system-modules/{systemModuleId}/permission-enforcement:
+   *   put:
+   *     tags:
+   *       - Platform System Modules
+   *     summary: Encender o apagar la exigencia de permisos del módulo
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: systemModuleId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - active
+   *             properties:
+   *               active:
+   *                 type: boolean
+   *                 description: Estado deseado de la exigencia de permisos
+   *     responses:
+   *       '200':
+   *         description: Módulo actualizado con su enforcement
+   *       '401':
+   *         description: Sin autenticar
+   *       '403':
+   *         description: Usuario sin marcador de plataforma
+   *       '404':
+   *         description: Módulo no encontrado
+   *       '422':
+   *         description: Body inválido
+   */
+  async updatePermissionEnforcement({ params, request, response }: HttpContext) {
+    try {
+      const { active } = await request.validateUsing(
+        updateSystemModulePermissionEnforcementValidator
+      )
+      const systemModule = await this.service.setPermissionEnforcement(
+        Number(params.systemModuleId),
+        active
+      )
       return response.status(200).json({ type: 'success', data: { systemModule } })
     } catch (error) {
       const { status, ...body } = resolvePlatformSystemModuleApiError(error)
