@@ -49,9 +49,6 @@ export interface BadgeRenderContext {
   fotoUrl: string | null
   empresa: string
   puesto: string | null
-  logoUrl: string | null
-  /** Si se provee, evita descargar `logoUrl` (reutilización en lote E6). */
-  logoBuffer?: Buffer | null
   folioRepse: string | null
   folioVigente: boolean | null
   urlVerificacion: string
@@ -66,11 +63,8 @@ export default class BadgeRenderService {
   async renderBadgePng(input: BadgeRenderContext): Promise<Buffer> {
     this.ensureFontsRegistered()
 
-    const [fotoBuffer, logoBuffer, qrBuffer] = await Promise.all([
+    const [fotoBuffer, qrBuffer] = await Promise.all([
       this.fetchImageTolerant(input.fotoUrl),
-      input.logoBuffer !== undefined
-        ? Promise.resolve(input.logoBuffer)
-        : this.fetchImageTolerant(input.logoUrl),
       QRCode.toBuffer(input.urlVerificacion, { margin: 0, width: 512 }),
     ])
 
@@ -82,10 +76,9 @@ export default class BadgeRenderService {
 
     const hasFolio = !!input.folioRepse
     const fotoImage = fotoBuffer ? await this.tryLoadImage(fotoBuffer) : null
-    const logoImage = logoBuffer ? await this.tryLoadImage(logoBuffer) : null
     const qrImage = await loadImage(qrBuffer)
 
-    this.renderTopStrip(ctx, logoImage, hasFolio)
+    this.renderTopStrip(ctx, hasFolio)
     this.renderPhoto(ctx, fotoImage)
     this.renderNameCompanyAndPosition(ctx, input, hasFolio)
 
@@ -105,28 +98,20 @@ export default class BadgeRenderService {
   // Render
   // ---------------------------------------------------------------------------
 
-  private renderTopStrip(
-    ctx: BadgeCanvasContext,
-    logoImage: Awaited<ReturnType<typeof loadImage>> | null,
-    hasFolio: boolean
-  ) {
+  /** Franja sin logo (decisión de producto): solo el rótulo del tipo de gafete, alineado a la izquierda. */
+  private renderTopStrip(ctx: BadgeCanvasContext, hasFolio: boolean) {
     const stripH = this.s(22)
     const stripColor = hasFolio ? BRAND_COLORS.primary : BRAND_COLORS.internalHeader
 
     ctx.fillStyle = stripColor
     ctx.fillRect(0, 0, CANVAS_WIDTH, stripH)
 
-    if (logoImage) {
-      this.drawImageFit(ctx, logoImage, this.s(8), this.s(3), this.s(60), this.s(16))
-    }
-
     const headerText = hasFolio ? 'PERSONAL ESPECIALIZADO' : 'IDENTIFICACIÓN INTERNA'
     ctx.font = `${this.s(6.5)}px "${FONT_BOLD}"`
     ctx.fillStyle = BRAND_COLORS.textLight
-    ctx.textAlign = 'right'
-    ctx.textBaseline = 'alphabetic'
-    ctx.fillText(headerText, CANVAS_WIDTH - this.s(8), this.s(7) + this.s(6.5))
     ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillText(headerText, this.s(8), this.s(7) + this.s(6.5))
   }
 
   private renderPhoto(
@@ -369,20 +354,6 @@ export default class BadgeRenderService {
     } catch {
       return null
     }
-  }
-
-  private drawImageFit(
-    ctx: BadgeCanvasContext,
-    image: Awaited<ReturnType<typeof loadImage>>,
-    x: number,
-    y: number,
-    maxW: number,
-    maxH: number
-  ) {
-    const scale = Math.min(maxW / image.width, maxH / image.height)
-    const w = image.width * scale
-    const h = image.height * scale
-    ctx.drawImage(image, x, y, w, h)
   }
 
   private drawWrappedText(

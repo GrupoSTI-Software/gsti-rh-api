@@ -325,3 +325,88 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
     assert.equal(subscription.firstPaymentDate, trialEndsAt)
   })
 })
+
+test.group(
+  'GET /api/billing/subscription/me — minimumContractedEmployees (USRH1785441822058)',
+  () => {
+    test('devuelve el mínimo solo para self_service sin suscripción viva', async ({
+      client,
+      assert,
+    }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-minimum',
+        origin: 'self_service',
+      })
+
+      try {
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        const data = response.body().data
+        assert.equal(data.businessUnitOrigin, 'self_service')
+        assert.isNull(data.subscription)
+        assert.equal(data.minimumContractedEmployees, 10)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+
+    test('devuelve null con suscripción viva self_service', async ({ client, assert }) => {
+      const stamp = Date.now()
+      const planId = await createPublishedPlan(stamp)
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-min-live',
+        origin: 'self_service',
+      })
+
+      const subscriptionService = new BillingSubscriptionService()
+      let subscriptionId: number | null = null
+
+      try {
+        const live = await subscriptionService.createSubscription({
+          businessUnitPublicId: actor.businessUnit.businessUnitPublicId,
+          billingPlanId: planId,
+          contractedEmployees: 20,
+        })
+        subscriptionId = live.billingSubscriptionId
+
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.isObject(response.body().data.subscription)
+        assert.isNull(response.body().data.minimumContractedEmployees)
+      } finally {
+        await cleanupSubscription(subscriptionId)
+        await cleanupPlan(planId)
+        await cleanupTenantActor(actor)
+      }
+    })
+
+    test('devuelve null para empresa platform sin suscripción viva', async ({ client, assert }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-min-platform',
+        origin: 'platform',
+      })
+
+      try {
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.equal(response.body().data.businessUnitOrigin, 'platform')
+        assert.isNull(response.body().data.subscription)
+        assert.isNull(response.body().data.minimumContractedEmployees)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+  }
+)
