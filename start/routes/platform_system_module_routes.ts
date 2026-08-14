@@ -10,6 +10,7 @@ import { middleware } from '../kernel.js'
  *
  *   GET /api/platform/system-modules                    → listar todos (incl. inactivos)
  *   PUT /api/platform/system-modules/:systemModuleId/active → togglear disponibilidad
+ *   PUT /api/platform/system-modules/:systemModuleId/permission-enforcement → togglear enforcement
  *
  * Ref: USRH1784573245783.
  */
@@ -19,6 +20,10 @@ router
     router.put(
       '/:systemModuleId/active',
       '#controllers/platform_system_module_controller.updateActive'
+    )
+    router.put(
+      '/:systemModuleId/permission-enforcement',
+      '#controllers/platform_system_module_controller.updatePermissionEnforcement'
     )
   })
   .prefix('/api/platform/system-modules')

@@ -13,7 +13,8 @@ import { middleware } from '../kernel.js'
  *   POST   /api/platform/billing/plans                    → crear (borrador)
  *   PATCH  /api/platform/billing/plans/:planId            → editar metadatos
  *   DELETE /api/platform/billing/plans/:planId            → soft-delete
- *   POST   /api/platform/billing/plans/:planId/publish    → publicar (irreversible)
+ *   POST   /api/platform/billing/plans/:planId/publish    → publicar (irreversible; descarta hermanas del linaje)
+ *   POST   /api/platform/billing/plans/:planId/deactivate → retirar del catálogo (irreversible, no toca suscripciones)
  *   POST   /api/platform/billing/plans/:planId/clone      → clonar como borrador
  *   GET    /api/platform/billing/plans/:planId/resolved-price → precio determinista
  *
@@ -46,6 +47,7 @@ router
     router.patch('/plans/:planId', '#controllers/billing_plan_controller.update')
     router.delete('/plans/:planId', '#controllers/billing_plan_controller.destroy')
     router.post('/plans/:planId/publish', '#controllers/billing_plan_controller.publish')
+    router.post('/plans/:planId/deactivate', '#controllers/billing_plan_controller.deactivate')
     router.post('/plans/:planId/clone', '#controllers/billing_plan_controller.clone')
     router.get('/plans/:planId/resolved-price', '#controllers/billing_plan_controller.resolvedPrice')
 

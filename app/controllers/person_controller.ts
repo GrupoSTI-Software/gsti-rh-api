@@ -4,6 +4,17 @@ import Person from '#models/person'
 import PersonService from '#services/person_service'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
 import User from '#models/user'
+import { personIsCollaborator } from '#helpers/person_is_collaborator'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { sessionUserOwnsPerson } from '#helpers/session_user_owns_employee'
+import {
+  EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION,
+  EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION,
+} from '#constants/employees_write_permission_declarations'
+import {
+  EMPLOYEES_READ_PERMISSION_DECLARATIONS,
+  EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION,
+} from '#constants/employees_read_permission_declarations'
 
 export default class PersonController {
   /**
@@ -515,7 +526,8 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     try {
       const personId = request.param('personId')
       const personFirstname = request.input('personFirstname')
@@ -554,13 +566,22 @@ export default class PersonController {
         personPlaceOfBirthState: personPlaceOfBirthState,
         personPlaceOfBirthCity: personPlaceOfBirthCity,
       } as Person
-      if (!personId) {
+      if (!personId || !Number.isInteger(Number(personId))) {
         response.status(400)
         return {
           type: 'warning',
           title: 'The person Id was not found',
           message: 'Missing data to process',
           data: { ...person },
+        }
+      }
+      if (await personIsCollaborator(Number(personId))) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const currentPerson = await Person.query()
@@ -731,16 +752,26 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     try {
       const personId = request.param('personId')
-      if (!personId) {
+      if (!personId || !Number.isInteger(Number(personId))) {
         response.status(400)
         return {
           type: 'warning',
           title: 'The person Id was not found',
           message: 'Missing data to process',
           data: { personId },
+        }
+      }
+      if (await personIsCollaborator(Number(personId))) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const currentPerson = await Person.query()
@@ -877,7 +908,8 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     try {
       const personId = request.param('personId')
       if (!personId) {
@@ -887,6 +919,19 @@ export default class PersonController {
           title: 'The person Id was not found',
           message: 'Missing data to process',
           data: { personId },
+        }
+      }
+      const personIdNumber = Number(personId)
+      if (
+        !sessionUserOwnsPerson(ctx.auth.user, personIdNumber) &&
+        (await personIsCollaborator(personIdNumber))
+      ) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const personService = new PersonService(i18n)
@@ -1018,7 +1063,8 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async getEmployee({ request, response, i18n }: HttpContext) {
+  async getEmployee(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     try {
       const personId = request.param('personId')
       if (!personId) {
@@ -1028,6 +1074,19 @@ export default class PersonController {
           title: 'The person Id was not found',
           message: 'Missing data to process',
           data: { personId },
+        }
+      }
+      const personIdNumber = Number(personId)
+      if (
+        !sessionUserOwnsPerson(ctx.auth.user, personIdNumber) &&
+        (await personIsCollaborator(personIdNumber))
+      ) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeByPerson
+        )
+        if (!allowed) {
+          return
         }
       }
       const personService = new PersonService(i18n)

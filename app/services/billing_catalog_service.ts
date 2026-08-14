@@ -41,6 +41,7 @@ export interface CreateTierInput {
 }
 
 export interface UpdateTierInput {
+  billingVolumeTierMinEmployees?: number
   billingVolumeTierDiscountPercent?: number
 }
 
@@ -118,12 +119,36 @@ export default class BillingCatalogService {
   async updatePlan(planId: number, input: UpdatePlanInput): Promise<BillingPlan> {
     const plan = await this.getPlan(planId)
 
-    if (input.billingPlanName !== undefined) plan.billingPlanName = input.billingPlanName
+    if (input.billingPlanName !== undefined) {
+      if (plan.isPublished) {
+        throw new BillingCatalogServiceError(
+          `No se puede renombrar el plan publicado ${planId}`,
+          BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+          422,
+          'PLT.CAT.PLAN_NAME_IMMUTABLE',
+          'El nombre de un plan publicado es inmutable. Clona el plan para ofrecerlo con otro nombre.'
+        )
+      }
+      plan.billingPlanName = input.billingPlanName
+    }
     if (input.billingPlanDescription !== undefined)
       plan.billingPlanDescription = input.billingPlanDescription
     if (input.billingPlanStripeProductId !== undefined)
       plan.billingPlanStripeProductId = input.billingPlanStripeProductId
-    if (input.billingPlanActive !== undefined) plan.billingPlanActive = input.billingPlanActive
+
+    // El estado de venta (billingPlanActive) no se edita por esta vía: tiene
+    // endpoints dedicados (`/publish` y `/deactivate`). Solo se rechaza
+    // explícitamente el intento de reactivar (0 → 1); cualquier otro valor
+    // enviado aquí se ignora en silencio.
+    if (input.billingPlanActive === 1 && plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        `No se puede reactivar el plan ${planId}`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_REACTIVATION_FORBIDDEN,
+        422,
+        'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN',
+        'Un plan retirado no se puede reactivar. Para volver a ofrecerlo, clónalo y publica la copia.'
+      )
+    }
 
     await plan.save()
     return plan
@@ -187,10 +212,23 @@ export default class BillingCatalogService {
     await db.transaction(async (trx) => {
       // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
       // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
+      // Además se descartan las demás copias en borrador del mismo padre, para
+      // garantizar una sola oferta viva por linaje aun con datos previos a las
+      // restricciones de clonePlan (copias sin linaje, copias hermanas antiguas).
       if (plan.billingPlanParentId) {
         await BillingPlan.query({ client: trx })
           .where('billing_plan_id', plan.billingPlanParentId)
           .update({ billing_plan_active: 0 })
+
+        const siblingDrafts = await BillingPlan.query({ client: trx })
+          .where('billing_plan_parent_id', plan.billingPlanParentId)
+          .whereNull('billing_plan_published_at')
+          .whereNot('billing_plan_id', planId)
+
+        for (const sibling of siblingDrafts) {
+          sibling.useTransaction(trx)
+          await (sibling as unknown as { delete(): Promise<void> }).delete()
+        }
       }
 
       plan.billingPlanPublishedAt = DateTime.utc()
@@ -198,6 +236,40 @@ export default class BillingCatalogService {
       await plan.save()
     })
 
+    return plan
+  }
+
+  /**
+   * Retira del catálogo un plan publicado y vigente. Irreversible: no existe
+   * vía para reactivarlo (decisión de Wilvardo 2026-08-05). No toca
+   * `billing_subscriptions` — el trato congelado de quien ya lo contrató
+   * permanece intacto; el retiro solo afecta la venta futura.
+   */
+  async deactivatePlan(planId: number): Promise<BillingPlan> {
+    const plan = await this.getPlan(planId)
+
+    if (!plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} no está publicado, no se puede retirar`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_DEACTIVATE_REQUIRES_PUBLISHED,
+        422,
+        'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED',
+        'Solo se puede retirar un plan publicado y vigente. Un plan en borrador se descarta, no se retira.'
+      )
+    }
+
+    if (plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} ya está desactivado`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_DEACTIVATED,
+        422,
+        'PLT.CAT.PLAN_ALREADY_DEACTIVATED',
+        'Este plan ya fue retirado del catálogo.'
+      )
+    }
+
+    plan.billingPlanActive = 0
+    await plan.save()
     return plan
   }
 
@@ -320,6 +392,10 @@ export default class BillingCatalogService {
   /**
    * Agrega una nueva versión de precio al plan (append-only).
    * Solo inserta — nunca actualiza ni elimina filas existentes.
+   *
+   * Orden de validación: duplicado exacto → coherencia contra la vigente.
+   * "Hoy" siempre lo decide el servidor (`toBusinessDateString`); el cliente
+   * nunca lo envía ni puede influir en él.
    */
   async addPrice(planId: number, input: CreatePriceInput): Promise<BillingPlanPrice> {
     await this.getPlan(planId)
@@ -336,6 +412,28 @@ export default class BillingCatalogService {
         409,
         'PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE',
         'Ya existe una versión de precio con la misma fecha de vigencia.'
+      )
+    }
+
+    // Si el plan ya tiene una versión vigente (effective_from ≤ hoy), la
+    // nueva no puede quedar por detrás: reescribiría hacia atrás el precio
+    // de un periodo que ya transcurrió. Sin versión vigente (plan nuevo aún
+    // sin publicar) se acepta fecha pasada, porque publishPlan exige
+    // justamente un precio con effective_from ≤ hoy.
+    const today = toBusinessDateString()
+    const currentPrice = await BillingPlanPrice.query()
+      .where('billing_plan_id', planId)
+      .where('billing_plan_price_effective_from', '<=', today)
+      .orderBy('billing_plan_price_effective_from', 'desc')
+      .first()
+
+    if (currentPrice && input.billingPlanPriceEffectiveFrom < today) {
+      throw new BillingCatalogServiceError(
+        `Vigencia ${input.billingPlanPriceEffectiveFrom} anterior a hoy con versión vigente en plan ${planId}`,
+        BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_IN_PAST,
+        422,
+        'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST',
+        'La nueva versión de precio solo puede entrar en vigor a partir de hoy.'
       )
     }
 
@@ -387,20 +485,7 @@ export default class BillingCatalogService {
       )
     }
 
-    const duplicate = await BillingVolumeTier.query()
-      .where('billing_plan_id', planId)
-      .where('billing_volume_tier_min_employees', input.billingVolumeTierMinEmployees)
-      .first()
-
-    if (duplicate) {
-      throw new BillingCatalogServiceError(
-        `Ya existe un tramo con min_employees ${input.billingVolumeTierMinEmployees}`,
-        BILLING_CATALOG_ERROR_CODES.TIER_DUPLICATE,
-        409,
-        'PLT.CAT.TIER_DUPLICATE',
-        'Ya existe un tramo con el mismo mínimo de empleados en este plan.'
-      )
-    }
+    await this.assertMinEmployeesAvailable(planId, input.billingVolumeTierMinEmployees)
 
     return BillingVolumeTier.create({
       billingPlanId: planId,
@@ -434,10 +519,23 @@ export default class BillingCatalogService {
     if (!tier) {
       throw new BillingCatalogServiceError(
         `Tramo ${tierId} no encontrado en plan ${planId}`,
-        BILLING_CATALOG_ERROR_CODES.PLAN_NOT_FOUND,
+        BILLING_CATALOG_ERROR_CODES.TIER_NOT_FOUND,
         404,
         'PLT.CAT.TIER_NOT_FOUND',
         'El tramo solicitado no existe o fue eliminado.'
+      )
+    }
+
+    if (
+      input.billingVolumeTierMinEmployees === undefined &&
+      input.billingVolumeTierDiscountPercent === undefined
+    ) {
+      throw new BillingCatalogServiceError(
+        'Debes enviar al menos un campo a actualizar del tramo',
+        BILLING_CATALOG_ERROR_CODES.TIER_INVALID,
+        422,
+        'PLT.CAT.TIER_INVALID',
+        'Envía el mínimo de empleados y/o el porcentaje de descuento a actualizar.'
       )
     }
 
@@ -454,12 +552,64 @@ export default class BillingCatalogService {
       )
     }
 
+    if (input.billingVolumeTierMinEmployees !== undefined) {
+      if (input.billingVolumeTierMinEmployees < 1) {
+        throw new BillingCatalogServiceError(
+          'Tramo inválido: min_employees ≥ 1',
+          BILLING_CATALOG_ERROR_CODES.TIER_INVALID,
+          422,
+          'PLT.CAT.TIER_INVALID',
+          'El mínimo de empleados debe ser ≥ 1.'
+        )
+      }
+
+      if (input.billingVolumeTierMinEmployees !== tier.billingVolumeTierMinEmployees) {
+        await this.assertMinEmployeesAvailable(planId, input.billingVolumeTierMinEmployees, tierId)
+        tier.billingVolumeTierMinEmployees = input.billingVolumeTierMinEmployees
+      }
+    }
+
     if (input.billingVolumeTierDiscountPercent !== undefined) {
       tier.billingVolumeTierDiscountPercent = input.billingVolumeTierDiscountPercent
     }
 
     await tier.save()
     return tier
+  }
+
+  /**
+   * Verifica que `minEmployees` no esté reservado por otro tramo del mismo
+   * plan, considerando también los tramos eliminados lógicamente: la
+   * restricción UNIQUE de la base de datos (`billing_plan_id`,
+   * `billing_volume_tier_min_employees`) no distingue soft-delete, así que
+   * la validación previa debe verlos para dar un mensaje claro en vez de un
+   * error de base de datos sin traducir.
+   */
+  private async assertMinEmployeesAvailable(
+    planId: number,
+    minEmployees: number,
+    excludeTierId?: number
+  ): Promise<void> {
+    const query = BillingVolumeTier.query()
+      .withTrashed()
+      .where('billing_plan_id', planId)
+      .where('billing_volume_tier_min_employees', minEmployees)
+
+    if (excludeTierId !== undefined) {
+      query.whereNot('billing_volume_tier_id', excludeTierId)
+    }
+
+    const duplicate = await query.first()
+
+    if (duplicate) {
+      throw new BillingCatalogServiceError(
+        `Ya existe un tramo con min_employees ${minEmployees} en plan ${planId}`,
+        BILLING_CATALOG_ERROR_CODES.TIER_DUPLICATE,
+        409,
+        'PLT.CAT.TIER_DUPLICATE',
+        'Ya existe un tramo con el mismo mínimo de empleados en este plan (incluye tramos eliminados).'
+      )
+    }
   }
 
   async deleteTier(planId: number, tierId: number): Promise<void> {
@@ -483,7 +633,7 @@ export default class BillingCatalogService {
     if (!tier) {
       throw new BillingCatalogServiceError(
         `Tramo ${tierId} no encontrado en plan ${planId}`,
-        BILLING_CATALOG_ERROR_CODES.PLAN_NOT_FOUND,
+        BILLING_CATALOG_ERROR_CODES.TIER_NOT_FOUND,
         404,
         'PLT.CAT.TIER_NOT_FOUND',
         'El tramo solicitado no existe o fue eliminado.'

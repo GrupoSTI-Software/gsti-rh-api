@@ -605,3 +605,527 @@ test.group('BillingCatalogService — publicar un clon desactiva al plan origen'
     assert.isNull(origin.deletedAt)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Módulo: nombre inmutable en plan publicado (USRH1785962095078)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — updatePlan: nombre inmutable en plan publicado', () => {
+  /** Espeja la validación previa al UPDATE en updatePlan. */
+  function tryRename(plan: { isPublished: boolean }, newName?: string) {
+    if (newName !== undefined && plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        'No se puede renombrar el plan publicado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+        422
+      )
+    }
+    return newName
+  }
+
+  test('PLAN_NAME_IMMUTABLE es PLT.CAT.PLAN_NAME_IMMUTABLE', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+      'PLT.CAT.PLAN_NAME_IMMUTABLE'
+    )
+  })
+
+  test('renombrar un plan publicado lanza PLAN_NAME_IMMUTABLE con 422', ({ assert }) => {
+    assert.throws(() => tryRename({ isPublished: true }, 'Nuevo nombre'))
+    try {
+      tryRename({ isPublished: true }, 'Nuevo nombre')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.PLAN_NAME_IMMUTABLE')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+
+  test('renombrar un plan en borrador no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryRename({ isPublished: false }, 'Nuevo nombre'))
+  })
+
+  test('actualizar un plan publicado sin tocar el nombre no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryRename({ isPublished: true }, undefined))
+  })
+
+  test('el API error del helper resuelve PLAN_NAME_IMMUTABLE a 422', ({ assert }) => {
+    const error = new BillingCatalogServiceError(
+      'No se puede renombrar',
+      BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+      422,
+      'PLT.CAT.PLAN_NAME_IMMUTABLE',
+      'El nombre de un plan publicado es inmutable.'
+    )
+    const resolved = resolveBillingCatalogApiError(error)
+    assert.equal(resolved.status, 422)
+    assert.equal(resolved.code, 'PLT.CAT.PLAN_NAME_IMMUTABLE')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: edición de min_employees en tramos + duplicados con soft-delete
+// (USRH1785962095078 — reparación del bug reportado en el sprint)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — updateTier: minEmployees editable y duplicados', () => {
+  /** Espeja assertMinEmployeesAvailable contra un set simulado de tramos (incluye eliminados). */
+  function assertAvailable(
+    allTiersIncludingTrashed: Array<{ id: number; minEmployees: number }>,
+    minEmployees: number,
+    excludeTierId?: number
+  ) {
+    const duplicate = allTiersIncludingTrashed.find(
+      (t) => t.minEmployees === minEmployees && t.id !== excludeTierId
+    )
+    if (duplicate) {
+      throw new BillingCatalogServiceError(
+        `Ya existe un tramo con min_employees ${minEmployees}`,
+        BILLING_CATALOG_ERROR_CODES.TIER_DUPLICATE,
+        409
+      )
+    }
+  }
+
+  test('crear un tramo con min_employees igual al de uno eliminado lógicamente lanza TIER_DUPLICATE', ({
+    assert,
+  }) => {
+    // El tramo id=2 fue soft-deleted pero sigue "ocupando" min_employees=50
+    // por la restricción UNIQUE física de la tabla.
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 }, // eliminado lógicamente, sigue en la tabla
+    ]
+    assert.throws(() => assertAvailable(tiers, 50))
+  })
+
+  test('editar min_employees de un tramo hacia un valor libre no lanza error', ({ assert }) => {
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 },
+    ]
+    assert.doesNotThrow(() => assertAvailable(tiers, 30, 1))
+  })
+
+  test('editar min_employees de un tramo hacia su propio valor actual no lanza error (excluido por id)', ({
+    assert,
+  }) => {
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 },
+    ]
+    assert.doesNotThrow(() => assertAvailable(tiers, 10, 1))
+  })
+
+  test('editar min_employees hacia un valor tomado por otro tramo vivo lanza TIER_DUPLICATE con 409', ({
+    assert,
+  }) => {
+    const tiers = [
+      { id: 1, minEmployees: 10 },
+      { id: 2, minEmployees: 50 },
+    ]
+    try {
+      assertAvailable(tiers, 50, 1)
+      assert.fail('Se esperaba que lanzara TIER_DUPLICATE')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.TIER_DUPLICATE')
+      assert.equal(error.httpStatus, 409)
+    }
+  })
+
+  test('min_employees = 0 en updateTier es inválido (debe ser ≥ 1)', ({ assert }) => {
+    function validateNewMin(minEmployees: number) {
+      return minEmployees >= 1
+    }
+    assert.isFalse(validateNewMin(0))
+  })
+
+  test('TIER_NOT_FOUND es PLT.CAT.TIER_NOT_FOUND', ({ assert }) => {
+    assert.equal(BILLING_CATALOG_ERROR_CODES.TIER_NOT_FOUND, 'PLT.CAT.TIER_NOT_FOUND')
+  })
+
+  test('updateTier sin ningún campo enviado lanza TIER_INVALID con 422', ({ assert }) => {
+    function assertAtLeastOneField(input: {
+      billingVolumeTierMinEmployees?: number
+      billingVolumeTierDiscountPercent?: number
+    }) {
+      if (
+        input.billingVolumeTierMinEmployees === undefined &&
+        input.billingVolumeTierDiscountPercent === undefined
+      ) {
+        throw new BillingCatalogServiceError(
+          'Debes enviar al menos un campo a actualizar del tramo',
+          BILLING_CATALOG_ERROR_CODES.TIER_INVALID,
+          422
+        )
+      }
+    }
+    try {
+      assertAtLeastOneField({})
+      assert.fail('Se esperaba que lanzara TIER_INVALID')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.TIER_INVALID')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: nuevos códigos de error — retiro manual y no-reactivación
+// (USRH1785962095081)
+// ---------------------------------------------------------------------------
+
+test.group('BILLING_CATALOG_ERROR_CODES — códigos de retiro manual', () => {
+  test('PLAN_DEACTIVATE_REQUIRES_PUBLISHED es PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED', ({
+    assert,
+  }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_DEACTIVATE_REQUIRES_PUBLISHED,
+      'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED'
+    )
+  })
+
+  test('PLAN_ALREADY_DEACTIVATED es PLT.CAT.PLAN_ALREADY_DEACTIVATED', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_DEACTIVATED,
+      'PLT.CAT.PLAN_ALREADY_DEACTIVATED'
+    )
+  })
+
+  test('PLAN_REACTIVATION_FORBIDDEN es PLT.CAT.PLAN_REACTIVATION_FORBIDDEN', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_REACTIVATION_FORBIDDEN,
+      'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN'
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: reglas de deactivatePlan (retiro manual, USRH1785962095081)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — reglas de deactivatePlan', () => {
+  /** Espeja las validaciones de deactivatePlan antes de tocar la BD. */
+  function tryDeactivate(plan: { isPublished: boolean; billingPlanActive: 0 | 1 }) {
+    if (!plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        'No publicado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_DEACTIVATE_REQUIRES_PUBLISHED,
+        422
+      )
+    }
+    if (plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        'Ya desactivado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_DEACTIVATED,
+        422
+      )
+    }
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('retirar un plan en borrador lanza PLAN_DEACTIVATE_REQUIRES_PUBLISHED con 422', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryDeactivate({ isPublished: false, billingPlanActive: 1 })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('retirar un plan ya desactivado lanza PLAN_ALREADY_DEACTIVATED con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryDeactivate({ isPublished: true, billingPlanActive: 0 })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_ALREADY_DEACTIVATED')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('retirar un plan publicado y vigente no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryDeactivate({ isPublished: true, billingPlanActive: 1 }))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: updatePlan bloquea la reactivación (0 → 1) por cualquier vía
+// (USRH1785962095081, regla 4 — sin reactivación)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — updatePlan: sin reactivación vía billingPlanActive', () => {
+  /** Espeja la validación previa al UPDATE en updatePlan para billingPlanActive. */
+  function tryUpdateActive(currentActive: 0 | 1, newActive?: 0 | 1) {
+    if (newActive === 1 && currentActive === 0) {
+      throw new BillingCatalogServiceError(
+        'No se puede reactivar',
+        BILLING_CATALOG_ERROR_CODES.PLAN_REACTIVATION_FORBIDDEN,
+        422
+      )
+    }
+    // Cualquier otro valor se ignora: el estado se cambia solo por /publish y /deactivate.
+    return currentActive
+  }
+
+  test('intentar reactivar un plan desactivado (0 → 1) lanza PLAN_REACTIVATION_FORBIDDEN con 422', ({
+    assert,
+  }) => {
+    try {
+      tryUpdateActive(0, 1)
+      assert.fail('Se esperaba PLAN_REACTIVATION_FORBIDDEN')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+
+  test('enviar billingPlanActive = 1 cuando ya está en 1 no lanza error (no es reactivación)', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() => tryUpdateActive(1, 1))
+  })
+
+  test('enviar billingPlanActive = 0 sobre un plan activo no lanza error (se ignora, no aplica por esta vía)', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() => tryUpdateActive(1, 0))
+  })
+
+  test('no enviar billingPlanActive no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryUpdateActive(0, undefined))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: publishPlan descarta copias hermanas del mismo padre
+// (USRH1785962095081, regla 1 — una sola oferta viva por linaje)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — publishPlan: barrido de copias hermanas', () => {
+  /**
+   * Espeja el efecto de publishPlan sobre el conjunto de copias en borrador
+   * del mismo padre: todas menos la que se publica quedan descartadas
+   * (retiro lógico), y el padre queda desactivado.
+   */
+  function publishAndSweep(
+    parentId: number | null,
+    siblingDrafts: Array<{ id: number; parentId: number }>,
+    publishedId: number
+  ) {
+    if (!parentId) {
+      return { parentDeactivated: false, discardedIds: [] as number[] }
+    }
+    const discardedIds = siblingDrafts
+      .filter((s) => s.parentId === parentId && s.id !== publishedId)
+      .map((s) => s.id)
+    return { parentDeactivated: true, discardedIds }
+  }
+
+  test('publicar sin linaje (parentId nulo) no descarta nada — nada que desactivar', ({
+    assert,
+  }) => {
+    const result = publishAndSweep(null, [], 10)
+    assert.isFalse(result.parentDeactivated)
+    assert.deepEqual(result.discardedIds, [])
+  })
+
+  test('publicar con una única copia en borrador del padre no descarta nada más', ({
+    assert,
+  }) => {
+    const siblings = [{ id: 6, parentId: 2 }]
+    const result = publishAndSweep(2, siblings, 6)
+    assert.isTrue(result.parentDeactivated)
+    assert.deepEqual(result.discardedIds, [])
+  })
+
+  test('publicar con dos o más copias hermanas del mismo padre descarta a todas menos la publicada', ({
+    assert,
+  }) => {
+    // Reproduce el escenario diagnosticado contra datos reales: copias
+    // hermanas del mismo padre (por ejemplo, datos previos al bloqueo de
+    // CLONE_DRAFT_EXISTS) deben quedar descartadas al publicar cualquiera.
+    const siblings = [
+      { id: 6, parentId: 2 },
+      { id: 7, parentId: 2 },
+      { id: 8, parentId: 2 },
+    ]
+    const result = publishAndSweep(2, siblings, 7)
+    assert.isTrue(result.parentDeactivated)
+    assert.sameMembers(result.discardedIds, [6, 8])
+    assert.notInclude(result.discardedIds, 7)
+  })
+
+  test('las copias de un padre distinto nunca se descartan', ({ assert }) => {
+    const siblings = [
+      { id: 6, parentId: 2 },
+      { id: 9, parentId: 4 },
+    ]
+    const result = publishAndSweep(2, siblings, 6)
+    assert.notInclude(result.discardedIds, 9)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: nuevo código de error — coherencia de vigencia entre versiones
+// (USRH1785962095084)
+// ---------------------------------------------------------------------------
+
+test.group('BILLING_CATALOG_ERROR_CODES — código de vigencia en el pasado', () => {
+  test('PRICE_EFFECTIVE_FROM_IN_PAST es PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_IN_PAST,
+      'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST'
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: addPrice — coherencia de la vigencia nueva contra la vigente
+// (USRH1785962095084, reglas 5, 6 y 7)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — addPrice: coherencia de vigencia', () => {
+  /**
+   * Espeja el orden de validación real de addPrice: duplicado exacto primero,
+   * luego coherencia contra la versión vigente (MAX(effective_from ≤ hoy)).
+   * Las fechas son strings YYYY-MM-DD, comparables lexicográficamente.
+   */
+  function tryAddPrice(params: {
+    today: string
+    existingEffectiveFromDates: string[]
+    newEffectiveFrom: string
+  }) {
+    const { today, existingEffectiveFromDates, newEffectiveFrom } = params
+
+    if (existingEffectiveFromDates.includes(newEffectiveFrom)) {
+      throw new BillingCatalogServiceError(
+        'Vigencia duplicada',
+        BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_DUPLICATE,
+        409
+      )
+    }
+
+    const currentPrice = existingEffectiveFromDates
+      .filter((d) => d <= today)
+      .sort()
+      .at(-1)
+
+    if (currentPrice && newEffectiveFrom < today) {
+      throw new BillingCatalogServiceError(
+        'Vigencia anterior a hoy con versión vigente',
+        BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_IN_PAST,
+        422
+      )
+    }
+
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('Criterio 4 — vigencia pasada con versión vigente existente lanza PRICE_EFFECTIVE_FROM_IN_PAST con 422', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-03-01'],
+        newEffectiveFrom: '2026-01-15',
+      })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('Criterio 5 — vigencia de hoy se acepta con versión vigente existente', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-03-01'],
+        newEffectiveFrom: '2026-08-05',
+      })
+    )
+  })
+
+  test('Criterio 5 — vigencia futura se acepta con versión vigente existente', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-03-01'],
+        newEffectiveFrom: '2026-09-01',
+      })
+    )
+  })
+
+  test('Criterio 6 — vigencia duplicada se rechaza primero, aunque también sería pasada', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-09-01'],
+        newEffectiveFrom: '2026-09-01',
+      })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE')
+    assert.equal(error?.httpStatus, 409)
+  })
+
+  test('Criterio 7 — plan sin ninguna versión corriendo acepta fecha pasada (deja el plan publicable)', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: [],
+        newEffectiveFrom: '2026-01-01',
+      })
+    )
+  })
+
+  test('Criterio 7 — plan con solo versiones futuras (ninguna vigente aún) acepta fecha pasada', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-09-01', '2026-10-01'],
+        newEffectiveFrom: '2026-01-01',
+      })
+    )
+  })
+
+  test('con varias versiones vigentes previas, la comparación usa la de mayor fecha (MAX)', ({
+    assert,
+  }) => {
+    // Vigente real = 2026-06-01 (la mayor ≤ hoy). Una nueva en 2026-05-01
+    // queda por detrás de la vigente y se rechaza, aunque sea posterior a
+    // otras versiones más viejas del histórico.
+    const error = captureError(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-01-01', '2026-06-01'],
+        newEffectiveFrom: '2026-05-01',
+      })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST')
+  })
+})

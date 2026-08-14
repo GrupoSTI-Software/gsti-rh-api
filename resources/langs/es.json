@@ -160,6 +160,12 @@
   "employee_badge_verification_not_found_message": "El código de verificación no existe, es inválido o fue revocado.",
   "employee_badge_error_default_title": "Error",
   "employee_badge_unexpected_error_message": "Ocurrió un error inesperado al procesar el gafete del empleado.",
+  "employee_position_level_not_in_position_title": "Nivel no válido para el puesto",
+  "employee_position_level_not_in_position_message": "El nivel indicado no pertenece a los niveles configurados del puesto del empleado.",
+  "employee_position_level_inactive_title": "Nivel inactivo",
+  "employee_position_level_inactive_message": "El nivel indicado está inactivo y no puede asignarse; el empleado que ya lo tenía lo conserva.",
+  "employee_position_level_val_input_title": "Datos inválidos",
+  "employee_position_level_val_input_message": "El identificador del nivel de puesto es inválido.",
   "employee_import_val_file_title": "Archivo inválido",
   "employee_import_val_file_message": "El archivo debe ser un Excel válido (.xlsx o .xls).",
   "employee_import_val_file_missing_message": "Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).",
@@ -505,6 +511,7 @@
   "assistance_report": "Reporte de asistencias",
   "incident_summary": "Resumen de incidencias",
   "incident_summary_payroll": "Resumen de incidencias para nómina",
+  "incident_summary_payroll_report": "Reporte de resumen de incidencias de nómina",
   "incidents": "Incidencias",
   "summary_report": "Reporte resumido",
   "hours_assigned": "Horas Turno",
@@ -1223,6 +1230,7 @@
   "complaint_employee_not_found": "No tienes un registro de empleado asociado para reportar una queja",
   "complaint_person_not_found": "El usuario no tiene una persona asociada",
   "complaint_status_not_found": "Folio o clave de acceso incorrectos",
+  "complaint_rate_limited": "Demasiados intentos. Espera un momento antes de volver a intentarlo",
   "complaint_case_not_found_for_employee": "La queja no existe o no pertenece al empleado autenticado",
   "complaint_status_unchanged": "El estatus destino debe ser diferente al estatus actual",
   "complaint_folio_generation_failed": "No se pudo generar el folio de la queja. Intenta de nuevo.",
@@ -1377,7 +1385,9 @@
           "p01": { "text": "Mi trabajo me exige hacer mucho esfuerzo físico" },
           "p02": { "text": "Me preocupa sufrir un accidente en mi trabajo" },
           "p03": { "text": "Considero que las actividades que realizo son peligrosas" },
-          "p04": { "text": "Por la cantidad de trabajo que tengo debo quedarme tiempo adicional a mi turno" },
+          "p04": {
+            "text": "Por la cantidad de trabajo que tengo debo quedarme tiempo adicional a mi turno"
+          },
           "p05": { "text": "Por la cantidad de trabajo que tengo debo trabajar sin parar" },
           "p06": { "text": "Considero que es necesario mantener un ritmo de trabajo acelerado" },
           "p07": { "text": "Mi trabajo exige que esté muy concentrado" },
@@ -1388,13 +1398,21 @@
           "p12": { "text": "En mi trabajo me dan órdenes contradictorias" },
           "p13": { "text": "Considero que en mi trabajo me piden hacer cosas innecesarias" },
           "p14": { "text": "Trabajo horas extras más de tres veces a la semana" },
-          "p15": { "text": "Mi trabajo me exige laborar en días de descanso, festivos o fines de semana" },
-          "p16": { "text": "Considero que el tiempo en el trabajo es mucho y perjudica mis actividades familiares o personales" },
-          "p17": { "text": "Pienso en las actividades familiares o personales cuando estoy en mi trabajo" },
+          "p15": {
+            "text": "Mi trabajo me exige laborar en días de descanso, festivos o fines de semana"
+          },
+          "p16": {
+            "text": "Considero que el tiempo en el trabajo es mucho y perjudica mis actividades familiares o personales"
+          },
+          "p17": {
+            "text": "Pienso en las actividades familiares o personales cuando estoy en mi trabajo"
+          },
           "p18": { "text": "Mi trabajo permite que desarrolle nuevas habilidades" },
           "p19": { "text": "En mi trabajo puedo aspirar a un mejor puesto" },
           "p20": { "text": "Durante mi jornada de trabajo puedo tomar pausas cuando las necesito" },
-          "p21": { "text": "Puedo decidir la velocidad a la que realizo mis actividades en mi trabajo" },
+          "p21": {
+            "text": "Puedo decidir la velocidad a la que realizo mis actividades en mi trabajo"
+          },
           "p22": { "text": "Puedo cambiar el orden de las actividades que realizo en mi trabajo" },
           "p23": { "text": "Me informan con claridad cuáles son mis funciones" },
           "p24": { "text": "Me explican claramente los resultados que debo obtener en mi trabajo" },
@@ -1402,21 +1420,37 @@
           "p26": { "text": "Me permiten asistir a capacitaciones relacionadas con mi trabajo" },
           "p27": { "text": "Recibo capacitación útil para hacer mi trabajo" },
           "p28": { "text": "Mi jefe tiene en cuenta mis puntos de vista y opiniones" },
-          "p29": { "text": "Mi jefe ayuda a solucionar los problemas que se presentan en el trabajo" },
+          "p29": {
+            "text": "Mi jefe ayuda a solucionar los problemas que se presentan en el trabajo"
+          },
           "p30": { "text": "Puedo confiar en mis compañeros de trabajo" },
-          "p31": { "text": "Cuando tenemos que realizar trabajo de equipo los compañeros colaboran" },
+          "p31": {
+            "text": "Cuando tenemos que realizar trabajo de equipo los compañeros colaboran"
+          },
           "p32": { "text": "Mis compañeros de trabajo me ayudan cuando tengo dificultades" },
           "p33": { "text": "En mi trabajo puedo expresarme libremente sin interrupciones" },
           "p34": { "text": "Recibo críticas constantes a mi persona y/o trabajo" },
-          "p35": { "text": "Recibo burlas, calumnias, difamaciones, humillaciones o ridiculizaciones" },
-          "p36": { "text": "Se ignora mi presencia o se me excluye de las reuniones de trabajo y en la toma de decisiones" },
-          "p37": { "text": "Se manipulan las situaciones de trabajo para hacerme parecer un mal trabajador" },
+          "p35": {
+            "text": "Recibo burlas, calumnias, difamaciones, humillaciones o ridiculizaciones"
+          },
+          "p36": {
+            "text": "Se ignora mi presencia o se me excluye de las reuniones de trabajo y en la toma de decisiones"
+          },
+          "p37": {
+            "text": "Se manipulan las situaciones de trabajo para hacerme parecer un mal trabajador"
+          },
           "p38": { "text": "Se ignoran mis éxitos laborales y se atribuyen a otros trabajadores" },
-          "p39": { "text": "Me bloquean o impiden las oportunidades que tengo para obtener ascenso o mejora en mi trabajo" },
+          "p39": {
+            "text": "Me bloquean o impiden las oportunidades que tengo para obtener ascenso o mejora en mi trabajo"
+          },
           "p40": { "text": "He presenciado actos de violencia en mi centro de trabajo" },
           "p41": { "text": "Atiendo clientes o usuarios muy enojados" },
-          "p42": { "text": "Mi trabajo me exige atender personas muy necesitadas de ayuda o enfermas" },
-          "p43": { "text": "Para hacer mi trabajo debo demostrar sentimientos distintos a los míos" },
+          "p42": {
+            "text": "Mi trabajo me exige atender personas muy necesitadas de ayuda o enfermas"
+          },
+          "p43": {
+            "text": "Para hacer mi trabajo debo demostrar sentimientos distintos a los míos"
+          },
           "p44": { "text": "Comunican tarde los asuntos de trabajo" },
           "p45": { "text": "Dificultan el logro de los resultados del trabajo" },
           "p46": { "text": "Ignoran las sugerencias para mejorar su trabajo" }
@@ -1434,12 +1468,18 @@
           "cat_v": { "title": "Entorno organizacional" }
         },
         "questions": {
-          "p01": { "text": "El espacio donde trabajo me permite realizar mis actividades de manera segura e higiénica" },
+          "p01": {
+            "text": "El espacio donde trabajo me permite realizar mis actividades de manera segura e higiénica"
+          },
           "p02": { "text": "Mi trabajo me exige hacer mucho esfuerzo físico" },
           "p03": { "text": "Me preocupa sufrir un accidente en mi trabajo" },
-          "p04": { "text": "Considero que en mi trabajo se aplican las normas de seguridad y salud en el trabajo" },
+          "p04": {
+            "text": "Considero que en mi trabajo se aplican las normas de seguridad y salud en el trabajo"
+          },
           "p05": { "text": "Considero que las actividades que realizo son peligrosas" },
-          "p06": { "text": "Por la cantidad de trabajo que tengo debo quedarme tiempo adicional a mi turno" },
+          "p06": {
+            "text": "Por la cantidad de trabajo que tengo debo quedarme tiempo adicional a mi turno"
+          },
           "p07": { "text": "Por la cantidad de trabajo que tengo debo trabajar sin parar" },
           "p08": { "text": "Considero que es necesario mantener un ritmo de trabajo acelerado" },
           "p09": { "text": "Mi trabajo exige que esté muy concentrado" },
@@ -1451,19 +1491,29 @@
           "p15": { "text": "En el trabajo me dan órdenes contradictorias" },
           "p16": { "text": "Considero que en mi trabajo me piden hacer cosas innecesarias" },
           "p17": { "text": "Trabajo horas extras más de tres veces a la semana" },
-          "p18": { "text": "Mi trabajo me exige laborar en días de descanso, festivos o fines de semana" },
-          "p19": { "text": "Considero que el tiempo en el trabajo es mucho y perjudica mis actividades familiares o personales" },
+          "p18": {
+            "text": "Mi trabajo me exige laborar en días de descanso, festivos o fines de semana"
+          },
+          "p19": {
+            "text": "Considero que el tiempo en el trabajo es mucho y perjudica mis actividades familiares o personales"
+          },
           "p20": { "text": "Debo atender asuntos de trabajo cuando estoy en casa" },
-          "p21": { "text": "Pienso en las actividades familiares o personales cuando estoy en mi trabajo" },
+          "p21": {
+            "text": "Pienso en las actividades familiares o personales cuando estoy en mi trabajo"
+          },
           "p22": { "text": "Pienso que mis responsabilidades familiares afectan mi trabajo" },
           "p23": { "text": "Mi trabajo permite que desarrolle nuevas habilidades" },
           "p24": { "text": "En mi trabajo puedo aspirar a un mejor puesto" },
           "p25": { "text": "Durante mi jornada de trabajo puedo tomar pausas cuando las necesito" },
           "p26": { "text": "Puedo decidir cuánto trabajo realizo durante la jornada laboral" },
-          "p27": { "text": "Puedo decidir la velocidad a la que realizo mis actividades en mi trabajo" },
+          "p27": {
+            "text": "Puedo decidir la velocidad a la que realizo mis actividades en mi trabajo"
+          },
           "p28": { "text": "Puedo cambiar el orden de las actividades que realizo en mi trabajo" },
           "p29": { "text": "Los cambios que se presentan en mi trabajo dificultan mi labor" },
-          "p30": { "text": "Cuando se presentan cambios en mi trabajo se tienen en cuenta mis ideas o aportaciones" },
+          "p30": {
+            "text": "Cuando se presentan cambios en mi trabajo se tienen en cuenta mis ideas o aportaciones"
+          },
           "p31": { "text": "Me informan con claridad cuáles son mis funciones" },
           "p32": { "text": "Me explican claramente los resultados que debo obtener en mi trabajo" },
           "p33": { "text": "Me explican claramente los objetivos de mi trabajo" },
@@ -1472,19 +1522,33 @@
           "p36": { "text": "Recibo capacitación útil para hacer mi trabajo" },
           "p37": { "text": "Mi jefe ayuda a organizar mejor el trabajo" },
           "p38": { "text": "Mi jefe tiene en cuenta mis puntos de vista y opiniones" },
-          "p39": { "text": "Mi jefe me comunica a tiempo la información relacionada con el trabajo" },
-          "p40": { "text": "La orientación que me da mi jefe me ayuda a realizar mejor mi trabajo" },
-          "p41": { "text": "Mi jefe ayuda a solucionar los problemas que se presentan en el trabajo" },
+          "p39": {
+            "text": "Mi jefe me comunica a tiempo la información relacionada con el trabajo"
+          },
+          "p40": {
+            "text": "La orientación que me da mi jefe me ayuda a realizar mejor mi trabajo"
+          },
+          "p41": {
+            "text": "Mi jefe ayuda a solucionar los problemas que se presentan en el trabajo"
+          },
           "p42": { "text": "Puedo confiar en mis compañeros de trabajo" },
-          "p43": { "text": "Entre compañeros solucionamos los problemas de trabajo de forma respetuosa" },
+          "p43": {
+            "text": "Entre compañeros solucionamos los problemas de trabajo de forma respetuosa"
+          },
           "p44": { "text": "En mi trabajo me hacen sentir parte del grupo" },
-          "p45": { "text": "Cuando tenemos que realizar trabajo de equipo los compañeros colaboran" },
+          "p45": {
+            "text": "Cuando tenemos que realizar trabajo de equipo los compañeros colaboran"
+          },
           "p46": { "text": "Mis compañeros de trabajo me ayudan cuando tengo dificultades" },
           "p47": { "text": "Me informan sobre lo que hago bien en mi trabajo" },
-          "p48": { "text": "La forma como evalúan mi trabajo en mi centro de trabajo me ayuda a mejorar mi desempeño" },
+          "p48": {
+            "text": "La forma como evalúan mi trabajo en mi centro de trabajo me ayuda a mejorar mi desempeño"
+          },
           "p49": { "text": "En mi centro de trabajo me pagan a tiempo mi salario" },
           "p50": { "text": "El pago que recibo es el que merezco por el trabajo que realizo" },
-          "p51": { "text": "Si obtengo los resultados esperados en mi trabajo me recompensan o reconocen" },
+          "p51": {
+            "text": "Si obtengo los resultados esperados en mi trabajo me recompensan o reconocen"
+          },
           "p52": { "text": "Las personas que hacen bien el trabajo pueden crecer laboralmente" },
           "p53": { "text": "Considero que mi trabajo es estable" },
           "p54": { "text": "En mi trabajo existe continua rotación de personal" },
@@ -1492,15 +1556,27 @@
           "p56": { "text": "Me siento comprometido con mi trabajo" },
           "p57": { "text": "En mi trabajo puedo expresarme libremente sin interrupciones" },
           "p58": { "text": "Recibo críticas constantes a mi persona y/o trabajo" },
-          "p59": { "text": "Recibo burlas, calumnias, difamaciones, humillaciones o ridiculizaciones" },
-          "p60": { "text": "Se ignora mi presencia o se me excluye de las reuniones de trabajo y en la toma de decisiones" },
-          "p61": { "text": "Se manipulan las situaciones de trabajo para hacerme parecer un mal trabajador" },
+          "p59": {
+            "text": "Recibo burlas, calumnias, difamaciones, humillaciones o ridiculizaciones"
+          },
+          "p60": {
+            "text": "Se ignora mi presencia o se me excluye de las reuniones de trabajo y en la toma de decisiones"
+          },
+          "p61": {
+            "text": "Se manipulan las situaciones de trabajo para hacerme parecer un mal trabajador"
+          },
           "p62": { "text": "Se ignoran mis éxitos laborales y se atribuyen a otros trabajadores" },
-          "p63": { "text": "Me bloquean o impiden las oportunidades que tengo para obtener ascenso o mejora en mi trabajo" },
+          "p63": {
+            "text": "Me bloquean o impiden las oportunidades que tengo para obtener ascenso o mejora en mi trabajo"
+          },
           "p64": { "text": "He presenciado actos de violencia en mi centro de trabajo" },
           "p65": { "text": "Atiendo clientes o usuarios muy enojados" },
-          "p66": { "text": "Mi trabajo me exige atender personas muy necesitadas de ayuda o enfermas" },
-          "p67": { "text": "Para hacer mi trabajo debo demostrar sentimientos distintos a los míos" },
+          "p66": {
+            "text": "Mi trabajo me exige atender personas muy necesitadas de ayuda o enfermas"
+          },
+          "p67": {
+            "text": "Para hacer mi trabajo debo demostrar sentimientos distintos a los míos"
+          },
           "p68": { "text": "Mi trabajo me exige atender situaciones de violencia" },
           "p69": { "text": "Comunican tarde los asuntos de trabajo" },
           "p70": { "text": "Dificultan el logro de los resultados del trabajo" },
@@ -2486,10 +2562,27 @@
       }
     }
   },
+  "role_preset_invalid_input_title": "Parámetros inválidos",
+  "role_preset_missing_permissions_title": "Plantilla de rol incompleta",
+  "role_preset_missing_permissions_detail": "La plantilla referencia permisos que no existen en la base de datos.",
+  "role_preset_stale_version_title": "Versión de plantilla obsoleta",
+  "role_preset_stale_version_detail": "La plantilla ya no coincide con la versión previsualizada.",
+  "role_preset_stale_role_title": "Rol no encontrado o cambiado",
+  "role_preset_stale_role_detail": "El rol no existe o sus permisos cambiaron desde la vista previa.",
+  "role_preset_apply_failed_title": "No se pudo aplicar la plantilla",
+  "role_preset_apply_failed_detail": "No fue posible guardar la plantilla. Ningún cambio se aplicó.",
   "system_role_locked_title": "Rol de sistema",
   "system_role_locked_detail": "Los roles owner y empleado son de la plataforma: no pueden editarse, eliminarse ni reconfigurarse desde una empresa.",
+  "role_permissions_assignment_failed_title": "No se pudo asignar el permiso",
+  "role_permissions_assignment_failed_detail": "No fue posible guardar la asignación de permisos del rol. Ningún cambio se aplicó.",
+  "system_role_locked_batch_title": "Rol de sistema en el lote",
+  "system_role_locked_batch_detail": "No se guardó nada: el rol \"{roleName}\" es de sistema y no admite reasignación de accesos desde la empresa.",
+  "role_permissions_batch_assignment_failed_title": "No se pudieron guardar los permisos",
+  "role_permissions_batch_assignment_failed_detail": "No fue posible guardar la asignación de permisos del lote. Ningún cambio se aplicó.",
   "system_role_name_reserved_title": "Nombre de rol reservado",
   "system_role_name_reserved_detail": "El nombre del rol coincide con un rol de sistema de la plataforma; elige un nombre distinto.",
+  "session_permission_tree_unresolved_title": "Permisos de sesión no disponibles",
+  "session_permission_tree_unresolved_detail": "No fue posible determinar el rol de la sesión para construir el listado de permisos.",
   "system_setting_trade_name_taken_title": "Nombre comercial en uso",
   "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto."
 }
