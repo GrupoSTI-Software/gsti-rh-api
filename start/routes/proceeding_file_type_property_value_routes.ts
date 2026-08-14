@@ -19,3 +19,4 @@ router
   })
   .prefix('/api/proceeding-file-type-property-values')
   .use(middleware.auth())
+  .use(middleware.businessScope())

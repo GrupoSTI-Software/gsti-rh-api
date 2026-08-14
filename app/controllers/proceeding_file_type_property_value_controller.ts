@@ -2,12 +2,60 @@ import { HttpContext } from '@adonisjs/core/http'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
 import Env from '#start/env'
+import logger from '@adonisjs/core/services/logger'
 import ProceedingFileTypePropertyValue from '#models/proceeding_file_type_property_value'
 import ProceedingFileTypePropertyValueService from '#services/proceeding_file_type_property_value_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import {
   createProceedingFileTypePropertyValueValidator,
   updateProceedingFileTypePropertyValueValidator,
 } from '#validators/proceeding_file_type_property_value'
+
+/** 404 uniforme de pertenencia (no revela "no existe" vs "no es tuyo") — regla 5, USRH1786595131481. */
+function notFoundOrOutOfScopeResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: 'PFTPV.NOT.001',
+  })
+}
+
+/**
+ * Traduce un error inesperado a 500. Conserva el comportamiento legacy para
+ * errores de validación (`E_VALIDATION_ERROR`, message inocuo) pero deja de
+ * repetir `error.message` para cualquier otro error (R-1, USRH1786595131481):
+ * el `@beforeCreate` del modelo y `resolveParentBusinessUnitId` lanzan
+ * mensajes que contienen literalmente "no está en tu alcance", y devolverlos
+ * verbatim rompería la regla 5. El detalle interno de esos casos solo va al
+ * logger.
+ */
+function unexpectedErrorResponse(error: unknown, response: HttpContext['response']) {
+  const isValidationError =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'E_VALIDATION_ERROR'
+
+  if (isValidationError) {
+    const messages = (error as unknown as { messages: Array<{ message: string }> }).messages
+    response.status(500)
+    return {
+      type: 'error',
+      title: 'Server error',
+      message: 'An unexpected error has occurred on the server',
+      error: messages[0].message,
+    }
+  }
+
+  logger.error({ err: error }, 'proceeding_file_type_property_value: error inesperado')
+  response.status(500)
+  return {
+    type: 'error',
+    title: 'Server error',
+    message: 'An unexpected error has occurred on the server',
+  }
+}
 
 export default class ProceedingFileTypePropertyValueController {
   /**
@@ -139,7 +187,7 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const proceedingFileTypePropertyValueValue = request.input(
         'proceedingFileTypePropertyValueValue'
@@ -165,6 +213,16 @@ export default class ProceedingFileTypePropertyValueController {
         proceedingFileTypePropertyValue
       )
       if (exist.status !== 200) {
+        if (exist.scopeDenied) {
+          await ScopeDeniedLogService.log({
+            domain: 'proceeding_file_type_property_value',
+            action: 'store',
+            requestedId: exist.requestedId ?? 0,
+            actorUserId: auth.user?.userId ?? null,
+            businessUnitScope,
+          })
+          return notFoundOrOutOfScopeResponse(response)
+        }
         response.status(exist.status)
         return {
           type: exist.type,
@@ -200,25 +258,25 @@ export default class ProceedingFileTypePropertyValueController {
       }
       const newProceedingFileTypePropertyValue =
         await proceedingFileTypePropertyValueService.create(proceedingFileTypePropertyValue)
-      if (newProceedingFileTypePropertyValue) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Proceeding file type property values',
-          message: 'The proceeding file type property value was created successfully',
-          data: { proceedingFileTypePropertyValue: newProceedingFileTypePropertyValue },
-        }
+      if (!newProceedingFileTypePropertyValue) {
+        await ScopeDeniedLogService.log({
+          domain: 'proceeding_file_type_property_value',
+          action: 'store',
+          requestedId: proceedingFileTypePropertyValue.employeeId ?? proceedingFileTypePropertyValue.proceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return notFoundOrOutOfScopeResponse(response)
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Proceeding file type property values',
+        message: 'The proceeding file type property value was created successfully',
+        data: { proceedingFileTypePropertyValue: newProceedingFileTypePropertyValue },
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: messageError,
-      }
+      return unexpectedErrorResponse(error, response)
     }
   }
 
@@ -343,7 +401,7 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const proceedingFileTypePropertyValueId = request.param('proceedingFileTypePropertyValueId')
       const proceedingFileTypePropertyValueValue = request.input(
@@ -374,18 +432,22 @@ export default class ProceedingFileTypePropertyValueController {
           data: { ...proceedingFileTypePropertyValue },
         }
       }
+      // El mixin `withBusinessUnitScope` filtra esta query por la unidad activa
+      // (regla 5): un id de otra empresa resuelve `null` aquí, igual que uno
+      // inexistente — no se distingue el motivo.
       const currentProceedingFileTypePropertyValue = await ProceedingFileTypePropertyValue.query()
         .whereNull('proceeding_file_type_property_value_deleted_at')
         .where('proceeding_file_type_property_value_id', proceedingFileTypePropertyValueId)
         .first()
       if (!currentProceedingFileTypePropertyValue) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The proceeding file type property value was not found',
-          message: 'The proceeding file type property value was not found with the entered ID',
-          data: { ...proceedingFileTypePropertyValue },
-        }
+        await ScopeDeniedLogService.log({
+          domain: 'proceeding_file_type_property_value',
+          action: 'update',
+          requestedId: proceedingFileTypePropertyValueId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return notFoundOrOutOfScopeResponse(response)
       }
       const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()
       await request.validateUsing(updateProceedingFileTypePropertyValueValidator)
@@ -437,15 +499,7 @@ export default class ProceedingFileTypePropertyValueController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: messageError,
-      }
+      return unexpectedErrorResponse(error, response)
     }
   }
 
@@ -548,7 +602,7 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const proceedingFileTypePropertyValueId = request.param('proceedingFileTypePropertyValueId')
       if (!proceedingFileTypePropertyValueId) {
@@ -565,13 +619,14 @@ export default class ProceedingFileTypePropertyValueController {
         .where('proceeding_file_type_property_value_id', proceedingFileTypePropertyValueId)
         .first()
       if (!currentProceedingFileTypePropertyValue) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The proceeding file type property value was not found',
-          message: 'The proceeding file type property value was not found with the entered ID',
-          data: { proceedingFileTypePropertyValueId },
-        }
+        await ScopeDeniedLogService.log({
+          domain: 'proceeding_file_type_property_value',
+          action: 'delete',
+          requestedId: proceedingFileTypePropertyValueId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return notFoundOrOutOfScopeResponse(response)
       }
       const proceedingFileTypePropertyValueService = new ProceedingFileTypePropertyValueService()
       const deleteProceedingFileTypePropertyValue =
@@ -586,13 +641,7 @@ export default class ProceedingFileTypePropertyValueController {
         }
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
+      return unexpectedErrorResponse(error, response)
     }
   }
 
@@ -695,7 +744,7 @@ export default class ProceedingFileTypePropertyValueController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const proceedingFileTypePropertyValueId = request.param('proceedingFileTypePropertyValueId')
       if (!proceedingFileTypePropertyValueId) {
@@ -712,30 +761,24 @@ export default class ProceedingFileTypePropertyValueController {
         proceedingFileTypePropertyValueId
       )
       if (!showProceedingFileTypePropertyValue) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The proceeding file type property value was not found',
-          message: 'The proceeding file type property value was not found with the entered ID',
-          data: { proceedingFileTypePropertyValueId },
-        }
-      } else {
-        response.status(200)
-        return {
-          type: 'success',
-          title: 'Proceeding file type property values',
-          message: 'The proceeding file type property value was found successfully',
-          data: { proceedingFileTypePropertyValue: showProceedingFileTypePropertyValue },
-        }
+        await ScopeDeniedLogService.log({
+          domain: 'proceeding_file_type_property_value',
+          action: 'show',
+          requestedId: proceedingFileTypePropertyValueId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return notFoundOrOutOfScopeResponse(response)
+      }
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Proceeding file type property values',
+        message: 'The proceeding file type property value was found successfully',
+        data: { proceedingFileTypePropertyValue: showProceedingFileTypePropertyValue },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
+      return unexpectedErrorResponse(error, response)
     }
   }
 }
