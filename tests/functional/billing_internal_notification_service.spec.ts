@@ -5,6 +5,8 @@ import env from '#start/env'
 import BillingSubscription from '#models/billing_subscription'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
+import SubscriptionChangeNotApplicableMail from '#mails/subscription_change_not_applicable_mail'
+import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 
 /**
  * Tests funcionales — BillingInternalNotificationService (USRH1785441817250).
@@ -35,11 +37,36 @@ function makeSubscription(overrides: Partial<BillingSubscription> = {}): Billing
   return subscription
 }
 
+function makeChangeRecord(
+  overrides: Partial<SubscriptionChangeRecord> = {}
+): SubscriptionChangeRecord {
+  return {
+    billingSubscriptionChangeId: 901,
+    billingSubscriptionId: 501,
+    billingSubscriptionChangeType: 'increase',
+    billingSubscriptionChangeStatus: 'not_applicable',
+    billingSubscriptionChangePreviousEmployees: 100,
+    billingSubscriptionChangeNewEmployees: 150,
+    billingSubscriptionChangeUnitAmount: 65,
+    billingSubscriptionChangeDiscountPercent: 5,
+    billingSubscriptionChangeTaxRate: 0.16,
+    billingSubscriptionChangeSubtotal: 9750,
+    billingSubscriptionChangeTaxAmount: 1560,
+    billingSubscriptionChangeTotal: 11310,
+    billingSubscriptionChangeProratedAmountCents: 91210,
+    billingSubscriptionChangeEffectiveAt: null,
+    billingSubscriptionChangeAppliedAt: null,
+    supersededBillingSubscriptionChangeId: null,
+    ...overrides,
+  }
+}
+
 async function withEnvVars(
   vars: Record<string, string | undefined>,
   executor: () => Promise<void>
 ): Promise<void> {
   const originals: Record<string, string | undefined> = {}
+  const previousGet = env.get.bind(env) as (key: string, defaultValue?: unknown) => unknown
 
   for (const [key, value] of Object.entries(vars)) {
     originals[key] = process.env[key]
@@ -50,9 +77,24 @@ async function withEnvVars(
     }
   }
 
+  ;(env as unknown as { get: typeof previousGet }).get = (
+    key: string,
+    defaultValue?: unknown
+  ) => {
+    if (Object.prototype.hasOwnProperty.call(vars, key)) {
+      const value = vars[key]
+      if (value === undefined) {
+        return defaultValue
+      }
+      return value
+    }
+    return previousGet(key, defaultValue)
+  }
+
   try {
     await executor()
   } finally {
+    ;(env as unknown as { get: typeof previousGet }).get = previousGet
     for (const [key, value] of Object.entries(originals)) {
       if (value === undefined) {
         delete process.env[key]
@@ -245,17 +287,13 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
 
   test('sin SMTP_USERNAME omite el envío sin lanzar', async ({ assert }) => {
     const fake = mail.fake()
-    const envGet = env.get.bind(env) as (key: string, defaultValue?: string) => unknown
-    ;(env as unknown as { get: typeof envGet }).get = (key: string, defaultValue?: string) => {
-      if (key === 'SMTP_USERNAME') {
-        return ''
-      }
-      return envGet(key, defaultValue)
-    }
 
     try {
       await withEnvVars(
-        { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+        {
+          BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A,
+          SMTP_USERNAME: '',
+        },
         async () => {
           const service = new BillingInternalNotificationService()
           await assert.doesNotReject(async () => {
@@ -270,7 +308,6 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
 
       fake.mails.assertNoneSent()
     } finally {
-      ;(env as unknown as { get: typeof envGet }).get = envGet
       mail.restore()
     }
   })
@@ -299,6 +336,83 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
         return true
       })
     } finally {
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService - notifySubscriptionChangeNotApplicable', () => {
+  test('envía aviso interno cuando el cambio queda not_applicable', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          {
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${INTERNAL_RECIPIENT_A},${INTERNAL_RECIPIENT_B}`,
+          },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await service.notifySubscriptionChangeNotApplicable({
+              subscription: makeSubscription(),
+              change: makeChangeRecord(),
+              businessUnitName: 'Acme Growth SA',
+              billingPlanName: 'Plan Profesional',
+              billingPaymentId: 12001,
+              amountCents: 91210,
+              reason: 'base-de-cantidad-desfasada',
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(SubscriptionChangeNotApplicableMail, 1)
+      fake.mails.assertSent(SubscriptionChangeNotApplicableMail, ({ message }) => {
+        const json = message.toJSON() as { message: { subject: string } }
+        assert.match(json.message.subject, /Cambio no aplicable/i)
+        assert.include(json.message.subject, 'Acme Growth SA')
+        assert.include(json.message.subject, '#12001')
+        message.assertHtmlIncludes('not_applicable')
+        message.assertHtmlIncludes('100 → 150')
+        message.assertHtmlIncludes('base-de-cantidad-desfasada')
+        message.assertHtmlIncludes('$912.10')
+        return message.hasTo(INTERNAL_RECIPIENT_A) && message.hasTo(INTERNAL_RECIPIENT_B)
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('un fallo SMTP no lanza al caller', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifySubscriptionChangeNotApplicable({
+                subscription: makeSubscription(),
+                change: makeChangeRecord({
+                  billingSubscriptionChangeStatus: 'not_applicable',
+                }),
+                businessUnitName: 'Resiliente SA',
+                billingPlanName: 'Plan Resiliente',
+                billingPaymentId: 12002,
+                amountCents: 100000,
+                reason: 'plan-no-disponible',
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
       mail.restore()
     }
   })

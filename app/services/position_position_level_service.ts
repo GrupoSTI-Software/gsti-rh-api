@@ -221,13 +221,20 @@ export default class PositionPositionLevelService {
   }
 
   /**
-   * Punto ÚNICO de verificación de personal asignado (R-2 del spec).
-   * ESB-03-01-03-03 lo completa con la consulta al nivel del empleado;
-   * mientras no exista consumidor, ningún renglón tiene personal asignado.
-   * NO mover fuera del servicio. Público porque los tests lo subclasean.
+   * Punto ÚNICO de verificación de personal asignado (regla 10, completado
+   * por USRH1785964117188). Cuenta todo empleado con expediente registrado
+   * (`employee_deleted_at IS NULL`), incluidos los dados de baja/terminados;
+   * solo el soft-delete del expediente deja de contar — sin filtro de
+   * estatus laboral. NO mover fuera del servicio. Público porque los tests
+   * lo subclasean.
    */
-  async hasAssignedEmployees(_positionPositionLevelId: number): Promise<boolean> {
-    return false
+  async hasAssignedEmployees(positionPositionLevelId: number): Promise<boolean> {
+    const row = await db
+      .from('employees')
+      .where('position_level_config_id', positionPositionLevelId)
+      .whereNull('employee_deleted_at')
+      .first()
+    return Boolean(row)
   }
 
   /** Rank 1..n por el orden del payload (ordenado por rank recibido) y trim de ad-hoc. */
@@ -489,9 +496,8 @@ export default class PositionPositionLevelService {
       positionPositionLevelId: row.positionPositionLevelId,
       positionLevelId: row.positionLevelId,
       positionPositionLevelAdHocName: row.positionPositionLevelAdHocName,
-      displayName:
-        row.positionPositionLevelAdHocName ?? row.positionLevel?.positionLevelName ?? '',
-      source: row.positionLevelId !== null ? 'catalog' : 'adHoc',
+      displayName: row.displayName,
+      source: row.source,
       positionPositionLevelRank: row.positionPositionLevelRank,
       positionPositionLevelIsDefault: row.positionPositionLevelIsDefault,
       positionPositionLevelActive: row.positionPositionLevelActive,

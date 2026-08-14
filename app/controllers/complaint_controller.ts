@@ -1,6 +1,15 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import limiter from '@adonisjs/limiter/services/main'
+import { errors as limiterErrors } from '@adonisjs/limiter'
+import type { I18n } from '@adonisjs/i18n'
 import ComplaintService from '#services/complaint_service'
 import ComplaintApiService from '#services/complaint_api_service'
+import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
+import { consultStatusRateLimited } from '#helpers/complaint_status_rate_limit'
+import type {
+  ComplaintStatusResult,
+  ConsultComplaintStatusInput,
+} from '../interfaces/complaint_interface.js'
 import {
   consultComplaintStatusValidator,
   createComplaintValidator,
@@ -11,6 +20,11 @@ import {
   complaintReportExportValidator,
 } from '#validators/complaint'
 import { parseComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
+
+/** 5 fallos / 15 min por folio — regla 2 (USRH1783115930049). */
+const CONSULT_STATUS_FOLIO_LIMIT = { requests: 5, duration: '15 minutes' } as const
+/** 20 fallos / 15 min por IP de origen — regla 2 (USRH1783115930049). */
+const CONSULT_STATUS_IP_LIMIT = { requests: 20, duration: '15 minutes' } as const
 
 /**
  * Controlador del buzón de quejas confidencial (NOM-035 8.1.b).
@@ -1768,10 +1782,17 @@ export default class ComplaintController {
    * @swagger
    * /api/v1/complaints/status:
    *   get:
+   *     deprecated: true
    *     tags:
    *       - Complaints
    *     summary: lookup complaint status by folio and passphrase
    *     description: |
+   *       DEPRECATED (USRH1783115930049): folio and passphrase travel in the query string,
+   *       so they get written into proxy/APM/server access logs. Kept operational — with the
+   *       same brute-force locks — only because the Employee App has installed versions with
+   *       no forced-update mechanism. New clients must use `POST /api/v1/complaints/status`
+   *       instead. This variant will be removed in a future story once the app fleet migrates.
+   *
    *       Public endpoint for the confidential complaint mailbox. Allows the employee to
    *       check case progress using the public folio and access passphrase received at
    *       submission time, without re-identifying in the request. Returns a generic 404
@@ -1892,6 +1913,30 @@ export default class ComplaintController {
    *                   type: object
    *                   nullable: true
    *                   description: Additional error context
+   *       '429':
+   *         description: Too many failed attempts for this folio or origin; retry after the window closes
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: demasiados-intentos
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.RL.001
+   *                 detail:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1926,8 +1971,7 @@ export default class ComplaintController {
   async consultStatus({ request, response, i18n }: HttpContext) {
     try {
       const payload = await consultComplaintStatusValidator.validate(request.qs())
-      const complaintService = new ComplaintService()
-      const result = await complaintService.consultStatus(payload, i18n)
+      const result = await this.consultStatusWithRateLimit(payload, request.ip(), i18n)
 
       response.status(200)
       return {
@@ -1937,8 +1981,133 @@ export default class ComplaintController {
         data: result,
       }
     } catch (error) {
-      return this.complaintApiService.respondError(error, response, 500, i18n)
+      return this.respondConsultStatusError(error, response, i18n)
     }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/complaints/status:
+   *   post:
+   *     tags:
+   *       - Complaints
+   *     summary: lookup complaint status by folio and passphrase (credentials in body)
+   *     description: |
+   *       Same behavior as `GET /api/v1/complaints/status`, but folio and passphrase travel
+   *       in the request body instead of the query string, so they never get written into
+   *       proxy/APM access logs. Preferred entry point for new clients (USRH1783115930049);
+   *       the GET variant is kept, marked deprecated, for app versions already installed
+   *       that cannot be force-updated.
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - folio
+   *               - passphrase
+   *             properties:
+   *               folio:
+   *                 type: string
+   *                 minLength: 5
+   *                 maxLength: 50
+   *                 example: BQ-2026-482917
+   *               passphrase:
+   *                 type: string
+   *                 minLength: 6
+   *                 maxLength: 64
+   *                 example: ABCD2345EFGH
+   *     responses:
+   *       '200':
+   *         description: Complaint status retrieved successfully (same shape as the GET variant)
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *       '404':
+   *         description: Incorrect folio or passphrase (generic response to prevent enumeration)
+   *       '429':
+   *         description: Too many failed attempts for this folio or origin; retry after the window closes
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: demasiados-intentos
+   *                 code:
+   *                   type: string
+   *                   example: CMPL.RL.001
+   *                 detail:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *       default:
+   *         description: Unexpected error
+   */
+  async consultStatusFromBody({ request, response, i18n }: HttpContext) {
+    try {
+      const payload = await consultComplaintStatusValidator.validate(request.body())
+      const result = await this.consultStatusWithRateLimit(payload, request.ip(), i18n)
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_status_success'),
+        data: result,
+      }
+    } catch (error) {
+      return this.respondConsultStatusError(error, response, i18n)
+    }
+  }
+
+  /**
+   * Construye las claves/limiters y delega la mecánica de candado anidado
+   * (IP → folio) a `consultStatusRateLimited` (regla 2, USRH1783115930049),
+   * extraída a `app/helpers/complaint_status_rate_limit.ts` para poder
+   * probarla contra el store `memory` real sin bootear la app.
+   */
+  private async consultStatusWithRateLimit(
+    payload: ConsultComplaintStatusInput,
+    ip: string,
+    i18n: I18n
+  ): Promise<ComplaintStatusResult> {
+    const complaintService = new ComplaintService()
+    return consultStatusRateLimited({
+      ipLimiter: limiter.use(CONSULT_STATUS_IP_LIMIT),
+      ipKey: `complaint-status:ip:${ip}`,
+      folioLimiter: limiter.use(CONSULT_STATUS_FOLIO_LIMIT),
+      folioKey: `complaint-status:folio:${payload.folio.trim().toUpperCase()}`,
+      callback: () => complaintService.consultStatus(payload, i18n),
+    })
+  }
+
+  /** Traduce `ThrottleException` al mismo envelope de error del resto del módulo (regla 3). */
+  private respondConsultStatusError(error: unknown, response: HttpContext['response'], i18n: I18n) {
+    if (error instanceof limiterErrors.ThrottleException) {
+      response.header('Retry-After', String(error.response.availableIn))
+      response.status(429)
+      return {
+        type: 'error',
+        title: i18n.formatMessage('complaint_title'),
+        message: i18n.formatMessage('complaint_rate_limited'),
+        key: 'demasiados-intentos',
+        code: COMPLAINT_ERROR_CODES.RATE_LIMITED,
+        detail: i18n.formatMessage('complaint_rate_limited'),
+        data: null,
+      }
+    }
+    return this.complaintApiService.respondError(error, response, 500, i18n)
   }
 
   /**

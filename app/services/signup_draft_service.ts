@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
+import { secureRandomInt } from '#helpers/csprng_string'
 import logger from '@adonisjs/core/services/logger'
 import { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
@@ -120,8 +121,13 @@ export default class SignupDraftService {
     return !!user
   }
 
+  /**
+   * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
+   * de 10 minutos de siempre; solo cambia la fuente de aleatoriedad (helper
+   * compartido con USRH1783115930049 y con `generateRecoveryPin`).
+   */
   generatePin(): { pinCode: string; pinExpiresAt: DateTime } {
-    const pinCode = String(Math.floor(100000 + Math.random() * 900000))
+    const pinCode = String(secureRandomInt(100000, 1000000))
     const pinExpiresAt = DateTime.now().plus({ minutes: 10 })
     return { pinCode, pinExpiresAt }
   }
