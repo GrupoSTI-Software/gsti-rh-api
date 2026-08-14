@@ -135,7 +135,20 @@ export default class BillingCatalogService {
       plan.billingPlanDescription = input.billingPlanDescription
     if (input.billingPlanStripeProductId !== undefined)
       plan.billingPlanStripeProductId = input.billingPlanStripeProductId
-    if (input.billingPlanActive !== undefined) plan.billingPlanActive = input.billingPlanActive
+
+    // El estado de venta (billingPlanActive) no se edita por esta vía: tiene
+    // endpoints dedicados (`/publish` y `/deactivate`). Solo se rechaza
+    // explícitamente el intento de reactivar (0 → 1); cualquier otro valor
+    // enviado aquí se ignora en silencio.
+    if (input.billingPlanActive === 1 && plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        `No se puede reactivar el plan ${planId}`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_REACTIVATION_FORBIDDEN,
+        422,
+        'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN',
+        'Un plan retirado no se puede reactivar. Para volver a ofrecerlo, clónalo y publica la copia.'
+      )
+    }
 
     await plan.save()
     return plan
@@ -199,10 +212,23 @@ export default class BillingCatalogService {
     await db.transaction(async (trx) => {
       // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
       // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
+      // Además se descartan las demás copias en borrador del mismo padre, para
+      // garantizar una sola oferta viva por linaje aun con datos previos a las
+      // restricciones de clonePlan (copias sin linaje, copias hermanas antiguas).
       if (plan.billingPlanParentId) {
         await BillingPlan.query({ client: trx })
           .where('billing_plan_id', plan.billingPlanParentId)
           .update({ billing_plan_active: 0 })
+
+        const siblingDrafts = await BillingPlan.query({ client: trx })
+          .where('billing_plan_parent_id', plan.billingPlanParentId)
+          .whereNull('billing_plan_published_at')
+          .whereNot('billing_plan_id', planId)
+
+        for (const sibling of siblingDrafts) {
+          sibling.useTransaction(trx)
+          await (sibling as unknown as { delete(): Promise<void> }).delete()
+        }
       }
 
       plan.billingPlanPublishedAt = DateTime.utc()
@@ -210,6 +236,40 @@ export default class BillingCatalogService {
       await plan.save()
     })
 
+    return plan
+  }
+
+  /**
+   * Retira del catálogo un plan publicado y vigente. Irreversible: no existe
+   * vía para reactivarlo (decisión de Wilvardo 2026-08-05). No toca
+   * `billing_subscriptions` — el trato congelado de quien ya lo contrató
+   * permanece intacto; el retiro solo afecta la venta futura.
+   */
+  async deactivatePlan(planId: number): Promise<BillingPlan> {
+    const plan = await this.getPlan(planId)
+
+    if (!plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} no está publicado, no se puede retirar`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_DEACTIVATE_REQUIRES_PUBLISHED,
+        422,
+        'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED',
+        'Solo se puede retirar un plan publicado y vigente. Un plan en borrador se descarta, no se retira.'
+      )
+    }
+
+    if (plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} ya está desactivado`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_DEACTIVATED,
+        422,
+        'PLT.CAT.PLAN_ALREADY_DEACTIVATED',
+        'Este plan ya fue retirado del catálogo.'
+      )
+    }
+
+    plan.billingPlanActive = 0
+    await plan.save()
     return plan
   }
 

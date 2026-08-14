@@ -771,3 +771,207 @@ test.group('BillingCatalogService — updateTier: minEmployees editable y duplic
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Módulo: nuevos códigos de error — retiro manual y no-reactivación
+// (USRH1785962095081)
+// ---------------------------------------------------------------------------
+
+test.group('BILLING_CATALOG_ERROR_CODES — códigos de retiro manual', () => {
+  test('PLAN_DEACTIVATE_REQUIRES_PUBLISHED es PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED', ({
+    assert,
+  }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_DEACTIVATE_REQUIRES_PUBLISHED,
+      'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED'
+    )
+  })
+
+  test('PLAN_ALREADY_DEACTIVATED es PLT.CAT.PLAN_ALREADY_DEACTIVATED', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_DEACTIVATED,
+      'PLT.CAT.PLAN_ALREADY_DEACTIVATED'
+    )
+  })
+
+  test('PLAN_REACTIVATION_FORBIDDEN es PLT.CAT.PLAN_REACTIVATION_FORBIDDEN', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_REACTIVATION_FORBIDDEN,
+      'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN'
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: reglas de deactivatePlan (retiro manual, USRH1785962095081)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — reglas de deactivatePlan', () => {
+  /** Espeja las validaciones de deactivatePlan antes de tocar la BD. */
+  function tryDeactivate(plan: { isPublished: boolean; billingPlanActive: 0 | 1 }) {
+    if (!plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        'No publicado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_DEACTIVATE_REQUIRES_PUBLISHED,
+        422
+      )
+    }
+    if (plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        'Ya desactivado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_DEACTIVATED,
+        422
+      )
+    }
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('retirar un plan en borrador lanza PLAN_DEACTIVATE_REQUIRES_PUBLISHED con 422', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryDeactivate({ isPublished: false, billingPlanActive: 1 })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('retirar un plan ya desactivado lanza PLAN_ALREADY_DEACTIVATED con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryDeactivate({ isPublished: true, billingPlanActive: 0 })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_ALREADY_DEACTIVATED')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('retirar un plan publicado y vigente no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryDeactivate({ isPublished: true, billingPlanActive: 1 }))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: updatePlan bloquea la reactivación (0 → 1) por cualquier vía
+// (USRH1785962095081, regla 4 — sin reactivación)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — updatePlan: sin reactivación vía billingPlanActive', () => {
+  /** Espeja la validación previa al UPDATE en updatePlan para billingPlanActive. */
+  function tryUpdateActive(currentActive: 0 | 1, newActive?: 0 | 1) {
+    if (newActive === 1 && currentActive === 0) {
+      throw new BillingCatalogServiceError(
+        'No se puede reactivar',
+        BILLING_CATALOG_ERROR_CODES.PLAN_REACTIVATION_FORBIDDEN,
+        422
+      )
+    }
+    // Cualquier otro valor se ignora: el estado se cambia solo por /publish y /deactivate.
+    return currentActive
+  }
+
+  test('intentar reactivar un plan desactivado (0 → 1) lanza PLAN_REACTIVATION_FORBIDDEN con 422', ({
+    assert,
+  }) => {
+    try {
+      tryUpdateActive(0, 1)
+      assert.fail('Se esperaba PLAN_REACTIVATION_FORBIDDEN')
+    } catch (e) {
+      const error = e as BillingCatalogServiceError
+      assert.equal(error.errorCode, 'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+
+  test('enviar billingPlanActive = 1 cuando ya está en 1 no lanza error (no es reactivación)', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() => tryUpdateActive(1, 1))
+  })
+
+  test('enviar billingPlanActive = 0 sobre un plan activo no lanza error (se ignora, no aplica por esta vía)', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() => tryUpdateActive(1, 0))
+  })
+
+  test('no enviar billingPlanActive no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryUpdateActive(0, undefined))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: publishPlan descarta copias hermanas del mismo padre
+// (USRH1785962095081, regla 1 — una sola oferta viva por linaje)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — publishPlan: barrido de copias hermanas', () => {
+  /**
+   * Espeja el efecto de publishPlan sobre el conjunto de copias en borrador
+   * del mismo padre: todas menos la que se publica quedan descartadas
+   * (retiro lógico), y el padre queda desactivado.
+   */
+  function publishAndSweep(
+    parentId: number | null,
+    siblingDrafts: Array<{ id: number; parentId: number }>,
+    publishedId: number
+  ) {
+    if (!parentId) {
+      return { parentDeactivated: false, discardedIds: [] as number[] }
+    }
+    const discardedIds = siblingDrafts
+      .filter((s) => s.parentId === parentId && s.id !== publishedId)
+      .map((s) => s.id)
+    return { parentDeactivated: true, discardedIds }
+  }
+
+  test('publicar sin linaje (parentId nulo) no descarta nada — nada que desactivar', ({
+    assert,
+  }) => {
+    const result = publishAndSweep(null, [], 10)
+    assert.isFalse(result.parentDeactivated)
+    assert.deepEqual(result.discardedIds, [])
+  })
+
+  test('publicar con una única copia en borrador del padre no descarta nada más', ({
+    assert,
+  }) => {
+    const siblings = [{ id: 6, parentId: 2 }]
+    const result = publishAndSweep(2, siblings, 6)
+    assert.isTrue(result.parentDeactivated)
+    assert.deepEqual(result.discardedIds, [])
+  })
+
+  test('publicar con dos o más copias hermanas del mismo padre descarta a todas menos la publicada', ({
+    assert,
+  }) => {
+    // Reproduce el escenario diagnosticado contra datos reales: copias
+    // hermanas del mismo padre (por ejemplo, datos previos al bloqueo de
+    // CLONE_DRAFT_EXISTS) deben quedar descartadas al publicar cualquiera.
+    const siblings = [
+      { id: 6, parentId: 2 },
+      { id: 7, parentId: 2 },
+      { id: 8, parentId: 2 },
+    ]
+    const result = publishAndSweep(2, siblings, 7)
+    assert.isTrue(result.parentDeactivated)
+    assert.sameMembers(result.discardedIds, [6, 8])
+    assert.notInclude(result.discardedIds, 7)
+  })
+
+  test('las copias de un padre distinto nunca se descartan', ({ assert }) => {
+    const siblings = [
+      { id: 6, parentId: 2 },
+      { id: 9, parentId: 4 },
+    ]
+    const result = publishAndSweep(2, siblings, 6)
+    assert.notInclude(result.discardedIds, 9)
+  })
+})

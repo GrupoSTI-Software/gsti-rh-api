@@ -193,13 +193,13 @@ export default class BillingSubscriptionService {
       )
     }
 
-    if (!plan.isPublished) {
+    if (!plan.isPublished || !plan.billingPlanActive) {
       throw new BillingSubscriptionServiceError(
-        `Plan ${input.billingPlanId} no está publicado`,
+        `Plan ${input.billingPlanId} no está publicado y vigente`,
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422,
         'plan-no-publicado',
-        'Solo se puede contratar sobre un plan publicado del catálogo.'
+        'Solo se puede contratar sobre un plan publicado y vigente del catálogo.'
       )
     }
 
@@ -341,13 +341,13 @@ export default class BillingSubscriptionService {
       )
     }
 
-    if (!plan.isPublished) {
+    if (!plan.isPublished || !plan.billingPlanActive) {
       throw new BillingSubscriptionServiceError(
-        `Plan ${billingPlanId} no está publicado`,
+        `Plan ${billingPlanId} no está publicado y vigente`,
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422,
         'plan-no-publicado',
-        'Solo se puede cambiar a un plan publicado del catálogo.'
+        'Solo se puede cambiar a un plan publicado y vigente del catálogo.'
       )
     }
 

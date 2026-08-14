@@ -33,6 +33,12 @@ export const BILLING_CATALOG_ERROR_CODES = {
   PLAN_NAME_IMMUTABLE: 'PLT.CAT.PLAN_NAME_IMMUTABLE',
   /** Tramo inexistente en el plan indicado (o eliminado lógicamente) */
   TIER_NOT_FOUND: 'PLT.CAT.TIER_NOT_FOUND',
+  /** Intento de retirar un plan que no está publicado (borrador) */
+  PLAN_DEACTIVATE_REQUIRES_PUBLISHED: 'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED',
+  /** Intento de retirar un plan que ya está retirado */
+  PLAN_ALREADY_DEACTIVATED: 'PLT.CAT.PLAN_ALREADY_DEACTIVATED',
+  /** Intento de reactivar un plan retirado (0 → 1), por cualquier vía */
+  PLAN_REACTIVATION_FORBIDDEN: 'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.CAT.SYS_UNHANDLED',
 } as const

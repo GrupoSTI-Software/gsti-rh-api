@@ -126,7 +126,11 @@ export default class BillingPlanController {
    *       El nombre del plan (billingPlanName) solo se puede editar mientras
    *       el plan está en borrador. Con el plan publicado el cambio de
    *       nombre se rechaza con 422 PLT.CAT.PLAN_NAME_IMMUTABLE — para
-   *       cambiar el nombre de una oferta publicada, clónala.
+   *       cambiar el nombre de una oferta publicada, clónala. El estado de
+   *       venta (billingPlanActive) no se edita por esta vía: usa
+   *       `/publish` y `/deactivate`. Un intento de reactivar (0 → 1) un
+   *       plan retirado se rechaza con 422 PLT.CAT.PLAN_REACTIVATION_FORBIDDEN;
+   *       cualquier otro valor enviado en ese campo se ignora.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -159,7 +163,9 @@ export default class BillingPlanController {
    *       '404':
    *         description: Plan no encontrado
    *       '422':
-   *         description: Nombre inmutable (plan publicado) — código PLT.CAT.PLAN_NAME_IMMUTABLE
+   *         description: >
+   *           Nombre inmutable (plan publicado, PLT.CAT.PLAN_NAME_IMMUTABLE) o
+   *           intento de reactivar el plan (PLT.CAT.PLAN_REACTIVATION_FORBIDDEN)
    */
   async update({ params, request, response }: HttpContext) {
     try {
@@ -232,6 +238,47 @@ export default class BillingPlanController {
   async publish({ params, response }: HttpContext) {
     try {
       const plan = await this.service.publishPlan(Number(params.planId))
+      return response.status(200).json({ type: 'success', data: plan })
+    } catch (error) {
+      const { status, ...body } = resolveBillingCatalogApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/plans/{planId}/deactivate:
+   *   post:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Retirar del catálogo un plan publicado y vigente
+   *     description: >
+   *       Retiro manual e irreversible: el plan deja de poder contratarse o de
+   *       ser destino de un cambio de plan, pero las suscripciones que ya lo
+   *       tienen contratado no se modifican (su trato congelado permanece
+   *       intacto). No existe reactivación — para volver a ofrecer esa oferta
+   *       hay que clonarla y publicar la copia.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: planId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Plan retirado (billingPlanActive = 0)
+   *       '404':
+   *         description: Plan no encontrado
+   *       '422':
+   *         description: >
+   *           El plan no está publicado (PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED)
+   *           o ya está desactivado (PLT.CAT.PLAN_ALREADY_DEACTIVATED)
+   */
+  async deactivate({ params, response }: HttpContext) {
+    try {
+      const plan = await this.service.deactivatePlan(Number(params.planId))
       return response.status(200).json({ type: 'success', data: plan })
     } catch (error) {
       const { status, ...body } = resolveBillingCatalogApiError(error)
