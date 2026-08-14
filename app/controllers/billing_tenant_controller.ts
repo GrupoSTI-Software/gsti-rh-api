@@ -1,7 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import BillingTenantService from '#services/billing_tenant_service'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
-import { publicPlanPriceQueryValidator } from '#validators/billing_tenant'
+import {
+  contractTenantSubscriptionValidator,
+  publicPlanPriceQueryValidator,
+} from '#validators/billing_tenant'
 
 /**
  * Superficie de billing orientada al visitante anónimo (paso 1 del registro)
@@ -198,7 +201,10 @@ export default class BillingTenantController {
    *     description: |
    *       Devuelve siempre `businessUnitOrigin` y la suscripción viva del tenant
    *       del header `X-Business-Unit-Id`, o `subscription: null` si no hay
-   *       contratación en curso. Nunca responde 404 por ausencia de suscripción.
+   *       contratación en curso. Incluye `minimumContractedEmployees` (número)
+   *       solo cuando la empresa es de origen `self_service` y no tiene
+   *       suscripción viva; en cualquier otro caso viene `null`. Nunca responde
+   *       404 por ausencia de suscripción.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -286,6 +292,145 @@ export default class BillingTenantController {
     try {
       const result = await this.service.getMySubscription()
       return response.status(200).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/billing/subscription:
+   *   post:
+   *     tags:
+   *       - Tenant Billing
+   *     summary: Re-contratar un plan (empresa self-service sin suscripción viva)
+   *     description: |
+   *       Permite a una empresa de origen `self_service` sin contratación viva volver
+   *       a contratar por su cuenta. La cantidad debe ser múltiplo de 10 y no puede
+   *       ser menor que la plantilla activa redondeada al bloque superior. La
+   *       suscripción nace en estado `active`, sin periodo de prueba. Las empresas
+   *       dadas de alta a mano (`platform`) no pueden usar esta operación.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - billingPlanId
+   *               - contractedEmployees
+   *             properties:
+   *               billingPlanId:
+   *                 type: integer
+   *               contractedEmployees:
+   *                 type: integer
+   *                 minimum: 10
+   *                 description: Cantidad en bloques de 10; no puede ser menor que la plantilla activa
+   *     responses:
+   *       '201':
+   *         description: Suscripción creada en estado active, sin periodo de prueba
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '400':
+   *         description: Falta header X-Business-Unit-Id
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *       '401':
+   *         description: No autenticado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *       '404':
+   *         description: Empresa fuera de alcance, plan no encontrado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *       '409':
+   *         description: La empresa ya tiene una suscripción viva
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '422':
+   *         description: Origen no self-service, cantidad inválida o por debajo del mínimo por plantilla
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   */
+  async contractSubscription({ request, response }: HttpContext) {
+    try {
+      const body = await request.validateUsing(contractTenantSubscriptionValidator)
+      const result = await this.service.contractSubscription(
+        body.billingPlanId,
+        body.contractedEmployees
+      )
+      return response.status(201).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

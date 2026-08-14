@@ -1,0 +1,139 @@
+{{--
+  Aviso interno de contratación self-service (USRH1785441817250).
+  Espejo de layout y convenciones de work_journal_seal_run_summary.edge:
+   - Estilos 100% inline (compatibilidad Gmail / Outlook 2007-2019).
+   - Layout con tablas (Outlook requiere tablas, no divs).
+   - Sin imágenes externas.
+--}}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <title>{{ subject }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+    <tr>
+      <td align="center" style="padding: 24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 640px;">
+
+          {{-- Encabezado de marca --}}
+          <tr>
+            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
+              <div style="font-size: 18px; font-weight: 700; line-height: 1.2; color: #ffffff;">{{ tradeName }}</div>
+              <div style="font-size: 13px; color: #e0f2fe; margin-top: 4px;">Contratación self-service — aviso interno</div>
+            </td>
+          </tr>
+
+          {{-- Tarjeta principal --}}
+          <tr>
+            <td style="background-color: #ffffff; padding: 24px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+
+              <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #111827;">
+                La empresa <strong>{{ businessUnitName }}</strong> contrató el plan
+                <strong>{{ billingPlanName }}</strong> por la vía de autoservicio el
+                <strong>{{ subscribedAt }}</strong>. Folio de suscripción <strong>#{{ subscriptionId }}</strong>.
+              </p>
+
+              {{-- Tabla: Contratación --}}
+              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #374151;">Contratación</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+                <thead>
+                  <tr style="background: #f3f4f6; text-align: left;">
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Dato</th>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Empresa</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ businessUnitName }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Plan contratado</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ billingPlanName }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Folio de suscripción</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">#{{ subscriptionId }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Empleados contratados</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ contractedEmployees }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Fecha de contratación</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ subscribedAt }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Días de prueba</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ contractedTrialDays }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; color: #374151;">Fecha del primer pago</td>
+                    <td style="padding: 9px 8px; color: #111827; font-weight: 600;">{{ trialEndsAt }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {{-- Tabla: Importes y cobro --}}
+              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #374151;">Importes y cobro</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+                <thead>
+                  <tr style="background: #f3f4f6; text-align: left;">
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Concepto</th>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600; text-align: right;">Importe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Precio por empleado</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ contractedUnitAmount }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Descuento por volumen</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ discountLabel }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Subtotal</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ contractedSubtotal }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">IVA ({{ taxRatePercent }}%)</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ contractedTaxAmount }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Total a pagar ({{ currency }})</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 700; text-align: right;">{{ contractedTotal }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <p style="margin: 0 0 20px; padding: 10px 14px; background: #fef3c7; border-left: 4px solid #d97706; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #78350f;">
+                <strong>Acción requerida:</strong> el cobro es manual. Emitir el cobro de
+                <strong>{{ contractedTotal }}</strong> a <strong>{{ businessUnitName }}</strong> el
+                <strong>{{ trialEndsAt }}</strong>, al vencer el periodo de prueba.
+              </p>
+
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #9ca3af;">
+                Los importes reflejan el snapshot de la suscripción al momento del alta; no se recalculan en este aviso.
+              </p>
+
+            </td>
+          </tr>
+
+          {{-- Footer --}}
+          <tr>
+            <td style="padding: 14px 24px; text-align: center; font-size: 11px; color: #9ca3af;">
+              Mensaje generado automáticamente por el sistema {{ tradeName }}. No responder a este correo.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

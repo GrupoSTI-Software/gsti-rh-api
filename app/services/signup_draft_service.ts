@@ -6,6 +6,8 @@ import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
+import BillingPlan from '#models/billing_plan'
+import BillingSubscription from '#models/billing_subscription'
 import SignupDraft from '#models/signup_draft'
 import AuthMailService from '#services/auth_mail_service'
 import PersonService from '#services/person_service'
@@ -15,6 +17,7 @@ import AuthTokenService from '#services/auth_token_service'
 import SystemSettingService from '#services/system_setting_service'
 import BillingTenantService from '#services/billing_tenant_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
+import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import { resolveSignupApiError } from '#helpers/signup_api_error'
 import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscription_api_error'
 import { planNotSelectedError } from '#helpers/billing_tenant_error'
@@ -308,6 +311,10 @@ export default class SignupDraftService {
 
     let businessUnit: BusinessUnit
     let user: User
+    let subscription: BillingSubscription
+
+    const billingPlan = await BillingPlan.find(billingPlanId)
+    const billingPlanName = billingPlan?.billingPlanName ?? `Plan #${billingPlanId}`
     // El registro self-service asigna el rol owner (dueño de la cuenta contratada),
     // resuelto por slug y nunca hardcodeado: distinto del rol interno usado antes (roleId 1).
     const roleService = new RoleService()
@@ -390,7 +397,7 @@ export default class SignupDraftService {
         // copiada del registro base — dentro de la misma transacción (fail-closed).
         await systemSettingService.createForTenant(trxBusinessUnit.businessUnitId, slug, trx)
 
-        await billingSubscriptionService.createSubscription(
+        const trxSubscription = await billingSubscriptionService.createSubscription(
           {
             businessUnitPublicId: trxBusinessUnit.businessUnitPublicId,
             billingPlanId,
@@ -399,11 +406,12 @@ export default class SignupDraftService {
           trx
         )
 
-        return { businessUnit: trxBusinessUnit, user: trxUser }
+        return { businessUnit: trxBusinessUnit, user: trxUser, subscription: trxSubscription }
       })
 
       businessUnit = result.businessUnit
       user = result.user
+      subscription = result.subscription
     } catch (error) {
       const billingResult = this.toServiceResult(error)
       if (billingResult) {
@@ -439,6 +447,19 @@ export default class SignupDraftService {
         logger.error(
           { err },
           'SignupDraftService.complete: fallo al enviar correo de bienvenida.'
+        )
+      )
+
+    new BillingInternalNotificationService()
+      .notifySelfServiceSubscriptionCreated({
+        subscription,
+        businessUnitName: businessUnit.businessUnitName,
+        billingPlanName,
+      })
+      .catch((err) =>
+        logger.error(
+          { err },
+          'SignupDraftService.complete: fallo al notificar la contratación self-service.'
         )
       )
 
