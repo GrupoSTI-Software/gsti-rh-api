@@ -1,4 +1,5 @@
 import router from '@adonisjs/core/services/router'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { middleware } from '#start/kernel'
 
 router
@@ -10,10 +11,12 @@ router
       '/get-vacation-import-template',
       '#controllers/employee_vacation_controller.getVacationImportTemplate'
     )
-    router.post(
-      '/import-vacation-excel',
-      '#controllers/employee_vacation_controller.importVacationExcel'
-    )
+    router
+      .post(
+        '/import-vacation-excel',
+        '#controllers/employee_vacation_controller.importVacationExcel'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importVacationExcel))
   })
   .prefix('/api/employees-vacations')
   .use(middleware.auth())
