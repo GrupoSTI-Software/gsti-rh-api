@@ -61,7 +61,7 @@ export default class Role extends compose(BaseModel, SoftDeletes) {
   declare roleBusinessAccess: string
 
   @column()
-  declare roleManagementDays: number
+  declare roleManagementDays: number | null
 
   @column.dateTime({ autoCreate: true })
   declare roleCreatedAt: DateTime
