@@ -137,3 +137,52 @@ test.group('report_jobs_controller — misma descarga que el Excel síncrono', (
     assert.include(content, 'employeesAttendanceReportJobDeclaration(job.reportJobType')
   })
 })
+
+test.group('proceeding_file y contract — descarga con AND de pestaña', () => {
+  test('download de expediente declara download-proceeding-files; show no cambia', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_proceeding_file_routes.ts'),
+      'utf8'
+    )
+    const packed = compact(content)
+    assert.match(
+      packed,
+      /\/:employeeProceedingFileId\/download[\s\S]{0,220}permissionGate\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\.downloadProceedingFile\)/
+    )
+    assert.include(
+      content,
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeProceedingFile)'
+    )
+  })
+
+  test('download de contrato declara download-employee-contract', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_contract_routes.ts'),
+      'utf8'
+    )
+    const packed = compact(content)
+    assert.match(
+      packed,
+      /\/:employeeContractId\/download[\s\S]{0,220}permissionGate\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\.downloadEmployeeContract\)/
+    )
+  })
+
+  test('los controladores exigen la lectura de pestaña antes de enviar el archivo', async ({
+    assert,
+  }) => {
+    const proceeding = await readFile(
+      join(process.cwd(), 'app/controllers/employee_proceeding_file_controller.ts'),
+      'utf8'
+    )
+    const contract = await readFile(
+      join(process.cwd(), 'app/controllers/employee_contract_controller.ts'),
+      'utf8'
+    )
+    assert.include(proceeding, 'ensureSecondaryPermission')
+    assert.include(proceeding, 'EMPLOYEES_PROCEEDING_FILE_DOWNLOAD_TAB_READ_PERMISSION')
+    assert.include(contract, 'ensureSecondaryPermission')
+    assert.include(contract, 'EMPLOYEES_CONTRACT_DOWNLOAD_TAB_READ_PERMISSION')
+  })
+})

@@ -2,6 +2,7 @@
 import router from '@adonisjs/core/services/router'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
 import { middleware } from '#start/kernel'
 
 router
@@ -21,6 +22,9 @@ router
     router
       .get('/:employeeContractId/download', '#controllers/employee_contract_controller.download')
       .use(middleware.businessScopeOptional())
+      .use(
+        middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.downloadEmployeeContract)
+      )
   })
   .use(middleware.auth())
   .use(middleware.businessScope())
