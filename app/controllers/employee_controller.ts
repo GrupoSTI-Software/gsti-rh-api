@@ -1513,9 +1513,8 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  // async update(ctx: HttpContext) {
-  //   const { request, response, i18n, auth } = ctx
-  async update({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n, auth, businessUnitScope } = ctx
     try {
       const employeeId = request.param('employeeId')
       const employeeFirstName = request.input('employeeFirstName')
