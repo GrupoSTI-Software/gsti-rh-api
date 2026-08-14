@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 
 router
   .group(() => {
@@ -7,10 +8,13 @@ router
       '/employee-lactation-periods',
       '#controllers/employee_lactation_periods_controller.index'
     )
-    router.post(
-      '/employee-lactation-periods',
-      '#controllers/employee_lactation_periods_controller.store'
-    )
+    // prettier-ignore
+    router
+      .post(
+        '/employee-lactation-periods',
+        '#controllers/employee_lactation_periods_controller.store'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeLactationPeriod))
     // Reporte de cumplimiento (JSON + export PDF).
     // OJO: estas rutas deben declararse ANTES de `/:id` para que
     // `compliance-report` no se confunda con un identificador numérico.
@@ -26,10 +30,13 @@ router
     // consideración de orden aplica: va ANTES de `/:id` para que el
     // segmento literal `notifications` no colisione con un identificador
     // numérico.
-    router.post(
-      '/employee-lactation-periods/notifications/run-expiring-check',
-      '#controllers/employee_lactation_periods_controller.runExpiringCheck'
-    )
+    // prettier-ignore
+    router
+      .post(
+        '/employee-lactation-periods/notifications/run-expiring-check',
+        '#controllers/employee_lactation_periods_controller.runExpiringCheck'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.runLactationExpiringCheck))
     // Listado GLOBAL de conflictos a nivel empresa (vista de RH).
     // OJO: va ANTES de `/:id` para que `conflicts` no se interprete
     // como identificador numérico de un periodo.
@@ -37,18 +44,27 @@ router
       '/employee-lactation-periods/conflicts',
       '#controllers/employee_lactation_periods_controller.listAllConflicts'
     )
-    router.put(
-      '/employee-lactation-periods/:id',
-      '#controllers/employee_lactation_periods_controller.update'
-    )
-    router.delete(
-      '/employee-lactation-periods/:id',
-      '#controllers/employee_lactation_periods_controller.destroy'
-    )
-    router.post(
-      '/employee-lactation-periods/:id/regenerate-shift-exceptions',
-      '#controllers/employee_lactation_periods_controller.regenerateShiftExceptions'
-    )
+    // prettier-ignore
+    router
+      .put(
+        '/employee-lactation-periods/:id',
+        '#controllers/employee_lactation_periods_controller.update'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeLactationPeriod))
+    // prettier-ignore
+    router
+      .delete(
+        '/employee-lactation-periods/:id',
+        '#controllers/employee_lactation_periods_controller.destroy'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeLactationPeriod))
+    // prettier-ignore
+    router
+      .post(
+        '/employee-lactation-periods/:id/regenerate-shift-exceptions',
+        '#controllers/employee_lactation_periods_controller.regenerateShiftExceptions'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.regenerateLactationShiftExceptions))
 
     // Gestión de conflictos del periodo (revocar / reasignar día de lactancia
     // que choca con vacación, incapacidad, maternidad, permiso o festivo).
@@ -63,36 +79,51 @@ router
     // Reasignación BULK del periodo. OJO: va ANTES de
     // `/:id/conflicts/:shiftExceptionId` para que el segmento literal
     // `reassign-bulk` no se interprete como un `shiftExceptionId`.
-    router.post(
-      '/employee-lactation-periods/:id/conflicts/reassign-bulk',
-      '#controllers/employee_lactation_periods_controller.reassignConflictsBulk'
-    )
-    router.delete(
-      '/employee-lactation-periods/:id/conflicts/:shiftExceptionId',
-      '#controllers/employee_lactation_periods_controller.revokeConflict'
-    )
-    router.post(
-      '/employee-lactation-periods/:id/conflicts/:shiftExceptionId/reassign',
-      '#controllers/employee_lactation_periods_controller.reassignConflict'
-    )
+    // prettier-ignore
+    router
+      .post(
+        '/employee-lactation-periods/:id/conflicts/reassign-bulk',
+        '#controllers/employee_lactation_periods_controller.reassignConflictsBulk'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.reassignLactationConflictsBulk))
+    // prettier-ignore
+    router
+      .delete(
+        '/employee-lactation-periods/:id/conflicts/:shiftExceptionId',
+        '#controllers/employee_lactation_periods_controller.revokeConflict'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.revokeLactationConflict))
+    // prettier-ignore
+    router
+      .post(
+        '/employee-lactation-periods/:id/conflicts/:shiftExceptionId/reassign',
+        '#controllers/employee_lactation_periods_controller.reassignConflict'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.reassignLactationConflict))
 
     // Evidencias documentales del periodo (PDFs)
     router.get(
       '/employee-lactation-periods/:periodId/evidences',
       '#controllers/employee_lactation_period_evidences_controller.index'
     )
-    router.post(
-      '/employee-lactation-periods/:periodId/evidences',
-      '#controllers/employee_lactation_period_evidences_controller.store'
-    )
+    // prettier-ignore
+    router
+      .post(
+        '/employee-lactation-periods/:periodId/evidences',
+        '#controllers/employee_lactation_period_evidences_controller.store'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createLactationEvidence))
     router.get(
       '/employee-lactation-periods/:periodId/evidences/:evidenceId/download-url',
       '#controllers/employee_lactation_period_evidences_controller.downloadUrl'
     )
-    router.delete(
-      '/employee-lactation-periods/:periodId/evidences/:evidenceId',
-      '#controllers/employee_lactation_period_evidences_controller.destroy'
-    )
+    // prettier-ignore
+    router
+      .delete(
+        '/employee-lactation-periods/:periodId/evidences/:evidenceId',
+        '#controllers/employee_lactation_period_evidences_controller.destroy'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteLactationEvidence))
   })
   .prefix('/api')
   .use(middleware.auth())

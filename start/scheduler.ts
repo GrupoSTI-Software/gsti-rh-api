@@ -56,7 +56,9 @@ scheduler.command('work-journal:seal-period').cron('0 7 * * *')
 /**
  * Reloj de suscripción (USRH1784574994921): evalúa cada suscripción no
  * cancelada y mueve su estado según sus fechas de prueba y periodo
- * (trialing → active/past_due, active → past_due). Barrido idempotente.
+ * (trialing → active/past_due, active → past_due). Tras el gobierno de
+ * estados, aplica reducciones agendadas cuya fecha de efecto ya se alcanzó
+ * (USRH1786107870859) sin mover las fechas del periodo. Barrido idempotente.
  *
  * Se programa a las 13:00 UTC (07:00 CDMX), misma ventana que
  * `lactation_notify_expiring`, para que los estados queden actualizados

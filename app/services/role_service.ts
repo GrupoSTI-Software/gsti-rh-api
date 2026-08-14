@@ -6,6 +6,7 @@ import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 
 export default class RoleService {
@@ -48,13 +49,14 @@ export default class RoleService {
     return roles
   }
 
-  async create(role: Role) {
+  async create(role: Role, trx?: TransactionClientContract) {
     const newRole = new Role()
     newRole.roleName = role.roleName
     newRole.roleDescription = role.roleDescription
     newRole.roleSlug = role.roleSlug
     newRole.roleActive = role.roleActive
     newRole.roleBusinessAccess = role.roleBusinessAccess
+    if (trx) newRole.useTransaction(trx)
     await newRole.save()
     return newRole
   }
@@ -73,10 +75,19 @@ export default class RoleService {
     return currentRole
   }
 
-  async assignPermissions(roleId: number, permissions: Array<number>) {
-    let rolePermissions = await RoleSystemPermission.query()
-      .whereNull('role_system_permission_deleted_at')
-      .where('role_id', roleId)
+  async assignPermissions(
+    roleId: number,
+    permissions: Array<number>,
+    trx?: TransactionClientContract
+  ) {
+    const queryPermissions = () => {
+      const query = RoleSystemPermission.query()
+        .whereNull('role_system_permission_deleted_at')
+        .where('role_id', roleId)
+      return trx ? query.useTransaction(trx) : query
+    }
+
+    let rolePermissions = await queryPermissions()
     if (rolePermissions) {
       if (permissions === undefined) {
         permissions = []
@@ -86,6 +97,7 @@ export default class RoleService {
           (a: number) => Number.parseInt(a.toString()) === item.systemPermissionId
         )
         if (!existPermission) {
+          if (trx) item.useTransaction(trx)
           await item.delete()
         }
       }
@@ -98,13 +110,40 @@ export default class RoleService {
         const newPermission = new RoleSystemPermission()
         newPermission.roleId = roleId
         newPermission.systemPermissionId = permissionId
+        if (trx) newPermission.useTransaction(trx)
         await newPermission.save()
       }
     }
-    rolePermissions = await RoleSystemPermission.query()
-      .whereNull('role_system_permission_deleted_at')
-      .where('role_id', roleId)
+    rolePermissions = await queryPermissions()
     return rolePermissions
+  }
+
+  /**
+   * Aplica `roleManagementDays` y sincroniza permisos para cada rol del lote,
+   * bajo la `trx` provista por el caller. No abre ni confirma la transacción:
+   * si alguna operación falla, el error debe burbujear para que el caller
+   * haga rollback de TODO el lote (atomicidad).
+   */
+  async assignPermissionsBatch(
+    items: Array<{
+      roleId: number
+      permissions: number[]
+      roleManagementDays: number | null
+    }>,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    for (const item of items) {
+      const role = await Role.query()
+        .useTransaction(trx)
+        .whereNull('role_deleted_at')
+        .where('role_id', item.roleId)
+        .firstOrFail()
+
+      role.useTransaction(trx)
+      role.roleManagementDays = item.roleManagementDays
+      await role.save()
+      await this.assignPermissions(item.roleId, item.permissions, trx)
+    }
   }
 
   async show(roleId: number) {
@@ -335,9 +374,7 @@ export default class RoleService {
   async verifyInfo(role: Role) {
     const action = role.roleId > 0 ? 'updated' : 'created'
 
-    const query = Role.query()
-      .where('role_name', role.roleName)
-      .whereNull('role_deleted_at')
+    const query = Role.query().where('role_name', role.roleName).whereNull('role_deleted_at')
 
     if (role.roleId > 0) {
       query.whereNot('role_id', role.roleId)
@@ -346,15 +383,15 @@ export default class RoleService {
     const rolesWithSameName = await query
 
     const inputAccess = role.roleBusinessAccess
-      ? role.roleBusinessAccess.split(',').map(e => e.trim())
+      ? role.roleBusinessAccess.split(',').map((e) => e.trim())
       : []
 
-    const hasConflict = rolesWithSameName.some(existingRole => {
+    const hasConflict = rolesWithSameName.some((existingRole) => {
       const existingAccess = existingRole.roleBusinessAccess
-        ? existingRole.roleBusinessAccess.split(',').map(e => e.trim())
+        ? existingRole.roleBusinessAccess.split(',').map((e) => e.trim())
         : []
 
-      return inputAccess.some(company => existingAccess.includes(company))
+      return inputAccess.some((company) => existingAccess.includes(company))
     })
 
     if (hasConflict && role.roleName) {
@@ -388,7 +425,10 @@ export default class RoleService {
    * @param roleSlug - Slug del rol a buscar
    * @returns Rol encontrado o null
    */
-  async findRoleBySlug(roleSlug: string, allowedBusinessUnitIds: number[] = []): Promise<Role | null> {
+  async findRoleBySlug(
+    roleSlug: string,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Role | null> {
     // Los roles de sistema resuelven directo, sin depender del CSV
     // role_business_access: son asignables en todo tenant (USRH1785436961936).
     // `orderBy` fija la fila sembrada (la más antigua) ante cualquier residuo
@@ -434,4 +474,44 @@ export default class RoleService {
     return role || null
   }
 
+  /**
+   * Busca un rol por id acotado al tenant, con el mismo criterio que `index`:
+   * los roles de sistema resuelven en cualquier empresa (USRH1785436961936) y
+   * el resto solo si su CSV `role_business_access` incluye alguna unidad del
+   * scope. Devuelve `null` cuando el rol existe pero pertenece a otro tenant,
+   * para que el caller responda 404 sin revelar su existencia.
+   */
+  async findRoleByIdInScope(
+    roleId: number,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Role | null> {
+    const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
+
+    if (!role) {
+      return null
+    }
+
+    if (isSystemRoleSlug(role.roleSlug)) {
+      return role
+    }
+
+    let slugs: string[]
+    if (allowedBusinessUnitIds.length === 0) {
+      const allUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .select('business_unit_slug')
+      slugs = allUnits.map((unit) => unit.businessUnitSlug)
+    } else {
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+        .select('business_unit_slug')
+      slugs = units.map((unit) => unit.businessUnitSlug)
+    }
+
+    const access = role.roleBusinessAccess
+      ? role.roleBusinessAccess.split(',').map((slug) => slug.trim())
+      : []
+
+    return slugs.some((slug) => access.includes(slug.trim())) ? role : null
+  }
 }

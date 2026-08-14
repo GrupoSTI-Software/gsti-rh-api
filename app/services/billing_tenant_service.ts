@@ -12,6 +12,7 @@ import {
   employeesBelowActiveHeadcountError,
   employeesNotBlockOfTenError,
   MIN_CONTRACTED_EMPLOYEES,
+  EMPLOYEE_BLOCK_SIZE,
   originNotSelfServiceError,
   planUnavailableError,
   PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
@@ -76,12 +77,20 @@ export interface TenantSubscriptionSnapshot {
   billingSubscriptionContractedTrialDays: number
   billingSubscriptionTrialEndsAt: string | null
   firstPaymentDate: string | null
+  /** Inicio del periodo vigente, fecha calendario ISO (USRH1786107870865). */
+  billingSubscriptionCurrentPeriodStart: string | null
+  /** Fin del periodo vigente = fecha del próximo pago, fecha calendario ISO (USRH1786107870865). */
+  billingSubscriptionCurrentPeriodEnd: string | null
 }
 
 export interface MySubscriptionResult {
   businessUnitOrigin: BusinessUnitOrigin
   subscription: TenantSubscriptionSnapshot | null
-  /** Mínimo contratable; solo cuando self_service sin suscripción viva (regla 13). */
+  /**
+   * Mínimo contratable para empresas `self_service` (con o sin suscripción viva).
+   * El muro de contratación lo ignora cuando hay suscripción viva; la pantalla de
+   * ajuste de cantidad (orden 8) lo consume.
+   */
   minimumContractedEmployees: number | null
 }
 
@@ -124,7 +133,7 @@ export default class BillingTenantService {
     }
     return Math.max(
       MIN_CONTRACTED_EMPLOYEES,
-      Math.ceil(activeEmployees / 10) * 10
+      Math.ceil(activeEmployees / EMPLOYEE_BLOCK_SIZE) * EMPLOYEE_BLOCK_SIZE
     )
   }
 
@@ -203,7 +212,7 @@ export default class BillingTenantService {
       throw employeesAboveSafetyCapError()
     }
 
-    if (employeeCount < 10 || employeeCount % 10 !== 0) {
+    if (employeeCount < MIN_CONTRACTED_EMPLOYEES || employeeCount % EMPLOYEE_BLOCK_SIZE !== 0) {
       throw employeesNotBlockOfTenError()
     }
   }
@@ -375,7 +384,7 @@ export default class BillingTenantService {
 
     let minimumContractedEmployees: number | null = null
 
-    if (businessUnit.businessUnitOrigin === 'self_service' && !subscription) {
+    if (businessUnit.businessUnitOrigin === 'self_service') {
       const activeEmployees = await this.employeeQuotaService.countActiveEmployees(
         businessUnitId
       )
@@ -485,6 +494,12 @@ export default class BillingTenantService {
       billingSubscriptionContractedTrialDays: subscription.billingSubscriptionContractedTrialDays,
       billingSubscriptionTrialEndsAt: trialEndsAtIso,
       firstPaymentDate: trialEndsAtIso,
+      billingSubscriptionCurrentPeriodStart: toCalendarIsoDate(
+        subscription.billingSubscriptionCurrentPeriodStart
+      ),
+      billingSubscriptionCurrentPeriodEnd: toCalendarIsoDate(
+        subscription.billingSubscriptionCurrentPeriodEnd
+      ),
     }
   }
 
