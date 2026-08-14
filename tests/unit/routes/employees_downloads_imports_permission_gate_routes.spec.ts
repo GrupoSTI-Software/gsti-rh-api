@@ -81,3 +81,59 @@ test.group('employee_vacation_routes — PermissionGate descargas e importación
     )
   })
 })
+
+test.group('assist_routes — PermissionGate descargas de asistencia', () => {
+  test('los seis Excel/CSV síncronos declaran su descarga; synchronize no', async ({
+    assert,
+  }) => {
+    const content = await readFile(join(process.cwd(), 'start/routes/assist_routes.ts'), 'utf8')
+    const packed = compact(content)
+    const pairs: Array<[string, string]> = [
+      ['get-format-payroll', 'getPayrollFormat'],
+      ['get-excel-by-employee', 'getAttendanceByEmployee'],
+      ['get-excel-by-position', 'getAttendanceByPosition'],
+      ['get-excel-by-department', 'getAttendanceByDepartment'],
+      ['get-excel-all', 'getAttendanceAll'],
+      ['get-excel-permissions-dates', 'getPermissionsByDates'],
+    ]
+    for (const [path, key] of pairs) {
+      assert.match(
+        packed,
+        new RegExp(
+          `${path}[\\s\\S]{0,220}permissionGate\\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\\.${key}\\)`
+        ),
+        path
+      )
+    }
+    assert.notMatch(packed, /synchronize[\s\S]{0,120}DOWNLOAD_PERMISSION/)
+    assert.notMatch(packed, /reports[\s\S]{0,160}permissionGate\(EMPLOYEES_DOWNLOAD/)
+  })
+})
+
+test.group('supplies — PermissionGate reporte', () => {
+  test('solo excel declara descarga; index/store no', async ({ assert }) => {
+    const content = await readFile(join(process.cwd(), 'start/routes/supplies.ts'), 'utf8')
+    const packed = compact(content)
+    assert.match(
+      packed,
+      /supplies\/excel[\s\S]{0,180}permissionGate\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\.getSuppliesExcel\)/
+    )
+    assert.notMatch(packed, /router\.get\('\/supplies'[\s\S]{0,80}DOWNLOAD_PERMISSION/)
+    assert.notInclude(content, 'businessScope()')
+  })
+})
+
+test.group('report_jobs_controller — misma descarga que el Excel síncrono', () => {
+  test('create y download evalúan employeesAttendanceReportJobDeclaration', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'app/controllers/report_jobs_controller.ts'),
+      'utf8'
+    )
+    assert.include(content, 'employeesAttendanceReportJobDeclaration')
+    assert.include(content, 'ensureSecondaryPermission')
+    assert.include(content, 'employeesAttendanceReportJobDeclaration(reportJobType, employeeId)')
+    assert.include(content, 'employeesAttendanceReportJobDeclaration(job.reportJobType')
+  })
+})
