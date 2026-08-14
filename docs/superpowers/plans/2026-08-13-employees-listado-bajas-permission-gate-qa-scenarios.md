@@ -48,7 +48,7 @@ Tener el primero no otorga el segundo.
 
 | # | Escenario | Criterio de éxito |
 |---|-----------|-------------------|
-| U.1 | El mapa de lectura declara 120 claves | Solo slugs válidos, `module: 'employees'`, `bypass: 'standard'`. |
+| U.1 | El mapa de lectura declara 119 claves | Solo slugs válidos, `module: 'employees'`, `bypass: 'standard'`. |
 | U.2 | Las 8 claves de listado usan `read` | `indexEmployees`, `indexEmployeesToAssigned`, `indexEmployeesWithoutUser`, `getBirthday`, `getAnniversary`, `getWorkSchedules`, `getTerminationCatalog`, `indexEmployeeTypes`. |
 | U.3 | La constante de bajas es distinta | `EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION.action === 'read-terminated-employees'`. |
 | U.4 | El predicado de bajas solo acepta `true` / `'true'` | `1`, `'1'`, `'TRUE'`, `'false'` son falso. |
