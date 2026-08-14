@@ -402,7 +402,7 @@ export default class AssistsController {
         buffer = await assistService.getExcelByEmployeeIncidentSummaryPayroll(employee, filters)
       }
       if (buffer) {
-        if (buffer.status === 201) {
+        if (buffer.status === 201 && 'buffer' in buffer && buffer.buffer) {
           response.header(
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -416,7 +416,7 @@ export default class AssistsController {
             type: buffer.type,
             title: buffer.title,
             message: buffer.message,
-            error: buffer.error,
+            error: 'error' in buffer ? buffer.error : undefined,
           }
         }
       } else {
