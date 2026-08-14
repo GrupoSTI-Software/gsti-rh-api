@@ -114,7 +114,7 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteVacationDeduction: employeesStandard('manage-vacation'),
   authorizeVacationWithSignature: employeesStandard('manage-vacation'),
   signVacationShiftExceptions: employeesStandard('manage-vacation'),
-  importVacationExcel: employeesStandard('manage-vacation'),
+  importVacationExcel: employeesStandard('import-vacations'),
   uploadEmployeeFaceId: employeesStandard('upload-face-id'),
   replaceEmployeeFaceId: employeesStandard('upload-face-id'),
   deleteEmployeeFaceId: employeesStandard('tab-biometricos-delete'),

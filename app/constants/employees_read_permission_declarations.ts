@@ -135,7 +135,6 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   getAnniversary: employeesStandard('read'),
   getWorkSchedules: employeesStandard('read'),
   getTerminationCatalog: employeesStandard('read'),
-  getEmployeesExcel: employeesStandard('read'),
   indexEmployeeTypes: employeesStandard('read'),
 } as const satisfies Record<string, PermissionGateOptions>
 
