@@ -1,6 +1,12 @@
 /* eslint-disable prettier/prettier */
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import limiter from '@adonisjs/limiter/services/main'
+
+const reportJobCreateLimit = limiter.define('report-job-create', (ctx) => {
+  const userId = ctx.auth.user?.userId ?? 'anon'
+  return limiter.allowRequests(10).every('10 minutes').usingKey(`report-job:${userId}`)
+})
 
 router
   .group(() => {
@@ -19,6 +25,13 @@ router
     router.put('/:assistId/inactivate', '#controllers/assists_controller.inactivate')
     router.get('/websocket-docs', '#controllers/assists_controller.websocketDocs')
     router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
+
+    // ── Jobs de reporte asíncronos (USRH1785766125019) ──────────────────────
+    router
+      .post('/reports', '#controllers/report_jobs_controller.create')
+      .use(reportJobCreateLimit)
+    router.get('/reports/:id/status', '#controllers/report_jobs_controller.status')
+    router.get('/reports/:id/download', '#controllers/report_jobs_controller.download')
   })
   .use(middleware.auth())
   .use(middleware.businessScope())

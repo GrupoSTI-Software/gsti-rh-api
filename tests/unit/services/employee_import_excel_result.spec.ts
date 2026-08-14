@@ -25,4 +25,15 @@ test.group('employee_service importFromExcel — USRH1785169801695', () => {
     assert.include(content, 'buildEmployeeImportLegacyErrors')
     assert.include(content, 'message: \'CURP duplicado\'')
   })
+
+  test('valida cupo todo-o-nada antes de la pasada 2 — sin camino limitReached degradado', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, 'assertImportWithinQuota')
+    assert.include(content, 'resolveImportScopeBusinessUnitId')
+    assert.notInclude(content, 'if (limitReached)')
+    assert.include(content, 'limitReached: false')
+  })
 })

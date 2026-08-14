@@ -6,6 +6,9 @@ import { BillingSubscriptionServiceError } from '../exceptions/billing_subscript
 /** Tope defensivo de empleados en la superficie pública self-service (no comercial). */
 export const PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP = 100_000
 
+/** Mínimo comercial de empleados contratados en superficie self-service (bloques de 10). */
+export const MIN_CONTRACTED_EMPLOYEES = 10
+
 const PLAN_UNAVAILABLE_DETAIL = 'El plan solicitado no está disponible.'
 
 const EMPLOYEES_BLOCK_DETAIL =
@@ -97,4 +100,32 @@ export function rethrowCatalogErrorForPublicSurface(error: unknown): never {
   }
 
   throw error
+}
+
+/** Empresa de alta manual intentando contratar por la vía self-service del tenant. */
+export function originNotSelfServiceError(): BillingSubscriptionServiceError {
+  const detail = 'Esta empresa no contrata en línea. Escríbenos a hola@valanserh.com.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.ORIGIN_NOT_SELF_SERVICE,
+    422,
+    'empresa-no-self-service',
+    detail
+  )
+}
+
+/** Cantidad contratada por debajo del mínimo exigido por la plantilla activa. */
+export function employeesBelowActiveHeadcountError(
+  activeEmployees: number,
+  minimum: number
+): BillingSubscriptionServiceError {
+  const detail = `Tienes ${activeEmployees} empleados activos. La cantidad mínima que puedes contratar es ${minimum}.`
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT,
+    422,
+    'cantidad-menor-a-plantilla-activa',
+    detail,
+    { active: activeEmployees, minimum }
+  )
 }

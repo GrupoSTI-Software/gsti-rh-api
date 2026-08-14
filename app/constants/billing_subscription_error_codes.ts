@@ -33,6 +33,10 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   EMPLOYEES_ABOVE_SAFETY_CAP: 'PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP',
   /** El borrador de registro no trae plan/cantidad (draft anterior al cambio de flujo) */
   PLAN_NOT_SELECTED: 'PLT.SUB.PLAN_NOT_SELECTED',
+  /** La cantidad contratada es menor que la plantilla activa redondeada al bloque de 10 */
+  EMPLOYEES_BELOW_ACTIVE_HEADCOUNT: 'PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT',
+  /** Solo una empresa nacida del registro self-service puede contratar desde el backoffice */
+  ORIGIN_NOT_SELF_SERVICE: 'PLT.SUB.ORIGIN_NOT_SELF_SERVICE',
 } as const
 
 export type BillingSubscriptionErrorCode =
