@@ -23,6 +23,22 @@ test.group('BillingSubscriptionServiceError — constructor y propiedades', () =
     assert.equal(error.key, 'empresa-no-encontrada')
     assert.equal(error.detail, 'La empresa solicitada no existe.')
     assert.equal(error.name, 'BillingSubscriptionServiceError')
+    assert.isUndefined(error.data)
+  })
+
+  test('acepta data opcional con cantidades estructuradas', ({ assert }) => {
+    const error = new BillingSubscriptionServiceError(
+      'Cantidad insuficiente',
+      BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT,
+      422,
+      'cantidad-menor-a-plantilla-activa',
+      'Tienes 47 empleados activos. La cantidad mínima que puedes contratar es 50.',
+      { active: 47, minimum: 50 }
+    )
+    assert.deepEqual(error.data, { active: 47, minimum: 50 })
+
+    const resolved = resolveBillingSubscriptionApiError(error)
+    assert.deepEqual(resolved.data, { active: 47, minimum: 50 })
   })
 
   test('el httpStatus default es 400 cuando no se pasa', ({ assert }) => {

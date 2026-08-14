@@ -87,6 +87,12 @@ export default await Env.create(new URL('../', import.meta.url), {
    * Opcional: aplica fallback a localhost:3001 (puerto típico del landlord en dev).
    */
   LANDLORD_URL: Env.schema.string.optional(),
+  /**
+   * Lista de correos internos de GSTI (administración y atención al cliente) que
+   * reciben el aviso de cada contratación self-service. Separados por coma.
+   * Opcional: si no está definida, aplica el fallback del servicio.
+   */
+  BILLING_INTERNAL_NOTIFICATION_EMAILS: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization 

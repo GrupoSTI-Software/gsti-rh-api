@@ -7,6 +7,7 @@ export type ResolvedBillingSubscriptionError = {
   key: string
   code: string
   status: number
+  data?: Record<string, number>
 }
 
 /**
@@ -31,13 +32,17 @@ export function resolveBillingSubscriptionApiError(
   }
 
   if (error instanceof BillingSubscriptionServiceError) {
-    return {
+    const resolved: ResolvedBillingSubscriptionError = {
       title: 'Suscripciones',
       detail: error.detail ?? error.message,
       key: error.key ?? error.errorCode,
       code: error.errorCode,
       status: error.httpStatus,
     }
+    if (error.data) {
+      resolved.data = error.data
+    }
+    return resolved
   }
 
   return {

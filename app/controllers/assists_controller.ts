@@ -16,8 +16,24 @@ import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_inte
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_dates_excel_filter_interface.js'
 import env from '#start/env'
+import RoleService from '#services/role_service'
+
+const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
 export default class AssistsController {
+
+  /**
+   * Gate server-side del reporte de nómina (USRH1785766125045): estas rutas
+   * legacy (`get-excel-all`/`get-excel-by-employee`/`get-excel-by-department`)
+   * seguían aceptando `reportType='Incident Summary Payroll'` de cualquier
+   * usuario autenticado (fail-open documentado). El job asíncrono
+   * (`report_jobs_controller`) es el camino recomendado, pero estas rutas
+   * siguen expuestas: se cierran aquí con el mismo permiso `see-payroll`.
+   */
+  private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
+    const roleService = new RoleService()
+    return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
+  }
 
   /**
    * branchNameIds=2,3,4 → [2,3,4]. Vacío o ausente → undefined (no aplica filtro).
@@ -349,7 +365,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelByEmployee({ request, response, i18n }: HttpContext) {
+  async getExcelByEmployee({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = request.input('employeeId')
@@ -357,6 +373,24 @@ export default class AssistsController {
       const filterDateEnd = request.input('date-end')
       const filterDatePay = request.input('datePay')
       const reportType = request.input('reportType')
+      if (reportType === 'Incident Summary Payroll') {
+        await auth.check()
+        const user = auth.user
+        if (!user) {
+          response.status(401)
+          return { type: 'error', title: t('user_actions.unauthorized'), message: t('user_actions.unauthorized') }
+        }
+        await user.load('role')
+        if (!(await this.assertCanSeePayroll(user.role.roleId))) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
+        }
+      }
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeId)
@@ -402,7 +436,7 @@ export default class AssistsController {
         buffer = await assistService.getExcelByEmployeeIncidentSummaryPayroll(employee, filters)
       }
       if (buffer) {
-        if (buffer.status === 201) {
+        if (buffer.status === 201 && 'buffer' in buffer && buffer.buffer) {
           response.header(
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -416,7 +450,7 @@ export default class AssistsController {
             type: buffer.type,
             title: buffer.title,
             message: buffer.message,
-            error: buffer.error,
+            error: 'error' in buffer ? buffer.error : undefined,
           }
         }
       } else {
@@ -641,6 +675,21 @@ export default class AssistsController {
       const filterDateEnd = request.input('date-end')
       const filterDatePay = request.input('datePay')
       const reportType = request.input('reportType')
+      if (reportType === 'Incident Summary Payroll') {
+        if (!user) {
+          response.status(401)
+          return { type: 'error', title: t('user_actions.unauthorized'), message: t('user_actions.unauthorized') }
+        }
+        if (!(await this.assertCanSeePayroll(user.role.roleId))) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
+        }
+      }
       const department = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
@@ -825,6 +874,21 @@ export default class AssistsController {
           title: t('entity_was_not_found', { entity }),
           message: t('entity_is_not_valid', { entity }),
           data: { reportType },
+        }
+      }
+      if (reportType === 'Incident Summary Payroll') {
+        if (!user) {
+          response.status(401)
+          return { type: 'error', title: t('user_actions.unauthorized'), message: t('user_actions.unauthorized') }
+        }
+        if (!(await this.assertCanSeePayroll(user.role.roleId))) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
         }
       }
       const filters = {

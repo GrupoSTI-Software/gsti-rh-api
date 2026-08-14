@@ -23,9 +23,16 @@ import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_serv
 import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
+import { secureRandomInt } from '#helpers/csprng_string'
 
+/**
+ * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
+ * de siempre; solo cambia la fuente de aleatoriedad — `crypto.randomInt`
+ * ya es uniforme y sin sesgo de módulo, así que no hace falta reimplementar
+ * el muestreo con rechazo (helper compartido con USRH1783115930049).
+ */
 function generateRecoveryPin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(secureRandomInt(100000, 1000000))
 }
 
 export default class UserController {

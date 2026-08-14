@@ -2,8 +2,15 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import BillingSubscription from '#models/billing_subscription'
 import BillingPayment from '#models/billing_payment'
+import BillingPlan from '#models/billing_plan'
+import BusinessUnit from '#models/business_unit'
 import type { BillingPaymentMethod } from '#models/billing_payment'
 import UploadService from '#services/upload_service'
+import BillingInternalNotificationService from '#services/billing_internal_notification_service'
+import BillingSubscriptionChangeService, {
+  type ApplyIncreaseOutcome,
+  type SubscriptionChangeRecord,
+} from '#services/billing_subscription_change_service'
 import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
 import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
 import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
@@ -59,6 +66,8 @@ export interface RegisterPaymentResult {
     currentPeriodStart: string | null
     currentPeriodEnd: string | null
   }
+  /** Cambio de aumento aplicado o marcado not_applicable; null si no hubo cambio vivo aplicable. */
+  appliedChange: SubscriptionChangeRecord | null
 }
 
 // ─── Servicio ─────────────────────────────────────────────────────────────────
@@ -68,13 +77,17 @@ export interface RegisterPaymentResult {
  *
  * Registrar un pago es un acto atómico:
  *   1. Sube el comprobante a S3 privado (fuera de la trx — S3 no es transaccional).
- *   2. Abre db.transaction: inserta el pago, avanza el periodo y pone status='active'.
+ *   2. Abre db.transaction: inserta el pago, intenta aplicar aumento pendiente (0856),
+ *      avanza el periodo y pone status='active'.
  *   3. Si la trx falla → compensa borrando el objeto S3 subido.
  *
  * El módulo NUNCA expone la URL del comprobante (solo la Key queda en BD).
  * La descarga firmada es responsabilidad de USRH1784574994923.
  */
 export default class BillingPaymentService {
+  private readonly changeService = new BillingSubscriptionChangeService()
+  private readonly internalNotification = new BillingInternalNotificationService()
+
   /**
    * Registra un pago sobre una suscripción existente y no cancelada.
    *
@@ -166,6 +179,7 @@ export default class BillingPaymentService {
 
     // ── 5. Transacción atómica ────────────────────────────────────────────────
     let payment: BillingPayment
+    let applyOutcome!: ApplyIncreaseOutcome
     try {
       payment = await db.transaction(async (trx) => {
         const paidAtDt = DateTime.fromISO(input.paidAt)
@@ -186,6 +200,13 @@ export default class BillingPaymentService {
           { client: trx }
         )
 
+        applyOutcome = await this.changeService.applyIncreaseOnPayment(
+          subscription,
+          newPayment.billingPaymentId,
+          input.amountCents,
+          trx
+        )
+
         subscription.useTransaction(trx)
         subscription.billingSubscriptionStatus = 'active'
         subscription.billingSubscriptionCurrentPeriodStart = newPeriodStart
@@ -204,7 +225,17 @@ export default class BillingPaymentService {
       throw error
     }
 
-    return this.toResult(payment, subscription)
+    if (applyOutcome.outcome === 'not_applicable') {
+      await this.notifyChangeNotApplicable(
+        subscription,
+        applyOutcome.change,
+        payment.billingPaymentId,
+        input.amountCents,
+        applyOutcome.reason
+      )
+    }
+
+    return this.toResult(payment, subscription, applyOutcome)
   }
 
   // ─── Validación del comprobante ───────────────────────────────────────────
@@ -357,11 +388,48 @@ export default class BillingPaymentService {
     return map[mime] ?? 'bin'
   }
 
+  private async notifyChangeNotApplicable(
+    subscription: BillingSubscription,
+    change: SubscriptionChangeRecord,
+    billingPaymentId: number,
+    amountCents: number,
+    reason: Extract<ApplyIncreaseOutcome, { outcome: 'not_applicable' }>['reason']
+  ): Promise<void> {
+    const [businessUnit, billingPlan] = await Promise.all([
+      BusinessUnit.query()
+        .where('business_unit_id', subscription.businessUnitId)
+        .whereNull('business_unit_deleted_at')
+        .first(),
+      BillingPlan.query()
+        .where('billing_plan_id', subscription.billingPlanId)
+        .whereNull('billing_plan_deleted_at')
+        .first(),
+    ])
+
+    await this.internalNotification.notifySubscriptionChangeNotApplicable({
+      subscription,
+      change,
+      businessUnitName: businessUnit?.businessUnitName ?? `Empresa #${subscription.businessUnitId}`,
+      billingPlanName: billingPlan?.billingPlanName ?? `Plan #${subscription.billingPlanId}`,
+      billingPaymentId,
+      amountCents,
+      reason,
+    })
+  }
+
+  private resolveAppliedChange(outcome: ApplyIncreaseOutcome): SubscriptionChangeRecord | null {
+    if (outcome.outcome === 'applied' || outcome.outcome === 'not_applicable') {
+      return outcome.change
+    }
+    return null
+  }
+
   // ─── Serialización de respuesta ───────────────────────────────────────────
 
   private toResult(
     payment: BillingPayment,
-    subscription: BillingSubscription
+    subscription: BillingSubscription,
+    applyOutcome: ApplyIncreaseOutcome
   ): RegisterPaymentResult {
     return {
       billingPaymentId: payment.billingPaymentId,
@@ -379,6 +447,7 @@ export default class BillingPaymentService {
         currentPeriodStart: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodStart),
         currentPeriodEnd: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd),
       },
+      appliedChange: this.resolveAppliedChange(applyOutcome),
     }
   }
 }
