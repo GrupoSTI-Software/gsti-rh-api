@@ -10,6 +10,7 @@ router
     router.post('/import-shift-assignments', '#controllers/employee_controller.importShiftAssignments')
     router.get('/template-excel', '#controllers/employee_controller.getTemplateExcel')
     router.get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
+    router.get('/quota', '#controllers/employee_controller.getQuota')
     router.get('/get-days-work-disability-all', '#controllers/employee_controller.getDaysWorkDisabilityAll')
     router.get('/get-birthday', '#controllers/employee_controller.getBirthday')
     router.get('/get-anniversary', '#controllers/employee_controller.getAnniversary')

@@ -8,13 +8,15 @@ export class BillingSubscriptionServiceError extends Error {
   readonly httpStatus: number
   readonly key?: string
   readonly detail?: string
+  readonly data?: Record<string, number>
 
   constructor(
     message: string,
     errorCode: BillingSubscriptionErrorCode,
     httpStatus: number = 400,
     key?: string,
-    detail?: string
+    detail?: string,
+    data?: Record<string, number>
   ) {
     super(message)
     this.name = 'BillingSubscriptionServiceError'
@@ -22,5 +24,6 @@ export class BillingSubscriptionServiceError extends Error {
     this.httpStatus = httpStatus
     this.key = key
     this.detail = detail
+    this.data = data
   }
 }
