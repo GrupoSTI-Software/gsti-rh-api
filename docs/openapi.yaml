@@ -128,6 +128,139 @@ components:
         data:
           nullable: true
 
+    SessionPermissionAction:
+      type: object
+      required:
+        - slug
+        - displayName
+        - kind
+        - allowed
+        - reason
+        - revocableFromPrivileged
+        - exceptionProfile
+        - grantable
+      properties:
+        slug:
+          type: string
+          example: read
+        displayName:
+          type: string
+          example: Consultar empleado
+        kind:
+          type: string
+          enum: [read, write, delete]
+        allowed:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - assignment
+            - privileged-role
+            - missing-assignment
+            - explicit-revocation
+            - module-inactive
+        revocableFromPrivileged:
+          type: boolean
+        exceptionProfile:
+          type: string
+          enum: [standard, expanded, platformReserved, strict]
+        grantable:
+          type: boolean
+          description: >-
+            `false` para acciones exentas del catálogo: se enumeran pero no
+            tienen permiso en `system_permissions`, así que no pueden
+            otorgarse ni revocarse desde la configuración de roles.
+
+    SessionPermissionSection:
+      type: object
+      required: [slug, actions]
+      properties:
+        slug:
+          type: string
+          example: datos-persona
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionAction'
+
+    SessionPermissionModule:
+      type: object
+      required: [slug, active, permissionEnforcementActive, sections]
+      properties:
+        slug:
+          type: string
+          example: employees
+        active:
+          type: boolean
+        permissionEnforcementActive:
+          type: boolean
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionSection'
+
+    SessionPermissionTree:
+      type: object
+      required: [role, modules, version, generatedAt]
+      properties:
+        role:
+          type: object
+          required: [id, name, slug]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionModule'
+        version:
+          type: string
+          example: 0f4c2a8d9b1e7a03
+        generatedAt:
+          type: string
+          format: date-time
+
+    SessionPermissionTreeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SessionPermissionTree'
+
+    SessionPermissionVersion:
+      type: object
+      required: [version, generatedAt]
+      properties:
+        version:
+          type: string
+          example: 0f4c2a8d9b1e7a03
+        generatedAt:
+          type: string
+          format: date-time
+
+    SessionPermissionVersionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SessionPermissionVersion'
+
+    SessionPermissionError:
+      type: object
+      required: [title, detail, key]
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+          example: PERM.TREE.UNRESOLVED
+
     Nom035QrunError:
       allOf:
         - $ref: '#/components/schemas/ApiError'
@@ -3695,13 +3828,509 @@ components:
           type: object
           nullable: true
 
+    EmployeeImportQuotaApiError:
+      type: object
+      description: |
+        Rechazo por cupo en carga masiva (USRH1785441818458). Todo-o-nada: no se aplica
+        ninguna fila del archivo (ni altas ni correcciones).
+      properties:
+        type:
+          type: string
+          enum: [error]
+        title:
+          type: string
+        message:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+          enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+        code:
+          type: string
+          enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+        data:
+          type: object
+          description: Solo cantidades; nunca identificadores internos de empresa
+          properties:
+            contracted:
+              type: integer
+              description: Cupo efectivo (contratación o legacy)
+            active:
+              type: integer
+              description: Empleados vigentes al momento del rechazo
+            incoming:
+              type: integer
+              description: Altas nuevas detectadas en el archivo (filas sin ID Empleado)
+
+    EmployeeQuotaMeData:
+      type: object
+      description: Cupo efectivo y conteo de vigentes para la empresa activa (USRH1785441819658).
+      properties:
+        limit:
+          type: integer
+          nullable: true
+          description: Cupo máximo; null cuando la empresa no tiene tope configurado
+        active:
+          type: integer
+          description: Empleados vigentes al momento de la consulta
+        remaining:
+          type: integer
+          nullable: true
+          description: Lugares restantes; null si limit es null; puede ser negativo si ya excedía
+        hasPlan:
+          type: boolean
+          description: false cuando la empresa self-service no tiene contratación viva
+
+    BillingSubscriptionChangePreviewAmounts:
+      type: object
+      description: Importes del periodo (precio unitario, descuento, IVA y total).
+      properties:
+        unitAmount:
+          type: number
+          nullable: true
+        pricePerEmployee:
+          type: number
+          nullable: true
+        discountPercent:
+          type: number
+        discountAmount:
+          type: number
+          nullable: true
+        subtotal:
+          type: number
+        taxRate:
+          type: number
+        taxAmount:
+          type: number
+        total:
+          type: number
+
+    BillingSubscriptionChangePreviewCurrentPeriod:
+      type: object
+      properties:
+        start:
+          type: string
+          format: date
+        end:
+          type: string
+          format: date
+        totalDays:
+          type: integer
+        remainingDays:
+          type: integer
+
+    BillingSubscriptionChangePreviewProration:
+      type: object
+      description: Prorrateo en centavos enteros (solo aumentos con periodo prorrateable).
+      properties:
+        differenceCents:
+          type: integer
+        totalDays:
+          type: integer
+        remainingDays:
+          type: integer
+        amountCents:
+          type: integer
+        amountPesos:
+          type: number
+
+    BillingSubscriptionChangePreview:
+      type: object
+      description: |
+        Previsualización de cambio de cantidad contratada (USRH1786107870847).
+        Solo lectura: no modifica la suscripción.
+      properties:
+        billingSubscriptionId:
+          type: integer
+        billingPlanId:
+          type: integer
+        billingPlanPriceId:
+          type: integer
+        billingSubscriptionStatus:
+          type: string
+          enum: [trialing, active, past_due, canceled, incomplete, incomplete_expired, unpaid]
+        currency:
+          type: string
+        changeType:
+          type: string
+          enum: [increase, decrease, none]
+        contractedEmployees:
+          type: integer
+        requestedEmployees:
+          type: integer
+        activeEmployees:
+          type: integer
+        minimumContractedEmployees:
+          type: integer
+        currentPeriod:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreviewCurrentPeriod'
+        cutDate:
+          type: string
+          format: date
+        currentAmounts:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreviewAmounts'
+        newAmounts:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreviewAmounts'
+        proration:
+          allOf:
+            - $ref: '#/components/schemas/BillingSubscriptionChangePreviewProration'
+          nullable: true
+        effectiveFrom:
+          type: string
+          format: date
+          nullable: true
+
+    BillingSubscriptionChangePreviewResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingSubscriptionChangePreview'
+
+    BillingSubscriptionApiError:
+      type: object
+      description: |
+        Error de suscripción tenant (PLT.SUB.*). Contrato { title, detail, key, code }.
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+        code:
+          type: string
+          enum:
+            - PLT.SUB.NO_LIVE_SUBSCRIPTION
+            - PLT.SUB.SUBSCRIPTION_PAST_DUE
+            - PLT.SUB.PERIOD_NOT_PRORATABLE
+            - PLT.SUB.FORBIDDEN_ROLE
+            - PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN
+            - PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT
+            - PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP
+            - PLT.SUB.CHANGE_NOT_AN_INCREASE
+            - PLT.SUB.CHANGE_CONFLICT
+
+    BillingSubscriptionIncreaseNewAmounts:
+      type: object
+      properties:
+        pricePerEmployee:
+          type: number
+        discountPercent:
+          type: number
+        subtotal:
+          type: number
+        taxRate:
+          type: number
+        taxAmount:
+          type: number
+        total:
+          type: number
+
+    BillingSubscriptionIncreaseRequestData:
+      type: object
+      description: |
+        Resultado de solicitar un aumento de cantidad contratada (USRH1786107870850).
+      properties:
+        billingSubscriptionChangeId:
+          type: integer
+        billingSubscriptionId:
+          type: integer
+        billingSubscriptionChangeType:
+          type: string
+          enum: [increase]
+        billingSubscriptionChangeStatus:
+          type: string
+          enum: [pending_payment, applied]
+        previousEmployees:
+          type: integer
+        newEmployees:
+          type: integer
+        contractedEmployees:
+          type: integer
+          description: Cupo vigente tras la operación (sin cambio hasta pagar, salvo en prueba)
+        currency:
+          type: string
+        newAmounts:
+          $ref: '#/components/schemas/BillingSubscriptionIncreaseNewAmounts'
+        proration:
+          allOf:
+            - $ref: '#/components/schemas/BillingSubscriptionChangePreviewProration'
+          nullable: true
+        cutDate:
+          type: string
+          format: date
+        effectiveAt:
+          type: string
+          format: date-time
+          nullable: true
+        appliedAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextStep:
+          type: string
+          enum: [awaiting_payment, applied]
+        nextStepMessage:
+          type: string
+
+    BillingSubscriptionIncreaseRequestResponse:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/BillingSubscriptionIncreaseRequestData'
+
 paths:
+  /api/billing/subscription/change-preview:
+    get:
+      summary: Previsualizar cambio de cantidad contratada
+      description: |
+        Consulta de solo lectura: clasifica el cambio (aumento, reducción o sin cambio),
+        calcula importes del periodo, prorrateo (aumentos) y fecha de efecto (reducciones)
+        sin modificar la suscripción. Solo el dueño de la cuenta (`owner`, `root` o
+        `super-administrador`). Requiere suscripción viva y periodo con días por delante
+        para prorratear aumentos.
+      tags: [Tenant Billing]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: employees
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Cantidad pedida (bloques de 10; reglas comerciales en el servicio)
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Previsualización resuelta (increase, decrease o none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionChangePreviewResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Rol distinto de owner/root/super-administrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Acceso restringido
+                detail: Solo el dueño de la cuenta puede consultar el costo del cambio.
+                key: solo-el-dueno-de-la-cuenta
+                code: PLT.SUB.FORBIDDEN_ROLE
+        '422':
+          description: |
+            Cantidad inválida, sin suscripción viva, pago atrasado o periodo no prorrateable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              examples:
+                noLiveSubscription:
+                  summary: Sin suscripción viva
+                  value:
+                    title: Sin suscripción activa
+                    detail: No hay una suscripción viva para previsualizar el cambio.
+                    key: sin-suscripcion-viva
+                    code: PLT.SUB.NO_LIVE_SUBSCRIPTION
+                employeesNotBlockOfTen:
+                  summary: Cantidad no múltiplo de 10
+                  value:
+                    title: Cantidad inválida
+                    detail: La cantidad debe ser múltiplo de 10.
+                    key: cantidad-no-multiplo-de-diez
+                    code: PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN
+        '429':
+          description: Límite de consultas de previsualización excedido (billing-preview)
+
+  /api/billing/subscription/changes/increase:
+    post:
+      summary: Solicitar aumento de cantidad contratada
+      description: |
+        Registra la solicitud de aumento y genera el adeudo prorrateado cuando la suscripción
+        ya está pagando, o aplica de inmediato sin cobro en periodo de prueba. Solo el dueño
+        de la cuenta (`owner`, `root` o `super-administrador`). El cupo no sube hasta que
+        Valanserh registre el pago del adeudo, salvo en prueba.
+      tags: [Tenant Billing]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employees]
+              properties:
+                employees:
+                  type: integer
+                  minimum: 1
+                  description: Cantidad pedida (bloques de 10; reglas comerciales en el servicio)
+      responses:
+        '201':
+          description: Solicitud registrada (pending_payment o applied en prueba)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionIncreaseRequestResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Rol distinto de owner/root/super-administrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Acceso restringido
+                detail: Solo el dueño de la cuenta puede solicitar cambios en la suscripción.
+                key: solo-el-dueno-de-la-cuenta
+                code: PLT.SUB.FORBIDDEN_ROLE
+        '409':
+          description: La suscripción cambió mientras se procesaba la solicitud
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              example:
+                title: Suscripciones
+                detail: Tu suscripción cambió mientras procesábamos la solicitud. Vuelve a intentarlo.
+                key: cambio-en-conflicto
+                code: PLT.SUB.CHANGE_CONFLICT
+        '422':
+          description: |
+            Cantidad inválida, no es un aumento, sin suscripción viva, pago atrasado o periodo no prorrateable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingSubscriptionApiError'
+              examples:
+                changeNotAnIncrease:
+                  summary: La cantidad no es un aumento
+                  value:
+                    title: Suscripciones
+                    detail: La cantidad solicitada no es mayor a tu cantidad contratada actual.
+                    key: cantidad-no-es-aumento
+                    code: PLT.SUB.CHANGE_NOT_AN_INCREASE
+                noLiveSubscription:
+                  summary: Sin suscripción viva
+                  value:
+                    title: Suscripciones
+                    detail: No tienes una contratación viva que se pueda cambiar.
+                    key: sin-suscripcion-viva
+                    code: PLT.SUB.NO_LIVE_SUBSCRIPTION
+        '429':
+          description: Límite de solicitudes de cambio excedido (billing-change-request)
+
+  /api/employees/quota:
+    get:
+      summary: Consultar cupo de empleados de la empresa activa
+      description: |
+        Lectura del cupo efectivo y del conteo de empleados vigentes. Requiere Bearer token
+        y header X-Business-Unit-Id. No expone el origen del cupo ni identificadores internos.
+      tags: [Employees]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bearer access token
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID público de la unidad de negocio activa
+        - name: Accept-Language
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+      responses:
+        '200':
+          description: Cupo resuelto
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    $ref: '#/components/schemas/EmployeeQuotaMeData'
+        '400':
+          description: Falta header X-Business-Unit-Id
+        '401':
+          description: No autenticado
+        '404':
+          description: Empresa fuera de alcance o inexistente
+
   /api/employees/import-excel:
     post:
       summary: Importar empleados desde archivo Excel
       description: |
         Carga masiva de empleados. Requiere Bearer token y header X-Business-Unit-Id.
         La actualización aplica solo cuando la fila incluye la columna oculta ID Empleado.
+        Si el archivo incluye altas nuevas y rebasa el cupo efectivo, responde **409** y
+        no aplica ninguna fila (todo-o-nada). Un archivo con solo correcciones no evalúa cupo.
       tags: [Employees]
       security:
         - bearerAuth: []
@@ -3770,6 +4399,8 @@ paths:
                             type: integer
                           limitReached:
                             type: boolean
+                            deprecated: true
+                            description: Siempre false. Si el cupo no alcanza, la API responde 409 sin escribir nada.
                       rowErrors:
                         type: array
                         items:
@@ -3850,6 +4481,39 @@ paths:
                       multipartField: file
                       acceptedExtensions: ['.xlsx', '.xls']
                       contentType: multipart/form-data
+        '409':
+          description: |
+            El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+            No se aplica ninguna fila del Excel (todo-o-nada).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeImportQuotaApiError'
+              examples:
+                cupoRebasado:
+                  value:
+                    type: error
+                    title: El archivo rebasa tu cupo de empleados
+                    message: El archivo daría de alta 5 empleados y solo te quedan 2 lugares.
+                    detail: 'Contratados: 20. Vigentes: 18. Altas en el archivo: 5. No se aplicó ninguna línea del archivo; escríbenos a hola@valanserh.com para ampliar tu cupo.'
+                    key: cupo-empleados-agotado-importacion
+                    code: EMP.IMPORT.QUOTA_EXCEEDED
+                    data:
+                      contracted: 20
+                      active: 18
+                      incoming: 5
+                sinPlan:
+                  value:
+                    type: error
+                    title: No tienes un plan vigente
+                    message: No se aplicó ninguna línea del archivo porque tu empresa no tiene un plan vigente.
+                    detail: El archivo traía 3 altas y no se aplicó ninguna. Escríbenos a hola@valanserh.com para activar tu plan y vuelve a subirlo.
+                    key: sin-plan-contratado-importacion
+                    code: EMP.IMPORT.NO_PLAN
+                    data:
+                      contracted: 0
+                      active: 12
+                      incoming: 3
         '500':
           description: Error inesperado del servidor
           content:
@@ -4233,17 +4897,24 @@ paths:
                 message: No autenticado
                 data: null
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Sin permiso
-                message: No cuentas con permisos para realizar esta acción.
-                key: sin-permiso
-                data: null
+              examples:
+                permisoDenegado:
+                  summary: key PERM.DENIED
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para realizar esta operación.
+                    key: PERM.DENIED
+                permisoNoResuelto:
+                  summary: key PERM.UNRESOLVED
+                  value:
+                    title: No se pudo verificar el permiso
+                    detail: No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.
+                    key: PERM.UNRESOLVED
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:
@@ -4351,17 +5022,24 @@ paths:
                 message: No autenticado
                 data: null
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Sin permiso
-                message: No cuentas con permisos para realizar esta acción.
-                key: sin-permiso
-                data: null
+              examples:
+                permisoDenegado:
+                  summary: key PERM.DENIED
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para realizar esta operación.
+                    key: PERM.DENIED
+                permisoNoResuelto:
+                  summary: key PERM.UNRESOLVED
+                  value:
+                    title: No se pudo verificar el permiso
+                    detail: No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.
+                    key: PERM.UNRESOLVED
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:

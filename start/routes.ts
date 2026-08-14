@@ -42,6 +42,7 @@ import './routes/holiday_routes.js'
 import './routes/shift_for_employees.js'
 import './routes/department_position_routes.js'
 import './routes/role_routes.js'
+import './routes/role_preset_routes.js'
 import './routes/exception_type_routes.js'
 import './routes/vacations_routes.js'
 import './routes/aircraft_class_routes.js'
@@ -180,6 +181,8 @@ import './routes/position_work_tool_routes.js'
 import './routes/competency_routes.js'
 import './routes/position_business_unit_competency_level_routes.js'
 import './routes/position_salary_range_routes.js'
+import './routes/position_level_routes.js'
+import './routes/position_position_level_routes.js'
 import './routes/career_path_override_reason_routes.js'
 import './routes/career_path_template_routes.js'
 import './routes/career_path_candidate_routes.js'
@@ -259,7 +262,7 @@ router.get('/test-socket', async ({ response }) => {
       pin: '1',
       fingerId: 9,
       type: 'fingerprint',
-      overwrite: true
+      overwrite: true,
     })
 
     // Responder al cliente HTTP
