@@ -192,6 +192,32 @@ export const SENSITIVE_EXPORT_INVENTORY: readonly SensitiveExportDefinition[] = 
     excludedReason:
       'Días laborados y porcentajes REPSE por empleado/empresa; no exporta RFC de EmpresaContratante ni otros campos del catálogo.',
   },
+  {
+    exportKey: 'assists-excel-all',
+    httpMethod: 'POST',
+    route: '/api/v1/assists/reports',
+    controller: 'report_jobs_controller',
+    action: 'create → report_job_service.runGeneration (generateAssistanceAllBuffer / generateIncidentSummaryBuffer)',
+    format: 'xlsx',
+    scope: 'mass',
+    sensitiveColumns: [],
+    excluded: true,
+    excludedReason:
+      'Job asíncrono de toda la empresa (reportType assistance_all / assistance_incident_summary): sin columnas del catálogo SENSITIVE_FIELDS. El resumen de incidencias (USRH1785766125036) sí incluye `toPay`/`discountFaults` derivados de `Employee.dailySalary` (dato financiero vigente en claro, fuera del catálogo), pero esas columnas están gateadas server-side por `RoleService.hasAccess` (display-payments-summary/display-discounts-summary): si se añadiera un campo del catálogo, este export pasa a "en alcance" y exige PiiExportService (motivo + asiento + variante enmascarada).',
+  },
+  {
+    exportKey: 'assists-excel-by-employee',
+    httpMethod: 'POST',
+    route: '/api/v1/assists/reports',
+    controller: 'report_jobs_controller',
+    action: 'create → report_job_service.runGeneration (generateAssistanceEmployeeBuffer / generateIncidentSummaryEmployeeBuffer)',
+    format: 'xlsx',
+    scope: 'single',
+    sensitiveColumns: [],
+    excluded: true,
+    excludedReason:
+      'Job asíncrono de un solo empleado (reportType assistance_employee / assistance_incident_summary con employeeId): mismo razonamiento que assists-excel-all, con no-oráculo de scope (USRH1785766125028).',
+  },
 ] as const
 
 /** Exportaciones masivas que deben cablearse en E5 (motivo + asiento o variante enmascarada). */

@@ -30,3 +30,6 @@ docs/swagger.json
 
 # CLAUDE
 .gsti-kg/
+
+# Archivos temporales generados en desarrollo (reportes Excel en disco local)
+storage/reports/

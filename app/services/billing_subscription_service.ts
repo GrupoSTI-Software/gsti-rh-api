@@ -18,6 +18,12 @@ export interface CreateSubscriptionInput {
   businessUnitPublicId: string
   billingPlanId: number
   contractedEmployees?: number
+  /**
+   * Sin periodo de prueba: la suscripción nace `active`, con 0 días contratados
+   * de prueba y sin fecha de fin de prueba. La usa la re-contratación desde el
+   * backoffice (USRH1785441822058): la prueba gratuita es una sola vez por empresa.
+   */
+  skipTrial?: boolean
 }
 
 export interface BusinessUnitListItem {
@@ -227,8 +233,10 @@ export default class BillingSubscriptionService {
     }
 
     const nowBusiness = todayInBusinessZone()
-    const trialDays = resolved.trialDays
-    const trialEndsAt = nowBusiness.plus({ days: trialDays })
+    const skipTrial = input.skipTrial === true
+    const trialDays = skipTrial ? 0 : resolved.trialDays
+    const trialEndsAt = skipTrial ? null : nowBusiness.plus({ days: trialDays })
+    const periodEnd = skipTrial ? nowBusiness : trialEndsAt!
 
     const existingLive = await BillingSubscription.query({ client: trx })
       .where('business_unit_id', businessUnit.businessUnitId)
@@ -254,7 +262,7 @@ export default class BillingSubscriptionService {
           billingPlanId: input.billingPlanId,
           billingPlanPriceId: currentPrice.billingPlanPriceId,
           billingSubscriptionProvider: 'manual',
-          billingSubscriptionStatus: 'trialing',
+          billingSubscriptionStatus: skipTrial ? 'active' : 'trialing',
           billingSubscriptionContractedUnitAmount: resolved.pricePerEmployee,
           billingSubscriptionContractedEmployees: contractedEmployees,
           billingSubscriptionDiscountPercent: resolved.discountPercent,
@@ -269,7 +277,7 @@ export default class BillingSubscriptionService {
           ),
           billingSubscriptionTrialEndsAt: trialEndsAt,
           billingSubscriptionCurrentPeriodStart: nowBusiness,
-          billingSubscriptionCurrentPeriodEnd: trialEndsAt,
+          billingSubscriptionCurrentPeriodEnd: periodEnd,
           billingSubscriptionStripeCustomerId: null,
           billingSubscriptionStripeSubscriptionId: null,
           billingSubscriptionSubscribedAt: nowBusiness,
