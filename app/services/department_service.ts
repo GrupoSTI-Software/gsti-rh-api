@@ -274,6 +274,8 @@ export default class DepartmentService {
     query.preload('parentPosition')
     query.preload('employees', (employeeQuery) => {
       employeeQuery.preload('person')
+      // Nivel del puesto del empleado para el organigrama (USRH1785964117188)
+      employeeQuery.preload('positionLevelConfig')
     })
     query.preload('positions', (childPositionQuery) => {
       childPositionQuery.whereNull('position_deleted_at').orderBy('positionName', 'asc')

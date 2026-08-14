@@ -1,5 +1,5 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import SystemPermission from './system_permission.js'
@@ -37,6 +37,9 @@ import type { HasMany } from '@adonisjs/lucid/types/relations'
  *          systemModuleActive:
  *            type: number
  *            description: System module status
+ *          systemModulePermissionEnforcementActive:
+ *            type: boolean
+ *            description: Indica si el módulo exige permisos explícitos (interruptor de USRH1785766406721)
  *          systemModuleIcon:
  *            type: string
  *            description: System module icon path
@@ -73,6 +76,19 @@ export default class SystemModule extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemModuleActive: number
+
+  @column({
+    prepare: (value: boolean) => value,
+    consume: (value: boolean | number) => Boolean(value),
+  })
+  declare systemModulePermissionEnforcementActive: boolean
+
+  @beforeCreate()
+  static assignPermissionEnforcementDefault(systemModule: SystemModule) {
+    if (systemModule.systemModulePermissionEnforcementActive === undefined) {
+      systemModule.systemModulePermissionEnforcementActive = false
+    }
+  }
 
   @column()
   declare systemModuleIcon: string
