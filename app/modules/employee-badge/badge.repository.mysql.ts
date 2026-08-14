@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import Employee from '#models/employee'
 import RepseRegistration from '#models/repse_registration'
-import SystemSettingService from '#services/system_setting_service'
 import { toCalendarIsoDate, toBusinessDateString } from '#utils/business_date'
 import type { BadgeRepository } from './badge.repository.js'
 import type { BadgeEmployeeContext, BadgePublicRow } from './dto/badge.dto.js'
@@ -178,10 +177,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
     if (!employee) return null
     if (isTerminated(employee.employeeTerminatedDate)) return null
 
-    const [logo, registration] = await Promise.all([
-      this.resolveLogo(employee.businessUnitId),
-      this.findActiveRepseRegistration(employee.businessUnitId),
-    ])
+    const registration = await this.findActiveRepseRegistration(employee.businessUnitId)
 
     return {
       employeeId: employee.employeeId,
@@ -194,15 +190,9 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       businessUnitLegalName: employee.businessUnit.businessUnitLegalName,
       businessUnitName: employee.businessUnit.businessUnitName,
       positionName: employee.position?.positionName ?? null,
-      systemSettingLogo: logo,
       repseFolio: registration?.folio ?? null,
       repseExpiresAt: registration?.expiresAt ?? null,
     }
-  }
-
-  private async resolveLogo(businessUnitId: number): Promise<string | null> {
-    const { data } = await new SystemSettingService().index(businessUnitId)
-    return data[0]?.systemSettingLogo ?? null
   }
 
   /** Registro REPSE "actual" = activo, no eliminado, más reciente por `registered_at DESC` (regla 12). */
