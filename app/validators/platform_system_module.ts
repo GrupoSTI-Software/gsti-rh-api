@@ -6,3 +6,10 @@ export const updateSystemModuleActiveValidator = vine.compile(
     active: vine.boolean(),
   })
 )
+
+/** Body para `PUT /api/platform/system-modules/:systemModuleId/permission-enforcement`. */
+export const updateSystemModulePermissionEnforcementValidator = vine.compile(
+  vine.object({
+    active: vine.boolean(),
+  })
+)

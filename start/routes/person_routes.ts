@@ -1,6 +1,12 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
+// USRH1785766406726 — regla C-13: `/api/persons` es superficie compartida (colaborador,
+// cliente y usuario del sistema). Deliberadamente SIN `.use(middleware.permissionGate(...))`:
+// no existe una acción del módulo Empleados que aplique a una persona no-colaborador.
+// El control vive en `person_controller.update` y `person_controller.delete`, como assert
+// derivado por vínculo resuelto con PermissionGateService. NO montar aquí un permiso
+// "ordinario" (p. ej. `update-information`): rompería la edición de clientes.
 router
   .group(() => {
     router.get('/', '#controllers/person_controller.index')

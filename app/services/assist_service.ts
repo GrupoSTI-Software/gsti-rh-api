@@ -2097,6 +2097,187 @@ export default class AssistsService {
     }
   }
 
+  /**
+   * Genera el buffer del reporte de incidencias de nómina de toda la
+   * empresa (job asíncrono `assistance_incident_summary_payroll` sin
+   * `employeeId`, USRH1785766125045). Reutiliza SIN CAMBIOS el motor de
+   * cálculo ya existente (`appendIncidentPayrollRowsForDepartmentEmployees`,
+   * `addRowIncidentPayrollCalendar`, motor `PayrollOvertime*`, elegibilidad,
+   * persistencia de asignaciones de HE): esta historia solo cambia la
+   * forma de entrega (job asíncrono con progreso), nunca el cálculo.
+   */
+  async generateIncidentSummaryPayrollBuffer(
+    filters: AssistExcelFilterInterface,
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[],
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return this.buildExcelBusinessUnitScopeError()
+    }
+    const businessUnitFilterIds = scope.businessUnitFilterIds
+    const departments = await Department.query()
+      .whereNull('department_deleted_at')
+      .whereIn('departmentId', departmentsList)
+      .if(businessUnitFilterIds.length > 0, (query) => {
+        query.whereIn('businessUnitId', businessUnitFilterIds)
+      })
+      .orderBy('departmentId')
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    const employeeService = new EmployeeService(this.i18n)
+    const tardies = await this.getTardiesTolerance()
+    const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+    await this.getBusinessUnits()
+
+    // Primera pasada solo para estimar el total del progreso (no altera el
+    // cálculo del reporte; si falla, el progreso queda indeterminado).
+    let progressTotal = 0
+    try {
+      for (const departmentRow of departments) {
+        const countResult = await this.fetchEmployeesForExcelReport(
+          employeeService,
+          {
+            search: '',
+            departmentId: departmentRow.departmentId,
+            positionId: 0,
+            employeeWorkSchedule: '',
+            page: 1,
+            limit: 999999999999999,
+            orderBy: 'name',
+            orderDirection: 'ascend',
+            ignoreDiscriminated: 1,
+            ignoreExternal: 1,
+            onlyPayroll: false,
+            userResponsibleId: filters.userResponsibleId,
+            payrollBusinessUnitId: filters.payrollBusinessUnitId,
+            branchNameIds: filters.branchNameIds,
+          },
+          [departmentRow.departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
+        )
+        if (countResult) progressTotal += countResult.all().length
+      }
+    } catch {
+      progressTotal = 0
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
+    const tradeName = await this.getTradeName()
+    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+    const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
+    await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
+    this.addHeadRowIncidentPayroll(worksheet)
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    let progressCurrent = 0
+    for await (const departmentRow of departments) {
+      const departmentId = departmentRow.departmentId
+      await this.appendIncidentPayrollRowsForDepartmentEmployees({
+        departmentId,
+        filterDate,
+        filterDateEnd,
+        filterDatePay: filters.filterDatePay ?? '',
+        userResponsibleId: filters.userResponsibleId,
+        businessUnitId: scope.resolvedBusinessUnitId,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+        branchNameIds: filters.branchNameIds,
+        businessUnitFilterIds: scope.businessUnitFilterIds,
+        employeeService,
+        syncAssistsService,
+        tardies,
+        toleranceCountPerAbsences,
+        rowsIncidentPayroll,
+        page: 1,
+        limit: 999999999999999,
+        onEmployeeIterated: async () => {
+          progressCurrent++
+          await onProgress(progressCurrent, progressTotal)
+        },
+      })
+    }
+    await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
+    await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
+  /**
+   * Genera el buffer del reporte de incidencias de nómina de un solo
+   * empleado (job asíncrono `assistance_incident_summary_payroll` en la
+   * ruta by-employee, USRH1785766125045). Reutiliza SIN CAMBIOS
+   * `addRowIncidentPayrollCalendar` (mismo motor que la variante de toda
+   * la empresa). Respeta `withTrashed` vía el empleado ya cargado
+   * (no-oráculo del USRH1785766125028).
+   */
+  async generateIncidentSummaryPayrollEmployeeBuffer(
+    employee: Employee,
+    filters: AssistEmployeeExcelFilterInterface,
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    await onProgress(0, 1)
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    const result = await syncAssistsService.index(
+      {
+        date: filterDate,
+        dateEnd: filterDateEnd,
+        employeeID: filters.employeeId,
+        withOutExternal: true,
+      },
+      { page: 1, limit: 999999999999999 }
+    )
+    const data: any = result.data
+    const tardies = await this.getTardiesTolerance()
+    const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+
+    const workbook = new ExcelJS.Workbook()
+    const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
+    const tradeName = await this.getTradeName()
+    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+    const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
+    await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
+    await this.addHeadRowIncidentPayroll(worksheet)
+
+    await this.getBusinessUnits()
+    if (data) {
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
+        employee: employee,
+        employeeCalendar: employeeCalendar,
+        tardies: tardies,
+        datePay: filters.filterDatePay,
+        toleranceCountPerAbsences: toleranceCountPerAbsences,
+      }
+      const newRows = await this.addRowIncidentPayrollCalendar(incidentPayrollFilters)
+      for (const row of newRows) {
+        rowsIncidentPayroll.push(row)
+      }
+    }
+    await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
+    await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
+    await onProgress(1, 1)
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
   async getExcelAllIncidentSummary(
     filters: AssistExcelFilterInterface,
     departmentsList: Array<number>,
@@ -3670,6 +3851,13 @@ export default class AssistsService {
     rowsIncidentPayroll: AssistIncidentPayrollExcelRowInterface[]
     page: number
     limit: number
+    /**
+     * Gancho opcional de progreso (job asíncrono): se invoca una vez por
+     * cada empleado considerado del departamento, se incluya o no en el
+     * reporte (elegibilidad/asistencia evaluable). No altera el cálculo;
+     * los llamadores que no lo necesitan simplemente no lo pasan.
+     */
+    onEmployeeIterated?: () => Promise<void>
   }): Promise<void> {
     const resultEmployes = await this.fetchEmployeesForExcelReport(
       params.employeeService,
@@ -3699,6 +3887,7 @@ export default class AssistsService {
 
     for (const employee of resultEmployes.all()) {
       if (!this.isPayrollAssistEligibleEmployee(employee)) {
+        await params.onEmployeeIterated?.()
         continue
       }
 
@@ -3713,11 +3902,13 @@ export default class AssistsService {
       )
       const data: any = result.data
       if (!data?.employeeCalendar) {
+        await params.onEmployeeIterated?.()
         continue
       }
 
       const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
       if (!this.hasPayrollEvaluableAttendance(employeeCalendar)) {
+        await params.onEmployeeIterated?.()
         continue
       }
 
@@ -3732,6 +3923,7 @@ export default class AssistsService {
       for (const row of newRows) {
         params.rowsIncidentPayroll.push(row)
       }
+      await params.onEmployeeIterated?.()
     }
   }
 

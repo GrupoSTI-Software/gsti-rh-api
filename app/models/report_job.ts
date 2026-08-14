@@ -7,9 +7,15 @@ export type ReportJobStatus = 'pending' | 'processing' | 'completed' | 'failed'
 /**
  * `assistance_all` = empresa; `assistance_employee` = un solo empleado
  * (detalle); `assistance_incident_summary` = resumen de incidencias
- * (empresa o un empleado, según `employeeId`).
+ * (empresa o un empleado, según `employeeId`); `assistance_incident_summary_payroll`
+ * = resumen de incidencias en formato nómina (empresa o un empleado, según
+ * `employeeId`), único reporte de nómina tras el USRH1785766125045.
  */
-export type ReportJobType = 'assistance_all' | 'assistance_employee' | 'assistance_incident_summary'
+export type ReportJobType =
+  | 'assistance_all'
+  | 'assistance_employee'
+  | 'assistance_incident_summary'
+  | 'assistance_incident_summary_payroll'
 
 export interface ReportJobFilters {
   filterDate: string
