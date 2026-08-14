@@ -1,5 +1,6 @@
 import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
 import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
+import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 
 export type ResolvedBillingPaymentError = {
   title: string
@@ -7,6 +8,7 @@ export type ResolvedBillingPaymentError = {
   key: string
   code: string
   status: number
+  data?: Record<string, number>
 }
 
 /**
@@ -38,6 +40,20 @@ export function resolveBillingPaymentApiError(
       code: error.errorCode,
       status: error.httpStatus,
     }
+  }
+
+  if (error instanceof BillingSubscriptionServiceError) {
+    const resolved: ResolvedBillingPaymentError = {
+      title: 'Pagos de suscripción',
+      detail: error.detail ?? error.message,
+      key: error.key ?? error.errorCode,
+      code: error.errorCode,
+      status: error.httpStatus,
+    }
+    if (error.data) {
+      resolved.data = error.data
+    }
+    return resolved
   }
 
   return {

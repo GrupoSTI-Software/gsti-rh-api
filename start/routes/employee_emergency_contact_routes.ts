@@ -1,17 +1,30 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 
 router
   .group(() => {
-    router.post('/', '#controllers/employee_emergency_contact_controller.store')
-    router.put(
-      '/:employeeEmergencyContactId',
-      '#controllers/employee_emergency_contact_controller.update'
-    )
-    router.delete(
-      '/:employeeEmergencyContactId',
-      '#controllers/employee_emergency_contact_controller.delete'
-    )
+    router
+      .post('/', '#controllers/employee_emergency_contact_controller.store')
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeEmergencyContact)
+      )
+    router
+      .put(
+        '/:employeeEmergencyContactId',
+        '#controllers/employee_emergency_contact_controller.update'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeEmergencyContact)
+      )
+    router
+      .delete(
+        '/:employeeEmergencyContactId',
+        '#controllers/employee_emergency_contact_controller.delete'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeEmergencyContact)
+      )
     router.get(
       '/:employeeEmergencyContactId',
       '#controllers/employee_emergency_contact_controller.show'
