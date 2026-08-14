@@ -14,6 +14,12 @@ router
     router.post('/request/verify/:token', '#controllers/user_controller.verifyRequestRecovery')
     router.post('/password/reset', '#controllers/user_controller.passwordReset')
     router.get('/session', '#controllers/user_controller.authUser')
+    router
+      .get('/session/permissions', '#controllers/session_permission_tree_controller.show')
+      .use(middleware.auth())
+    router
+      .get('/session/permissions/version', '#controllers/session_permission_tree_controller.version')
+      .use(middleware.auth())
     router.post('/request/code-verify/:pinCode', '#controllers/user_controller.verifyRequestPinCode')
   })
   .prefix('/api/auth')
