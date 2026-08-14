@@ -392,6 +392,10 @@ export default class BillingCatalogService {
   /**
    * Agrega una nueva versión de precio al plan (append-only).
    * Solo inserta — nunca actualiza ni elimina filas existentes.
+   *
+   * Orden de validación: duplicado exacto → coherencia contra la vigente.
+   * "Hoy" siempre lo decide el servidor (`toBusinessDateString`); el cliente
+   * nunca lo envía ni puede influir en él.
    */
   async addPrice(planId: number, input: CreatePriceInput): Promise<BillingPlanPrice> {
     await this.getPlan(planId)
@@ -408,6 +412,28 @@ export default class BillingCatalogService {
         409,
         'PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE',
         'Ya existe una versión de precio con la misma fecha de vigencia.'
+      )
+    }
+
+    // Si el plan ya tiene una versión vigente (effective_from ≤ hoy), la
+    // nueva no puede quedar por detrás: reescribiría hacia atrás el precio
+    // de un periodo que ya transcurrió. Sin versión vigente (plan nuevo aún
+    // sin publicar) se acepta fecha pasada, porque publishPlan exige
+    // justamente un precio con effective_from ≤ hoy.
+    const today = toBusinessDateString()
+    const currentPrice = await BillingPlanPrice.query()
+      .where('billing_plan_id', planId)
+      .where('billing_plan_price_effective_from', '<=', today)
+      .orderBy('billing_plan_price_effective_from', 'desc')
+      .first()
+
+    if (currentPrice && input.billingPlanPriceEffectiveFrom < today) {
+      throw new BillingCatalogServiceError(
+        `Vigencia ${input.billingPlanPriceEffectiveFrom} anterior a hoy con versión vigente en plan ${planId}`,
+        BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_IN_PAST,
+        422,
+        'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST',
+        'La nueva versión de precio solo puede entrar en vigor a partir de hoy.'
       )
     }
 

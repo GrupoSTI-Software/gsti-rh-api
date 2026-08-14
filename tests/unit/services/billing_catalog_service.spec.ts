@@ -975,3 +975,157 @@ test.group('BillingCatalogService — publishPlan: barrido de copias hermanas', 
     assert.notInclude(result.discardedIds, 9)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Módulo: nuevo código de error — coherencia de vigencia entre versiones
+// (USRH1785962095084)
+// ---------------------------------------------------------------------------
+
+test.group('BILLING_CATALOG_ERROR_CODES — código de vigencia en el pasado', () => {
+  test('PRICE_EFFECTIVE_FROM_IN_PAST es PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_IN_PAST,
+      'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST'
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: addPrice — coherencia de la vigencia nueva contra la vigente
+// (USRH1785962095084, reglas 5, 6 y 7)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — addPrice: coherencia de vigencia', () => {
+  /**
+   * Espeja el orden de validación real de addPrice: duplicado exacto primero,
+   * luego coherencia contra la versión vigente (MAX(effective_from ≤ hoy)).
+   * Las fechas son strings YYYY-MM-DD, comparables lexicográficamente.
+   */
+  function tryAddPrice(params: {
+    today: string
+    existingEffectiveFromDates: string[]
+    newEffectiveFrom: string
+  }) {
+    const { today, existingEffectiveFromDates, newEffectiveFrom } = params
+
+    if (existingEffectiveFromDates.includes(newEffectiveFrom)) {
+      throw new BillingCatalogServiceError(
+        'Vigencia duplicada',
+        BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_DUPLICATE,
+        409
+      )
+    }
+
+    const currentPrice = existingEffectiveFromDates
+      .filter((d) => d <= today)
+      .sort()
+      .at(-1)
+
+    if (currentPrice && newEffectiveFrom < today) {
+      throw new BillingCatalogServiceError(
+        'Vigencia anterior a hoy con versión vigente',
+        BILLING_CATALOG_ERROR_CODES.PRICE_EFFECTIVE_FROM_IN_PAST,
+        422
+      )
+    }
+
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('Criterio 4 — vigencia pasada con versión vigente existente lanza PRICE_EFFECTIVE_FROM_IN_PAST con 422', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-03-01'],
+        newEffectiveFrom: '2026-01-15',
+      })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('Criterio 5 — vigencia de hoy se acepta con versión vigente existente', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-03-01'],
+        newEffectiveFrom: '2026-08-05',
+      })
+    )
+  })
+
+  test('Criterio 5 — vigencia futura se acepta con versión vigente existente', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-03-01'],
+        newEffectiveFrom: '2026-09-01',
+      })
+    )
+  })
+
+  test('Criterio 6 — vigencia duplicada se rechaza primero, aunque también sería pasada', ({
+    assert,
+  }) => {
+    const error = captureError(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-09-01'],
+        newEffectiveFrom: '2026-09-01',
+      })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE')
+    assert.equal(error?.httpStatus, 409)
+  })
+
+  test('Criterio 7 — plan sin ninguna versión corriendo acepta fecha pasada (deja el plan publicable)', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: [],
+        newEffectiveFrom: '2026-01-01',
+      })
+    )
+  })
+
+  test('Criterio 7 — plan con solo versiones futuras (ninguna vigente aún) acepta fecha pasada', ({
+    assert,
+  }) => {
+    assert.doesNotThrow(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-09-01', '2026-10-01'],
+        newEffectiveFrom: '2026-01-01',
+      })
+    )
+  })
+
+  test('con varias versiones vigentes previas, la comparación usa la de mayor fecha (MAX)', ({
+    assert,
+  }) => {
+    // Vigente real = 2026-06-01 (la mayor ≤ hoy). Una nueva en 2026-05-01
+    // queda por detrás de la vigente y se rechaza, aunque sea posterior a
+    // otras versiones más viejas del histórico.
+    const error = captureError(() =>
+      tryAddPrice({
+        today: '2026-08-05',
+        existingEffectiveFromDates: ['2026-01-01', '2026-06-01'],
+        newEffectiveFrom: '2026-05-01',
+      })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST')
+  })
+})

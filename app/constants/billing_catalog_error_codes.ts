@@ -11,6 +11,8 @@ export const BILLING_CATALOG_ERROR_CODES = {
   PRICE_IMMUTABLE: 'PLT.CAT.PRICE_IMMUTABLE',
   /** Fecha de vigencia duplicada en el mismo plan */
   PRICE_EFFECTIVE_FROM_DUPLICATE: 'PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE',
+  /** Vigencia nueva anterior a hoy cuando el plan ya tiene una versión corriendo */
+  PRICE_EFFECTIVE_FROM_IN_PAST: 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST',
   /** Tramo inválido (min_employees < 1 o discount_percent fuera de [0,100]) */
   TIER_INVALID: 'PLT.CAT.TIER_INVALID',
   /** Min_employees duplicado en el mismo plan */
