@@ -48,4 +48,32 @@ export default class PlatformSystemModuleService {
 
     return systemModule
   }
+
+  /**
+   * Enciende o apaga la exigencia global de permisos explícitos de un módulo.
+   * No modifica la disponibilidad del módulo ni sus permisos asignados.
+   *
+   * @param systemModuleId - Identificador del módulo a actualizar.
+   * @param active - Estado deseado de la exigencia de permisos.
+   * @returns El módulo con su nuevo estado de enforcement.
+   * @throws PlatformSystemModuleServiceError 404 si el módulo no existe.
+   */
+  async setPermissionEnforcement(systemModuleId: number, active: boolean): Promise<SystemModule> {
+    const systemModule = await SystemModule.find(systemModuleId)
+
+    if (!systemModule) {
+      throw new PlatformSystemModuleServiceError(
+        `Módulo ${systemModuleId} no encontrado`,
+        PLATFORM_SYSTEM_MODULE_ERROR_CODES.MODULE_NOT_FOUND,
+        404,
+        'PLT.MOD.MODULE_NOT_FOUND',
+        'El módulo solicitado no existe.'
+      )
+    }
+
+    systemModule.systemModulePermissionEnforcementActive = active
+    await systemModule.save()
+
+    return systemModule
+  }
 }

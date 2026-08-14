@@ -1,5 +1,5 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, computed } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
@@ -100,6 +100,22 @@ export default class PositionPositionLevel extends compose(
 
   @column.dateTime({ columnName: 'position_position_level_deleted_at' })
   declare deletedAt: DateTime | null
+
+  /**
+   * Nombre visible del nivel, resuelto SOLO en el API (USRH1785964117188):
+   * el ad-hoc cuando existe; si no, el nombre del catálogo. Requiere la
+   * relación `positionLevel` precargada para los renglones de catálogo.
+   */
+  @computed()
+  get displayName(): string {
+    return this.positionPositionLevelAdHocName ?? this.positionLevel?.positionLevelName ?? ''
+  }
+
+  /** Origen del renglón: nivel del catálogo o nombre propio del puesto. */
+  @computed()
+  get source(): 'catalog' | 'adHoc' {
+    return this.positionLevelId !== null ? 'catalog' : 'adHoc'
+  }
 
   @belongsTo(() => Position, {
     foreignKey: 'positionId',
