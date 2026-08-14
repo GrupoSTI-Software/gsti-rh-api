@@ -11,6 +11,8 @@ export const BILLING_CATALOG_ERROR_CODES = {
   PRICE_IMMUTABLE: 'PLT.CAT.PRICE_IMMUTABLE',
   /** Fecha de vigencia duplicada en el mismo plan */
   PRICE_EFFECTIVE_FROM_DUPLICATE: 'PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE',
+  /** Vigencia nueva anterior a hoy cuando el plan ya tiene una versión corriendo */
+  PRICE_EFFECTIVE_FROM_IN_PAST: 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST',
   /** Tramo inválido (min_employees < 1 o discount_percent fuera de [0,100]) */
   TIER_INVALID: 'PLT.CAT.TIER_INVALID',
   /** Min_employees duplicado en el mismo plan */
@@ -29,6 +31,16 @@ export const BILLING_CATALOG_ERROR_CODES = {
   CLONE_SOURCE_DEACTIVATED: 'PLT.CAT.CLONE_SOURCE_DEACTIVATED',
   /** Ya existe un borrador clon vivo para el mismo plan origen */
   CLONE_DRAFT_EXISTS: 'PLT.CAT.CLONE_DRAFT_EXISTS',
+  /** Intento de renombrar un plan publicado (el nombre solo se edita en borrador) */
+  PLAN_NAME_IMMUTABLE: 'PLT.CAT.PLAN_NAME_IMMUTABLE',
+  /** Tramo inexistente en el plan indicado (o eliminado lógicamente) */
+  TIER_NOT_FOUND: 'PLT.CAT.TIER_NOT_FOUND',
+  /** Intento de retirar un plan que no está publicado (borrador) */
+  PLAN_DEACTIVATE_REQUIRES_PUBLISHED: 'PLT.CAT.PLAN_DEACTIVATE_REQUIRES_PUBLISHED',
+  /** Intento de retirar un plan que ya está retirado */
+  PLAN_ALREADY_DEACTIVATED: 'PLT.CAT.PLAN_ALREADY_DEACTIVATED',
+  /** Intento de reactivar un plan retirado (0 → 1), por cualquier vía */
+  PLAN_REACTIVATION_FORBIDDEN: 'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.CAT.SYS_UNHANDLED',
 } as const

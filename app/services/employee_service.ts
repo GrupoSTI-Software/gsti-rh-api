@@ -17,6 +17,7 @@ import User from '#models/user'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
+import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
@@ -439,7 +440,7 @@ export default class EmployeeService {
         query.where('employee_type_of_contract', 'Internal')
       })
       .if(
-        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        isTerminatedEmployeesFilterRequested(filters.onlyInactive),
         (query) => {
           query.whereNotNull('employee_deleted_at')
           query.withTrashed()
@@ -477,6 +478,7 @@ export default class EmployeeService {
       })
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('address')
@@ -720,6 +722,9 @@ export default class EmployeeService {
       newEmployee.companyId = employee.companyId
       newEmployee.departmentId = employee.departmentId
       newEmployee.positionId = employee.positionId
+      // Nivel del puesto (USRH1785964117188): el controller ya validó la
+      // pertenencia; `syncCreate` (biométricos) no lo trae y nace con NULL.
+      newEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
       newEmployee.personId = employee.personId
       newEmployee.businessUnitId = employee.businessUnitId
       newEmployee.dailySalary = employee.dailySalary || 0
@@ -818,6 +823,12 @@ export default class EmployeeService {
     currentEmployee.companyId = employee.companyId
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
+    // Nivel del puesto (USRH1785964117188): propiedad ausente = conservar el
+    // nivel actual; el controller solo la fija cuando el payload la trajo
+    // (null explícito = limpiar). No copiar `?? null` a ciegas.
+    if ('positionLevelConfigId' in employee) {
+      currentEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
+    }
     currentEmployee.businessUnitId = employee.businessUnitId
     currentEmployee.dailySalary = salarioNuevo
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
@@ -865,10 +876,13 @@ export default class EmployeeService {
     }
     currentEmployee.employeePhoto = photoUrl
     await currentEmployee.save()
+    // `positionLevelConfig` viaja también aquí: esta respuesta reemplaza el
+    // item del listado en el BO — sin él, subir foto borraría el nivel del card.
     return Employee.query()
       .preload('person')
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .where('employee_id', employeeId)
       .first()
   }
@@ -1061,6 +1075,7 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('payrollBusinessUnit')
@@ -1099,6 +1114,7 @@ export default class EmployeeService {
       )
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('payrollBusinessUnit')
@@ -8197,7 +8213,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         query.where('employee_type_of_contract', 'Internal')
       })
       .if(
-        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        isTerminatedEmployeesFilterRequested(filters.onlyInactive),
         (query) => {
           query.whereNotNull('employee_deleted_at')
           query.withTrashed()

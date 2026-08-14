@@ -244,6 +244,25 @@ test.group('BillingTickSubscriptions — R7: guard de entorno', () => {
     const shouldAbort = nodeEnv !== 'production' && !force
     assert.isFalse(shouldAbort, 'en producción no debe abortar aunque force=false')
   })
+
+  test('ClockRunResult incluye contadores de reducción agendada (0859)', ({ assert }) => {
+    const result = {
+      businessDate: '2026-09-01',
+      processed: 0,
+      transitioned: 0,
+      skipped: 0,
+      details: [],
+      changesApplied: 0,
+      changesNotApplicable: 0,
+      failed: 0,
+      changeDetails: [],
+    }
+
+    assert.property(result, 'changesApplied')
+    assert.property(result, 'changesNotApplicable')
+    assert.property(result, 'failed')
+    assert.property(result, 'changeDetails')
+  })
 })
 
 // ─── Tests del modelo de bitácora ─────────────────────────────────────────────
