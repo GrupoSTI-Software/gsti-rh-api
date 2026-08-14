@@ -3,6 +3,7 @@ import { BaseModel, belongsTo, column, hasMany, hasOne } from '@adonisjs/lucid/o
 import type { BelongsTo, HasMany, HasOne } from '@adonisjs/lucid/types/relations'
 import Department from './department.js'
 import Position from './position.js'
+import PositionPositionLevel from './position_position_level.js'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
@@ -234,6 +235,14 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
   @column()
   declare positionSyncId: number
 
+  /**
+   * Nivel del puesto asignado al empleado (USRH1785964117188): FK nullable a
+   * `position_position_levels`. NULL es valor legítimo — la asignación es
+   * opcional de forma permanente (regla 1).
+   */
+  @column()
+  declare positionLevelConfigId: number | null
+
   @column()
   declare personId: number
 
@@ -303,6 +312,19 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
     },
   })
   declare position: BelongsTo<typeof Position>
+
+  /**
+   * `withTrashed()`: un empleado soft-deleted puede quedar apuntando a un
+   * renglón soft-deleted y `reactivate` lo revive tal cual. El preload
+   * anidado de `positionLevel` resuelve `displayName` sin N+1.
+   */
+  @belongsTo(() => PositionPositionLevel, {
+    foreignKey: 'positionLevelConfigId',
+    onQuery: (query) => {
+      query.withTrashed().preload('positionLevel')
+    },
+  })
+  declare positionLevelConfig: BelongsTo<typeof PositionPositionLevel>
 
   @belongsTo(() => Person, {
     foreignKey: 'personId',

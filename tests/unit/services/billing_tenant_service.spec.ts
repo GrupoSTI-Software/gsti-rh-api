@@ -37,3 +37,29 @@ test.group('BillingTenantService.assertContractedEmployees', () => {
     }
   })
 })
+
+test.group('BillingTenantService.resolveMinimumContractedEmployees', () => {
+  const service = new BillingTenantService()
+
+  test('aplica el mínimo general y redondeo al bloque superior', ({ assert }) => {
+    const cases: Array<[number, number]> = [
+      [0, 10],
+      [1, 10],
+      [9, 10],
+      [10, 10],
+      [11, 20],
+      [47, 50],
+      [50, 50],
+      [100_000, 100_000],
+      [100_001, 100_010],
+    ]
+
+    for (const [active, expected] of cases) {
+      assert.equal(
+        service.resolveMinimumContractedEmployees(active),
+        expected,
+        `activos=${active}`
+      )
+    }
+  })
+})
