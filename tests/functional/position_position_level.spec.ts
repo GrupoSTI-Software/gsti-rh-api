@@ -4,6 +4,7 @@ import i18nManager from '@adonisjs/i18n/services/main'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
+import Employee from '#models/employee'
 import Position from '#models/position'
 import PositionLevel from '#models/position_level'
 import PositionPositionLevel from '#models/position_position_level'
@@ -117,6 +118,50 @@ async function createCatalogLevel(
 
 function serviceInstance(): PositionPositionLevelService {
   return new PositionPositionLevelService(i18nManager.locale(i18nManager.defaultLocale))
+}
+
+/**
+ * Empleado mínimo portando un nivel configurado (USRH1785964117188). El
+ * cleanup debe ser físico (`purgeEmployee`) ANTES de borrar la puente: la FK
+ * RESTRICT de `position_level_config_id` bloquea el delete físico de la fila.
+ */
+async function createEmployeeWithLevel(
+  businessUnit: BusinessUnit,
+  positionId: number,
+  positionLevelConfigId: number | null,
+  overrides: { employeeTerminatedDate?: string | null } = {}
+): Promise<Employee> {
+  const stamp = uniqueStamp()
+
+  const person = new Person()
+  person.personFirstname = 'Nivel'
+  person.personLastname = 'Empleado'
+  person.personSecondLastname = 'Test'
+  person.personEmail = `nivel-empleado-${stamp}@gsti-tests.local`
+  await person.save()
+
+  const employee = new Employee()
+  employee.employeeSyncId = Date.now()
+  employee.employeeCode = `PPL-EMP-${stamp}`
+  employee.employeeFirstName = person.personFirstname
+  employee.employeeLastName = person.personLastname
+  employee.employeeSecondLastName = person.personSecondLastname
+  employee.employeePayrollNum = `PPL-EMP-${stamp}`
+  employee.companyId = 1
+  employee.personId = person.personId
+  employee.businessUnitId = businessUnit.businessUnitId
+  employee.payrollBusinessUnitId = businessUnit.businessUnitId
+  employee.positionId = positionId
+  employee.positionLevelConfigId = positionLevelConfigId
+  employee.employeeTerminatedDate = overrides.employeeTerminatedDate ?? null
+  await employee.save()
+  return employee
+}
+
+async function purgeEmployee(employee: Employee | null) {
+  if (!employee) return
+  await db.from('employees').where('employee_id', employee.employeeId).delete()
+  await db.from('people').where('person_id', employee.personId).delete()
 }
 
 test.group('PositionPositionLevels - auth (401 sin autenticación)', () => {
@@ -1007,7 +1052,7 @@ test.group('PositionPositionLevels - DELETE individual (CA-8/CA-11)', (group) =>
   })
 })
 
-test.group('PositionPositionLevels - personal asignado (CA-8, stub R-2)', (group) => {
+test.group('PositionPositionLevels - personal asignado (regla 10, USRH1785964117188)', (group) => {
   let businessUnit: BusinessUnit | null = null
   let position: Position | null = null
   let level: PositionLevel | null = null
@@ -1031,6 +1076,10 @@ test.group('PositionPositionLevels - personal asignado (CA-8, stub R-2)', (group
   })
 
   group.teardown(async () => {
+    // Los empleados portan la FK RESTRICT: fuera ANTES de borrar la puente.
+    if (businessUnit) {
+      await db.from('employees').where('business_unit_id', businessUnit.businessUnitId).delete()
+    }
     await deleteBusinessUnit(businessUnit)
   })
 
@@ -1091,10 +1140,93 @@ test.group('PositionPositionLevels - personal asignado (CA-8, stub R-2)', (group
     assert.isNull(row.position_position_level_deleted_at)
   })
 
-  test('el stub real devuelve false: sin consumidor, la baja procede', async ({ assert }) => {
+  test('sin empleados portando el nivel, hasAssignedEmployees devuelve false', async ({
+    assert,
+  }) => {
     const service = serviceInstance()
     const result = await service.hasAssignedEmployees(rowId!)
     assert.isFalse(result)
+  })
+
+  test('un empleado vivo portando el nivel: true, y deleteOne/replace responden 409 con la fila intacta', async ({
+    assert,
+  }) => {
+    const employee = await createEmployeeWithLevel(businessUnit!, position!.positionId, rowId!)
+    const service = serviceInstance()
+
+    try {
+      assert.isTrue(await service.hasAssignedEmployees(rowId!))
+
+      try {
+        await service.deleteOne(position!.positionId, rowId!, [businessUnit!.businessUnitId])
+        assert.fail('deleteOne() debió rechazar el nivel con personal asignado')
+      } catch (error) {
+        assert.instanceOf(error, PositionPositionLevelServiceError)
+        const serviceError = error as PositionPositionLevelServiceError
+        assert.equal(serviceError.key, 'nivel-con-personal-asignado')
+        assert.equal(serviceError.errorCode, 'ORG.POSLEVELCFG.LEVEL_HAS_EMPLOYEES')
+        assert.equal(serviceError.httpStatus, 409)
+      }
+
+      try {
+        await service.replace(position!.positionId, [], [businessUnit!.businessUnitId])
+        assert.fail('replace() debió rechazar la baja de un nivel con personal asignado')
+      } catch (error) {
+        assert.instanceOf(error, PositionPositionLevelServiceError)
+        const serviceError = error as PositionPositionLevelServiceError
+        assert.equal(serviceError.key, 'nivel-con-personal-asignado')
+        assert.equal(serviceError.httpStatus, 409)
+      }
+
+      const row = await db
+        .from('position_position_levels')
+        .where('position_position_level_id', rowId!)
+        .first()
+      assert.isNull(row.position_position_level_deleted_at)
+    } finally {
+      await purgeEmployee(employee)
+    }
+  })
+
+  test('regla 10: un empleado dado de baja (terminado, no eliminado) sigue contando', async ({
+    assert,
+  }) => {
+    const employee = await createEmployeeWithLevel(businessUnit!, position!.positionId, rowId!, {
+      employeeTerminatedDate: '2026-01-15 00:00:00',
+    })
+    const service = serviceInstance()
+
+    try {
+      assert.isTrue(await service.hasAssignedEmployees(rowId!))
+    } finally {
+      await purgeEmployee(employee)
+    }
+  })
+
+  test('regla 10: un empleado soft-deleted deja de contar y la baja del nivel procede', async ({
+    assert,
+  }) => {
+    const employee = await createEmployeeWithLevel(businessUnit!, position!.positionId, rowId!)
+    await employee.delete()
+
+    const service = serviceInstance()
+
+    try {
+      assert.isFalse(await service.hasAssignedEmployees(rowId!))
+
+      const view = await service.deleteOne(position!.positionId, rowId!, [
+        businessUnit!.businessUnitId,
+      ])
+      assert.equal(view.positionPositionLevelId, rowId!)
+
+      const row = await db
+        .from('position_position_levels')
+        .where('position_position_level_id', rowId!)
+        .first()
+      assert.isNotNull(row.position_position_level_deleted_at)
+    } finally {
+      await purgeEmployee(employee)
+    }
   })
 })
 
