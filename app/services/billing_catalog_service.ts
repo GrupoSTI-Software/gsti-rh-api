@@ -41,6 +41,7 @@ export interface CreateTierInput {
 }
 
 export interface UpdateTierInput {
+  billingVolumeTierMinEmployees?: number
   billingVolumeTierDiscountPercent?: number
 }
 
@@ -118,7 +119,18 @@ export default class BillingCatalogService {
   async updatePlan(planId: number, input: UpdatePlanInput): Promise<BillingPlan> {
     const plan = await this.getPlan(planId)
 
-    if (input.billingPlanName !== undefined) plan.billingPlanName = input.billingPlanName
+    if (input.billingPlanName !== undefined) {
+      if (plan.isPublished) {
+        throw new BillingCatalogServiceError(
+          `No se puede renombrar el plan publicado ${planId}`,
+          BILLING_CATALOG_ERROR_CODES.PLAN_NAME_IMMUTABLE,
+          422,
+          'PLT.CAT.PLAN_NAME_IMMUTABLE',
+          'El nombre de un plan publicado es inmutable. Clona el plan para ofrecerlo con otro nombre.'
+        )
+      }
+      plan.billingPlanName = input.billingPlanName
+    }
     if (input.billingPlanDescription !== undefined)
       plan.billingPlanDescription = input.billingPlanDescription
     if (input.billingPlanStripeProductId !== undefined)
@@ -387,20 +399,7 @@ export default class BillingCatalogService {
       )
     }
 
-    const duplicate = await BillingVolumeTier.query()
-      .where('billing_plan_id', planId)
-      .where('billing_volume_tier_min_employees', input.billingVolumeTierMinEmployees)
-      .first()
-
-    if (duplicate) {
-      throw new BillingCatalogServiceError(
-        `Ya existe un tramo con min_employees ${input.billingVolumeTierMinEmployees}`,
-        BILLING_CATALOG_ERROR_CODES.TIER_DUPLICATE,
-        409,
-        'PLT.CAT.TIER_DUPLICATE',
-        'Ya existe un tramo con el mismo mínimo de empleados en este plan.'
-      )
-    }
+    await this.assertMinEmployeesAvailable(planId, input.billingVolumeTierMinEmployees)
 
     return BillingVolumeTier.create({
       billingPlanId: planId,
@@ -434,10 +433,23 @@ export default class BillingCatalogService {
     if (!tier) {
       throw new BillingCatalogServiceError(
         `Tramo ${tierId} no encontrado en plan ${planId}`,
-        BILLING_CATALOG_ERROR_CODES.PLAN_NOT_FOUND,
+        BILLING_CATALOG_ERROR_CODES.TIER_NOT_FOUND,
         404,
         'PLT.CAT.TIER_NOT_FOUND',
         'El tramo solicitado no existe o fue eliminado.'
+      )
+    }
+
+    if (
+      input.billingVolumeTierMinEmployees === undefined &&
+      input.billingVolumeTierDiscountPercent === undefined
+    ) {
+      throw new BillingCatalogServiceError(
+        'Debes enviar al menos un campo a actualizar del tramo',
+        BILLING_CATALOG_ERROR_CODES.TIER_INVALID,
+        422,
+        'PLT.CAT.TIER_INVALID',
+        'Envía el mínimo de empleados y/o el porcentaje de descuento a actualizar.'
       )
     }
 
@@ -454,12 +466,64 @@ export default class BillingCatalogService {
       )
     }
 
+    if (input.billingVolumeTierMinEmployees !== undefined) {
+      if (input.billingVolumeTierMinEmployees < 1) {
+        throw new BillingCatalogServiceError(
+          'Tramo inválido: min_employees ≥ 1',
+          BILLING_CATALOG_ERROR_CODES.TIER_INVALID,
+          422,
+          'PLT.CAT.TIER_INVALID',
+          'El mínimo de empleados debe ser ≥ 1.'
+        )
+      }
+
+      if (input.billingVolumeTierMinEmployees !== tier.billingVolumeTierMinEmployees) {
+        await this.assertMinEmployeesAvailable(planId, input.billingVolumeTierMinEmployees, tierId)
+        tier.billingVolumeTierMinEmployees = input.billingVolumeTierMinEmployees
+      }
+    }
+
     if (input.billingVolumeTierDiscountPercent !== undefined) {
       tier.billingVolumeTierDiscountPercent = input.billingVolumeTierDiscountPercent
     }
 
     await tier.save()
     return tier
+  }
+
+  /**
+   * Verifica que `minEmployees` no esté reservado por otro tramo del mismo
+   * plan, considerando también los tramos eliminados lógicamente: la
+   * restricción UNIQUE de la base de datos (`billing_plan_id`,
+   * `billing_volume_tier_min_employees`) no distingue soft-delete, así que
+   * la validación previa debe verlos para dar un mensaje claro en vez de un
+   * error de base de datos sin traducir.
+   */
+  private async assertMinEmployeesAvailable(
+    planId: number,
+    minEmployees: number,
+    excludeTierId?: number
+  ): Promise<void> {
+    const query = BillingVolumeTier.query()
+      .withTrashed()
+      .where('billing_plan_id', planId)
+      .where('billing_volume_tier_min_employees', minEmployees)
+
+    if (excludeTierId !== undefined) {
+      query.whereNot('billing_volume_tier_id', excludeTierId)
+    }
+
+    const duplicate = await query.first()
+
+    if (duplicate) {
+      throw new BillingCatalogServiceError(
+        `Ya existe un tramo con min_employees ${minEmployees} en plan ${planId}`,
+        BILLING_CATALOG_ERROR_CODES.TIER_DUPLICATE,
+        409,
+        'PLT.CAT.TIER_DUPLICATE',
+        'Ya existe un tramo con el mismo mínimo de empleados en este plan (incluye tramos eliminados).'
+      )
+    }
   }
 
   async deleteTier(planId: number, tierId: number): Promise<void> {
@@ -483,7 +547,7 @@ export default class BillingCatalogService {
     if (!tier) {
       throw new BillingCatalogServiceError(
         `Tramo ${tierId} no encontrado en plan ${planId}`,
-        BILLING_CATALOG_ERROR_CODES.PLAN_NOT_FOUND,
+        BILLING_CATALOG_ERROR_CODES.TIER_NOT_FOUND,
         404,
         'PLT.CAT.TIER_NOT_FOUND',
         'El tramo solicitado no existe o fue eliminado.'
