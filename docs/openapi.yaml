@@ -128,6 +128,139 @@ components:
         data:
           nullable: true
 
+    SessionPermissionAction:
+      type: object
+      required:
+        - slug
+        - displayName
+        - kind
+        - allowed
+        - reason
+        - revocableFromPrivileged
+        - exceptionProfile
+        - grantable
+      properties:
+        slug:
+          type: string
+          example: read
+        displayName:
+          type: string
+          example: Consultar empleado
+        kind:
+          type: string
+          enum: [read, write, delete]
+        allowed:
+          type: boolean
+        reason:
+          type: string
+          enum:
+            - assignment
+            - privileged-role
+            - missing-assignment
+            - explicit-revocation
+            - module-inactive
+        revocableFromPrivileged:
+          type: boolean
+        exceptionProfile:
+          type: string
+          enum: [standard, expanded, platformReserved, strict]
+        grantable:
+          type: boolean
+          description: >-
+            `false` para acciones exentas del catálogo: se enumeran pero no
+            tienen permiso en `system_permissions`, así que no pueden
+            otorgarse ni revocarse desde la configuración de roles.
+
+    SessionPermissionSection:
+      type: object
+      required: [slug, actions]
+      properties:
+        slug:
+          type: string
+          example: datos-persona
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionAction'
+
+    SessionPermissionModule:
+      type: object
+      required: [slug, active, permissionEnforcementActive, sections]
+      properties:
+        slug:
+          type: string
+          example: employees
+        active:
+          type: boolean
+        permissionEnforcementActive:
+          type: boolean
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionSection'
+
+    SessionPermissionTree:
+      type: object
+      required: [role, modules, version, generatedAt]
+      properties:
+        role:
+          type: object
+          required: [id, name, slug]
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+            slug:
+              type: string
+        modules:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionPermissionModule'
+        version:
+          type: string
+          example: 0f4c2a8d9b1e7a03
+        generatedAt:
+          type: string
+          format: date-time
+
+    SessionPermissionTreeResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SessionPermissionTree'
+
+    SessionPermissionVersion:
+      type: object
+      required: [version, generatedAt]
+      properties:
+        version:
+          type: string
+          example: 0f4c2a8d9b1e7a03
+        generatedAt:
+          type: string
+          format: date-time
+
+    SessionPermissionVersionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/SessionPermissionVersion'
+
+    SessionPermissionError:
+      type: object
+      required: [title, detail, key]
+      properties:
+        title:
+          type: string
+        detail:
+          type: string
+        key:
+          type: string
+          example: PERM.TREE.UNRESOLVED
+
     Nom035QrunError:
       allOf:
         - $ref: '#/components/schemas/ApiError'
@@ -4764,17 +4897,24 @@ paths:
                 message: No autenticado
                 data: null
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Sin permiso
-                message: No cuentas con permisos para realizar esta acción.
-                key: sin-permiso
-                data: null
+              examples:
+                permisoDenegado:
+                  summary: key PERM.DENIED
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para realizar esta operación.
+                    key: PERM.DENIED
+                permisoNoResuelto:
+                  summary: key PERM.UNRESOLVED
+                  value:
+                    title: No se pudo verificar el permiso
+                    detail: No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.
+                    key: PERM.UNRESOLVED
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:
@@ -4882,17 +5022,24 @@ paths:
                 message: No autenticado
                 data: null
         '403':
-          description: Sin permiso read o gestion (key sin-permiso)
+          description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Sin permiso
-                message: No cuentas con permisos para realizar esta acción.
-                key: sin-permiso
-                data: null
+              examples:
+                permisoDenegado:
+                  summary: key PERM.DENIED
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para realizar esta operación.
+                    key: PERM.DENIED
+                permisoNoResuelto:
+                  summary: key PERM.UNRESOLVED
+                  value:
+                    title: No se pudo verificar el permiso
+                    detail: No fue posible determinar los permisos de tu cuenta. Intenta de nuevo.
+                    key: PERM.UNRESOLVED
         '422':
           description: Rango de fechas inválido (key rango-fechas-invalido o rango-maximo-excedido)
           content:
