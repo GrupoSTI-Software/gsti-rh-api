@@ -1,4 +1,5 @@
 import router from '@adonisjs/core/services/router'
+import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { middleware } from '#start/kernel'
@@ -6,13 +7,17 @@ import { middleware } from '#start/kernel'
 router
   .group(() => {
     router.get('/employee-generate-excel', '#controllers/employee_controller.getExcel')
-      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeesExcel))
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getEmployeesExcel))
     router.get('/shift-assignment-template', '#controllers/employee_controller.getShiftAssignmentTemplate')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getShiftAssignmentTemplate))
     router.get('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceReport))
     router.post('/attendance-report', '#controllers/employee_controller.getAttendanceReport')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceReport))
     router.post('/import-shift-assignments', '#controllers/employee_controller.importShiftAssignments')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importShiftAssignmentsExcel))
     router.get('/template-excel', '#controllers/employee_controller.getTemplateExcel')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getEmployeesImportTemplate))
     router
       .get('/get-biometrics', '#controllers/employee_controller.getBiometrics')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricsList))
@@ -176,6 +181,7 @@ router
       '/:employeeId/export-excel',
       '#controllers/employee_controller.exportShiftExceptionsToExcel'
     )
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.exportShiftExceptionsExcel))
     router.post('/import-excel', '#controllers/employee_controller.importFromExcel')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importEmployeesExcel))
     router.post('/inverse-synchronization/:employeeId', '#controllers/employee_controller.inverseSync')
