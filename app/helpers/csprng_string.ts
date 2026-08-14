@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomInt } from 'node:crypto'
 
 /**
  * Generador de cadenas aleatorias criptográficamente seguras
@@ -34,4 +34,14 @@ export function randomStringFromAlphabet(alphabet: string, length: number): stri
     }
   }
   return chars.join('')
+}
+
+/**
+ * Entero criptográficamente seguro y uniforme en `[min, max)` (USRH1786458240779).
+ * `crypto.randomInt` ya hace rechazo de sesgo internamente, así que para
+ * rangos numéricos (a diferencia de alfabetos de caracteres) no hace falta
+ * reimplementar el muestreo con rechazo de `randomStringFromAlphabet`.
+ */
+export function secureRandomInt(min: number, max: number): number {
+  return randomInt(min, max)
 }
