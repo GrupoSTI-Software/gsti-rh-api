@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import RoleSeeder from '#database/seeders/0006_role_seeder'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -9,14 +10,16 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
+import BillingSubscriptionChange from '#models/billing_subscription_change'
 import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
-import { toCalendarIsoDate } from '#utils/business_date'
+import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 
 /**
- * Tests funcionales — GET /api/billing/subscription/me (USRH1785441817226).
+ * Tests funcionales — GET /api/billing/subscription/me (USRH1785441817226,
+ * USRH1786107870865, USRH1786107870871).
  *
- * Cubre CA-6 y CA-7. El origen `self_service` se siembra directamente porque
+ * Cubre CA-5, CA-6 y CA-7. El origen `self_service` se siembra directamente porque
  * la escritura en signup es responsabilidad de USRH1785441820858.
  */
 
@@ -73,13 +76,27 @@ async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor
   return { user, person, businessUnit }
 }
 
+async function ensureEmployeeRole(): Promise<Role> {
+  await new RoleSeeder({} as never).run()
+  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'empleado').first()
+  if (!role) {
+    throw new Error('Se requiere el rol empleado en BD para los tests de billing/subscription/me.')
+  }
+  return role
+}
+
 async function createTenantActor(options: {
   emailPrefix: string
   origin: 'platform' | 'self_service'
+  roleSlug?: 'root' | 'empleado'
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
+  const roleSlug = options.roleSlug ?? 'root'
+  const role =
+    roleSlug === 'empleado'
+      ? await ensureEmployeeRole()
+      : await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
   if (!role) {
     throw new Error('Se requiere el rol root en BD para los tests de billing/subscription/me.')
   }
@@ -142,6 +159,27 @@ async function createPublishedPlan(stamp: number): Promise<number> {
   return plan.billingPlanId
 }
 
+async function createLiveSubscription(
+  businessUnit: BusinessUnit,
+  planId: number,
+  contractedEmployees: number
+): Promise<BillingSubscription> {
+  const subscriptionService = new BillingSubscriptionService()
+  const subscription = await subscriptionService.createSubscription({
+    businessUnitPublicId: businessUnit.businessUnitPublicId,
+    billingPlanId: planId,
+    contractedEmployees,
+    skipTrial: true,
+  })
+
+  const today = toBusinessDateString()
+  subscription.billingSubscriptionCurrentPeriodStart = DateTime.fromISO(today).minus({ days: 10 })
+  subscription.billingSubscriptionCurrentPeriodEnd = DateTime.fromISO(today).plus({ days: 20 })
+  await subscription.save()
+
+  return subscription
+}
+
 async function cleanupSubscription(subscriptionId: number | null) {
   if (!subscriptionId) return
   await BillingSubscription.query().where('billing_subscription_id', subscriptionId).delete()
@@ -159,6 +197,9 @@ async function cleanupPlan(planId: number | null) {
 
 async function cleanupTenantActor(actor: TenantActor | null) {
   if (!actor) return
+  await BillingSubscriptionChange.query()
+    .where('business_unit_id', actor.businessUnit.businessUnitId)
+    .delete()
   await BillingSubscription.query()
     .where('business_unit_id', actor.businessUnit.businessUnitId)
     .delete()
@@ -282,6 +323,12 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
     assert.equal(data.subscription.billingSubscriptionContractedEmployees, 30)
     assert.property(data.subscription, 'billingPlanName')
     assert.property(data.subscription, 'firstPaymentDate')
+    assert.property(data.subscription, 'billingSubscriptionCurrentPeriodStart')
+    assert.property(data.subscription, 'billingSubscriptionCurrentPeriodEnd')
+    assert.isString(data.subscription.billingSubscriptionCurrentPeriodStart)
+    assert.isString(data.subscription.billingSubscriptionCurrentPeriodEnd)
+    assert.property(data.subscription, 'liveChange')
+    assert.isNull(data.subscription.liveChange)
     assert.notProperty(data.subscription, 'businessUnitId')
   })
 
@@ -324,12 +371,65 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
     const trialEndsAt = toCalendarIsoDate(subscription.billingSubscriptionTrialEndsAt)
     assert.equal(subscription.firstPaymentDate, trialEndsAt)
   })
+
+  test('expone el periodo vigente alineado con la suscripción persistida (USRH1786107870865)', async ({
+    client,
+    assert,
+  }) => {
+    const persisted = await BillingSubscription.findOrFail(liveSubscriptionId!)
+    const response = await client
+      .get('/api/billing/subscription/me')
+      .loginAs(selfServiceActor!.user)
+      .header('X-Business-Unit-Id', selfServiceActor!.businessUnit.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const subscription = response.body().data.subscription
+    assert.equal(
+      subscription.billingSubscriptionCurrentPeriodStart,
+      toCalendarIsoDate(persisted.billingSubscriptionCurrentPeriodStart)
+    )
+    assert.equal(
+      subscription.billingSubscriptionCurrentPeriodEnd,
+      toCalendarIsoDate(persisted.billingSubscriptionCurrentPeriodEnd)
+    )
+    assert.equal(
+      subscription.billingSubscriptionCurrentPeriodEnd,
+      toCalendarIsoDate(persisted.billingSubscriptionTrialEndsAt)
+    )
+  })
 })
+
+test.group(
+  'GET /api/billing/subscription/me — regresión muro (CA-5, USRH1786107870865)',
+  () => {
+    test('un usuario empleado recibe 200 sin gate de rol', async ({ client, assert }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-employee',
+        origin: 'self_service',
+        roleSlug: 'empleado',
+      })
+
+      try {
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.equal(response.body().data.businessUnitOrigin, 'self_service')
+        assert.isNull(response.body().data.subscription)
+        assert.equal(response.body().data.minimumContractedEmployees, 10)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+  }
+)
 
 test.group(
   'GET /api/billing/subscription/me — minimumContractedEmployees (USRH1785441822058)',
   () => {
-    test('devuelve el mínimo solo para self_service sin suscripción viva', async ({
+    test('devuelve el mínimo para self_service sin suscripción viva', async ({
       client,
       assert,
     }) => {
@@ -354,7 +454,10 @@ test.group(
       }
     })
 
-    test('devuelve null con suscripción viva self_service', async ({ client, assert }) => {
+    test('devuelve el mínimo también con suscripción viva self_service (USRH1786107870865)', async ({
+      client,
+      assert,
+    }) => {
       const stamp = Date.now()
       const planId = await createPublishedPlan(stamp)
       const actor = await createTenantActor({
@@ -380,7 +483,7 @@ test.group(
 
         response.assertStatus(200)
         assert.isObject(response.body().data.subscription)
-        assert.isNull(response.body().data.minimumContractedEmployees)
+        assert.equal(response.body().data.minimumContractedEmployees, 10)
       } finally {
         await cleanupSubscription(subscriptionId)
         await cleanupPlan(planId)
@@ -406,6 +509,244 @@ test.group(
         assert.isNull(response.body().data.minimumContractedEmployees)
       } finally {
         await cleanupTenantActor(actor)
+      }
+    })
+  }
+)
+
+test.group(
+  'GET /api/billing/subscription/me — liveChange (USRH1786107870871)',
+  (group) => {
+    let planId: number | null = null
+
+    group.setup(async () => {
+      planId = await createPublishedPlan(Date.now())
+    })
+
+    group.teardown(async () => {
+      await cleanupPlan(planId)
+    })
+
+    test('devuelve liveChange null cuando no hay movimiento en curso', async ({ client, assert }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-no-live-change',
+        origin: 'self_service',
+      })
+
+      try {
+        await createLiveSubscription(actor.businessUnit, planId!, 100)
+
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.isObject(response.body().data.subscription)
+        assert.isNull(response.body().data.subscription.liveChange)
+        assert.equal(response.body().data.subscription.billingSubscriptionContractedEmployees, 100)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+
+    test('expone aumento pending_payment con prorrateo y sin effectiveAt', async ({
+      client,
+      assert,
+    }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-live-increase',
+        origin: 'self_service',
+      })
+
+      try {
+        await createLiveSubscription(actor.businessUnit, planId!, 100)
+
+        const increase = await client
+          .post('/api/billing/subscription/changes/increase')
+          .json({ employees: 150 })
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        increase.assertStatus(201)
+        const change = await BillingSubscriptionChange.findOrFail(
+          increase.body().data.billingSubscriptionChangeId
+        )
+
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        const subscription = response.body().data.subscription
+        assert.equal(subscription.billingSubscriptionContractedEmployees, 100)
+        assert.isObject(subscription.liveChange)
+        assert.equal(
+          subscription.liveChange.billingSubscriptionChangeId,
+          change.billingSubscriptionChangeId
+        )
+        assert.equal(subscription.liveChange.type, 'increase')
+        assert.equal(subscription.liveChange.status, 'pending_payment')
+        assert.equal(subscription.liveChange.previousEmployees, 100)
+        assert.equal(subscription.liveChange.newEmployees, 150)
+        assert.equal(
+          subscription.liveChange.newAmounts.total,
+          Number(change.billingSubscriptionChangeTotal)
+        )
+        assert.isObject(subscription.liveChange.proration)
+        assert.equal(
+          subscription.liveChange.proration.amountCents,
+          change.billingSubscriptionChangeProratedAmountCents
+        )
+        assert.equal(
+          subscription.liveChange.proration.amountPesos,
+          change.billingSubscriptionChangeProratedAmountCents / 100
+        )
+        assert.isNull(subscription.liveChange.effectiveAt)
+        assert.isString(subscription.liveChange.requestedAt)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+
+    test('expone reducción scheduled con effectiveAt y sin proration', async ({
+      client,
+      assert,
+    }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-live-decrease',
+        origin: 'self_service',
+      })
+
+      try {
+        const subscription = await createLiveSubscription(actor.businessUnit, planId!, 120)
+        const expectedEffectiveAt = toCalendarIsoDate(
+          subscription.billingSubscriptionCurrentPeriodEnd
+        )
+
+        const decrease = await client
+          .post('/api/billing/subscription/changes/decrease')
+          .json({ employees: 80 })
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        decrease.assertStatus(201)
+        const change = await BillingSubscriptionChange.findOrFail(
+          decrease.body().data.billingSubscriptionChangeId
+        )
+
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        const body = response.body().data.subscription
+        assert.equal(body.billingSubscriptionContractedEmployees, 120)
+        assert.isObject(body.liveChange)
+        assert.equal(body.liveChange.type, 'decrease')
+        assert.equal(body.liveChange.status, 'scheduled')
+        assert.equal(body.liveChange.previousEmployees, 120)
+        assert.equal(body.liveChange.newEmployees, 80)
+        assert.equal(body.liveChange.effectiveAt, expectedEffectiveAt)
+        assert.isNull(body.liveChange.proration)
+        assert.equal(body.liveChange.newAmounts.total, Number(change.billingSubscriptionChangeTotal))
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+
+    test('no expone cambios en estado terminal', async ({ client, assert }) => {
+      const actor = await createTenantActor({
+        emailPrefix: 'sub-me-terminal-change',
+        origin: 'self_service',
+      })
+
+      try {
+        await createLiveSubscription(actor.businessUnit, planId!, 100)
+
+        const increase = await client
+          .post('/api/billing/subscription/changes/increase')
+          .json({ employees: 150 })
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        increase.assertStatus(201)
+        const change = await BillingSubscriptionChange.findOrFail(
+          increase.body().data.billingSubscriptionChangeId
+        )
+        change.billingSubscriptionChangeStatus = 'canceled'
+        await change.save()
+
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(actor.user)
+          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.isNull(response.body().data.subscription.liveChange)
+      } finally {
+        await cleanupTenantActor(actor)
+      }
+    })
+
+    test('un usuario empleado recibe liveChange en 200 sin gate de rol', async ({
+      client,
+      assert,
+    }) => {
+      const ownerActor = await createTenantActor({
+        emailPrefix: 'sub-me-live-owner',
+        origin: 'self_service',
+      })
+      const employeeRole = await ensureEmployeeRole()
+      const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+      const employeeEmail = `sub-me-live-employee-${stamp}@gsti-tests.local`
+
+      const employeePerson = new Person()
+      employeePerson.personFirstname = 'BillingSubMe'
+      employeePerson.personLastname = 'Employee'
+      employeePerson.personSecondLastname = 'LiveChange'
+      employeePerson.personEmail = employeeEmail
+      await employeePerson.save()
+
+      const employeeUser = new User()
+      employeeUser.userEmail = employeeEmail
+      employeeUser.userPassword = TEST_PASSWORD
+      employeeUser.userActive = 1
+      employeeUser.roleId = employeeRole.roleId
+      employeeUser.personId = employeePerson.personId
+      employeeUser.userEmailType = 'institutional'
+      await employeeUser.save()
+      await employeeUser
+        .related('businessUnits')
+        .attach([ownerActor.businessUnit.businessUnitId])
+
+      try {
+        await createLiveSubscription(ownerActor.businessUnit, planId!, 100)
+
+        const increase = await client
+          .post('/api/billing/subscription/changes/increase')
+          .json({ employees: 150 })
+          .loginAs(ownerActor.user)
+          .header('X-Business-Unit-Id', ownerActor.businessUnit.businessUnitPublicId)
+
+        increase.assertStatus(201)
+
+        const response = await client
+          .get('/api/billing/subscription/me')
+          .loginAs(employeeUser)
+          .header('X-Business-Unit-Id', ownerActor.businessUnit.businessUnitPublicId)
+
+        response.assertStatus(200)
+        assert.isObject(response.body().data.subscription.liveChange)
+        assert.equal(response.body().data.subscription.liveChange.type, 'increase')
+        assert.equal(response.body().data.subscription.liveChange.status, 'pending_payment')
+      } finally {
+        await BusinessUnitUser.query().where('user_id', employeeUser.userId).delete()
+        await User.query().where('user_id', employeeUser.userId).delete()
+        await Person.query().where('person_id', employeePerson.personId).delete()
+        await cleanupTenantActor(ownerActor)
       }
     })
   }
