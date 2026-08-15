@@ -87,9 +87,14 @@ export default class ConceptsService {
   /**
    * Lista del catálogo de la empresa activa. Dispara la siembra perezosa en
    * la MISMA transacción (CA-1); si la unidad no se resuelve, no siembra y
-   * devuelve lista vacía.
+   * devuelve lista vacía. `filters.active` (USRH1786568279584, regla 9)
+   * filtra por estado: la configuración lee el catálogo completo y las
+   * salidas nuevas toman solo los activos.
    */
-  async list(businessUnitScope: number[]): Promise<OffboardingConceptDto[]> {
+  async list(
+    businessUnitScope: number[],
+    filters: { active?: boolean } = {}
+  ): Promise<OffboardingConceptDto[]> {
     const [businessUnitId] = businessUnitScope
     if (!businessUnitId) {
       return []
@@ -97,10 +102,33 @@ export default class ConceptsService {
 
     const concepts = await db.transaction(async (trx) => {
       await this.ensureSeeded(businessUnitId, trx)
-      return await this.repository.listLiveOrdered(businessUnitId, trx)
+      return await this.repository.listLiveOrdered(businessUnitId, trx, filters.active)
     })
 
     return concepts.map((concept) => toOffboardingConceptDto(concept))
+  }
+
+  /**
+   * Enciende o apaga un concepto (USRH1786568279584, reglas 1 y 2):
+   * reversible, conserva su lugar en la lista y no modifica ninguna otra
+   * columna. Toca una sola fila — sin transacción, molde
+   * `PositionLevelService.setActive`. Fuera del alcance: 404 uniforme.
+   */
+  async setActive(
+    offboardingConceptId: number,
+    offboardingConceptActive: boolean,
+    businessUnitScope: number[]
+  ): Promise<OffboardingConceptDto> {
+    const concept = await this.repository.findLiveByIdInScope(
+      offboardingConceptId,
+      businessUnitScope
+    )
+    if (!concept) {
+      throw this.notFoundError()
+    }
+
+    const updated = await this.repository.updateActive(concept, offboardingConceptActive)
+    return toOffboardingConceptDto(updated)
   }
 
   async show(
@@ -253,13 +281,19 @@ export default class ConceptsService {
 
   /**
    * Baja lógica (regla 8): libera el nombre y conserva el registro. El
-   * concepto derivado no se elimina (regla 6). Los supervivientes conservan
-   * su orden; la renumeración sin huecos llega con USRH1786568279584.
+   * concepto derivado no se elimina (regla 6) y un concepto ya usado en
+   * alguna salida tampoco — se desactiva (USRH1786568279584, regla 7). Los
+   * supervivientes se renumeran 1..n conservando su secuencia relativa
+   * DENTRO de la misma transacción del borrado (regla 6 de esa historia).
    */
   async delete(
     offboardingConceptId: number,
     businessUnitScope: number[]
   ): Promise<OffboardingConceptDto> {
+    if (await this.isInUse(offboardingConceptId)) {
+      throw this.inUseError()
+    }
+
     const deleted = await db.transaction(async (trx) => {
       const concept = await this.repository.lockLiveByIdInScope(
         offboardingConceptId,
@@ -275,10 +309,31 @@ export default class ConceptsService {
       }
 
       await this.repository.softDelete(concept, trx)
+
+      // Renumeración de supervivientes sin huecos, en la misma transacción:
+      // un fallo intermedio revierte también el borrado.
+      const remaining = await this.repository.lockLiveByBusinessUnit(concept.businessUnitId, trx)
+      for (const [index, sibling] of remaining.entries()) {
+        if (sibling.offboardingConceptOrder === index + 1) continue
+        await this.repository.updateOrder(sibling, index + 1, trx)
+      }
+
       return concept
     })
 
     return toOffboardingConceptDto(deleted)
+  }
+
+  /**
+   * Punto ÚNICO de verificación de uso (USRH1786568279584). Devuelve `false`
+   * siempre: la tabla `employee_offboarding_items` no existe todavía en este
+   * punto de la cadena; el método lo completa "Programar la baja y abrir el
+   * expediente de salida" (USRH1786568279587) consultando esa tabla y
+   * devolviendo `true` cuando el concepto ya se usó. NO mover fuera del
+   * servicio. Público porque la verificación local del CA-6 lo fuerza.
+   */
+  async isInUse(_offboardingConceptId: number): Promise<boolean> {
+    return false
   }
 
   /**
@@ -417,6 +472,16 @@ export default class ConceptsService {
       httpStatus: 422,
       title: this.t('employee_offboarding_reorder_invalid_title'),
       detail: this.t('employee_offboarding_reorder_invalid_message'),
+    })
+  }
+
+  private inUseError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'concepto-en-uso',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.IN_USE,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_in_use_title'),
+      detail: this.t('employee_offboarding_in_use_message'),
     })
   }
 }

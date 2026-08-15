@@ -8,6 +8,7 @@ export type EmployeeOffboardingErrorKey =
   | 'concepto-derivado-protegido'
   | 'concepto-derivado-duplicado'
   | 'orden-invalido'
+  | 'concepto-en-uso'
   | 'sin-permiso'
   | 'datos-invalidos'
 

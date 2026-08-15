@@ -22,12 +22,10 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   SOURCE_LOCKED: 'OFFB.CONCEPT.SOURCE_LOCKED',
   /** Segundo concepto derivado del inventario en la misma empresa (regla 6) — 409. */
   SOURCE_DUPLICATED: 'OFFB.CONCEPT.SOURCE_DUPLICATED',
-  /**
-   * Reordenamiento con ids ajenos, duplicados o lista incompleta — 422.
-   * Adelantado de USRH1786568279584 por decisión de producto (drag & drop
-   * del catálogo en la pantalla); esa historia ya no lo re-declara.
-   */
+  /** Reordenamiento con ids ajenos, duplicados o lista incompleta (USRH1786568279584) — 422. */
   REORDER_INVALID: 'OFFB.CONCEPT.REORDER_INVALID',
+  /** Concepto ya usado en alguna salida registrada: se desactiva, no se elimina (USRH1786568279584) — 409. */
+  IN_USE: 'OFFB.CONCEPT.IN_USE',
   /** Sin permiso sobre el módulo employee-offboardings (regla 9) — 403. */
   FORBIDDEN: 'OFFB.CONCEPT.FORBIDDEN',
   /** Error no clasificado del dominio — 500. */

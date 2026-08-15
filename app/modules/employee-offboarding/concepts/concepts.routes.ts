@@ -17,6 +17,10 @@ router
       '/reorder',
       '#modules/employee-offboarding/concepts/concepts.controller.reorder'
     )
+    router.patch(
+      '/:offboardingConceptId/active',
+      '#modules/employee-offboarding/concepts/concepts.controller.setActive'
+    )
     router.get(
       '/:offboardingConceptId',
       '#modules/employee-offboarding/concepts/concepts.controller.show'

@@ -7,6 +7,8 @@ import ConceptsService from './concepts.service.js'
 import { createOffboardingConceptValidator } from './validators/create_concept.validator.js'
 import { updateOffboardingConceptValidator } from './validators/update_concept.validator.js'
 import { reorderOffboardingConceptsValidator } from './validators/reorder_concepts.validator.js'
+import { setOffboardingConceptActiveValidator } from './validators/set_concept_active.validator.js'
+import { listOffboardingConceptsValidator } from './validators/list_concepts.validator.js'
 
 /**
  * Catálogo de conceptos de salida por empresa (USRH1786568279581).
@@ -32,17 +34,25 @@ export default class ConceptsController {
    *         required: true
    *         schema: { type: string, format: uuid }
    *         description: UUID público de la razón social activa
+   *       - in: query
+   *         name: active
+   *         required: false
+   *         schema: { type: boolean }
+   *         description: true devuelve solo activos; false solo inactivos; ausente, el catálogo completo
    *     responses:
    *       200:
    *         description: Lista en data.offboardingConcepts, ordenada por offboardingConceptOrder
+   *       400:
+   *         description: Parámetro active no booleano (key datos-invalidos)
    *       403:
    *         description: Sin permiso read sobre employee-offboardings (key sin-permiso)
    */
-  async index({ auth, response, i18n, businessUnitScope }: HttpContext) {
+  async index({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const service = new ConceptsService(i18n)
       await service.assertCanAccess(auth.user?.roleId, 'read')
-      const offboardingConcepts = await service.list(businessUnitScope)
+      const filters = await request.validateUsing(listOffboardingConceptsValidator)
+      const offboardingConcepts = await service.list(businessUnitScope, filters)
       return StandardResponseFormatter.success(
         response,
         offboardingConcepts,
@@ -258,6 +268,62 @@ export default class ConceptsController {
 
   /**
    * @swagger
+   * /api/offboarding-concepts/{offboardingConceptId}/active:
+   *   patch:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Conceptos de salida]
+   *     summary: Enciende o apaga un concepto de salida (reglas 1 y 2)
+   *     description: |
+   *       Reversible cuantas veces haga falta. El concepto conserva su lugar
+   *       en la lista, sigue apareciendo en el catálogo completo y no se
+   *       modifica ninguna otra columna. Un concepto desactivado deja de
+   *       ofrecerse en las salidas nuevas.
+   *     parameters:
+   *       - in: path
+   *         name: offboardingConceptId
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [offboardingConceptActive]
+   *             properties:
+   *               offboardingConceptActive: { type: boolean }
+   *     responses:
+   *       200:
+   *         description: Concepto modificado en data.offboardingConcept
+   *       404:
+   *         description: Inexistente o fuera del alcance (key concepto-no-encontrado)
+   */
+  async setActive({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const service = new ConceptsService(i18n)
+      await service.assertCanAccess(auth.user?.roleId, 'update')
+      const offboardingConceptId = this.parseConceptId(request.param('offboardingConceptId'), i18n)
+      const data = await request.validateUsing(setOffboardingConceptActiveValidator)
+      const offboardingConcept = await service.setActive(
+        offboardingConceptId,
+        data.offboardingConceptActive,
+        businessUnitScope
+      )
+      return StandardResponseFormatter.success(
+        response,
+        offboardingConcept,
+        i18n.formatMessage('employee_offboarding_concepts_title'),
+        i18n.formatMessage('employee_offboarding_concept_active_updated_message'),
+        200,
+        'offboardingConcept'
+      )
+    } catch (error) {
+      return this.respondWithError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
    * /api/offboarding-concepts/{offboardingConceptId}:
    *   delete:
    *     security:
@@ -267,7 +333,10 @@ export default class ConceptsController {
    *     description: |
    *       Marca `offboarding_concept_deleted_at`; el concepto deja de aparecer
    *       en la lista y su nombre queda disponible para un alta posterior
-   *       (regla 8). El concepto derivado del inventario no se elimina (regla 6).
+   *       (regla 8). Los supervivientes se renumeran 1..n en la misma
+   *       transacción. El concepto derivado del inventario no se elimina
+   *       (regla 6) y un concepto ya usado en alguna salida tampoco: se
+   *       desactiva (USRH1786568279584).
    *     parameters:
    *       - in: path
    *         name: offboardingConceptId
@@ -275,9 +344,11 @@ export default class ConceptsController {
    *         schema: { type: integer }
    *     responses:
    *       200:
-   *         description: Concepto eliminado lógicamente
+   *         description: Concepto eliminado lógicamente; supervivientes renumerados sin huecos
    *       404:
    *         description: Inexistente o fuera del alcance (key concepto-no-encontrado)
+   *       409:
+   *         description: Concepto ya usado en alguna salida registrada (key concepto-en-uso)
    *       422:
    *         description: Concepto derivado protegido (key concepto-derivado-protegido)
    */

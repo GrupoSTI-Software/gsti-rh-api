@@ -17,11 +17,15 @@ import type {
 export default class ConceptsRepositoryMysql implements ConceptsRepository {
   async listLiveOrdered(
     businessUnitId: number,
-    trx?: TransactionClientContract
+    trx?: TransactionClientContract,
+    active?: boolean
   ): Promise<OffboardingConcept[]> {
     return await OffboardingConcept.query({ client: trx })
       .where('business_unit_id', businessUnitId)
       .whereNull('offboarding_concept_deleted_at')
+      .if(active !== undefined, (query) => {
+        query.where('offboarding_concept_active', active === true ? 1 : 0)
+      })
       .orderBy('offboarding_concept_order', 'asc')
       .orderBy('offboarding_concept_id', 'asc')
   }
@@ -62,9 +66,13 @@ export default class ConceptsRepositoryMysql implements ConceptsRepository {
     businessUnitId: number,
     trx: TransactionClientContract
   ): Promise<OffboardingConcept[]> {
+    // Ordenadas por lugar: la renumeración de supervivientes tras un borrado
+    // conserva la secuencia relativa (USRH1786568279584, regla 6).
     return await OffboardingConcept.query({ client: trx })
       .where('business_unit_id', businessUnitId)
       .whereNull('offboarding_concept_deleted_at')
+      .orderBy('offboarding_concept_order', 'asc')
+      .orderBy('offboarding_concept_id', 'asc')
       .forUpdate()
   }
 
@@ -144,6 +152,12 @@ export default class ConceptsRepositoryMysql implements ConceptsRepository {
     concept.useTransaction(trx)
     concept.offboardingConceptOrder = offboardingConceptOrder
     await concept.save()
+  }
+
+  async updateActive(concept: OffboardingConcept, active: boolean): Promise<OffboardingConcept> {
+    concept.offboardingConceptActive = active
+    await concept.save()
+    return concept
   }
 
   async softDelete(concept: OffboardingConcept, trx: TransactionClientContract): Promise<void> {

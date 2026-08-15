@@ -29,10 +29,14 @@ export interface OffboardingConceptUpdateData {
  * `app/modules/legal-documents/legal_document.service.ts`).
  */
 export interface ConceptsRepository {
-  /** Conceptos vivos de la empresa, ordenados por `order` asc y luego id asc (regla 7). */
+  /**
+   * Conceptos vivos de la empresa, ordenados por `order` asc y luego id asc
+   * (regla 7). `active` filtra por estado cuando viene (USRH1786568279584).
+   */
   listLiveOrdered(
     businessUnitId: number,
-    trx?: TransactionClientContract
+    trx?: TransactionClientContract,
+    active?: boolean
   ): Promise<OffboardingConcept[]>
 
   /**
@@ -93,6 +97,12 @@ export interface ConceptsRepository {
     offboardingConceptOrder: number,
     trx: TransactionClientContract
   ): Promise<void>
+
+  /**
+   * Enciende o apaga el concepto (USRH1786568279584, reglas 1 y 2). Toca una
+   * sola fila y no necesita transacción (molde `PositionLevelService.setActive`).
+   */
+  updateActive(concept: OffboardingConcept, active: boolean): Promise<OffboardingConcept>
 
   softDelete(concept: OffboardingConcept, trx: TransactionClientContract): Promise<void>
 }
