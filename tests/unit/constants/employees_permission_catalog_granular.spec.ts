@@ -93,12 +93,27 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
     for (const slug of [
       'import-employees',
       'import-shift-assignments',
+      'import-vacations',
       'apply-exception-mass',
       'generate-badges',
       'download-employees-list',
       'download-attendance-report',
       'download-vacations-history',
       'download-proceeding-files',
+      'download-employees-import-template',
+      'download-shift-assignment-template',
+      'download-shift-exceptions',
+      'download-vacations-report',
+      'download-vacations-summary',
+      'download-vacation-import-template',
+      'download-payroll-format',
+      'download-attendance-by-employee',
+      'download-attendance-by-position',
+      'download-attendance-by-department',
+      'download-attendance-all',
+      'download-permissions-by-dates',
+      'download-supplies-report',
+      'download-employee-contract',
       'sensitive-identificacion-read',
       'sensitive-identificacion-write',
       'sensitive-contacto-read',
@@ -114,6 +129,136 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
         EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === slug),
         slug
       )
+    }
+  })
+
+  test('las 15 acciones nuevas de descarga/importación nacen sin herencia ni exemption', ({
+    assert,
+  }) => {
+    const expected: Array<{
+      slug: string
+      displayName: string
+      kind: 'read' | 'write'
+      section: string
+    }> = [
+      {
+        slug: 'download-employees-import-template',
+        displayName: 'Descargar plantilla de importación de personal',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-shift-assignment-template',
+        displayName: 'Descargar plantilla de importación de turnos',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-shift-exceptions',
+        displayName: 'Descargar excepciones de turno',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-vacations-report',
+        displayName: 'Descargar reporte de vacaciones',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-vacations-summary',
+        displayName: 'Descargar resumen de vacaciones',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-vacation-import-template',
+        displayName: 'Descargar plantilla de importación de vacaciones',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-payroll-format',
+        displayName: 'Descargar formato de nómina',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-attendance-by-employee',
+        displayName: 'Descargar asistencia por colaborador',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-attendance-by-position',
+        displayName: 'Descargar asistencia por puesto',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-attendance-by-department',
+        displayName: 'Descargar asistencia por departamento',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-attendance-all',
+        displayName: 'Descargar asistencia general',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-permissions-by-dates',
+        displayName: 'Descargar reporte de permisos por fechas',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-supplies-report',
+        displayName: 'Descargar reporte de suministros',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'download-employee-contract',
+        displayName: 'Descargar contrato',
+        kind: 'read',
+        section: 'descargas',
+      },
+      {
+        slug: 'import-vacations',
+        displayName: 'Importar vacaciones',
+        kind: 'write',
+        section: 'listado',
+      },
+    ]
+
+    for (const row of expected) {
+      const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === row.slug)
+      assert.exists(action, row.slug)
+      assert.equal(action!.displayName, row.displayName)
+      assert.equal(action!.kind, row.kind)
+      assert.equal(action!.section, row.section)
+      assert.equal(action!.exceptionProfile, 'standard')
+      assert.isUndefined(action!.exemption)
+      if (row.slug === 'import-vacations') {
+        assert.equal(action!.legacyEquivalence?.systemPermissionSlug, 'manage-vacation')
+        assert.equal(action!.legacyEquivalence?.relation, 'broader')
+      } else {
+        assert.isUndefined(action!.legacyEquivalence)
+      }
+    }
+
+    const existingDownloads = [
+      'download-employees-list',
+      'download-attendance-report',
+      'download-vacations-history',
+      'download-proceeding-files',
+    ]
+    for (const slug of existingDownloads) {
+      const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === slug)
+      assert.exists(action, slug)
+      assert.equal(action!.section, 'descargas')
     }
   })
 

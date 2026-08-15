@@ -409,11 +409,13 @@ test.group('Listado — PermissionGate exigencia ON', (group) => {
       .get('/api/employees/to-assigned?page=1&limit=10&onlyInactive=true')
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
+    assertPermissionDenied(assert, assigned)
+
+    await grantOnly(actor!.role.roleId, ['download-employees-list'])
     const excel = await client
       .get('/api/employees/employee-generate-excel?onlyInactive=true')
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
-    assertPermissionDenied(assert, assigned)
     assertPermissionDenied(assert, excel)
   })
 
