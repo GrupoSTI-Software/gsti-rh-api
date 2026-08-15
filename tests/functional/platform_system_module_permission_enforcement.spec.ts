@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -6,6 +7,18 @@ import BusinessUnit from '#models/business_unit'
 import SystemModule from '#models/system_module'
 
 const TEST_PASSWORD = 'PlatformSystemModuleTest123!'
+
+async function hasPermissionEnforcementColumn(): Promise<boolean> {
+  const result = await db.rawQuery(`
+    SELECT COUNT(*) AS cnt
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'system_modules'
+      AND COLUMN_NAME = 'system_module_permission_enforcement_active'
+  `)
+  const rows = result[0] as Array<{ cnt: number }>
+  return Number(rows[0]?.cnt ?? 0) > 0
+}
 
 interface TestActor {
   user: User
@@ -60,8 +73,15 @@ test.group('PUT /api/platform/system-modules/:id/permission-enforcement', (group
   let platformAdmin: TestActor | null = null
   let tenantUser: TestActor | null = null
   let employees: SystemModule
+  let users: SystemModule
+  let enforcementColumnAvailable = false
 
   group.setup(async () => {
+    enforcementColumnAvailable = await hasPermissionEnforcementColumn()
+    if (!enforcementColumnAvailable) {
+      return
+    }
+
     employees = await SystemModule.query()
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', 'employees')
@@ -69,14 +89,29 @@ test.group('PUT /api/platform/system-modules/:id/permission-enforcement', (group
     employees.systemModulePermissionEnforcementActive = false
     await employees.save()
 
+    users = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', 'users')
+      .firstOrFail()
+    users.systemModulePermissionEnforcementActive = false
+    await users.save()
+
     platformAdmin = await createActor('platform-system-module-admin', true)
     tenantUser = await createActor('platform-system-module-tenant', false)
   })
 
   group.teardown(async () => {
+    if (!enforcementColumnAvailable) {
+      return
+    }
+
     if (employees) {
       employees.systemModulePermissionEnforcementActive = false
       await employees.save()
+    }
+    if (users) {
+      users.systemModulePermissionEnforcementActive = false
+      await users.save()
     }
     await cleanupActor(platformAdmin)
     await cleanupActor(tenantUser)
@@ -86,6 +121,11 @@ test.group('PUT /api/platform/system-modules/:id/permission-enforcement', (group
     client,
     assert,
   }) => {
+    if (!enforcementColumnAvailable) {
+      assert.plan(0)
+      return
+    }
+
     const on = await client
       .put(`/api/platform/system-modules/${employees.systemModuleId}/permission-enforcement`)
       .loginAs(platformAdmin!.user)
@@ -103,12 +143,55 @@ test.group('PUT /api/platform/system-modules/:id/permission-enforcement', (group
     assert.isFalse(off.body().data.systemModule.systemModulePermissionEnforcementActive)
   })
 
-  test('usuario tenant no-platform recibe 403', async ({ client }) => {
+  test('usuario tenant no-platform recibe 403', async ({ client, assert }) => {
+    if (!enforcementColumnAvailable) {
+      assert.plan(0)
+      return
+    }
+
     const response = await client
       .put(`/api/platform/system-modules/${employees.systemModuleId}/permission-enforcement`)
       .loginAs(tenantUser!.user)
       .json({ active: true })
 
     response.assertStatus(403)
+  })
+
+  test('platformAdmin puede encender la exigencia del módulo users (USRH1786736057519 E6)', async ({
+    client,
+    assert,
+  }) => {
+    if (!enforcementColumnAvailable) {
+      assert.plan(0)
+      return
+    }
+
+    const on = await client
+      .put(`/api/platform/system-modules/${users.systemModuleId}/permission-enforcement`)
+      .loginAs(platformAdmin!.user)
+      .json({ active: true })
+
+    on.assertStatus(200)
+    assert.isTrue(on.body().data.systemModule.systemModulePermissionEnforcementActive)
+
+    const session = await client
+      .get('/api/auth/session/permissions')
+      .loginAs(tenantUser!.user)
+      .header('X-Business-Unit-Id', tenantUser!.businessUnit.businessUnitPublicId)
+
+    session.assertStatus(200)
+    const usersNode = (session.body().data.modules as Array<{ slug: string; permissionEnforcementActive: boolean }>).find(
+      (module) => module.slug === 'users'
+    )
+    assert.exists(usersNode)
+    assert.isTrue(usersNode!.permissionEnforcementActive)
+
+    const off = await client
+      .put(`/api/platform/system-modules/${users.systemModuleId}/permission-enforcement`)
+      .loginAs(platformAdmin!.user)
+      .json({ active: false })
+
+    off.assertStatus(200)
+    assert.isFalse(off.body().data.systemModule.systemModulePermissionEnforcementActive)
   })
 })

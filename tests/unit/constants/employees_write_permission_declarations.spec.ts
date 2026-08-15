@@ -134,7 +134,7 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.deleteVacationDeduction.action, 'manage-vacation')
     assert.equal(d.authorizeVacationWithSignature.action, 'manage-vacation')
     assert.equal(d.signVacationShiftExceptions.action, 'manage-vacation')
-    assert.equal(d.importVacationExcel.action, 'manage-vacation')
+    assert.equal(d.importVacationExcel.action, 'import-vacations')
 
     assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.action, 'manage-vacation')
     assert.equal(EMPLOYEES_MANAGE_VACATION_PERMISSION.module, 'employees')

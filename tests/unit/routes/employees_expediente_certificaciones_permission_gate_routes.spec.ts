@@ -30,7 +30,7 @@ test.group('employee_record_routes — PermissionGate Expediente', () => {
 })
 
 test.group('employee_proceeding_file_routes — PermissionGate Expediente', () => {
-  test('escrituras declaran permissionGate; index/show/download no', async ({ assert }) => {
+  test('escrituras declaran permissionGate; download declara DOWNLOAD', async ({ assert }) => {
     const content = await readFile(
       join(process.cwd(), 'start/routes/employee_proceeding_file_routes.ts'),
       'utf8'
@@ -52,7 +52,10 @@ test.group('employee_proceeding_file_routes — PermissionGate Expediente', () =
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
     assert.equal(matches.length, 3)
-    assert.notMatch(content, /download[\s\S]{0,120}permissionGate/)
+    assert.match(
+      compact(content),
+      /\/:employeeProceedingFileId\/download[\s\S]{0,220}permissionGate\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\.downloadProceedingFile\)/
+    )
   })
 })
 

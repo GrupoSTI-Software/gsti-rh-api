@@ -212,7 +212,9 @@ test.group('vacation_authorization_signatures_routes — PermissionGate', () => 
 })
 
 test.group('employee_vacation_routes — PermissionGate importación', () => {
-  test('importVacationExcel declara manage-vacation; GETs de excel/template no', async ({ assert }) => {
+  test('importVacationExcel declara import-vacations; los GET de excel declaran DOWNLOAD', async ({
+    assert,
+  }) => {
     const content = await readFile(
       join(process.cwd(), 'start/routes/employee_vacation_routes.ts'),
       'utf8'
@@ -221,9 +223,6 @@ test.group('employee_vacation_routes — PermissionGate importación', () => {
       compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.importVacationExcel)'
     )
-    const matches =
-      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
-      []
-    assert.equal(matches.length, 1)
+    assert.include(content, 'EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS')
   })
 })

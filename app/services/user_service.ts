@@ -180,7 +180,20 @@ export default class UserService {
     return currentUser
   }
 
-  async show(userId: number) {
+  /**
+   * Usuario activo accesible dentro del scope de unidades de negocio del actor.
+   */
+  async findActiveInBusinessUnitScope(userId: number, businessUnitScope: number[]) {
+    return User.query()
+      .whereNull('user_deleted_at')
+      .where('user_id', userId)
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', businessUnitScope)
+      })
+      .first()
+  }
+
+  async show(userId: number, businessUnitScope?: number[]) {
     const selectedColumns = [
       'user_id',
       'user_email',
@@ -189,13 +202,17 @@ export default class UserService {
       'person_id',
       'user_email_type',
     ]
-    const user = await User.query()
+    let query = User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)
-      .preload('person')
-      .preload('role')
-      .select(selectedColumns)
-      .first()
+
+    if (businessUnitScope !== undefined) {
+      query = query.whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', businessUnitScope)
+      })
+    }
+
+    const user = await query.preload('person').preload('role').select(selectedColumns).first()
     return user ? user : null
   }
 

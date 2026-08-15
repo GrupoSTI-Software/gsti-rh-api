@@ -6,6 +6,8 @@ import RoleService from '#services/role_service'
 import env from '#start/env'
 import type { ReportJobFilters, ReportJobType } from '#models/report_job'
 import Employee from '#models/employee'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { employeesAttendanceReportJobDeclaration } from '#constants/employees_download_permission_declarations'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -32,7 +34,8 @@ export default class ReportJobsController {
    *   date, date-end, reportType, businessUnitId?, payrollBusinessUnitId?,
    *   branchNameIds?
    */
-  async create({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async create(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -135,6 +138,12 @@ export default class ReportJobsController {
           }
         }
       }
+
+      const allowed = await ensureSecondaryPermission(
+        ctx,
+        employeesAttendanceReportJobDeclaration(reportJobType, employeeId)
+      )
+      if (!allowed) return
 
       if (!filterDate || !filterDateEnd) {
         response.status(400)
@@ -307,7 +316,8 @@ export default class ReportJobsController {
    * Verifica que el job pertenezca al usuario autenticado.
    * Si el job no está completado, devuelve 409.
    */
-  async download({ auth, params, response, i18n }: HttpContext) {
+  async download(ctx: HttpContext) {
+    const { auth, params, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -355,6 +365,12 @@ export default class ReportJobsController {
           },
         }
       }
+
+      const allowed = await ensureSecondaryPermission(
+        ctx,
+        employeesAttendanceReportJobDeclaration(job.reportJobType, job.reportJobFilters?.employeeId)
+      )
+      if (!allowed) return
 
       const fileName = job.reportJobFileName ?? 'datos.xlsx'
 

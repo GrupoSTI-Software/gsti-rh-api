@@ -24,6 +24,12 @@ void validSlug
 const suppliesSlug: EmployeeActionSlug = 'manage-employee-supplies'
 void suppliesSlug
 
+const downloadSlug: EmployeeActionSlug = 'download-employee-contract'
+void downloadSlug
+
+const importVacationsSlug: EmployeeActionSlug = 'import-vacations'
+void importVacationsSlug
+
 // @ts-expect-error — slug inventado: no existe en el catálogo, debe fallar.
 const madeUpSlug: EmployeeActionSlug = 'totally-made-up-slug-xyz'
 void madeUpSlug
