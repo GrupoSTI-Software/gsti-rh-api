@@ -11,6 +11,8 @@ import UserService from '#services/user_service'
 import UploadService from '#services/upload_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { inject } from '@adonisjs/core'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_PROCEEDING_FILE_DOWNLOAD_TAB_READ_PERMISSION } from '#constants/employees_download_permission_declarations'
 
 export default class EmployeeProceedingFileController {
   /**
@@ -1011,11 +1013,15 @@ export default class EmployeeProceedingFileController {
    *         description: Error inesperado al descargar el archivo
    */
   @inject()
-  async download(
-    { auth, request, response, logger, businessUnitScope }: HttpContext,
-    uploadService: UploadService
-  ) {
+  async download(ctx: HttpContext, uploadService: UploadService) {
+    const { auth, request, response, logger, businessUnitScope } = ctx
     try {
+      const canReadTab = await ensureSecondaryPermission(
+        ctx,
+        EMPLOYEES_PROCEEDING_FILE_DOWNLOAD_TAB_READ_PERMISSION
+      )
+      if (!canReadTab) return
+
       const rawId = request.param('employeeProceedingFileId')
       const employeeProceedingFileId = Number(rawId)
 
