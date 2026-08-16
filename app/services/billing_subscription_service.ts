@@ -24,6 +24,13 @@ export interface CreateSubscriptionInput {
    * backoffice (USRH1785441822058): la prueba gratuita es una sola vez por empresa.
    */
   skipTrial?: boolean
+  /**
+   * Instrucción explícita de reemplazo: si la empresa ya tiene una
+   * contratación viva, se cancela dentro de la misma transacción y se
+   * continúa con el alta, en vez de rechazar con `ALREADY_LIVE`. Ausente o
+   * `false`: comportamiento idéntico al actual (USRH1785962095087).
+   */
+  replaceLiveSubscription?: boolean
 }
 
 export interface BusinessUnitListItem {
@@ -246,13 +253,20 @@ export default class BillingSubscriptionService {
       .first()
 
     if (existingLive) {
-      throw new BillingSubscriptionServiceError(
-        `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
-        BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
-        409,
-        'suscripcion-viva-existente',
-        'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
-      )
+      if (!input.replaceLiveSubscription) {
+        throw new BillingSubscriptionServiceError(
+          `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
+          BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
+          409,
+          'suscripcion-viva-existente',
+          'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
+        )
+      }
+
+      // Reemplazo en un solo acto: se cancela la viva DENTRO de esta misma
+      // transacción, antes del INSERT, para que el índice único de la
+      // columna espejo nunca vea dos filas vivas de la misma empresa.
+      await this.cancelWithin(existingLive, trx)
     }
 
     try {
@@ -420,14 +434,25 @@ export default class BillingSubscriptionService {
       )
     }
 
-    return db.transaction(async (trx) => {
-      subscription.useTransaction(trx)
-      subscription.billingSubscriptionStatus = 'canceled'
-      subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
-      subscription.billingSubscriptionLiveBusinessUnitId = null
-      await subscription.save()
-      return subscription
-    })
+    return db.transaction((trx) => this.cancelWithin(subscription, trx))
+  }
+
+  /**
+   * Cambia el estado a 'canceled' dentro de una transacción del llamador.
+   * Sin guard de "ya cancelada": el llamador es responsable de esa validación
+   * (la del acto de reemplazo nunca llega aquí con una ya cancelada, porque
+   * `existingLive` solo trae suscripciones vivas).
+   */
+  private async cancelWithin(
+    subscription: BillingSubscription,
+    trx: TransactionClientContract
+  ): Promise<BillingSubscription> {
+    subscription.useTransaction(trx)
+    subscription.billingSubscriptionStatus = 'canceled'
+    subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
+    subscription.billingSubscriptionLiveBusinessUnitId = null
+    await subscription.save()
+    return subscription
   }
 
   private async getCurrentPrice(
