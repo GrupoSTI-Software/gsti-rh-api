@@ -79,6 +79,15 @@ export default class UploadService {
       // Si es público, retornar la URL pública
       return response.Location
     } catch (err) {
+      logger.error(
+        {
+          err,
+          bucket: this.BUCKET_NAME,
+          endpoint: Env.get('AWS_ENDPOINT'),
+          folder: folderName,
+        },
+        'Fallo al subir archivo a S3'
+      )
       return 'S3Producer.fileUpload'
     }
   }
@@ -109,7 +118,16 @@ export default class UploadService {
         .promise()
 
       return response.Key
-    } catch {
+    } catch (err) {
+      logger.error(
+        {
+          err,
+          bucket: this.BUCKET_NAME,
+          endpoint: Env.get('AWS_ENDPOINT'),
+          key: relativeKey,
+        },
+        'Fallo al subir buffer privado a S3'
+      )
       return null
     }
   }

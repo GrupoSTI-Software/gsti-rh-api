@@ -51,3 +51,15 @@ export function toCalendarIsoDate(value: unknown): string | null {
   const parsed = DateTime.fromISO(raw)
   return parsed.isValid ? parsed.toISODate() : null
 }
+
+/**
+ * Días civiles completos entre dos fechas ISO (YYYY-MM-DD) en zona de negocio.
+ * Convención: el día `from` cuenta; el día `to` NO cuenta (es el borde).
+ * Devuelve negativo si `to` es anterior a `from`.
+ */
+export function daysBetweenBusinessDates(fromIso: string, toIso: string): number {
+  const zone = getBusinessTimeZone()
+  const from = DateTime.fromISO(fromIso, { zone }).startOf('day')
+  const to = DateTime.fromISO(toIso, { zone }).startOf('day')
+  return Math.round(to.diff(from, 'days').days)
+}

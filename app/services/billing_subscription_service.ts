@@ -6,6 +6,7 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
@@ -60,6 +61,7 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
  */
 export default class BillingSubscriptionService {
   private readonly catalog = new BillingCatalogService()
+  private readonly employeeQuotaService = new EmployeeQuotaService()
 
   // ─── Empresas (picker del alta) ──────────────────────────────────────────
 
@@ -86,6 +88,7 @@ export default class BillingSubscriptionService {
         businessUnits.map((bu) => bu.businessUnitId)
       )
       .whereNull('employee_deleted_at')
+      .whereNull('employee_terminated_date')
       .groupBy('business_unit_id')
       .select('business_unit_id')
       .count('* as total')
@@ -211,7 +214,8 @@ export default class BillingSubscriptionService {
     }
 
     const contractedEmployees =
-      input.contractedEmployees ?? (await this.countActiveEmployees(businessUnit.businessUnitId))
+      input.contractedEmployees ??
+      (await this.employeeQuotaService.countActiveEmployees(businessUnit.businessUnitId))
 
     const today = toBusinessDateString()
 
@@ -455,7 +459,7 @@ export default class BillingSubscriptionService {
     return subscription
   }
 
-  private async getCurrentPrice(
+  async getCurrentPrice(
     billingPlanId: number,
     referenceDate: string
   ): Promise<InstanceType<typeof BillingPlanPrice> | null> {
@@ -464,16 +468,5 @@ export default class BillingSubscriptionService {
       .where('billing_plan_price_effective_from', '<=', referenceDate)
       .orderBy('billing_plan_price_effective_from', 'desc')
       .first()
-  }
-
-  private async countActiveEmployees(businessUnitId: number): Promise<number> {
-    const result = await db
-      .from('employees')
-      .where('business_unit_id', businessUnitId)
-      .whereNull('employee_deleted_at')
-      .count('* as total')
-      .first()
-
-    return Number((result as { total: string | number } | null)?.total ?? 0)
   }
 }

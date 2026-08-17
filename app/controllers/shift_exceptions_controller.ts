@@ -12,6 +12,9 @@ import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import { ShiftExceptionGeneralErrorInterface } from '../interfaces/shift_exception_general_error_interface.js'
 import NotificationEmailService from '#services/notification_email_service'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { shiftExceptionTouchesVacation } from '#helpers/shift_exception_touches_vacation'
+import { EMPLOYEES_MANAGE_VACATION_PERMISSION } from '#constants/employees_write_permission_declarations'
 
 export default class ShiftExceptionController {
   /**
@@ -72,7 +75,8 @@ export default class ShiftExceptionController {
    *       400:
    *         description: Validation error
    */
-  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       const employeeId = request.input('employeeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -106,6 +110,12 @@ export default class ShiftExceptionController {
         .where('exception_type_id', exceptionTypeId)
         .first()
       const isVacation = exceptionType?.exceptionTypeSlug === 'vacation'
+      if (await shiftExceptionTouchesVacation({ nextExceptionTypeId: Number(exceptionTypeId) })) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
 
       const buUnits = businessUnitScope.length > 0
         ? await BusinessUnit.query()
@@ -278,7 +288,8 @@ export default class ShiftExceptionController {
    *       404:
    *         description: Shift exception not found
    */
-  async update({ auth, params, request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { auth, params, request, response, i18n } = ctx
     try {
       const employeeId = request.input('employeeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -303,6 +314,17 @@ export default class ShiftExceptionController {
       await request.validateUsing(createShiftExceptionValidator)
       const shiftExceptionService = new ShiftExceptionService(i18n)
       const currentShiftException = await ShiftException.findOrFail(params.id)
+      if (
+        await shiftExceptionTouchesVacation({
+          currentExceptionTypeId: currentShiftException.exceptionTypeId,
+          nextExceptionTypeId: Number(exceptionTypeId),
+        })
+      ) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
       const previousShiftException = JSON.parse(JSON.stringify(currentShiftException))
       const shiftException = {
         shiftExceptionId: params.id,
@@ -396,9 +418,16 @@ export default class ShiftExceptionController {
    *       404:
    *         description: Shift exception not found
    */
-  async destroy({ auth, request, params, response, i18n }: HttpContext) {
+  async destroy(ctx: HttpContext) {
+    const { auth, request, params, response, i18n } = ctx
     try {
       const shiftException = await ShiftException.findOrFail(params.id)
+      if (await shiftExceptionTouchesVacation({ currentExceptionTypeId: shiftException.exceptionTypeId })) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
 
       // Cambiar findByOrFail por findBy
       const signature = await VacationAuthorizationSignature.findBy('shift_exception_id', shiftException.shiftExceptionId)
@@ -884,7 +913,8 @@ export default class ShiftExceptionController {
    *                     error:
    *                       type: string
    */
-   async applyExceptionGeneral({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+   async applyExceptionGeneral(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       const exceptionTypeId = request.input('exceptionTypeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -923,6 +953,12 @@ export default class ShiftExceptionController {
           title: 'The exception type was not found',
           message: 'The exception type was not found with the entered ID',
           data: { ...exceptionTypeId },
+        }
+      }
+      if (await shiftExceptionTouchesVacation({ nextExceptionTypeId: Number(exceptionTypeId) })) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
         }
       }
 

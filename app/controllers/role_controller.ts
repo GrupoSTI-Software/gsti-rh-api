@@ -4,7 +4,17 @@ import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_inte
 import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isSystemRoleSlug } from '#constants/system_roles'
-import { createRoleValidator, updateRoleValidator } from '#validators/role'
+import { isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import RolePresetService from '#services/role_preset_service'
+import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
+import { buildRolePresetErrorResponse } from '#helpers/role_preset_error_response'
+import { getRolePreset } from '#constants/role_presets'
+import {
+  assignRolesPermissionsBatchValidator,
+  createRoleValidator,
+  updateRoleValidator,
+} from '#validators/role'
+import db from '@adonisjs/lucid/services/db'
 
 /**
  * Construye el CSV legado de `roleBusinessAccess` con los slugs del scope de
@@ -29,28 +39,6 @@ async function buildRoleBusinessAccessFromScope(businessUnitScope: number[]): Pr
 }
 
 export default class RoleController {
-  /**
-   * Regla 1 de USRH1785436961936: los roles de sistema (owner, empleado) no
-   * son editables, eliminables ni reconfigurables desde un tenant. Solo `root`
-   * (plataforma) queda exento — administra los roles comunes para todos.
-   */
-  private async isSystemRoleLockedForUser(
-    auth: HttpContext['auth'],
-    role: Role
-  ): Promise<boolean> {
-    if (!isSystemRoleSlug(role.roleSlug)) {
-      return false
-    }
-    await auth.check()
-    const user = auth.user
-    if (!user) {
-      return true
-    }
-    if (!user.role) {
-      await user.load('role')
-    }
-    return user.role?.roleSlug !== 'root'
-  }
   /**
    * @swagger
    * /api/roles:
@@ -350,7 +338,31 @@ export default class RoleController {
         }
       }
 
-      const newRole = await roleService.create(role)
+      const rolePresetSlug = data.rolePresetSlug
+      let newRole: Role
+      let appliedPreset: { slug: string; version: string } | undefined
+
+      if (rolePresetSlug) {
+        const preset = getRolePreset(rolePresetSlug)
+        const result = await db.transaction(async (trx) => {
+          const createdRole = await roleService.create(role, trx)
+          const presetResult = await new RolePresetService().apply(
+            createdRole.roleId,
+            {
+              presetSlug: rolePresetSlug,
+              mode: 'replace',
+              expectedPresetVersion: preset.version,
+              baselinePermissionIds: [],
+            },
+            trx
+          )
+          return { role: createdRole, appliedPreset: presetResult.appliedPreset }
+        })
+        newRole = result.role
+        appliedPreset = result.appliedPreset
+      } else {
+        newRole = await roleService.create(role)
+      }
 
       if (newRole) {
         response.status(201)
@@ -358,10 +370,19 @@ export default class RoleController {
           type: 'success',
           title: 'Roles',
           message: 'The role was created successfully',
-          data: { role: newRole },
+          data: { role: newRole, ...(appliedPreset ? { appliedPreset } : {}) },
         }
       }
     } catch (error) {
+      // La plantilla ya trae su propio contrato de error (422 permisos
+      // faltantes, 404 plantilla inexistente…): degradarlo a 500 dejaría al
+      // cliente sin saber que el alta falló por la plantilla y no por el rol.
+      if (error instanceof RolePresetServiceError) {
+        const mapped = buildRolePresetErrorResponse(error, i18n)
+        response.status(mapped.status)
+        return mapped.body
+      }
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -509,7 +530,7 @@ export default class RoleController {
         roleName: roleName,
         roleDescription: roleDescription,
         roleSlug: roleSlug,
-        roleActive: roleActive
+        roleActive: roleActive,
       } as Role
 
       if (!roleId) {
@@ -534,7 +555,7 @@ export default class RoleController {
           data: { ...role },
         }
       }
-      if (await this.isSystemRoleLockedForUser(auth, currentRole)) {
+      if (await isSystemRoleLockedForUser(auth, currentRole)) {
         response.status(403)
         return {
           title: t('system_role_locked_title'),
@@ -710,7 +731,7 @@ export default class RoleController {
           data: { roleId },
         }
       }
-      if (await this.isSystemRoleLockedForUser(auth, currentRole)) {
+      if (await isSystemRoleLockedForUser(auth, currentRole)) {
         response.status(403)
         return {
           title: t('system_role_locked_title'),
@@ -873,7 +894,7 @@ export default class RoleController {
 
       // Reasignar permisos de un rol de sistema afectaría a TODOS los tenants:
       // misma regla de bloqueo que edición/eliminación.
-      if (await this.isSystemRoleLockedForUser(auth, role)) {
+      if (await isSystemRoleLockedForUser(auth, role)) {
         response.status(403)
         return {
           title: t('system_role_locked_title'),
@@ -882,11 +903,24 @@ export default class RoleController {
         }
       }
 
-      role.roleManagementDays = data.roleManagementDays
-      await role.save()
-
       const roleService = new RoleService()
-      const roleSystemPermissions = await roleService.assignPermissions(roleId, data.permissions)
+      let roleSystemPermissions
+      try {
+        roleSystemPermissions = await db.transaction(async (trx) => {
+          role.useTransaction(trx)
+          role.roleManagementDays = data.roleManagementDays
+          await role.save()
+          return roleService.assignPermissions(roleId, data.permissions, trx)
+        })
+      } catch {
+        response.status(500)
+        return {
+          title: t('role_permissions_assignment_failed_title'),
+          detail: t('role_permissions_assignment_failed_detail'),
+          key: 'asignacion-permisos-rol-fallida',
+        }
+      }
+
       response.status(201)
       return {
         type: 'success',
@@ -898,6 +932,201 @@ export default class RoleController {
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/roles/assign-batch:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Roles
+   *     summary: assign permissions to several roles atomically
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               roles:
+   *                 type: array
+   *                 description: Roles with their permissions to assign
+   *                 required: true
+   *                 items:
+   *                   type: object
+   *                   properties:
+   *                     roleId:
+   *                       type: number
+   *                     permissions:
+   *                       type: array
+   *                       items:
+   *                         type: number
+   *                     roleManagementDays:
+   *                       type: number
+   *                       nullable: true
+   *     responses:
+   *       '201':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: A role in the batch was not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: A system role in the batch is locked for the current user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '422':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 error:
+   *                   type: string
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 error:
+   *                   type: string
+   */
+  async assignBatch({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const { roles: items } = await request.validateUsing(assignRolesPermissionsBatchValidator)
+
+      // Preflight: se valida y se carga cada rol del lote ANTES de abrir la
+      // transacción. Cualquier 404/403 detiene el lote completo sin escrituras
+      // (atomicidad "todo o nada" del USRH1785766406741).
+      for (const item of items) {
+        const role = await Role.query()
+          .whereNull('role_deleted_at')
+          .where('role_id', item.roleId)
+          .first()
+        if (!role) {
+          response.status(404)
+          return {
+            type: 'warning',
+            title: 'The role was not found',
+            message: 'The role was not found with the entered ID',
+            data: { roleId: item.roleId },
+          }
+        }
+        if (await isSystemRoleLockedForUser(auth, role)) {
+          response.status(403)
+          return {
+            title: t('system_role_locked_batch_title'),
+            detail: t('system_role_locked_batch_detail', { roleName: role.roleName }),
+            key: 'rol-sistema-bloqueado-lote',
+            data: {
+              roleId: role.roleId,
+              roleName: role.roleName,
+              roleSlug: role.roleSlug,
+            },
+          }
+        }
+      }
+
+      const roleService = new RoleService()
+      try {
+        await db.transaction(async (trx) => {
+          await roleService.assignPermissionsBatch(items, trx)
+        })
+      } catch {
+        response.status(500)
+        return {
+          title: t('role_permissions_batch_assignment_failed_title'),
+          detail: t('role_permissions_batch_assignment_failed_detail'),
+          key: 'asignacion-permisos-lote-fallida',
+        }
+      }
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Role Permissions',
+        message: 'The role permissions were assigned successfully',
+        data: { roleIds: items.map((item) => item.roleId) },
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 422 : 500)
       return {
         type: 'error',
         title: 'Server error',
