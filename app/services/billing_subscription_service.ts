@@ -6,6 +6,7 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
@@ -24,6 +25,13 @@ export interface CreateSubscriptionInput {
    * backoffice (USRH1785441822058): la prueba gratuita es una sola vez por empresa.
    */
   skipTrial?: boolean
+  /**
+   * Instrucción explícita de reemplazo: si la empresa ya tiene una
+   * contratación viva, se cancela dentro de la misma transacción y se
+   * continúa con el alta, en vez de rechazar con `ALREADY_LIVE`. Ausente o
+   * `false`: comportamiento idéntico al actual (USRH1785962095087).
+   */
+  replaceLiveSubscription?: boolean
 }
 
 export interface BusinessUnitListItem {
@@ -53,6 +61,7 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
  */
 export default class BillingSubscriptionService {
   private readonly catalog = new BillingCatalogService()
+  private readonly employeeQuotaService = new EmployeeQuotaService()
 
   // ─── Empresas (picker del alta) ──────────────────────────────────────────
 
@@ -79,6 +88,7 @@ export default class BillingSubscriptionService {
         businessUnits.map((bu) => bu.businessUnitId)
       )
       .whereNull('employee_deleted_at')
+      .whereNull('employee_terminated_date')
       .groupBy('business_unit_id')
       .select('business_unit_id')
       .count('* as total')
@@ -193,18 +203,19 @@ export default class BillingSubscriptionService {
       )
     }
 
-    if (!plan.isPublished) {
+    if (!plan.isPublished || !plan.billingPlanActive) {
       throw new BillingSubscriptionServiceError(
-        `Plan ${input.billingPlanId} no está publicado`,
+        `Plan ${input.billingPlanId} no está publicado y vigente`,
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422,
         'plan-no-publicado',
-        'Solo se puede contratar sobre un plan publicado del catálogo.'
+        'Solo se puede contratar sobre un plan publicado y vigente del catálogo.'
       )
     }
 
     const contractedEmployees =
-      input.contractedEmployees ?? (await this.countActiveEmployees(businessUnit.businessUnitId))
+      input.contractedEmployees ??
+      (await this.employeeQuotaService.countActiveEmployees(businessUnit.businessUnitId))
 
     const today = toBusinessDateString()
 
@@ -246,13 +257,20 @@ export default class BillingSubscriptionService {
       .first()
 
     if (existingLive) {
-      throw new BillingSubscriptionServiceError(
-        `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
-        BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
-        409,
-        'suscripcion-viva-existente',
-        'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
-      )
+      if (!input.replaceLiveSubscription) {
+        throw new BillingSubscriptionServiceError(
+          `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
+          BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
+          409,
+          'suscripcion-viva-existente',
+          'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
+        )
+      }
+
+      // Reemplazo en un solo acto: se cancela la viva DENTRO de esta misma
+      // transacción, antes del INSERT, para que el índice único de la
+      // columna espejo nunca vea dos filas vivas de la misma empresa.
+      await this.cancelWithin(existingLive, trx)
     }
 
     try {
@@ -341,13 +359,13 @@ export default class BillingSubscriptionService {
       )
     }
 
-    if (!plan.isPublished) {
+    if (!plan.isPublished || !plan.billingPlanActive) {
       throw new BillingSubscriptionServiceError(
-        `Plan ${billingPlanId} no está publicado`,
+        `Plan ${billingPlanId} no está publicado y vigente`,
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422,
         'plan-no-publicado',
-        'Solo se puede cambiar a un plan publicado del catálogo.'
+        'Solo se puede cambiar a un plan publicado y vigente del catálogo.'
       )
     }
 
@@ -420,17 +438,28 @@ export default class BillingSubscriptionService {
       )
     }
 
-    return db.transaction(async (trx) => {
-      subscription.useTransaction(trx)
-      subscription.billingSubscriptionStatus = 'canceled'
-      subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
-      subscription.billingSubscriptionLiveBusinessUnitId = null
-      await subscription.save()
-      return subscription
-    })
+    return db.transaction((trx) => this.cancelWithin(subscription, trx))
   }
 
-  private async getCurrentPrice(
+  /**
+   * Cambia el estado a 'canceled' dentro de una transacción del llamador.
+   * Sin guard de "ya cancelada": el llamador es responsable de esa validación
+   * (la del acto de reemplazo nunca llega aquí con una ya cancelada, porque
+   * `existingLive` solo trae suscripciones vivas).
+   */
+  private async cancelWithin(
+    subscription: BillingSubscription,
+    trx: TransactionClientContract
+  ): Promise<BillingSubscription> {
+    subscription.useTransaction(trx)
+    subscription.billingSubscriptionStatus = 'canceled'
+    subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
+    subscription.billingSubscriptionLiveBusinessUnitId = null
+    await subscription.save()
+    return subscription
+  }
+
+  async getCurrentPrice(
     billingPlanId: number,
     referenceDate: string
   ): Promise<InstanceType<typeof BillingPlanPrice> | null> {
@@ -439,16 +468,5 @@ export default class BillingSubscriptionService {
       .where('billing_plan_price_effective_from', '<=', referenceDate)
       .orderBy('billing_plan_price_effective_from', 'desc')
       .first()
-  }
-
-  private async countActiveEmployees(businessUnitId: number): Promise<number> {
-    const result = await db
-      .from('employees')
-      .where('business_unit_id', businessUnitId)
-      .whereNull('employee_deleted_at')
-      .count('* as total')
-      .first()
-
-    return Number((result as { total: string | number } | null)?.total ?? 0)
   }
 }

@@ -5,6 +5,8 @@ import { createWorkDisabilityValidator } from '#validators/work_disability'
 import { cuid } from '@adonisjs/core/helpers'
 import { WorkDisabilityFilterSearchInterface } from '../interfaces/work_disability_filter_search_interface.js'
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 /** 404 uniforme (no revela "no existe" vs "no es tuyo") — regla 4, USRH1784259058487. */
 function workDisabilityNotFoundResponse(response: HttpContext['response']) {
@@ -889,7 +891,8 @@ export default class WorkDisabilityController {
    *                     error:
    *                       type: string
    */
-  async getByEmployee({ request, response }: HttpContext) {
+  async getByEmployee(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -901,6 +904,16 @@ export default class WorkDisabilityController {
           data: { employeeId },
         }
       }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeId),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getWorkDisabilitiesByEmployee
+      )
+      if (!allowed) {
+        return
+      }
+
       const filters = {
         employeeId: employeeId,
       } as WorkDisabilityFilterSearchInterface

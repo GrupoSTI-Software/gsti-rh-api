@@ -11,6 +11,7 @@ export const createBillingTierValidator = vine.compile(
 /** Body para `PATCH /api/platform/billing/plans/:planId/tiers/:tierId`. */
 export const updateBillingTierValidator = vine.compile(
   vine.object({
+    billingVolumeTierMinEmployees: vine.number().min(1).withoutDecimals().optional(),
     billingVolumeTierDiscountPercent: vine.number().min(0).max(100).optional(),
   })
 )

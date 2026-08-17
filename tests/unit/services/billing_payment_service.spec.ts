@@ -1,6 +1,12 @@
 import { test } from '@japa/runner'
 import { BILLING_PAYMENT_ERROR_CODES } from '../../../app/constants/billing_payment_error_codes.js'
+import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../../../app/constants/billing_subscription_error_codes.js'
 import { BillingPaymentServiceError } from '../../../app/exceptions/billing_payment_service_error.js'
+import { BillingSubscriptionServiceError } from '../../../app/exceptions/billing_subscription_service_error.js'
+import {
+  changeApplyFailedError,
+  changeInconsistentSnapshotError,
+} from '../../../app/helpers/billing_payment_error.js'
 import { resolveBillingPaymentApiError } from '../../../app/helpers/billing_payment_api_error.js'
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../../../app/validators/billing_payment.js'
 
@@ -117,7 +123,41 @@ test.group('BILLING_PAYMENT_ERROR_CODES — contrato PLT.PAY.*', () => {
       BILLING_PAYMENT_ERROR_CODES.RECEIPT_UPLOAD_FAILED,
       'PLT.PAY.RECEIPT_UPLOAD_FAILED'
     )
+    assert.equal(
+      BILLING_PAYMENT_ERROR_CODES.CHANGE_APPLY_FAILED,
+      'PLT.PAY.CHANGE_APPLY_FAILED'
+    )
+    assert.equal(
+      BILLING_PAYMENT_ERROR_CODES.CHANGE_INCONSISTENT_SNAPSHOT,
+      'PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT'
+    )
     assert.equal(BILLING_PAYMENT_ERROR_CODES.SYS_UNHANDLED, 'PLT.PAY.SYS_UNHANDLED')
+  })
+})
+
+test.group('billing_payment_error — factories PLT.PAY.* (0856)', () => {
+  test('changeApplyFailedError expone código y status 500', ({ assert }) => {
+    const error = changeApplyFailedError()
+    assert.instanceOf(error, BillingPaymentServiceError)
+    assert.equal(error.errorCode, 'PLT.PAY.CHANGE_APPLY_FAILED')
+    assert.equal(error.httpStatus, 500)
+    assert.equal(error.key, 'cambio-aplicacion-fallida')
+  })
+
+  test('changeInconsistentSnapshotError expone código y status 500', ({ assert }) => {
+    const error = changeInconsistentSnapshotError()
+    assert.instanceOf(error, BillingPaymentServiceError)
+    assert.equal(error.errorCode, 'PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT')
+    assert.equal(error.httpStatus, 500)
+    assert.equal(error.key, 'cambio-snapshot-inconsistente')
+  })
+
+  test('las factories se resuelven en resolveBillingPaymentApiError', ({ assert }) => {
+    const error = changeInconsistentSnapshotError('Snapshot corrupto')
+    const resolved = resolveBillingPaymentApiError(error)
+    assert.equal(resolved.status, 500)
+    assert.equal(resolved.code, 'PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT')
+    assert.equal(resolved.detail, 'Snapshot corrupto')
   })
 })
 
@@ -149,6 +189,34 @@ test.group('resolveBillingPaymentApiError — mapeo de errores a HTTP', () => {
     const resolved = resolveBillingPaymentApiError(new Error('error inesperado'))
     assert.equal(resolved.status, 500)
     assert.equal(resolved.code, 'PLT.PAY.SYS_UNHANDLED')
+  })
+
+  test('BillingSubscriptionServiceError se mapea con código PLT.SUB.* (0856 E5)', ({ assert }) => {
+    const error = new BillingSubscriptionServiceError(
+      'Plan no publicado',
+      BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
+      422,
+      'plan-no-publicado',
+      'Solo se puede contratar sobre un plan publicado del catálogo.'
+    )
+    const resolved = resolveBillingPaymentApiError(error)
+    assert.equal(resolved.status, 422)
+    assert.equal(resolved.code, 'PLT.SUB.PLAN_NOT_PUBLISHED')
+    assert.equal(resolved.title, 'Pagos de suscripción')
+    assert.equal(resolved.key, 'plan-no-publicado')
+  })
+
+  test('BillingSubscriptionServiceError incluye data opcional', ({ assert }) => {
+    const error = new BillingSubscriptionServiceError(
+      'Cantidad bajo plantilla',
+      BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT,
+      422,
+      'cantidad-bajo-plantilla',
+      'La cantidad no puede ser menor a la plantilla activa.',
+      { activeEmployees: 73, minimumContractedEmployees: 80 }
+    )
+    const resolved = resolveBillingPaymentApiError(error)
+    assert.deepEqual(resolved.data, { activeEmployees: 73, minimumContractedEmployees: 80 })
   })
 })
 
