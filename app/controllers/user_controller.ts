@@ -27,6 +27,12 @@ import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.
 import i18nManager from '@adonisjs/i18n/services/main'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
 import { secureRandomInt } from '#helpers/csprng_string'
+import {
+  buildInvitationTokenExpiresAt,
+  generateInvitationToken,
+  generateProvisionalPassword,
+} from '#helpers/user_invitation_credentials'
+import { USER_INVITATION_LOGIN_ERRORS, USER_INVITATION_RESEND_ERRORS } from '#constants/user_invitation_error_codes'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -36,6 +42,20 @@ import { secureRandomInt } from '#helpers/csprng_string'
  */
 function generateRecoveryPin(): string {
   return String(secureRandomInt(100000, 1000000))
+}
+
+async function dispatchUserInvitationEmail(user: User): Promise<void> {
+  await user.load('person')
+  const empleadoRole = await new RoleService().findRoleBySlug('empleado')
+  const canAccessBackoffice = !empleadoRole || user.roleId !== empleadoRole.roleId
+  const authMailService = new AuthMailService()
+  await authMailService.sendUserInvitation({
+    to: user.userEmail,
+    firstName: user.person?.personFirstname || user.userEmail,
+    invitationToken: user.userToken,
+    language: 'es',
+    canAccessBackoffice,
+  })
 }
 
 export default class UserController {
@@ -157,6 +177,21 @@ export default class UserController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Acceso denegado (empleado en web o cuenta pendiente de activar)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
    *       default:
    *         description: Unexpected error
    *         content:
@@ -211,6 +246,17 @@ export default class UserController {
           title: 'Login',
           message: 'Incorrect email or password',
           data: { user: {} },
+        }
+      }
+
+      if (user.userPasswordSetAt === null) {
+        const err = USER_INVITATION_LOGIN_ERRORS.PENDING_ACTIVATION
+        response.status(err.status)
+        return {
+          title: err.title,
+          detail: err.detail,
+          key: err.key,
+          code: err.code,
         }
       }
 
@@ -1403,11 +1449,6 @@ export default class UserController {
    *                 description: User email
    *                 required: true
    *                 default: ''
-   *               userPassword:
-   *                 type: string
-   *                 description: User password
-   *                 required: true
-   *                 default: ''
    *               userActive:
    *                 type: boolean
    *                 description: User status
@@ -1512,11 +1553,6 @@ export default class UserController {
   async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const userEmail = request.input('userEmail')
-      let userPassword = request.input('userPassword')
-      const passwordArray = Array.isArray(userPassword)
-      userPassword = passwordArray
-        ? userPassword.map((item: string) => item).join(',')
-        : userPassword
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
@@ -1532,11 +1568,14 @@ export default class UserController {
 
       const user = {
         userEmail: userEmail,
-        userPassword: userPassword,
+        userPassword: generateProvisionalPassword(),
         userActive: userActive,
         roleId: roleId,
         personId: personId,
         userEmailType: userEmailType,
+        userToken: generateInvitationToken(),
+        userTokenExpiresAt: buildInvitationTokenExpiresAt(),
+        userPasswordSetAt: null,
       } as User
       const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
@@ -1580,10 +1619,9 @@ export default class UserController {
           logUser.record_current = JSON.parse(JSON.stringify(newUser))
           await userService.saveActionOnLog(logUser)
         }
-        const url = request.header('origin')
-        if (url) {
-          userService.sendNewPasswordEmail(url, newUser, userPassword)
-        }
+
+        await dispatchUserInvitationEmail(newUser)
+
         response.status(201)
         return {
           type: 'success',
@@ -1602,6 +1640,173 @@ export default class UserController {
         message: 'An unexpected error has occurred on the server',
         error: messageError,
       }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/users/{userId}/resend-access:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Users
+   *     summary: Reenviar invitación de acceso a un usuario pendiente
+   *     description: |
+   *       Emite un token de invitación nuevo con vigencia de 5 días e invalida el anterior.
+   *       Solo aplica a usuarios pendientes de activar (`user_password_set_at IS NULL`)
+   *       dentro del scope de la empresa del administrador. Requiere permiso de edición.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         schema:
+   *           type: number
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Invitación reenviada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   description: Message of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '404':
+   *         description: Usuario no encontrado en el scope
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '409':
+   *         description: Usuario ya activado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '429':
+   *         description: Límite de reenvíos alcanzado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   */
+  async resendAccess({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    const userId = Number(request.param('userId'))
+    if (!Number.isInteger(userId) || userId <= 0) {
+      const err = USER_INVITATION_RESEND_ERRORS.NOT_FOUND
+      response.status(err.status)
+      return {
+        title: err.title,
+        detail: err.detail,
+        key: err.key,
+        code: err.code,
+      }
+    }
+
+    const userService = new UserService(i18n)
+    const targetUser = await userService.findActiveInBusinessUnitScope(userId, businessUnitScope)
+    if (!targetUser) {
+      await ScopeDeniedLogService.log({
+        domain: 'user',
+        action: 'resend-access',
+        requestedId: userId,
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope,
+      })
+      const err = USER_INVITATION_RESEND_ERRORS.NOT_FOUND
+      response.status(err.status)
+      return {
+        title: err.title,
+        detail: err.detail,
+        key: err.key,
+        code: err.code,
+      }
+    }
+
+    if (targetUser.userPasswordSetAt !== null) {
+      const err = USER_INVITATION_RESEND_ERRORS.ALREADY_ACTIVATED
+      response.status(err.status)
+      return {
+        title: err.title,
+        detail: err.detail,
+        key: err.key,
+        code: err.code,
+      }
+    }
+
+    const updatedUser = await userService.rotateInvitationAccess(targetUser)
+    await dispatchUserInvitationEmail(updatedUser)
+
+    response.status(200)
+    return {
+      message: 'Se reenvió la invitación de acceso correctamente.',
     }
   }
 
@@ -1633,11 +1838,6 @@ export default class UserController {
    *                 type: string
    *                 description: User email
    *                 required: true
-   *                 default: ''
-   *               userPassword:
-   *                 type: string
-   *                 description: User password
-   *                 required: false
    *                 default: ''
    *               userActive:
    *                 type: boolean
@@ -1772,15 +1972,7 @@ export default class UserController {
         }
       }
 
-      const input = request.all()
       const userEmail = request.input('userEmail')
-      let userPassword = request.input('userPassword')
-      const passwordArray = Array.isArray(userPassword)
-      userPassword = passwordArray
-        ? userPassword.map((item: string) => item).join(',')
-        : userPassword
-      input.userPassword = userPassword
-      request.updateBody(input)
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
@@ -1788,7 +1980,6 @@ export default class UserController {
       const user = {
         userId: userId,
         userEmail: userEmail,
-        userPassword: userPassword,
         userActive: userActive,
         roleId: roleId,
         personId: personId,
@@ -1835,13 +2026,6 @@ export default class UserController {
           logUser.record_current = JSON.parse(JSON.stringify(updateUser))
           logUser.record_previous = previousUser
           await userService.saveActionOnLog(logUser)
-        }
-        if (userPassword) {
-          await updateUser.load('person')
-          const url = request.header('origin')
-          if (url) {
-            userService.sendNewPasswordEmail(url, updateUser, userPassword)
-          }
         }
         response.status(201)
         return {

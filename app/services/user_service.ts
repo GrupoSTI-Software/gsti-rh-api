@@ -23,6 +23,10 @@ import EmployeeType from '#models/employee_type'
 import Shift from '#models/shift'
 import EmployeeShift from '#models/employee_shift'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import {
+  buildInvitationTokenExpiresAt,
+  generateInvitationToken,
+} from '#helpers/user_invitation_credentials'
 
 export default class UserService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -140,6 +144,18 @@ export default class UserService {
     newUser.roleId = user.roleId
     newUser.personId = user.personId
     newUser.userEmailType = user.userEmailType
+    if (user.userToken !== undefined) {
+      newUser.userToken = user.userToken
+    }
+    if (user.userTokenExpiresAt !== undefined) {
+      newUser.userTokenExpiresAt = user.userTokenExpiresAt
+    }
+    if (user.userPasswordSetAt !== undefined) {
+      newUser.userPasswordSetAt = user.userPasswordSetAt
+    } else if (user.userPassword) {
+      // Alta con contraseña conocida (signup, demo, flujos legacy): ya activado.
+      newUser.userPasswordSetAt = DateTime.utc()
+    }
     if (trx) {
       newUser.useTransaction(trx)
     }
@@ -154,9 +170,6 @@ export default class UserService {
 
   async update(currentUser: User, user: User) {
     currentUser.userEmail = user.userEmail
-    if (user.userPassword) {
-      currentUser.userPassword = user.userPassword
-    }
     currentUser.userActive = user.userActive
     currentUser.roleId = user.roleId
     currentUser.personId = user.personId
@@ -191,6 +204,16 @@ export default class UserService {
         subQuery.whereIn('business_units.business_unit_id', businessUnitScope)
       })
       .first()
+  }
+
+  /**
+   * Re-emite token de invitación con vigencia nueva (5 días) e invalida el anterior.
+   */
+  async rotateInvitationAccess(user: User): Promise<User> {
+    user.userToken = generateInvitationToken()
+    user.userTokenExpiresAt = buildInvitationTokenExpiresAt()
+    await user.save()
+    return user
   }
 
   async show(userId: number, businessUnitScope?: number[]) {
