@@ -8,11 +8,11 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 120 operaciones con module employees y bypass standard', ({
+  test('declara exactamente 119 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 120)
+    assert.equal(keys.length, 119)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
@@ -83,7 +83,6 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.getAnniversary.action, 'read')
     assert.equal(d.getWorkSchedules.action, 'read')
     assert.equal(d.getTerminationCatalog.action, 'read')
-    assert.equal(d.getEmployeesExcel.action, 'read')
     assert.equal(d.indexEmployeeTypes.action, 'read')
     assert.equal(d.indexEmployees.bypass, 'standard')
     assert.notEqual(d.indexEmployees.action, 'read-terminated-employees')

@@ -1,9 +1,60 @@
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import CareerPathTemplate from '#models/career_path_template'
 import { createCareerPathTemplateValidator } from '#validators/career_path_template'
 import { updateCareerPathTemplateValidator } from '#validators/career_path_template'
 import CareerPathTemplateService from '#services/career_path_template_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { CAREER_PATH_TEMPLATE_ERROR_CODES } from '#constants/career_path_template_error_codes'
 import { CareerPathTemplateFilterSearchInterface } from 'app/interfaces/career_path_template_filter_search_interface.js'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — regla 5, USRH1786595131484. */
+function careerPathTemplateNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: CAREER_PATH_TEMPLATE_ERROR_CODES.NOT_FOUND,
+  })
+}
+
+/**
+ * Traduce un error inesperado a 500. Conserva el comportamiento legacy para
+ * `E_VALIDATION_ERROR` (message inocuo) pero deja de repetir `error.message`
+ * para cualquier otro error (R-3, USRH1786595131484): el `@beforeCreate` del
+ * modelo lanza textos que contienen "no está en tu alcance". El detalle
+ * interno de esos casos solo va al logger.
+ */
+function unexpectedErrorResponse(
+  error: unknown,
+  response: HttpContext['response'],
+  t: (key: string) => string
+) {
+  const isValidationError =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'E_VALIDATION_ERROR'
+
+  if (isValidationError) {
+    const messages = (error as unknown as { messages: Array<{ message: string }> }).messages
+    response.status(500)
+    return {
+      type: 'error',
+      title: t('server_error'),
+      message: t('an_unexpected_error_has_occurred_on_the_server'),
+      error: messages[0].message,
+    }
+  }
+
+  logger.error({ err: error }, 'career_path_template: error inesperado')
+  response.status(500)
+  return {
+    type: 'error',
+    title: t('server_error'),
+    message: t('an_unexpected_error_has_occurred_on_the_server'),
+  }
+}
 
 export default class CareerPathTemplateController {
   /**
@@ -131,13 +182,7 @@ export default class CareerPathTemplateController {
         },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 
@@ -160,8 +205,10 @@ export default class CareerPathTemplateController {
    *             properties:
    *               companyId:
    *                 type: number
-   *                 description: Company id
-   *                 required: true
+   *                 description: >
+   *                   Ignorado. La empresa la estampa el servidor desde la unidad
+   *                   activa de la sesión (header X-Business-Unit-Id).
+   *                 required: false
    *                 default: ''
    *               originPositionId:
    *                 type: number
@@ -254,10 +301,10 @@ export default class CareerPathTemplateController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n, auth }: HttpContext) {
+  async store({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const companyId = request.input('companyId')
+      const [companyId] = businessUnitScope
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
       const createdBy = auth.user?.userId
@@ -302,15 +349,7 @@ export default class CareerPathTemplateController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 
@@ -340,8 +379,10 @@ export default class CareerPathTemplateController {
    *             properties:
    *               companyId:
    *                 type: number
-   *                 description: Company id
-   *                 required: true
+   *                 description: >
+   *                   Ignorado. La empresa la estampa el servidor desde la unidad
+   *                   activa de la sesión (header X-Business-Unit-Id).
+   *                 required: false
    *                 default: ''
    *               originPositionId:
    *                 type: number
@@ -434,17 +475,15 @@ export default class CareerPathTemplateController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n, auth }: HttpContext) {
+  async update({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const careerPathTemplateId = request.param('careerPathTemplateId')
-      const companyId = request.input('companyId')
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
       const updatedBy = auth.user?.userId
       const careerPathTemplate = {
         careerPathTemplateId: careerPathTemplateId,
-        companyId: companyId,
         originPositionId: originPositionId,
         targetPositionId: targetPositionId,
         updatedBy: updatedBy,
@@ -463,15 +502,16 @@ export default class CareerPathTemplateController {
         .where('career_path_template_id', careerPathTemplateId)
         .first()
       if (!currentCareerPathTemplate) {
-        const entity = `${t('relation')} ${t('department')} - ${t('position')}`
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { ...careerPathTemplate },
-        }
+        await ScopeDeniedLogService.log({
+          domain: 'career_path_template',
+          action: 'update',
+          requestedId: careerPathTemplateId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return careerPathTemplateNotFoundResponse(response)
       }
+      careerPathTemplate.companyId = currentCareerPathTemplate.companyId
       const careerPathTemplateService = new CareerPathTemplateService(i18n)
       const data = await request.validateUsing(updateCareerPathTemplateValidator)
       const exist = await careerPathTemplateService.verifyInfoExist(careerPathTemplate)
@@ -508,15 +548,7 @@ export default class CareerPathTemplateController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 
@@ -619,7 +651,7 @@ export default class CareerPathTemplateController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const careerPathTemplateId = request.param('careerPathTemplateId')
@@ -637,14 +669,14 @@ export default class CareerPathTemplateController {
         .where('career_path_template_id', careerPathTemplateId)
         .first()
       if (!currentCareerPathTemplate) {
-        const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { careerPathTemplateId },
-        }
+        await ScopeDeniedLogService.log({
+          domain: 'career_path_template',
+          action: 'delete',
+          requestedId: careerPathTemplateId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return careerPathTemplateNotFoundResponse(response)
       }
       const careerPathTemplateService = new CareerPathTemplateService(i18n)
       const deleteCareerPathTemplate =
@@ -659,13 +691,7 @@ export default class CareerPathTemplateController {
         }
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 
@@ -768,7 +794,7 @@ export default class CareerPathTemplateController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const careerPathTemplateId = request.param('careerPathTemplateId')
@@ -784,31 +810,24 @@ export default class CareerPathTemplateController {
       const careerPathTemplateService = new CareerPathTemplateService(i18n)
       const showCareerPathTemplate = await careerPathTemplateService.show(careerPathTemplateId)
       if (!showCareerPathTemplate) {
-        const entity = `${t('relation')} ${t('company')} - ${t('position')} - ${t('position')}`
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { careerPathTemplateId },
-        }
-      } else {
-        response.status(200)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_found_successfully'),
-          data: { careerPathTemplate: showCareerPathTemplate },
-        }
+        await ScopeDeniedLogService.log({
+          domain: 'career_path_template',
+          action: 'show',
+          requestedId: careerPathTemplateId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        return careerPathTemplateNotFoundResponse(response)
+      }
+      response.status(200)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_found_successfully'),
+        data: { careerPathTemplate: showCareerPathTemplate },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 }

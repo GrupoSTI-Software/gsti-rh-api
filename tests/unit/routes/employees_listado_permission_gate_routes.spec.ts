@@ -15,7 +15,6 @@ test.group('employee_routes — PermissionGate listado y bajas', () => {
       'getAnniversary',
       'getWorkSchedules',
       'getTerminationCatalog',
-      'getEmployeesExcel',
     ]) {
       assert.include(content, `permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.${key})`, key)
     }
@@ -50,10 +49,15 @@ test.group('employee_routes — PermissionGate listado y bajas', () => {
       join(process.cwd(), 'start/routes/employee_routes.ts'),
       'utf8'
     )
-    const attendance = employeeRoutes
+    const attendanceIdx = employeeRoutes
       .split('\n')
-      .find((line) => line.includes('employee_controller.getAttendanceReport'))
-    assert.exists(attendance)
-    assert.notInclude(attendance!, 'READ_PERMISSION')
+      .findIndex((line) => line.includes('employee_controller.getAttendanceReport'))
+    assert.isAtLeast(attendanceIdx, 0)
+    const attendanceBlock = employeeRoutes
+      .split('\n')
+      .slice(attendanceIdx, attendanceIdx + 2)
+      .join('\n')
+    assert.include(attendanceBlock, 'DOWNLOAD_PERMISSION')
+    assert.notInclude(attendanceBlock, 'READ_PERMISSION')
   })
 })

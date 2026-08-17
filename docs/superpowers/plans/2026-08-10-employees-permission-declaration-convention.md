@@ -131,7 +131,17 @@ Las URLs que también usa la app no llevan gate en la ruta. El controlador llama
 1. Buscar en `EMPLOYEES_PERMISSION_CATALOG` el slug `read` (Consultar listado de colaboradores). No usar `tab-trabajo-read` para el listado ni para cumpleaños/aniversarios.
 2. Declarar en la ruta: `middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.<clave>)` después de `auth()` y de `businessScope()` si la ruta ya lo usa.
 3. Catálogos del propio módulo que alimentan filtros del listado (`get-work-schedules`, `employee-types`, `termination-catalog`): el mismo `read`.
-4. El exportable `GET /api/employees/employee-generate-excel` se mapea a `read` en esta historia porque acepta el filtro de bajas (regla 4). `download-employees-list` queda para la historia de descargas.
+4. El exportable `GET /api/employees/employee-generate-excel` exige `download-employees-list` (mapa de descargas, USRH1785766406735). Si `isTerminatedEmployeesFilterRequested(onlyInactive)` es verdadero, exige además `read-terminated-employees` con `ensureSecondaryPermission` **antes** de generar el archivo. Tener `read` no otorga la descarga; tener la descarga no otorga ver bajas.
 5. Si `isTerminatedEmployeesFilterRequested(onlyInactive)` es verdadero, exigir además `EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION` con `ensureSecondaryPermission` **antes** de consultar. Si falta, rechazar toda la petición con la 403 del middleware. Nunca quitar el filtro ni devolver solo activos.
 6. Tener `read` no otorga `read-terminated-employees`.
+
+## 11. Cómo elegir el permiso de una descarga o importación masiva
+
+1. Buscar en `EMPLOYEES_PERMISSION_CATALOG` el slug `download-*` o `import-*` de esa superficie (no inventar slugs; no reutilizar el de otra descarga).
+2. Declarar en la ruta: `middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.<clave>)` o, si es importación, `EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.<clave>`, después de `auth()` y de `businessScope()` si la ruta ya lo usa.
+3. Una misma ruta declara un solo `permissionGate`. GET y POST de `/api/employees/attendance-report` comparten `getAttendanceReport`.
+4. Adjunto del expediente y contrato: el gate de ruta es el de descarga; el permiso de lectura de la pestaña se exige en el controlador con `ensureSecondaryPermission` **antes** de leer o enviar el archivo. Con uno solo de los dos, se niega.
+5. Los jobs `POST/GET /api/v1/assists/reports` no estrenan permiso: `employeesAttendanceReportJobDeclaration` elige `download-attendance-by-employee` o `download-attendance-all`. Se evalúa con `ensureSecondaryPermission` antes de encolar y antes de enviar el archivo. Los gates del módulo `employees-attendance-monitor` se quedan.
+6. Conceder un descargable no concede otro. `manage-vacation` no abre `import-vacations`. `read` no abre `download-employees-list`.
+7. Fuente de descargas: `EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS`. No mezclar esas claves en el mapa de lectura del expediente.
 

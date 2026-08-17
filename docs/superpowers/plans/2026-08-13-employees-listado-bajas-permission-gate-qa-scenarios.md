@@ -48,8 +48,8 @@ Tener el primero no otorga el segundo.
 
 | # | Escenario | Criterio de éxito |
 |---|-----------|-------------------|
-| U.1 | El mapa de lectura declara 120 claves | Solo slugs válidos, `module: 'employees'`, `bypass: 'standard'`. |
-| U.2 | Las 9 claves de listado usan `read` | `indexEmployees`, `indexEmployeesToAssigned`, `indexEmployeesWithoutUser`, `getBirthday`, `getAnniversary`, `getWorkSchedules`, `getTerminationCatalog`, `getEmployeesExcel`, `indexEmployeeTypes`. |
+| U.1 | El mapa de lectura declara 119 claves | Solo slugs válidos, `module: 'employees'`, `bypass: 'standard'`. |
+| U.2 | Las 8 claves de listado usan `read` | `indexEmployees`, `indexEmployeesToAssigned`, `indexEmployeesWithoutUser`, `getBirthday`, `getAnniversary`, `getWorkSchedules`, `getTerminationCatalog`, `indexEmployeeTypes`. |
 | U.3 | La constante de bajas es distinta | `EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION.action === 'read-terminated-employees'`. |
 | U.4 | El predicado de bajas solo acepta `true` / `'true'` | `1`, `'1'`, `'TRUE'`, `'false'` son falso. |
 | U.5 | Las 9 rutas declaran gate; las de otros módulos no | Ver spec de rutas. Attendance-report sigue sin `READ_PERMISSION`. |
@@ -72,7 +72,7 @@ Tener el primero no otorga el segundo.
 |---|-----------|-------------------|
 | F-ON.1 | Sin `read` | `GET /api/employees/` → 403 `PERM.DENIED`, sin `data`. |
 | F-ON.2 | Solo `read` | Listado de activos 200; `onlyInactive=true` 403 (no degrada). |
-| F-ON.3 | Rodeo por variante | `to-assigned` y `employee-generate-excel` con `onlyInactive=true` y solo `read` → 403. |
+| F-ON.3 | Rodeo por variante | `to-assigned` con solo `read` + `onlyInactive=true` → 403. El Excel de personal con `download-employees-list` (sin `read-terminated-employees`) + `onlyInactive=true` → 403. El Excel con solo `read` → 403 por falta de `download-employees-list`. |
 | F-ON.4 | `read` + `read-terminated-employees` | `onlyInactive=true` → 200. |
 | F-ON.5 | Homologación | `tab-trabajo-read` no abre el listado. `read` abre cumpleaños, aniversarios, horarios, catálogo de baja, tipos y `without-user`. |
 | F-ON.6 | Alcance intacto | Con `read`, filtrar por un departamento fuera de alcance no entrega esa gente. |
@@ -94,7 +94,6 @@ Tener el primero no otorga el segundo.
 | Tema | No debe incluirse aquí |
 |------|------------------------|
 | Áreas, puestos, sucursales, unidades de negocio | Deuda de otros módulos |
-| Attendance-report y plantillas | Orden 21 |
 | Ficha `GET /:employeeId` | Orden 15 |
 | App / PWA | No consumen esta superficie |
 | `GET /api/employees-vacations/get-excel`, `/get-vacations-used-excel` y `/get-vacations-summary-excel` | Aceptan `onlyInactive` y no se gatean aquí (otra familia de rutas; deuda declarada) |
