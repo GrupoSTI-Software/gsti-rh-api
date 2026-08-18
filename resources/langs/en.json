@@ -159,6 +159,12 @@
   "employee_badge_verification_not_found_title": "Verification code not found",
   "employee_badge_verification_not_found_message": "The verification code does not exist, is invalid, or was revoked.",
   "employee_badge_error_default_title": "Error",
+  "employee_position_level_not_in_position_title": "Level not valid for the position",
+  "employee_position_level_not_in_position_message": "The given level does not belong to the configured levels of the employee's position.",
+  "employee_position_level_inactive_title": "Inactive level",
+  "employee_position_level_inactive_message": "The given level is inactive and cannot be assigned; an employee who already had it keeps it.",
+  "employee_position_level_val_input_title": "Invalid data",
+  "employee_position_level_val_input_message": "The position level identifier is invalid.",
   "employee_badge_unexpected_error_message": "An unexpected error occurred while processing the employee badge.",
   "employee_import_val_file_title": "Invalid file",
   "employee_import_val_file_message": "The file must be a valid Excel workbook (.xlsx or .xls).",
@@ -505,6 +511,7 @@
   "assistance_report": "Assistance Report",
   "incident_summary": "Incident Summary",
   "incident_summary_payroll": "Incident Summary Payroll",
+  "incident_summary_payroll_report": "Incident summary payroll report",
   "incidents": "Incidents",
   "summary_report": "Summary Report",
   "hours_assigned": "Shift Hours",
@@ -796,6 +803,34 @@
   "position_level_forbidden_message": "You do not have permission over the organizational structure",
   "position_level_unexpected_title": "Unexpected error",
   "position_level_unexpected_message": "An unexpected error has occurred on the server",
+  "employee_offboarding_concepts_title": "Offboarding concepts",
+  "employee_offboarding_concepts_listed_message": "Offboarding concepts retrieved successfully",
+  "employee_offboarding_concept_found_message": "Offboarding concept found successfully",
+  "employee_offboarding_concept_created_message": "Offboarding concept created successfully",
+  "employee_offboarding_concept_updated_message": "Offboarding concept updated successfully",
+  "employee_offboarding_concept_deleted_message": "Offboarding concept deleted successfully",
+  "employee_offboarding_val_input_title": "Invalid data",
+  "employee_offboarding_val_input_message": "The request body is not valid",
+  "employee_offboarding_name_taken_title": "Duplicated concept name",
+  "employee_offboarding_name_taken_message": "A concept with that name already exists in this company",
+  "employee_offboarding_not_found_title": "Concept not found",
+  "employee_offboarding_not_found_message": "The offboarding concept does not exist or does not belong to your scope",
+  "employee_offboarding_ref_invalid_title": "Invalid reference",
+  "employee_offboarding_ref_invalid_message": "The company does not exist, is deleted or does not belong to your scope",
+  "employee_offboarding_source_locked_title": "Protected concept",
+  "employee_offboarding_source_locked_message": "The asset return concept is built from the inventory: it does not allow an amount, cannot change its nature and cannot be deleted",
+  "employee_offboarding_source_duplicated_title": "Duplicated derived concept",
+  "employee_offboarding_source_duplicated_message": "The company already has its inventory-derived concept",
+  "employee_offboarding_reorder_invalid_title": "Invalid order",
+  "employee_offboarding_reorder_invalid_message": "The list must cover exactly all the company's current concepts, without duplicates",
+  "employee_offboarding_concepts_reordered_message": "Offboarding concepts reordered successfully",
+  "employee_offboarding_concept_active_updated_message": "Concept status updated successfully",
+  "employee_offboarding_in_use_title": "Concept in use",
+  "employee_offboarding_in_use_message": "The concept was already used on a registered offboarding: deactivate it instead of deleting it",
+  "employee_offboarding_forbidden_title": "No permission",
+  "employee_offboarding_forbidden_message": "You do not have permission on the employee offboardings module",
+  "employee_offboarding_unexpected_title": "Unexpected error",
+  "employee_offboarding_unexpected_message": "An unexpected error has occurred on the server",
   "position_level_list_title": "Position levels",
   "position_level_list_message": "Levels list retrieved successfully",
   "position_level_show_title": "Position level",
@@ -1220,6 +1255,7 @@
   "complaint_employee_not_found": "You do not have an associated employee record to submit a complaint",
   "complaint_person_not_found": "The user does not have an associated person record",
   "complaint_status_not_found": "Incorrect case number or access key",
+  "complaint_rate_limited": "Too many attempts. Please wait a moment before trying again",
   "complaint_case_not_found_for_employee": "The complaint does not exist or does not belong to the authenticated employee",
   "complaint_status_unchanged": "The target status must be different from the current status",
   "complaint_folio_generation_failed": "Could not generate the complaint case number. Please try again.",
@@ -1374,7 +1410,9 @@
           "p01": { "text": "My work requires me to do a lot of physical effort" },
           "p02": { "text": "I am worried about having an accident at my job" },
           "p03": { "text": "I consider the activities I perform to be dangerous" },
-          "p04": { "text": "Due to the amount of work I have, I must stay additional time after my shift" },
+          "p04": {
+            "text": "Due to the amount of work I have, I must stay additional time after my shift"
+          },
           "p05": { "text": "Due to the amount of work I have, I must work without stopping" },
           "p06": { "text": "I consider it necessary to maintain an accelerated work pace" },
           "p07": { "text": "My work requires me to be very concentrated" },
@@ -1386,7 +1424,9 @@
           "p13": { "text": "I consider that in my work I am asked to do unnecessary things" },
           "p14": { "text": "I work overtime more than three times a week" },
           "p15": { "text": "My work requires me to work on rest days, holidays or weekends" },
-          "p16": { "text": "I consider that the time at work is too much and harms my family or personal activities" },
+          "p16": {
+            "text": "I consider that the time at work is too much and harms my family or personal activities"
+          },
           "p17": { "text": "I think about family or personal activities when I am at my work" },
           "p18": { "text": "My work allows me to develop new skills" },
           "p19": { "text": "In my work I can aspire to a better position" },
@@ -1406,10 +1446,14 @@
           "p33": { "text": "In my work I can express myself freely without interruptions" },
           "p34": { "text": "I receive constant criticism of my person and/or work" },
           "p35": { "text": "I receive mockery, slander, defamation, humiliation or ridicule" },
-          "p36": { "text": "My presence is ignored or I am excluded from work meetings and decision-making" },
+          "p36": {
+            "text": "My presence is ignored or I am excluded from work meetings and decision-making"
+          },
           "p37": { "text": "Work situations are manipulated to make me look like a bad worker" },
           "p38": { "text": "My work successes are ignored and attributed to other workers" },
-          "p39": { "text": "I am blocked or prevented from opportunities I have to obtain promotion or improvement in my work" },
+          "p39": {
+            "text": "I am blocked or prevented from opportunities I have to obtain promotion or improvement in my work"
+          },
           "p40": { "text": "I have witnessed acts of violence in my workplace" },
           "p41": { "text": "I attend to very angry customers or users" },
           "p42": { "text": "My work requires me to attend to people very in need of help or sick" },
@@ -1431,12 +1475,18 @@
           "cat_v": { "title": "Organizational environment" }
         },
         "questions": {
-          "p01": { "text": "The space where I work allows me to perform my activities safely and hygienically" },
+          "p01": {
+            "text": "The space where I work allows me to perform my activities safely and hygienically"
+          },
           "p02": { "text": "My work requires me to do a lot of physical effort" },
           "p03": { "text": "I am worried about having an accident at my job" },
-          "p04": { "text": "I consider that occupational safety and health standards are applied in my work" },
+          "p04": {
+            "text": "I consider that occupational safety and health standards are applied in my work"
+          },
           "p05": { "text": "I consider the activities I perform to be dangerous" },
-          "p06": { "text": "Due to the amount of work I have, I must stay additional time after my shift" },
+          "p06": {
+            "text": "Due to the amount of work I have, I must stay additional time after my shift"
+          },
           "p07": { "text": "Due to the amount of work I have, I must work without stopping" },
           "p08": { "text": "I consider it necessary to maintain an accelerated work pace" },
           "p09": { "text": "My work requires me to be very concentrated" },
@@ -1449,7 +1499,9 @@
           "p16": { "text": "I consider that in my work I am asked to do unnecessary things" },
           "p17": { "text": "I work overtime more than three times a week" },
           "p18": { "text": "My work requires me to work on rest days, holidays or weekends" },
-          "p19": { "text": "I consider that the time at work is too much and harms my family or personal activities" },
+          "p19": {
+            "text": "I consider that the time at work is too much and harms my family or personal activities"
+          },
           "p20": { "text": "I must attend to work matters when I am at home" },
           "p21": { "text": "I think about family or personal activities when I am at my work" },
           "p22": { "text": "I think my family responsibilities affect my work" },
@@ -1460,7 +1512,9 @@
           "p27": { "text": "I can decide the speed at which I perform my activities in my work" },
           "p28": { "text": "I can change the order of the activities I perform in my work" },
           "p29": { "text": "The changes that arise in my work hinder my labor" },
-          "p30": { "text": "When changes arise in my work, my ideas or contributions are taken into account" },
+          "p30": {
+            "text": "When changes arise in my work, my ideas or contributions are taken into account"
+          },
           "p31": { "text": "I am clearly informed of what my functions are" },
           "p32": { "text": "The results I must obtain in my work are clearly explained to me" },
           "p33": { "text": "The objectives of my work are clearly explained to me" },
@@ -1478,10 +1532,14 @@
           "p45": { "text": "When we have to perform teamwork, colleagues collaborate" },
           "p46": { "text": "My coworkers help me when I have difficulties" },
           "p47": { "text": "I am informed about what I do well in my work" },
-          "p48": { "text": "The way my work is evaluated in my workplace helps me improve my performance" },
+          "p48": {
+            "text": "The way my work is evaluated in my workplace helps me improve my performance"
+          },
           "p49": { "text": "In my workplace my salary is paid on time" },
           "p50": { "text": "The pay I receive is what I deserve for the work I perform" },
-          "p51": { "text": "If I obtain the expected results in my work, I am rewarded or recognized" },
+          "p51": {
+            "text": "If I obtain the expected results in my work, I am rewarded or recognized"
+          },
           "p52": { "text": "People who do their work well can grow professionally" },
           "p53": { "text": "I consider my work to be stable" },
           "p54": { "text": "In my work there is continuous staff turnover" },
@@ -1490,10 +1548,14 @@
           "p57": { "text": "In my work I can express myself freely without interruptions" },
           "p58": { "text": "I receive constant criticism of my person and/or work" },
           "p59": { "text": "I receive mockery, slander, defamation, humiliation or ridicule" },
-          "p60": { "text": "My presence is ignored or I am excluded from work meetings and decision-making" },
+          "p60": {
+            "text": "My presence is ignored or I am excluded from work meetings and decision-making"
+          },
           "p61": { "text": "Work situations are manipulated to make me look like a bad worker" },
           "p62": { "text": "My work successes are ignored and attributed to other workers" },
-          "p63": { "text": "I am blocked or prevented from opportunities I have to obtain promotion or improvement in my work" },
+          "p63": {
+            "text": "I am blocked or prevented from opportunities I have to obtain promotion or improvement in my work"
+          },
           "p64": { "text": "I have witnessed acts of violence in my workplace" },
           "p65": { "text": "I attend to very angry customers or users" },
           "p66": { "text": "My work requires me to attend to people very in need of help or sick" },
@@ -2483,10 +2545,27 @@
       }
     }
   },
+  "role_preset_invalid_input_title": "Invalid parameters",
+  "role_preset_missing_permissions_title": "Incomplete role preset",
+  "role_preset_missing_permissions_detail": "The preset references permissions that do not exist in the database.",
+  "role_preset_stale_version_title": "Outdated preset version",
+  "role_preset_stale_version_detail": "The preset no longer matches the previewed version.",
+  "role_preset_stale_role_title": "Role not found or changed",
+  "role_preset_stale_role_detail": "The role does not exist or its permissions changed since the preview.",
+  "role_preset_apply_failed_title": "Could not apply the preset",
+  "role_preset_apply_failed_detail": "It was not possible to save the preset. No changes were applied.",
   "system_role_locked_title": "System role",
   "system_role_locked_detail": "The owner and employee roles belong to the platform: they cannot be edited, deleted, or reconfigured from a company.",
+  "role_permissions_assignment_failed_title": "Could not assign the permission",
+  "role_permissions_assignment_failed_detail": "It was not possible to save the role's permission assignment. No changes were applied.",
+  "system_role_locked_batch_title": "System role in the batch",
+  "system_role_locked_batch_detail": "Nothing was saved: the role \"{roleName}\" is a system role and does not support access reassignment from the company.",
+  "role_permissions_batch_assignment_failed_title": "Could not save the permissions",
+  "role_permissions_batch_assignment_failed_detail": "It was not possible to save the batch permission assignment. No changes were applied.",
   "system_role_name_reserved_title": "Reserved role name",
   "system_role_name_reserved_detail": "The role name matches a platform system role; choose a different name.",
+  "session_permission_tree_unresolved_title": "Session permissions unavailable",
+  "session_permission_tree_unresolved_detail": "The session role could not be determined to build the permission list.",
   "system_setting_trade_name_taken_title": "Trade name already in use",
   "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name."
 }

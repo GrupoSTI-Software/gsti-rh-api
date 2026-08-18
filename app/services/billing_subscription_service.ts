@@ -618,7 +618,7 @@ export default class BillingSubscriptionService {
     return subscription
   }
 
-  private async getCurrentPrice(
+  async getCurrentPrice(
     billingPlanId: number,
     referenceDate: string
   ): Promise<InstanceType<typeof BillingPlanPrice> | null> {

@@ -2,26 +2,51 @@ import EmployeeSupplieAssignationPhoto from '#models/employee_supplie_assignatio
 import EmployeeSupplie from '#models/employee_supplie'
 import UploadService from '#services/upload_service'
 
+/** Respuesta uniforme del apartado (no homologar en esta historia). */
+type PhotoServiceResult = {
+  status: number
+  type: 'success' | 'warning' | 'error'
+  title: string
+  message: string
+  data: unknown
+}
+
 export default class EmployeeSuppplyAssignamentPhotoService {
-  async uploadPhotos(
-    employeeSupplyId: number,
-    photos: any[],
-    type: 'assignation' | 'return',
-    uploadService: UploadService
-  ) {
+  /**
+   * Resuelve el insumo asignado dentro del TenantContext activo.
+   * Padre ajeno o inexistente → mismo 404 (no revelar cross-tenant).
+   */
+  private async findEmployeeSupplyOrNotFound(
+    employeeSupplyId: number
+  ): Promise<{ ok: true; employeeSupply: EmployeeSupplie } | { ok: false; result: PhotoServiceResult }> {
     const employeeSupply = await EmployeeSupplie.query()
       .where('employeeSupplyId', employeeSupplyId)
       .first()
 
     if (!employeeSupply) {
       return {
-        status: 404,
-        type: 'warning',
-        title: 'Employee supply not found',
-        message: 'The employee supply was not found',
-        data: null,
+        ok: false,
+        result: {
+          status: 404,
+          type: 'warning',
+          title: 'Employee supply not found',
+          message: 'The employee supply was not found',
+          data: null,
+        },
       }
     }
+
+    return { ok: true, employeeSupply }
+  }
+
+  async uploadPhotos(
+    employeeSupplyId: number,
+    photos: any[],
+    type: 'assignation' | 'return',
+    uploadService: UploadService
+  ): Promise<PhotoServiceResult> {
+    const resolved = await this.findEmployeeSupplyOrNotFound(employeeSupplyId)
+    if (!resolved.ok) return resolved.result
 
     const uploadedPhotos = []
 
@@ -72,20 +97,9 @@ export default class EmployeeSuppplyAssignamentPhotoService {
   async getPhotosByType(
     employeeSupplyId: number,
     type: 'assignation' | 'return'
-  ) {
-    const employeeSupply = await EmployeeSupplie.query()
-      .where('employeeSupplyId', employeeSupplyId)
-      .first()
-
-    if (!employeeSupply) {
-      return {
-        status: 404,
-        type: 'warning',
-        title: 'Employee supply not found',
-        message: 'The employee supply was not found',
-        data: null,
-      }
-    }
+  ): Promise<PhotoServiceResult> {
+    const resolved = await this.findEmployeeSupplyOrNotFound(employeeSupplyId)
+    if (!resolved.ok) return resolved.result
 
     const photos = await EmployeeSupplieAssignationPhoto.query()
       .where('employeeSupplyId', employeeSupplyId)
@@ -104,7 +118,7 @@ export default class EmployeeSuppplyAssignamentPhotoService {
   async deletePhoto(
     photoId: number,
     uploadService: UploadService
-  ) {
+  ): Promise<PhotoServiceResult> {
     const photo = await EmployeeSupplieAssignationPhoto.query()
       .where('employeeSupplieAssignationPhotoId', photoId)
       .first()
@@ -119,12 +133,23 @@ export default class EmployeeSuppplyAssignamentPhotoService {
       }
     }
 
+    const resolved = await this.findEmployeeSupplyOrNotFound(photo.employeeSupplyId)
+    if (!resolved.ok) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Photo not found',
+        message: 'The photo was not found',
+        data: null,
+      }
+    }
+
     const fileUrl = photo.employeeSupplieAssignationPhotoFile
 
     try {
       await uploadService.deleteFile(fileUrl)
-    } catch (error) {
-      // Continue even if S3 deletion fails
+    } catch {
+      // Continuar aunque falle el borrado en S3 (comportamiento vigente).
     }
 
     await photo.delete()

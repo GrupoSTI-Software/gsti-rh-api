@@ -2,6 +2,7 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import limiter from '@adonisjs/limiter/services/main'
+import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
 
 const reportJobCreateLimit = limiter.define('report-job-create', (ctx) => {
   const userId = ctx.auth.user?.userId ?? 'anon'
@@ -12,11 +13,17 @@ router
   .group(() => {
     router.get('/get-flat-list', '#controllers/assists_controller.getAssistFlatList')
     router.get('/get-format-payroll', '#controllers/assists_controller.getFormatPayRoll')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getPayrollFormat))
     router.get('/get-excel-by-employee', '#controllers/assists_controller.getExcelByEmployee')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceByEmployee))
     router.get('/get-excel-by-position', '#controllers/assists_controller.getExcelByPosition')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceByPosition))
     router.get('/get-excel-by-department', '#controllers/assists_controller.getExcelByDepartment')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceByDepartment))
     router.get('/get-excel-all', '#controllers/assists_controller.getExcelAll')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceAll))
     router.get('/get-excel-permissions-dates', '#controllers/assists_controller.getExcelPermissionsByDates')
+      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getPermissionsByDates))
     router.get('/', '#controllers/assists_controller.index')//.use(middleware.auth({ guards: ['api'] }))
     router.get('/status', '#controllers/assists_controller.getStatusSync')
     router.post('/synchronize', '#controllers/assists_controller.synchronize')

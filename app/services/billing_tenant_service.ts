@@ -1,6 +1,10 @@
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
+import BillingSubscriptionChange, {
+  LIVE_SUBSCRIPTION_CHANGE_STATUSES,
+  type BillingSubscriptionChangeType,
+} from '#models/billing_subscription_change'
 import BusinessUnit, { type BusinessUnitOrigin } from '#models/business_unit'
 import BillingCatalogService, { type ResolvedPrice } from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
@@ -78,12 +82,53 @@ export interface TenantSubscriptionSnapshot {
   billingSubscriptionContractedTrialDays: number
   billingSubscriptionTrialEndsAt: string | null
   firstPaymentDate: string | null
+  /** Inicio del periodo vigente, fecha calendario ISO (USRH1786107870865). */
+  billingSubscriptionCurrentPeriodStart: string | null
+  /** Fin del periodo vigente = fecha del próximo pago, fecha calendario ISO (USRH1786107870865). */
+  billingSubscriptionCurrentPeriodEnd: string | null
+  /**
+   * Cambio de cantidad en curso (`pending_payment` o `scheduled`), o `null`.
+   * Forma alineada con la orden 2 (USRH1786107870871).
+   */
+  liveChange: TenantLiveChangeSnapshot | null
+}
+
+/** Importes congelados del periodo al tamaño nuevo (pesos, con Number aplicado). */
+export interface TenantLiveChangeAmounts {
+  subtotal: number
+  taxRate: number
+  taxAmount: number
+  total: number
+}
+
+/** Adeudo prorrateado del aumento; solo presentación (centavos + pesos). */
+export interface TenantLiveChangeProration {
+  amountCents: number
+  amountPesos: number
+}
+
+export interface TenantLiveChangeSnapshot {
+  billingSubscriptionChangeId: number
+  type: BillingSubscriptionChangeType
+  status: 'pending_payment' | 'scheduled'
+  previousEmployees: number
+  newEmployees: number
+  newAmounts: TenantLiveChangeAmounts
+  /** Null en reducción agendada o cuando no hay adeudo. */
+  proration: TenantLiveChangeProration | null
+  /** Fecha calendario ISO; solo en reducción agendada. */
+  effectiveAt: string | null
+  requestedAt: string
 }
 
 export interface MySubscriptionResult {
   businessUnitOrigin: BusinessUnitOrigin
   subscription: TenantSubscriptionSnapshot | null
-  /** Mínimo contratable; solo cuando self_service sin suscripción viva (regla 13). */
+  /**
+   * Mínimo contratable para empresas `self_service` (con o sin suscripción viva).
+   * El muro de contratación lo ignora cuando hay suscripción viva; la pantalla de
+   * ajuste de cantidad (orden 8) lo consume.
+   */
   minimumContractedEmployees: number | null
 }
 
@@ -365,7 +410,7 @@ export default class BillingTenantService {
 
     let minimumContractedEmployees: number | null = null
 
-    if (businessUnit.businessUnitOrigin === 'self_service' && !subscription) {
+    if (businessUnit.businessUnitOrigin === 'self_service') {
       const activeEmployees = await this.employeeQuotaService.countActiveEmployees(
         businessUnitId
       )
@@ -374,7 +419,9 @@ export default class BillingTenantService {
 
     return {
       businessUnitOrigin: businessUnit.businessUnitOrigin,
-      subscription: subscription ? this.toTenantSubscriptionSnapshot(subscription) : null,
+      subscription: subscription
+        ? await this.toTenantSubscriptionSnapshot(subscription, businessUnitId)
+        : null,
       minimumContractedEmployees,
     }
   }
@@ -448,10 +495,65 @@ export default class BillingTenantService {
     }
   }
 
-  private toTenantSubscriptionSnapshot(
-    subscription: BillingSubscription
-  ): TenantSubscriptionSnapshot {
+  private async findLiveSubscriptionChange(
+    businessUnitId: number,
+    billingSubscriptionId: number
+  ): Promise<BillingSubscriptionChange | null> {
+    return BillingSubscriptionChange.query()
+      .where('business_unit_id', businessUnitId)
+      .where('billing_subscription_id', billingSubscriptionId)
+      .whereIn('billing_subscription_change_status', LIVE_SUBSCRIPTION_CHANGE_STATUSES)
+      .whereNull('billing_subscription_change_deleted_at')
+      .orderBy('billing_subscription_change_id', 'asc')
+      .first()
+  }
+
+  private toLiveChangeSnapshot(
+    change: BillingSubscriptionChange
+  ): TenantLiveChangeSnapshot | null {
+    if (!LIVE_SUBSCRIPTION_CHANGE_STATUSES.includes(change.billingSubscriptionChangeStatus)) {
+      return null
+    }
+
+    const amountCents = change.billingSubscriptionChangeProratedAmountCents
+    const proration =
+      change.billingSubscriptionChangeType === 'increase' && amountCents > 0
+        ? {
+            amountCents,
+            amountPesos: amountCents / 100,
+          }
+        : null
+
+    return {
+      billingSubscriptionChangeId: change.billingSubscriptionChangeId,
+      type: change.billingSubscriptionChangeType,
+      status: change.billingSubscriptionChangeStatus as 'pending_payment' | 'scheduled',
+      previousEmployees: change.billingSubscriptionChangePreviousEmployees,
+      newEmployees: change.billingSubscriptionChangeNewEmployees,
+      newAmounts: {
+        subtotal: Number(change.billingSubscriptionChangeSubtotal),
+        taxRate: Number(change.billingSubscriptionChangeTaxRate),
+        taxAmount: Number(change.billingSubscriptionChangeTaxAmount),
+        total: Number(change.billingSubscriptionChangeTotal),
+      },
+      proration,
+      effectiveAt:
+        change.billingSubscriptionChangeType === 'decrease'
+          ? toCalendarIsoDate(change.billingSubscriptionChangeEffectiveAt)
+          : null,
+      requestedAt: change.billingSubscriptionChangeCreatedAt.toISO() ?? '',
+    }
+  }
+
+  private async toTenantSubscriptionSnapshot(
+    subscription: BillingSubscription,
+    businessUnitId: number
+  ): Promise<TenantSubscriptionSnapshot> {
     const trialEndsAtIso = toCalendarIsoDate(subscription.billingSubscriptionTrialEndsAt)
+    const liveChangeRow = await this.findLiveSubscriptionChange(
+      businessUnitId,
+      subscription.billingSubscriptionId
+    )
 
     return {
       billingSubscriptionId: subscription.billingSubscriptionId,
@@ -475,6 +577,13 @@ export default class BillingTenantService {
       billingSubscriptionContractedTrialDays: subscription.billingSubscriptionContractedTrialDays,
       billingSubscriptionTrialEndsAt: trialEndsAtIso,
       firstPaymentDate: trialEndsAtIso,
+      billingSubscriptionCurrentPeriodStart: toCalendarIsoDate(
+        subscription.billingSubscriptionCurrentPeriodStart
+      ),
+      billingSubscriptionCurrentPeriodEnd: toCalendarIsoDate(
+        subscription.billingSubscriptionCurrentPeriodEnd
+      ),
+      liveChange: liveChangeRow ? this.toLiveChangeSnapshot(liveChangeRow) : null,
     }
   }
 

@@ -491,6 +491,12 @@ export default class extends BaseSeeder {
         systemModuleId: 7
       },
       {
+        systemPermissionId: 206,
+        systemPermissionName: 'See payroll mode',
+        systemPermissionSlug: 'see-payroll',
+        systemModuleId: 7
+      },
+      {
         systemPermissionId: 127,
         systemPermissionName: 'Acceder',
         systemPermissionSlug: 'read',

@@ -7,6 +7,7 @@ import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
 import env from '../../start/env.js'
 import UserService from '#services/user_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { createUserValidator, updateUserValidator } from '#validators/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
 import { DateTime } from 'luxon'
@@ -20,12 +21,21 @@ import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import AuthTokenService from '#services/auth_token_service'
 import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_service'
+import RoleService from '#services/role_service'
+import { AUTH_LOGIN_ERRORS } from '#constants/auth_login_error_codes'
 import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
+import { secureRandomInt } from '#helpers/csprng_string'
 
+/**
+ * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
+ * de siempre; solo cambia la fuente de aleatoriedad — `crypto.randomInt`
+ * ya es uniforme y sin sesgo de módulo, así que no hace falta reimplementar
+ * el muestreo con rechazo (helper compartido con USRH1783115930049).
+ */
 function generateRecoveryPin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(secureRandomInt(100000, 1000000))
 }
 
 export default class UserController {
@@ -295,6 +305,39 @@ export default class UserController {
         }
       }
 
+      let userVerify = false
+      try {
+        await User.verifyCredentials(userEmail, userPassword)
+        userVerify = true
+      } catch (error) {
+        if (error.code !== 'E_INVALID_CREDENTIALS') {
+          throw error
+        }
+      }
+
+      if (!userVerify) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Login',
+          message: 'Incorrect email or password',
+          data: { user: {} },
+        }
+      }
+
+      if (origin === 'web') {
+        const roleService = new RoleService()
+        const employeeRole = await roleService.findRoleBySlug('empleado')
+        if (employeeRole && user.roleId === employeeRole.roleId) {
+          response.status(403)
+          return {
+            title: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.title,
+            detail: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.detail,
+            key: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.key,
+          }
+        }
+      }
+
       await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       if (Ws.io) {
@@ -303,47 +346,36 @@ export default class UserController {
         } catch (error) {}
       }
 
-      const userVerify = await User.verifyCredentials(userEmail, userPassword)
       const authTokenService = new AuthTokenService()
       const { accessToken, refreshToken } = await authTokenService.issueTokenPair(user, origin)
 
-      if (userVerify) {
-        const date = DateTime.local().setZone('utc').toISO()
-        try {
-          const rawHeaders = request.request.rawHeaders
-          const userService = new UserService(i18n)
-          const userAgent = userService.getHeaderValue(rawHeaders, 'User-Agent')
-          const secChUaPlatform = userService.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
-          const secChUa = userService.getHeaderValue(rawHeaders, 'sec-ch-ua')
-          const originHeader = userService.getHeaderValue(rawHeaders, 'Origin')
-          await LogStore.set('log_authentication', {
-            user_agent: userAgent,
-            sec_ch_ua_platform: secChUaPlatform,
-            sec_ch_ua: secChUa,
-            origin: originHeader,
-            date: date ? date : '',
-            user_id: user.userId,
-          } as LogAuthentication)
-        } catch (err) {}
-        response.status(200)
-        return {
-          type: 'success',
-          title: 'Login',
-          message: 'You have successfully logged in',
-          data: {
-            user: user,
-            token: accessToken,
-            refreshToken,
-          },
-        }
-      } else {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'Login',
-          message: 'Incorrect email or password',
-          data: { user: {} },
-        }
+      const date = DateTime.local().setZone('utc').toISO()
+      try {
+        const rawHeaders = request.request.rawHeaders
+        const userService = new UserService(i18n)
+        const userAgent = userService.getHeaderValue(rawHeaders, 'User-Agent')
+        const secChUaPlatform = userService.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
+        const secChUa = userService.getHeaderValue(rawHeaders, 'sec-ch-ua')
+        const originHeader = userService.getHeaderValue(rawHeaders, 'Origin')
+        await LogStore.set('log_authentication', {
+          user_agent: userAgent,
+          sec_ch_ua_platform: secChUaPlatform,
+          sec_ch_ua: secChUa,
+          origin: originHeader,
+          date: date ? date : '',
+          user_id: user.userId,
+        } as LogAuthentication)
+      } catch (err) {}
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Login',
+        message: 'You have successfully logged in',
+        data: {
+          user: user,
+          token: accessToken,
+          refreshToken,
+        },
       }
     } catch (error) {
       response.status(500)
@@ -1708,10 +1740,39 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
-      const input = request.all()
       const userId = request.param('userId')
+      if (!userId) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'The user Id was not found',
+          message: 'Missing data to process',
+          data: { userId },
+        }
+      }
+
+      const userService = new UserService(i18n)
+      const currentUser = await userService.findActiveInBusinessUnitScope(userId, businessUnitScope)
+      if (!currentUser) {
+        await ScopeDeniedLogService.log({
+          domain: 'user',
+          action: 'update',
+          requestedId: userId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The user was not found',
+          message: 'The user was not found with the entered ID',
+          data: { userId },
+        }
+      }
+
+      const input = request.all()
       const userEmail = request.input('userEmail')
       let userPassword = request.input('userPassword')
       const passwordArray = Array.isArray(userPassword)
@@ -1733,30 +1794,7 @@ export default class UserController {
         personId: personId,
         userEmailType: userEmailType,
       } as User
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { ...user },
-        }
-      }
-      const currentUser = await User.query()
-        .whereNull('user_deleted_at')
-        .where('user_id', userId)
-        .first()
-      if (!currentUser) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { ...user },
-        }
-      }
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      const userService = new UserService(i18n)
       const data = await request.validateUsing(updateUserValidator)
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
@@ -1925,7 +1963,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async delete({ auth, request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const userId = request.param('userId')
       if (!userId) {
@@ -1937,11 +1975,16 @@ export default class UserController {
           data: { userId },
         }
       }
-      const currentUser = await User.query()
-        .whereNull('user_deleted_at')
-        .where('user_id', userId)
-        .first()
+      const userService = new UserService(i18n)
+      const currentUser = await userService.findActiveInBusinessUnitScope(userId, businessUnitScope)
       if (!currentUser) {
+        await ScopeDeniedLogService.log({
+          domain: 'user',
+          action: 'delete',
+          requestedId: userId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -1950,7 +1993,6 @@ export default class UserController {
           data: { userId },
         }
       }
-      const userService = new UserService(i18n)
       const deleteUser = await userService.delete(currentUser)
       if (deleteUser) {
         const rawHeaders = request.request.rawHeaders
@@ -2079,7 +2121,7 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const userId = request.param('userId')
       if (!userId) {
@@ -2092,8 +2134,15 @@ export default class UserController {
         }
       }
       const userService = new UserService(i18n)
-      const showUser = await userService.show(userId)
+      const showUser = await userService.show(userId, businessUnitScope)
       if (!showUser) {
+        await ScopeDeniedLogService.log({
+          domain: 'user',
+          action: 'show',
+          requestedId: userId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',

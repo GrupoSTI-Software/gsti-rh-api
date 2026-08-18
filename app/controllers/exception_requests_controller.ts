@@ -21,6 +21,11 @@ import NotificationEmailService from '#services/notification_email_service'
 import EmployeeService from '#services/employee_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { resolveRequestBusinessUnitId } from '../helpers/resolve_request_business_unit_id.js'
+import { exceptionRequestAcceptTouchesVacation } from '#helpers/shift_exception_touches_vacation'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_MANAGE_VACATION_PERMISSION } from '#constants/employees_write_permission_declarations'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 /** Slugs de roles de RRHH que ven solicitudes sin jefe directo con usuario */
 const RRHH_ROLE_SLUGS = ['rh-manager', 'recursos-humanos'] as const
@@ -98,6 +103,14 @@ export default class ExceptionRequestsController {
   async updateStatus(ctx: HttpContext) {
     const { auth, request, params, response, i18n } = ctx
     const { status, description } = request.only(['status', 'description'])
+    const exceptionRequestId = Number(params.id)
+
+    if (await exceptionRequestAcceptTouchesVacation(exceptionRequestId, status)) {
+      const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+      if (!allowed) {
+        return
+      }
+    }
 
     if (status !== 'accepted' && status !== 'refused') {
       return response.status(400).json({
@@ -597,9 +610,28 @@ export default class ExceptionRequestsController {
    *       404:
    *         description: Exception request not found
    */
-  async show({ params, response }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { params, response } = ctx
     try {
-      const exceptionRequest = await ExceptionRequest.findOrFail(params.id)
+      const exceptionRequest = await ExceptionRequest.find(params.id)
+      const allowed = exceptionRequest
+        ? await ensureEmployeeTabRead(
+            ctx,
+            exceptionRequest.employeeId,
+            EMPLOYEES_READ_PERMISSION_DECLARATIONS.showExceptionRequest
+          )
+        : await ensureSecondaryPermission(
+            ctx,
+            EMPLOYEES_READ_PERMISSION_DECLARATIONS.showExceptionRequest
+          )
+      if (!allowed) {
+        return
+      }
+      if (!exceptionRequest) {
+        return response
+          .status(404)
+          .json(formatResponse('error', 'Not Found', 'Resource not found', 'NO DATA'))
+      }
       return response
         .status(200)
         .json(

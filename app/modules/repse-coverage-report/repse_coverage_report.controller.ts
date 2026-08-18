@@ -1,22 +1,12 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
-import {
-  assertComplianceRepsePermission,
-  type ComplianceRepseAction,
-} from '../../helpers/compliance_repse_rbac.js'
-import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '#constants/contrato_servicio_especializado_error_codes'
 import RepseCoverageReportService from './repse_coverage_report.service.js'
 import {
   getRepseCoverageReportExportValidator,
   getRepseCoverageReportValidator,
 } from './validators/get_repse_coverage_report.validator.js'
 
-const MODULE_SLUG = 'compliance-contratos'
-const RBAC_FORBIDDEN = {
-  errorCode: CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.FORBIDDEN,
-  i18nPrefix: 'contrato_servicio_especializado',
-}
 const MAX_REPORT_RANGE_DAYS = 366
 
 export default class RepseCoverageReportController {
@@ -95,14 +85,13 @@ export default class RepseCoverageReportController {
    *       '401':
    *         description: No autenticado
    *       '403':
-   *         description: Sin permiso read o gestion
+   *         description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
    *       '422':
    *         description: key rango-fechas-invalido
    */
   async index(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     if (!(await this.assertAuthenticated(ctx))) return
-    if (!(await this.assertHasPermission(ctx, 'read'))) return
 
     try {
       const payload = await request.validateUsing(getRepseCoverageReportValidator, {
@@ -169,14 +158,13 @@ export default class RepseCoverageReportController {
    *       '401':
    *         description: No autenticado
    *       '403':
-   *         description: Sin permiso read o gestion
+   *         description: Permiso denegado o no resuelto (key PERM.DENIED o PERM.UNRESOLVED)
    *       '422':
    *         description: key rango-fechas-invalido
    */
   async export(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     if (!(await this.assertAuthenticated(ctx))) return
-    if (!(await this.assertHasPermission(ctx, 'read'))) return
 
     try {
       const payload = await request.validateUsing(getRepseCoverageReportExportValidator, {
@@ -248,10 +236,6 @@ export default class RepseCoverageReportController {
       data: null,
     })
     return false
-  }
-
-  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
-    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private validationOrUnhandledError(error: unknown, ctx: HttpContext, fallbackStatus: number) {
