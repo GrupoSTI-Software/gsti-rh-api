@@ -1,9 +1,11 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { DateTime } from 'luxon'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import {
   createBillingSubscriptionValidator,
   changePlanValidator,
   cancelSubscriptionValidator,
+  listBillingSubscriptionsValidator,
 } from '#validators/billing_subscription'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
 
@@ -52,17 +54,145 @@ export default class BillingSubscriptionController {
    *   get:
    *     tags:
    *       - Platform Billing
-   *     summary: Listar suscripciones registradas
+   *     summary: Listar suscripciones registradas, con filtros y paginación server-side
+   *     description: |
+   *       Todos los parámetros de query son opcionales y se combinan con AND.
+   *       Sin ningún criterio, se comporta igual que antes: todas las
+   *       suscripciones vivas, en orden `billing_subscription_id asc`. El
+   *       filtrado se resuelve por completo en el servidor; ningún criterio
+   *       relaja `whereNull(billing_subscription_deleted_at)` ni amplía la
+   *       visibilidad — las eliminadas lógicamente siguen fuera y las
+   *       canceladas siguen dentro. Un criterio inválido o un rango invertido
+   *       (`minEmployees > maxEmployees`, `minTotal > maxTotal`,
+   *       `trialEndsFrom > trialEndsTo`) se rechaza con
+   *       `422 PLT.SUB.VAL_INPUT`; nunca se ignora en silencio.
    *     security:
    *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Texto parcial contra el nombre de la empresa (sin distinguir mayúsculas)
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *           enum: [trialing, active, past_due, canceled]
+   *       - in: query
+   *         name: billingPlanId
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: minEmployees
+   *         schema:
+   *           type: integer
+   *           minimum: 0
+   *       - in: query
+   *         name: maxEmployees
+   *         schema:
+   *           type: integer
+   *           minimum: 0
+   *       - in: query
+   *         name: minTotal
+   *         schema:
+   *           type: number
+   *           minimum: 0
+   *       - in: query
+   *         name: maxTotal
+   *         schema:
+   *           type: number
+   *           minimum: 0
+   *       - in: query
+   *         name: trialEndsFrom
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Día civil en zona de negocio, límite inferior inclusive
+   *       - in: query
+   *         name: trialEndsTo
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Día civil en zona de negocio, límite superior inclusive
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 20
+   *           maximum: 100
    *     responses:
    *       '200':
-   *         description: Lista de suscripciones con empresa y plan precargados
+   *         description: Lista de suscripciones con empresa y plan precargados, más `meta` de paginación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 data:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                 meta:
+   *                   type: object
+   *                   properties:
+   *                     total:
+   *                       type: integer
+   *                     page:
+   *                       type: integer
+   *                     limit:
+   *                       type: integer
+   *                     lastPage:
+   *                       type: integer
+   *       '422':
+   *         description: Criterio inválido o rango invertido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.VAL_INPUT
    */
-  async index({ response }: HttpContext) {
+  async index({ request, response }: HttpContext) {
     try {
-      const subscriptions = await this.service.listSubscriptions()
-      return response.status(200).json({ type: 'success', data: subscriptions })
+      const filters = await request.validateUsing(listBillingSubscriptionsValidator)
+      const {
+        search,
+        status,
+        billingPlanId,
+        minEmployees,
+        maxEmployees,
+        minTotal,
+        maxTotal,
+        trialEndsFrom,
+        trialEndsTo,
+        page,
+        limit,
+      } = filters
+      const result = await this.service.listSubscriptions({
+        search,
+        status,
+        billingPlanId,
+        minEmployees,
+        maxEmployees,
+        minTotal,
+        maxTotal,
+        trialEndsFrom: trialEndsFrom ? DateTime.fromJSDate(trialEndsFrom).toISODate()! : undefined,
+        trialEndsTo: trialEndsTo ? DateTime.fromJSDate(trialEndsTo).toISODate()! : undefined,
+        page,
+        limit,
+      })
+      return response.status(200).json({ type: 'success', ...result })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

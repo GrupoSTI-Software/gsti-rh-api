@@ -47,6 +47,31 @@ export interface BusinessUnitListItem {
   minimumContractedEmployees: number
 }
 
+/**
+ * Criterios de `GET /api/platform/billing/subscriptions` (USRH1785962095092).
+ * Todos opcionales; se combinan con AND sobre la consulta.
+ */
+export interface ListSubscriptionsFilters {
+  search?: string
+  status?: BillingSubscription['billingSubscriptionStatus']
+  billingPlanId?: number
+  minEmployees?: number
+  maxEmployees?: number
+  minTotal?: number
+  maxTotal?: number
+  /** Fecha `YYYY-MM-DD`, día civil en zona de negocio, límite inferior inclusive. */
+  trialEndsFrom?: string
+  /** Fecha `YYYY-MM-DD`, día civil en zona de negocio, límite superior inclusive. */
+  trialEndsTo?: string
+  page?: number
+  limit?: number
+}
+
+export interface ListSubscriptionsResult {
+  data: BillingSubscription[]
+  meta: { total: number; page: number; limit: number; lastPage: number }
+}
+
 /** Código de error MySQL para violación de índice UNIQUE (defensa en profundidad). */
 const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
 
@@ -106,12 +131,125 @@ export default class BillingSubscriptionService {
 
   // ─── Suscripciones ────────────────────────────────────────────────────────
 
-  async listSubscriptions(): Promise<BillingSubscription[]> {
-    return BillingSubscription.query()
+  /**
+   * Listado paginado de suscripciones con filtrado server-side
+   * (USRH1785962095092). Sin criterios, se comporta como antes: todas las
+   * suscripciones vivas, en orden `billing_subscription_id asc`. Ningún
+   * filtro relaja `whereNull(deleted_at)` ni cambia el orden por defecto.
+   */
+  async listSubscriptions(
+    filters: ListSubscriptionsFilters = {}
+  ): Promise<ListSubscriptionsResult> {
+    this.assertSubscriptionFilterRanges(filters)
+
+    const page = filters.page ?? 1
+    const limit = Math.min(filters.limit ?? 20, 100)
+
+    const query = BillingSubscription.query()
       .whereNull('billing_subscription_deleted_at')
       .preload('businessUnit')
       .preload('plan')
       .orderBy('billing_subscription_id', 'asc')
+
+    if (filters.search) {
+      const term = `%${filters.search.toUpperCase()}%`
+      query.whereHas('businessUnit', (buQuery) => {
+        buQuery.whereRaw('UPPER(business_unit_name) LIKE ?', [term])
+      })
+    }
+
+    if (filters.status !== undefined) {
+      query.where('billing_subscription_status', filters.status)
+    }
+
+    if (filters.billingPlanId !== undefined) {
+      query.where('billing_plan_id', filters.billingPlanId)
+    }
+
+    if (filters.minEmployees !== undefined) {
+      query.where('billing_subscription_contracted_employees', '>=', filters.minEmployees)
+    }
+
+    if (filters.maxEmployees !== undefined) {
+      query.where('billing_subscription_contracted_employees', '<=', filters.maxEmployees)
+    }
+
+    if (filters.minTotal !== undefined) {
+      query.where('billing_subscription_contracted_total', '>=', filters.minTotal)
+    }
+
+    if (filters.maxTotal !== undefined) {
+      query.where('billing_subscription_contracted_total', '<=', filters.maxTotal)
+    }
+
+    if (filters.trialEndsFrom !== undefined) {
+      query.whereRaw('DATE(billing_subscription_trial_ends_at) >= ?', [filters.trialEndsFrom])
+    }
+
+    if (filters.trialEndsTo !== undefined) {
+      query.whereRaw('DATE(billing_subscription_trial_ends_at) <= ?', [filters.trialEndsTo])
+    }
+
+    const paginated = await query.paginate(page, limit)
+    const json = paginated.toJSON()
+
+    return {
+      data: json.data as BillingSubscription[],
+      meta: {
+        total: json.meta.total,
+        page: json.meta.currentPage,
+        limit: json.meta.perPage,
+        lastPage: json.meta.lastPage,
+      },
+    }
+  }
+
+  /**
+   * Validación cruzada de rangos (regla 7 del spec): un mínimo mayor que su
+   * máximo, o un `trialEndsFrom` posterior a `trialEndsTo`, se rechaza con
+   * `422 PLT.SUB.VAL_INPUT`. VineJS no ofrece una regla inclusiva de
+   * comparación entre dos campos, por eso se valida aquí.
+   */
+  private assertSubscriptionFilterRanges(filters: ListSubscriptionsFilters): void {
+    if (
+      filters.minEmployees !== undefined &&
+      filters.maxEmployees !== undefined &&
+      filters.minEmployees > filters.maxEmployees
+    ) {
+      throw this.filterRangeError(
+        'El mínimo de empleados contratados no puede ser mayor que el máximo.'
+      )
+    }
+
+    if (
+      filters.minTotal !== undefined &&
+      filters.maxTotal !== undefined &&
+      filters.minTotal > filters.maxTotal
+    ) {
+      throw this.filterRangeError(
+        'El total mínimo contratado no puede ser mayor que el máximo.'
+      )
+    }
+
+    if (
+      filters.trialEndsFrom !== undefined &&
+      filters.trialEndsTo !== undefined &&
+      filters.trialEndsFrom > filters.trialEndsTo
+    ) {
+      throw this.filterRangeError(
+        'La fecha final de fin de prueba no puede ser anterior a la inicial.'
+      )
+    }
+  }
+
+  private filterRangeError(detail: string): BillingSubscriptionServiceError {
+    return new BillingSubscriptionServiceError(
+      detail,
+      BILLING_SUBSCRIPTION_ERROR_CODES.VAL_INPUT,
+      422,
+      'PLT.SUB.VAL_INPUT',
+      detail
+    )
   }
 
   async getSubscription(subscriptionId: number): Promise<BillingSubscription> {
