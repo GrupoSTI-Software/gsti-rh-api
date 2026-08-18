@@ -7,7 +7,6 @@ import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
 import env from '../../start/env.js'
 import UserService from '#services/user_service'
-import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { createUserValidator, updateUserValidator } from '#validators/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
 import { DateTime } from 'luxon'
@@ -1757,38 +1756,9 @@ export default class UserController {
    *                   type: string
    *                   description: Type of response generated
    */
-  async resendAccess({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
-    const userId = Number(request.param('userId'))
-    if (!Number.isInteger(userId) || userId <= 0) {
-      const err = USER_INVITATION_RESEND_ERRORS.NOT_FOUND
-      response.status(err.status)
-      return {
-        title: err.title,
-        detail: err.detail,
-        key: err.key,
-        code: err.code,
-      }
-    }
-
+  async resendAccess({ response, i18n, scopedUser }: HttpContext) {
+    const targetUser = scopedUser!
     const userService = new UserService(i18n)
-    const targetUser = await userService.findActiveInBusinessUnitScope(userId, businessUnitScope)
-    if (!targetUser) {
-      await ScopeDeniedLogService.log({
-        domain: 'user',
-        action: 'resend-access',
-        requestedId: userId,
-        actorUserId: auth.user?.userId ?? null,
-        businessUnitScope,
-      })
-      const err = USER_INVITATION_RESEND_ERRORS.NOT_FOUND
-      response.status(err.status)
-      return {
-        title: err.title,
-        detail: err.detail,
-        key: err.key,
-        code: err.code,
-      }
-    }
 
     if (targetUser.userPasswordSetAt !== null) {
       const err = USER_INVITATION_RESEND_ERRORS.ALREADY_ACTIVATED
@@ -1940,37 +1910,11 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async update({ auth, request, response, i18n, scopedUser }: HttpContext) {
     try {
-      const userId = request.param('userId')
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { userId },
-        }
-      }
-
+      const currentUser = scopedUser!
+      const userId = currentUser.userId
       const userService = new UserService(i18n)
-      const currentUser = await userService.findActiveInBusinessUnitScope(userId, businessUnitScope)
-      if (!currentUser) {
-        await ScopeDeniedLogService.log({
-          domain: 'user',
-          action: 'update',
-          requestedId: userId,
-          actorUserId: auth.user?.userId ?? null,
-          businessUnitScope,
-        })
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { userId },
-        }
-      }
 
       const userEmail = request.input('userEmail')
       const userActive = request.input('userActive')
@@ -2147,36 +2091,10 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async delete({ auth, request, response, i18n, scopedUser }: HttpContext) {
     try {
-      const userId = request.param('userId')
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { userId },
-        }
-      }
+      const currentUser = scopedUser!
       const userService = new UserService(i18n)
-      const currentUser = await userService.findActiveInBusinessUnitScope(userId, businessUnitScope)
-      if (!currentUser) {
-        await ScopeDeniedLogService.log({
-          domain: 'user',
-          action: 'delete',
-          requestedId: userId,
-          actorUserId: auth.user?.userId ?? null,
-          businessUnitScope,
-        })
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { userId },
-        }
-      }
       const deleteUser = await userService.delete(currentUser)
       if (deleteUser) {
         const rawHeaders = request.request.rawHeaders
@@ -2305,36 +2223,11 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async show({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async show({ response, i18n, businessUnitScope, scopedUser }: HttpContext) {
     try {
-      const userId = request.param('userId')
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { userId },
-        }
-      }
       const userService = new UserService(i18n)
-      const showUser = await userService.show(userId, businessUnitScope)
-      if (!showUser) {
-        await ScopeDeniedLogService.log({
-          domain: 'user',
-          action: 'show',
-          requestedId: userId,
-          actorUserId: auth.user?.userId ?? null,
-          businessUnitScope,
-        })
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { userId },
-        }
-      } else {
+      const showUser = await userService.show(scopedUser!.userId, businessUnitScope)
+      if (showUser) {
         response.status(200)
         return {
           type: 'success',
@@ -2342,6 +2235,14 @@ export default class UserController {
           message: 'The user was found successfully',
           data: { user: showUser },
         }
+      }
+
+      response.status(404)
+      return {
+        type: 'warning',
+        title: 'The user was not found',
+        message: 'The user was not found with the entered ID',
+        data: { userId: scopedUser!.userId },
       }
     } catch (error) {
       response.status(500)

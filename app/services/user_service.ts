@@ -90,6 +90,7 @@ export default class UserService {
       'role_id',
       'person_id',
       'user_email_type',
+      'user_password_set_at',
     ]
     const users = await User.query()
       .whereNull('user_deleted_at')
@@ -224,6 +225,7 @@ export default class UserService {
       'role_id',
       'person_id',
       'user_email_type',
+      'user_password_set_at',
     ]
     let query = User.query()
       .whereNull('user_deleted_at')

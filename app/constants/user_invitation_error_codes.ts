@@ -58,3 +58,62 @@ export const USER_INVITATION_LOGIN_ERRORS = {
     status: 403,
   },
 } as const
+
+/**
+ * Códigos estables para aceptar invitación y fijar contraseña (USRH1786736057525).
+ * Prefijo INV = Invitation accept.
+ */
+export const AUTH_INVITATION_ERROR_CODES = {
+  /** Enlace inexistente, vencido o ya consumido (respuesta indistinguible). */
+  INVALID_LINK: 'INV.NF.001',
+  /** Contraseña que no cumple la política de seguridad. */
+  PASSWORD_POLICY: 'INV.VAL.001',
+  /** Confirmación distinta a la contraseña. */
+  PASSWORD_MISMATCH: 'INV.VAL.002',
+  /** Cupo de intentos agotado por token o por IP. */
+  RATE_LIMITED: 'INV.RATE.001',
+} as const
+
+export type AuthInvitationErrorCode =
+  (typeof AUTH_INVITATION_ERROR_CODES)[keyof typeof AUTH_INVITATION_ERROR_CODES]
+
+export interface AuthInvitationErrorDefinition {
+  key: string
+  title: string
+  detail: string
+  code: AuthInvitationErrorCode
+  status: number
+}
+
+export const AUTH_INVITATION_ERRORS = {
+  INVALID_LINK: {
+    key: 'enlace-no-valido',
+    title: 'Enlace no válido',
+    detail:
+      'El enlace de invitación no es válido o ya no está disponible. Solicita uno nuevo a tu administrador.',
+    code: AUTH_INVITATION_ERROR_CODES.INVALID_LINK,
+    status: 404,
+  },
+  PASSWORD_POLICY: {
+    key: 'contrasena-no-valida',
+    title: 'Contraseña no válida',
+    detail:
+      'La contraseña debe tener al menos 12 caracteres e incluir una mayúscula, un número y un símbolo.',
+    code: AUTH_INVITATION_ERROR_CODES.PASSWORD_POLICY,
+    status: 422,
+  },
+  PASSWORD_MISMATCH: {
+    key: 'la-confirmacion-no-coincide',
+    title: 'Contraseña no válida',
+    detail: 'La confirmación no coincide con la contraseña.',
+    code: AUTH_INVITATION_ERROR_CODES.PASSWORD_MISMATCH,
+    status: 422,
+  },
+  RATE_LIMITED: {
+    key: 'demasiados-intentos-invitacion',
+    title: 'Demasiados intentos',
+    detail: 'Se alcanzó el límite de intentos para este enlace. Intenta de nuevo más tarde.',
+    code: AUTH_INVITATION_ERROR_CODES.RATE_LIMITED,
+    status: 429,
+  },
+} as const satisfies Record<string, AuthInvitationErrorDefinition>

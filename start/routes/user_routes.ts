@@ -35,11 +35,21 @@ router
     router
       .post('/:userId/resend-access', '#controllers/user_controller.resendAccess')
       .use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.update))
+      .use(middleware.userResourceScope({ action: 'resend-access', notFoundResponse: 'invitation' }))
       .use(resendAccessUserRateLimit)
       .use(resendAccessBusinessUnitRateLimit)
-    router.put('/:userId', '#controllers/user_controller.update').use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.update))
-    router.delete('/:userId', '#controllers/user_controller.delete').use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.delete))
-    router.get('/:userId', '#controllers/user_controller.show').use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.show))
+    router
+      .put('/:userId', '#controllers/user_controller.update')
+      .use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.update))
+      .use(middleware.userResourceScope({ action: 'update' }))
+    router
+      .delete('/:userId', '#controllers/user_controller.delete')
+      .use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.delete))
+      .use(middleware.userResourceScope({ action: 'delete' }))
+    router
+      .get('/:userId', '#controllers/user_controller.show')
+      .use(middleware.permissionGate(USERS_PERMISSION_DECLARATIONS.show))
+      .use(middleware.userResourceScope({ action: 'show' }))
   })
   .prefix('/api/users')
   .use(middleware.auth())
