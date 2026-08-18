@@ -6,8 +6,14 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import {
+  assertContractedEmployees,
+  assertMinimumContractedEmployees,
+  resolveMinimumContractedEmployees,
+} from '../helpers/contracted_employees_rules.js'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 
 // ---------------------------------------------------------------------------
@@ -37,6 +43,8 @@ export interface BusinessUnitListItem {
   businessUnitPublicId: string
   businessUnitName: string
   activeEmployees: number
+  /** Mínimo contratable: plantilla activa redondeada al siguiente bloque de 10. */
+  minimumContractedEmployees: number
 }
 
 /** Código de error MySQL para violación de índice UNIQUE (defensa en profundidad). */
@@ -60,12 +68,16 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
  */
 export default class BillingSubscriptionService {
   private readonly catalog = new BillingCatalogService()
+  private readonly employeeQuota = new EmployeeQuotaService()
 
   // ─── Empresas (picker del alta) ──────────────────────────────────────────
 
   /**
-   * Lista empresas activas con su conteo de empleados activos, para el
-   * picker del drawer de alta (`GET /api/platform/billing/business-units`).
+   * Lista empresas activas con su conteo canónico de empleados activos y el
+   * mínimo contratable, para el picker del drawer de alta
+   * (`GET /api/platform/billing/business-units`). El conteo sale de
+   * `EmployeeQuotaService`, fuente única (USRH1785441817258); este servicio
+   * no calcula empleados activos por su cuenta.
    */
   async listBusinessUnits(): Promise<BusinessUnitListItem[]> {
     const businessUnits = await BusinessUnit.query()
@@ -77,29 +89,19 @@ export default class BillingSubscriptionService {
       return []
     }
 
-    // Se usa db.from() en vez de Employee.query() para evitar que el mixin
-    // withBusinessUnitScope() del modelo Employee intercepte la query global.
-    const counts = await db
-      .from('employees')
-      .whereIn(
-        'business_unit_id',
-        businessUnits.map((bu) => bu.businessUnitId)
-      )
-      .whereNull('employee_deleted_at')
-      .groupBy('business_unit_id')
-      .select('business_unit_id')
-      .count('* as total')
+    const countByBusinessUnitId = await this.employeeQuota.countActiveEmployeesByBusinessUnits(
+      businessUnits.map((bu) => bu.businessUnitId)
+    )
 
-    const countByBusinessUnitId = new Map<number, number>()
-    for (const row of counts as Array<{ business_unit_id: number; total: string | number }>) {
-      countByBusinessUnitId.set(Number(row.business_unit_id), Number(row.total))
-    }
-
-    return businessUnits.map((bu) => ({
-      businessUnitPublicId: bu.businessUnitPublicId,
-      businessUnitName: bu.businessUnitName,
-      activeEmployees: countByBusinessUnitId.get(bu.businessUnitId) ?? 0,
-    }))
+    return businessUnits.map((bu) => {
+      const activeEmployees = countByBusinessUnitId.get(bu.businessUnitId) ?? 0
+      return {
+        businessUnitPublicId: bu.businessUnitPublicId,
+        businessUnitName: bu.businessUnitName,
+        activeEmployees,
+        minimumContractedEmployees: resolveMinimumContractedEmployees(activeEmployees),
+      }
+    })
   }
 
   // ─── Suscripciones ────────────────────────────────────────────────────────
@@ -210,8 +212,18 @@ export default class BillingSubscriptionService {
       )
     }
 
+    // De lo barato a lo caro: se resuelve la cantidad y se valida contra las
+    // reglas de bloques de 10 / mínimo por plantilla ANTES de tocar el
+    // catálogo (USRH1785962095089 §13).
+    const activeEmployees = await this.employeeQuota.countActiveEmployees(
+      businessUnit.businessUnitId,
+      trx
+    )
     const contractedEmployees =
-      input.contractedEmployees ?? (await this.countActiveEmployees(businessUnit.businessUnitId))
+      input.contractedEmployees ?? resolveMinimumContractedEmployees(activeEmployees)
+
+    assertContractedEmployees(contractedEmployees)
+    assertMinimumContractedEmployees(contractedEmployees, activeEmployees)
 
     const today = toBusinessDateString()
 
@@ -240,7 +252,9 @@ export default class BillingSubscriptionService {
     }
 
     const nowBusiness = todayInBusinessZone()
-    const skipTrial = input.skipTrial === true
+    const skipTrial =
+      input.skipTrial === true ||
+      (await this.hasConsumedTrial(businessUnit.businessUnitId, trx))
     const trialDays = skipTrial ? 0 : resolved.trialDays
     const trialEndsAt = skipTrial ? null : nowBusiness.plus({ days: trialDays })
     const periodEnd = skipTrial ? nowBusiness : trialEndsAt!
@@ -365,6 +379,17 @@ export default class BillingSubscriptionService {
       )
     }
 
+    // Misma regla de cantidad que el alta (USRH1785962095089 §6 regla 3):
+    // la cantidad contratada vigente debe seguir cumpliendo bloques de 10 y
+    // el mínimo por plantilla activa, aunque la plantilla haya crecido desde
+    // que se contrató.
+    const contractedEmployees = subscription.billingSubscriptionContractedEmployees
+    const activeEmployees = await this.employeeQuota.countActiveEmployees(
+      subscription.businessUnitId
+    )
+    assertContractedEmployees(contractedEmployees)
+    assertMinimumContractedEmployees(contractedEmployees, activeEmployees)
+
     const today = toBusinessDateString()
     let resolved
     try {
@@ -466,14 +491,21 @@ export default class BillingSubscriptionService {
       .first()
   }
 
-  private async countActiveEmployees(businessUnitId: number): Promise<number> {
-    const result = await db
-      .from('employees')
+  /**
+   * Detecta si la empresa ya gozó periodo de prueba en cualquier
+   * contratación anterior, sin importar su estado ni si fue borrada
+   * lógicamente: la evidencia es histórica (USRH1785962095089 §10).
+   */
+  private async hasConsumedTrial(
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<boolean> {
+    const row = await BillingSubscription.query({ client: trx })
+      .withTrashed()
       .where('business_unit_id', businessUnitId)
-      .whereNull('employee_deleted_at')
-      .count('* as total')
+      .where('billing_subscription_contracted_trial_days', '>', 0)
       .first()
 
-    return Number((result as { total: string | number } | null)?.total ?? 0)
+    return row !== null
   }
 }

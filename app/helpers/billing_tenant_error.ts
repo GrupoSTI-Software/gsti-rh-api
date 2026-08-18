@@ -2,20 +2,26 @@ import { BILLING_CATALOG_ERROR_CODES } from '../constants/billing_catalog_error_
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingCatalogServiceError } from '../exceptions/billing_catalog_service_error.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import {
+  employeesAboveSafetyCapError,
+  employeesBelowActiveHeadcountError,
+  employeesNotBlockOfTenError,
+  MIN_CONTRACTED_EMPLOYEES,
+  PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
+} from './contracted_employees_rules.js'
 
-/** Tope defensivo de empleados en la superficie pública self-service (no comercial). */
-export const PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP = 100_000
-
-/** Mínimo comercial de empleados contratados en superficie self-service (bloques de 10). */
-export const MIN_CONTRACTED_EMPLOYEES = 10
+// Reglas de cantidad movidas al módulo neutral `contracted_employees_rules.ts`
+// (USRH1785962095089): se re-exportan aquí para no romper a los consumidores
+// existentes de este helper (`BillingTenantService`, `SignupDraftService`).
+export {
+  employeesAboveSafetyCapError,
+  employeesBelowActiveHeadcountError,
+  employeesNotBlockOfTenError,
+  MIN_CONTRACTED_EMPLOYEES,
+  PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
+}
 
 const PLAN_UNAVAILABLE_DETAIL = 'El plan solicitado no está disponible.'
-
-const EMPLOYEES_BLOCK_DETAIL =
-  'La cantidad de empleados se contrata en bloques de 10, con un mínimo de 10.'
-
-const EMPLOYEES_SAFETY_CAP_DETAIL =
-  'La cantidad de empleados solicitada excede el máximo permitido en línea. Contacta a Valanserh para un plan a la medida.'
 
 /**
  * Errores de catálogo que en la superficie pública se colapsan a plan no disponible
@@ -54,17 +60,6 @@ export function planUnavailableError(): BillingSubscriptionServiceError {
   )
 }
 
-/** Cantidad fuera de bloques de 10 o por debajo del mínimo (superficie pública). */
-export function employeesNotBlockOfTenError(): BillingSubscriptionServiceError {
-  return new BillingSubscriptionServiceError(
-    EMPLOYEES_BLOCK_DETAIL,
-    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_NOT_BLOCK_OF_TEN,
-    422,
-    'cantidad-no-multiplo-de-diez',
-    EMPLOYEES_BLOCK_DETAIL
-  )
-}
-
 /** Borrador de registro sin plan o cantidad seleccionados. */
 export function planNotSelectedError(): BillingSubscriptionServiceError {
   const detail =
@@ -75,17 +70,6 @@ export function planNotSelectedError(): BillingSubscriptionServiceError {
     422,
     'plan-no-seleccionado',
     detail
-  )
-}
-
-/** Cantidad sobre el tope defensivo de la superficie pública. */
-export function employeesAboveSafetyCapError(): BillingSubscriptionServiceError {
-  return new BillingSubscriptionServiceError(
-    EMPLOYEES_SAFETY_CAP_DETAIL,
-    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_ABOVE_SAFETY_CAP,
-    422,
-    'cantidad-fuera-de-rango',
-    EMPLOYEES_SAFETY_CAP_DETAIL
   )
 }
 
@@ -114,18 +98,3 @@ export function originNotSelfServiceError(): BillingSubscriptionServiceError {
   )
 }
 
-/** Cantidad contratada por debajo del mínimo exigido por la plantilla activa. */
-export function employeesBelowActiveHeadcountError(
-  activeEmployees: number,
-  minimum: number
-): BillingSubscriptionServiceError {
-  const detail = `Tienes ${activeEmployees} empleados activos. La cantidad mínima que puedes contratar es ${minimum}.`
-  return new BillingSubscriptionServiceError(
-    detail,
-    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT,
-    422,
-    'cantidad-menor-a-plantilla-activa',
-    detail,
-    { active: activeEmployees, minimum }
-  )
-}

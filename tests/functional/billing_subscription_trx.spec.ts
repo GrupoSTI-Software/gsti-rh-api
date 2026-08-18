@@ -215,20 +215,22 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
       const original = await service.createSubscription({
         businessUnitPublicId: businessUnit.businessUnitPublicId,
         billingPlanId: planId,
-        contractedEmployees: 15,
+        contractedEmployees: 10,
       })
       assert.equal(original.billingSubscriptionStatus, 'trialing')
 
       const replacement = await service.createSubscription({
         businessUnitPublicId: businessUnit.businessUnitPublicId,
         billingPlanId: planId,
-        contractedEmployees: 25,
+        contractedEmployees: 20,
         replaceLiveSubscription: true,
       })
 
       assert.notEqual(replacement.billingSubscriptionId, original.billingSubscriptionId)
-      assert.equal(replacement.billingSubscriptionStatus, 'trialing')
-      assert.equal(replacement.billingSubscriptionContractedEmployees, 25)
+      // La original ya gozó prueba (contracted_trial_days > 0): el reemplazo
+      // nace sin prueba, active (regla de prueba única por empresa).
+      assert.equal(replacement.billingSubscriptionStatus, 'active')
+      assert.equal(replacement.billingSubscriptionContractedEmployees, 20)
 
       const reloadedOriginal = await BillingSubscription.find(original.billingSubscriptionId)
       assert.equal(reloadedOriginal!.billingSubscriptionStatus, 'canceled')
@@ -264,7 +266,7 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
       const original = await service.createSubscription({
         businessUnitPublicId: businessUnit.businessUnitPublicId,
         billingPlanId: planId,
-        contractedEmployees: 15,
+        contractedEmployees: 10,
       })
 
       let thrown: unknown = null
@@ -272,7 +274,7 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
         await service.createSubscription({
           businessUnitPublicId: businessUnit.businessUnitPublicId,
           billingPlanId: planId,
-          contractedEmployees: 15,
+          contractedEmployees: 10,
         })
       } catch (error) {
         thrown = error
@@ -316,7 +318,7 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
       const original = await service.createSubscription({
         businessUnitPublicId: businessUnit.businessUnitPublicId,
         billingPlanId: planId,
-        contractedEmployees: 15,
+        contractedEmployees: 10,
       })
 
       // Un plan sin precio vigente (nunca publicado) hace fallar resolvePrice
@@ -333,7 +335,7 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
         await service.createSubscription({
           businessUnitPublicId: businessUnit.businessUnitPublicId,
           billingPlanId: unpublished.billingPlanId,
-          contractedEmployees: 15,
+          contractedEmployees: 10,
           replaceLiveSubscription: true,
         })
       } catch (error) {
@@ -379,7 +381,7 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
       const subscription = await service.createSubscription({
         businessUnitPublicId: businessUnit.businessUnitPublicId,
         billingPlanId: planId,
-        contractedEmployees: 15,
+        contractedEmployees: 10,
         replaceLiveSubscription: true,
       })
 
@@ -412,7 +414,7 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
       const subscription = await service.createSubscription({
         businessUnitPublicId: businessUnit.businessUnitPublicId,
         billingPlanId: planId,
-        contractedEmployees: 15,
+        contractedEmployees: 10,
       })
 
       const canceled = await service.cancel(subscription.billingSubscriptionId)

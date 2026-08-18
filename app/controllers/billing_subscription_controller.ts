@@ -24,8 +24,12 @@ export default class BillingSubscriptionController {
    *     summary: Listar empresas activas para el picker del alta de suscripción
    *     description: |
    *       Listado mínimo de empresas (identificador público + nombre + conteo
-   *       de empleados activos) para elegir la empresa en el drawer de alta.
-   *       Nunca expone el identificador interno de la empresa.
+   *       canónico de empleados activos + mínimo contratable) para elegir la
+   *       empresa en el drawer de alta. `activeEmployees` no cuenta empleados
+   *       dados de baja. `minimumContractedEmployees` es el valor con el que
+   *       el drawer debe prellenar la cantidad: la plantilla activa
+   *       redondeada al siguiente bloque de 10 (mínimo 10). Nunca expone el
+   *       identificador interno de la empresa.
    *     security:
    *       - bearerAuth: []
    *     responses:
@@ -105,15 +109,25 @@ export default class BillingSubscriptionController {
    *     summary: Dar de alta manualmente la suscripción de una empresa existente
    *     description: >
    *       Congela el precio por empleado, el descuento por volumen y los días de
-   *       prueba vigentes en el catálogo al momento de contratar. Nace en estado
-   *       `trialing`, con `provider = manual`. En ningún momento se captura o
-   *       expone un dato de tarjeta ni el identificador interno de la empresa.
+   *       prueba vigentes en el catálogo al momento de contratar, con
+   *       `provider = manual`. Nace en estado `trialing` — salvo que la empresa
+   *       ya haya gozado periodo de prueba en alguna contratación anterior
+   *       (cualquier estado, incluida cancelada), en cuyo caso nace `active`
+   *       sin prueba (0 días, sin fecha de fin, cobro desde hoy). La prueba
+   *       gratuita es una sola vez por empresa, no por plan.
+   *       `contractedEmployees` es opcional: si se omite, se usa el mínimo
+   *       contratable (plantilla activa redondeada al bloque de 10). Si se
+   *       envía, debe ser múltiplo de 10 (mínimo 10) y no menor que ese mismo
+   *       mínimo; de lo contrario responde 422 con el código correspondiente.
+   *       En ningún momento se captura o expone un dato de tarjeta ni el
+   *       identificador interno de la empresa.
    *       Si la empresa ya tiene una contratación viva (trialing/active/past_due),
    *       por defecto rechaza con 409. Con `replaceLiveSubscription: true`, cancela
    *       la viva y crea la nueva dentro de la misma transacción, en un solo acto
-   *       indivisible: la empresa nunca queda sin contratación ni con dos al mismo
-   *       tiempo. La suscripción reemplazada no se borra: queda `canceled`,
-   *       consultable con su trato, sus fechas y sus pagos.
+   *       indivisible —con las mismas reglas de cantidad y prueba—: la empresa
+   *       nunca queda sin contratación ni con dos al mismo tiempo. La suscripción
+   *       reemplazada no se borra: queda `canceled`, consultable con su trato,
+   *       sus fechas y sus pagos.
    *     security:
    *       - bearerAuth: []
    *     requestBody:
@@ -133,8 +147,12 @@ export default class BillingSubscriptionController {
    *                 type: integer
    *               contractedEmployees:
    *                 type: integer
-   *                 minimum: 1
-   *                 description: Opcional; si se omite, se usa el conteo real de empleados activos.
+   *                 minimum: 10
+   *                 multipleOf: 10
+   *                 description: >
+   *                   Opcional; si se omite, se usa el mínimo contratable
+   *                   (plantilla activa redondeada al bloque de 10). Debe ser
+   *                   múltiplo de 10 y no menor que ese mínimo.
    *               replaceLiveSubscription:
    *                 type: boolean
    *                 default: false
@@ -145,13 +163,19 @@ export default class BillingSubscriptionController {
    *                   comportamiento es idéntico al de hoy (rechazo 409).
    *     responses:
    *       '201':
-   *         description: Suscripción creada en estado trialing (la anterior queda canceled si hubo reemplazo)
+   *         description: Suscripción creada en trialing, o active sin prueba si la empresa ya la gozó antes (la anterior queda canceled si hubo reemplazo)
    *       '404':
    *         description: Empresa o plan no encontrado
    *       '409':
    *         description: La empresa ya tiene una suscripción viva y no se envió replaceLiveSubscription
    *       '422':
-   *         description: El plan no está publicado, la empresa está inactiva, no hay precio vigente o los datos son inválidos
+   *         description: >
+   *           El plan no está publicado, la empresa está inactiva, no hay precio
+   *           vigente, los datos son inválidos, la cantidad no es múltiplo de 10
+   *           (PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN), rebasa el tope defensivo
+   *           (PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP) o es menor que el mínimo por
+   *           plantilla activa (PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT, con
+   *           `data: { active, minimum }`)
    */
   async store({ request, response }: HttpContext) {
     try {
@@ -168,8 +192,11 @@ export default class BillingSubscriptionController {
    * @changePlan
    * @summary Cambiar plan de suscripción
    * @description Actualiza el plan contratado de una suscripción viva (trialing/active/past_due),
-   *   recongelando el snapshot de precios desde el catálogo vigente.
-   *   Las suscripciones canceladas rechazan esta operación.
+   *   recongelando el snapshot de precios desde el catálogo vigente. Antes de
+   *   recongelar valida que la cantidad contratada vigente siga cumpliendo
+   *   bloques de 10 y el mínimo por la plantilla activa actual; si la
+   *   plantilla creció desde que se contrató, rechaza con 422 y no cambia
+   *   nada. Las suscripciones canceladas rechazan esta operación.
    * @tag Billing · Subscriptions
    * @operationId changePlan
    * @security [{"bearerAuth": []}]
@@ -177,7 +204,7 @@ export default class BillingSubscriptionController {
    * @requestBody {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["billingPlanId"], "properties": {"billingPlanId": {"type": "integer"}}}}}}
    * @responseBody 200 - {"type": "success", "data": {}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.NOT_FOUND|PLT.SUB.PLAN_NOT_FOUND"}
-   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.SUBSCRIPTION_CANCELED|PLT.SUB.PLAN_NOT_PUBLISHED|PLT.SUB.NO_ACTIVE_PRICE|PLT.SUB.VAL_INPUT"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.SUBSCRIPTION_CANCELED|PLT.SUB.PLAN_NOT_PUBLISHED|PLT.SUB.NO_ACTIVE_PRICE|PLT.SUB.VAL_INPUT|PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN|PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP|PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT"}
    */
   async changePlan({ params, request, response }: HttpContext) {
     try {

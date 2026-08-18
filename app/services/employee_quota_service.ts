@@ -96,6 +96,37 @@ export default class EmployeeQuotaService {
   }
 
   /**
+   * Conteo canónico en lote, mismo criterio que `countActiveEmployees` (§9.1
+   * de USRH1785962095089). Evita reintroducir un `from('employees')` propio
+   * en cada consumidor que necesita el conteo de varias empresas a la vez
+   * (p. ej. el picker de alta de suscripciones).
+   */
+  async countActiveEmployeesByBusinessUnits(
+    businessUnitIds: number[],
+    trx?: TransactionClientContract
+  ): Promise<Map<number, number>> {
+    if (businessUnitIds.length === 0) {
+      return new Map()
+    }
+
+    const client = trx ?? db
+    const rows = await client
+      .from('employees')
+      .whereIn('business_unit_id', businessUnitIds)
+      .whereNull('employee_deleted_at')
+      .whereNull('employee_terminated_date')
+      .groupBy('business_unit_id')
+      .select('business_unit_id')
+      .count('* as total')
+
+    const countByBusinessUnitId = new Map<number, number>()
+    for (const row of rows as Array<{ business_unit_id: number; total: string | number }>) {
+      countByBusinessUnitId.set(Number(row.business_unit_id), Number(row.total))
+    }
+    return countByBusinessUnitId
+  }
+
+  /**
    * Valida que el alta de `incoming` empleado(s) no rebase el cupo.
    * Con `trx`, serializa altas concurrentes con lock pesimista (§12).
    */
