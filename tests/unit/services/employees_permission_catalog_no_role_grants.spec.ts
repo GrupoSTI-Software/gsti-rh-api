@@ -47,4 +47,49 @@ test.group('EMPLOYEES_PERMISSION_CATALOG — sync real no concede roles (Task 4)
     assert.equal(granted.length, 0)
     void result
   })
+
+  test('sync materializa los 15 slugs nuevos y no los concede a ningún rol', async ({
+    assert,
+  }) => {
+    const slugs = [
+      'download-employees-import-template',
+      'download-shift-assignment-template',
+      'download-shift-exceptions',
+      'download-vacations-report',
+      'download-vacations-summary',
+      'download-vacation-import-template',
+      'download-payroll-format',
+      'download-attendance-by-employee',
+      'download-attendance-by-position',
+      'download-attendance-by-department',
+      'download-attendance-all',
+      'download-permissions-by-dates',
+      'download-supplies-report',
+      'download-employee-contract',
+      'import-vacations',
+    ]
+    const beforeGrants = await RoleSystemPermission.query().whereNull(
+      'role_system_permission_deleted_at'
+    )
+    await new SystemPermissionCatalogSyncService().sync()
+    const afterGrants = await RoleSystemPermission.query().whereNull(
+      'role_system_permission_deleted_at'
+    )
+    assert.equal(afterGrants.length, beforeGrants.length)
+
+    for (const slug of slugs) {
+      const permission = await SystemPermission.query()
+        .whereNull('system_permission_deleted_at')
+        .where('system_permission_slug', slug)
+        .whereHas('systemModule', (query) =>
+          query.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
+        )
+        .first()
+      assert.exists(permission, slug)
+      const granted = afterGrants.filter(
+        (row) => row.systemPermissionId === permission!.systemPermissionId
+      )
+      assert.equal(granted.length, 0, slug)
+    }
+  })
 })

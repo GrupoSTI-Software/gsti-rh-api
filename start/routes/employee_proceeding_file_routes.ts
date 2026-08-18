@@ -2,6 +2,7 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
 
 router
   .group(() => {
@@ -46,6 +47,8 @@ router
     router.get(
       '/:employeeProceedingFileId/download',
       '#controllers/employee_proceeding_file_controller.download'
+    ).use(
+      middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.downloadProceedingFile)
     )
   })
   .prefix('/api/employees-proceeding-files')

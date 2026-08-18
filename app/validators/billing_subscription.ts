@@ -11,6 +11,12 @@ export const createBillingSubscriptionValidator = vine.compile(
     billingPlanId: vine.number().positive().withoutDecimals(),
     /** Opcional: si se omite, se prellena con el conteo real de empleados activos. */
     contractedEmployees: vine.number().min(1).withoutDecimals().optional(),
+    /**
+     * Instrucción explícita de reemplazo (USRH1785962095087). Ausente o
+     * `false`: comportamiento idéntico al actual, incluido el 409 si la
+     * empresa ya tiene una contratación viva.
+     */
+    replaceLiveSubscription: vine.boolean().optional(),
   })
 )
 

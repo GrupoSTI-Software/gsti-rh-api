@@ -8,6 +8,8 @@ import { DateTime } from 'luxon'
 import EmployeeContractService from '#services/employee_contract_service'
 import { createEmployeeContractValidator } from '#validators/employee_contract'
 import EmployeeContract from '#models/employee_contract'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_CONTRACT_DOWNLOAD_TAB_READ_PERMISSION } from '#constants/employees_download_permission_declarations'
 export default class EmployeeContractController {
   /**
    * @swagger
@@ -903,11 +905,15 @@ export default class EmployeeContractController {
    *         description: Error inesperado al descargar el archivo
    */
   @inject()
-  async download(
-    { auth, request, response, logger, businessUnitScope }: HttpContext,
-    uploadService: UploadService
-  ) {
+  async download(ctx: HttpContext, uploadService: UploadService) {
+    const { auth, request, response, logger, businessUnitScope } = ctx
     try {
+      const canReadTab = await ensureSecondaryPermission(
+        ctx,
+        EMPLOYEES_CONTRACT_DOWNLOAD_TAB_READ_PERMISSION
+      )
+      if (!canReadTab) return
+
       const rawId = request.param('employeeContractId')
       const employeeContractId = Number(rawId)
 

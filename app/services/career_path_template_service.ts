@@ -29,6 +29,8 @@ export default class CareerPathTemplateService {
 
   async create(careerPathTemplate: CareerPathTemplate) {
     const newCareerPathTemplate = new CareerPathTemplate()
+    // La empresa llega ya estampada desde el contexto de la request
+    // (controller.store ← ctx.businessUnitScope), nunca del payload.
     newCareerPathTemplate.companyId = careerPathTemplate.companyId
     newCareerPathTemplate.originPositionId = careerPathTemplate.originPositionId
     newCareerPathTemplate.targetPositionId = careerPathTemplate.targetPositionId
@@ -42,7 +44,6 @@ export default class CareerPathTemplateService {
     currentCareerPathTemplate: CareerPathTemplate,
     careerPathTemplate: CareerPathTemplate,
   ) {
-    currentCareerPathTemplate.companyId = careerPathTemplate.companyId
     currentCareerPathTemplate.originPositionId = careerPathTemplate.originPositionId
     currentCareerPathTemplate.targetPositionId = careerPathTemplate.targetPositionId
     currentCareerPathTemplate.updatedBy = careerPathTemplate.updatedBy

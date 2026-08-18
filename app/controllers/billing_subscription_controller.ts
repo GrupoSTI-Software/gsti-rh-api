@@ -103,11 +103,17 @@ export default class BillingSubscriptionController {
    *     tags:
    *       - Platform Billing
    *     summary: Dar de alta manualmente la suscripción de una empresa existente
-   *     description: |
+   *     description: >
    *       Congela el precio por empleado, el descuento por volumen y los días de
    *       prueba vigentes en el catálogo al momento de contratar. Nace en estado
    *       `trialing`, con `provider = manual`. En ningún momento se captura o
    *       expone un dato de tarjeta ni el identificador interno de la empresa.
+   *       Si la empresa ya tiene una contratación viva (trialing/active/past_due),
+   *       por defecto rechaza con 409. Con `replaceLiveSubscription: true`, cancela
+   *       la viva y crea la nueva dentro de la misma transacción, en un solo acto
+   *       indivisible: la empresa nunca queda sin contratación ni con dos al mismo
+   *       tiempo. La suscripción reemplazada no se borra: queda `canceled`,
+   *       consultable con su trato, sus fechas y sus pagos.
    *     security:
    *       - bearerAuth: []
    *     requestBody:
@@ -129,13 +135,21 @@ export default class BillingSubscriptionController {
    *                 type: integer
    *                 minimum: 1
    *                 description: Opcional; si se omite, se usa el conteo real de empleados activos.
+   *               replaceLiveSubscription:
+   *                 type: boolean
+   *                 default: false
+   *                 description: >
+   *                   Opcional. Si la empresa ya tiene contratación viva y se envía
+   *                   `true`, se cancela la actual y se crea la nueva en un solo
+   *                   acto transaccional. Sin este campo (o en `false`), el
+   *                   comportamiento es idéntico al de hoy (rechazo 409).
    *     responses:
    *       '201':
-   *         description: Suscripción creada en estado trialing
+   *         description: Suscripción creada en estado trialing (la anterior queda canceled si hubo reemplazo)
    *       '404':
    *         description: Empresa o plan no encontrado
    *       '409':
-   *         description: La empresa ya tiene una suscripción viva
+   *         description: La empresa ya tiene una suscripción viva y no se envió replaceLiveSubscription
    *       '422':
    *         description: El plan no está publicado, la empresa está inactiva, no hay precio vigente o los datos son inválidos
    */
