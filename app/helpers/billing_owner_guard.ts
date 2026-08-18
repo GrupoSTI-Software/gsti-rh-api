@@ -2,7 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { onlyAccountOwnerError } from './billing_tenant_error.js'
 
 /** Slugs que pueden consultar decisiones de dinero de la suscripción (regla 14). */
-const BILLING_OWNER_SLUGS = ['owner', 'root', 'super-administrador'] as const
+export const BILLING_OWNER_SLUGS = ['owner', 'root', 'super-administrador'] as const
 
 /**
  * Solo el dueño de la cuenta consulta el costo del cambio de suscripción (USRH1786107870847).
