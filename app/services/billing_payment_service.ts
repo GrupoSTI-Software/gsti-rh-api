@@ -12,14 +12,20 @@ import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_
 // ─── Carpeta S3 de comprobantes ───────────────────────────────────────────────
 const RECEIPT_S3_FOLDER = 'billing/payments/receipts'
 
-// ─── Cotas de monto (centavos): mínimo $1 MXN, máximo $999,999.99 MXN ────────
+// ─── Cotas de monto (centavos): solo rigen el flujo de importe distinto ──────
 const AMOUNT_MIN_CENTS = 100
 const AMOUNT_MAX_CENTS = 99_999_999
+
+// ─── Tope de periodos que un solo pago puede cubrir (regla 7, valor propuesto) ─
+const MAX_PERIODS_PER_PAYMENT = 24
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
 
 export interface RegisterPaymentInput {
-  amountCents: number
+  /** Obligatorio solo con allowCustomAmount=true. Ignorado (salvo verificación de igualdad) en flujo normal. */
+  amountCents?: number
+  /** Capacidad explícita de importe distinto al monto gobernado del periodo. Default false. */
+  allowCustomAmount?: boolean
   method: BillingPaymentMethod
   reference?: string | null
   paidAt: string
@@ -38,8 +44,8 @@ export interface PaymentListItem {
   method: BillingPaymentMethod
   reference: string | null
   paidAt: string
-  periodStart: string
-  periodEnd: string
+  periodStart: string | null
+  periodEnd: string | null
   receiptAvailable: boolean
 }
 
@@ -50,84 +56,76 @@ export interface RegisterPaymentResult {
   method: BillingPaymentMethod
   reference: string | null
   paidAt: string
-  periodStart: string
-  periodEnd: string
+  periodStart: string | null
+  periodEnd: string | null
   hasReceipt: boolean
+  isCustomAmount: boolean
+  periodAmountCents: number
+  periodsCovered: number
+  creditAppliedCents: number
+  creditBalanceAfterCents: number
   subscription: {
     billingSubscriptionId: number
     status: string
     currentPeriodStart: string | null
     currentPeriodEnd: string | null
+    creditBalanceCents: number
   }
+}
+
+/** Foto financiera del periodo cobrado, derivada del trato congelado (regla 12). */
+interface FinancialSnapshot {
+  grossCents: number
+  discountAmountCents: number
+  subtotalCents: number
+  taxAmountCents: number
+  totalCents: number
+  discountPercent: number
+  taxRate: number
 }
 
 // ─── Servicio ─────────────────────────────────────────────────────────────────
 
 /**
- * Servicio de pagos de suscripción (USRH1784574994922).
+ * Servicio de pagos de suscripción (USRH1784574994922, gobernado desde
+ * USRH1785962095095).
  *
  * Registrar un pago es un acto atómico:
- *   1. Sube el comprobante a S3 privado (fuera de la trx — S3 no es transaccional).
- *   2. Abre db.transaction: inserta el pago, avanza el periodo y pone status='active'.
- *   3. Si la trx falla → compensa borrando el objeto S3 subido.
+ *   1. Valida existencia/estado y resuelve el monto gobernado del periodo
+ *      con una lectura simple (fail-fast, antes de tocar S3).
+ *   2. Sube el comprobante a S3 privado (fuera de la trx — S3 no es transaccional).
+ *   3. Abre db.transaction: recarga la suscripción con `.forUpdate()`, revalida
+ *      `canceled` (protección de carrera), acumula saldo, traduce saldo en
+ *      periodos completos, decide estado y persiste la foto financiera del pago.
+ *   4. Si la trx falla → compensa borrando el objeto S3 subido.
  *
  * El módulo NUNCA expone la URL del comprobante (solo la Key queda en BD).
- * La descarga firmada es responsabilidad de USRH1784574994923.
+ * El monto del flujo normal lo gobierna el servidor desde
+ * `billing_subscription_contracted_total`; el cliente solo influye en el
+ * importe a través de la capacidad explícita `allowCustomAmount`.
  */
 export default class BillingPaymentService {
   /**
    * Registra un pago sobre una suscripción existente y no cancelada.
    *
    * @throws {BillingPaymentServiceError} si la suscripción no existe, está
-   *   cancelada, el monto es inválido o el comprobante no pasa validación.
+   *   cancelada, el monto no está permitido o fuera de cotas, el monto del
+   *   periodo es indeterminable, el importe cubriría más periodos que el
+   *   tope, o el comprobante no pasa validación.
    */
   async registerPayment(
     subscriptionId: number,
     input: RegisterPaymentInput,
     receipt: ReceiptFile
   ): Promise<RegisterPaymentResult> {
-    // ── 1. Validar suscripción ────────────────────────────────────────────────
-    const subscription = await BillingSubscription.query()
-      .where('billingSubscriptionId', subscriptionId)
-      .whereNull('billing_subscription_deleted_at')
-      .first()
+    const allowCustomAmount = input.allowCustomAmount === true
 
-    if (!subscription) {
-      throw new BillingPaymentServiceError(
-        `Suscripción ${subscriptionId} no encontrada`,
-        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_NOT_FOUND,
-        404,
-        'suscripcion-no-encontrada',
-        'La suscripción solicitada no existe.'
-      )
-    }
+    // ── 1. Validaciones fail-fast (lectura simple, antes de subir a S3) ─────
+    const preCheckSubscription = await this.loadSubscriptionOrFail(subscriptionId)
+    this.assertNotCanceled(subscriptionId, preCheckSubscription)
+    this.resolveGovernedAmount(preCheckSubscription, input, allowCustomAmount)
 
-    if (subscription.billingSubscriptionStatus === 'canceled') {
-      throw new BillingPaymentServiceError(
-        `Suscripción ${subscriptionId} está cancelada`,
-        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_CANCELED,
-        422,
-        'suscripcion-cancelada',
-        'No se puede registrar un pago sobre una suscripción cancelada.'
-      )
-    }
-
-    // ── 2. Validar monto ─────────────────────────────────────────────────────
-    if (
-      !Number.isInteger(input.amountCents) ||
-      input.amountCents < AMOUNT_MIN_CENTS ||
-      input.amountCents > AMOUNT_MAX_CENTS
-    ) {
-      throw new BillingPaymentServiceError(
-        `Monto inválido: ${input.amountCents} centavos`,
-        BILLING_PAYMENT_ERROR_CODES.AMOUNT_INVALID,
-        422,
-        'monto-invalido',
-        `El monto debe ser un entero positivo entre ${AMOUNT_MIN_CENTS} y ${AMOUNT_MAX_CENTS} centavos.`
-      )
-    }
-
-    // ── 3. Validar y subir comprobante (antes de la trx — S3 no es transaccional) ──
+    // ── 2. Validar y subir comprobante (fuera de la trx) ────────────────────
     this.validateReceipt(receipt)
 
     const receiptMime = receipt.headers['content-type'] ?? 'application/octet-stream'
@@ -150,30 +148,88 @@ export default class BillingPaymentService {
       )
     }
 
-    // ── 4. Calcular avance de periodo (CDMX) ─────────────────────────────────
-    const today = todayInBusinessZone()
-    const rawPeriodEnd = subscription.billingSubscriptionCurrentPeriodEnd
-    const periodEndIso = rawPeriodEnd ? toCalendarIsoDate(rawPeriodEnd) : null
-
-    // anchor = current_period_end si ≥ hoy, si no hoy (spec regla 3)
-    const anchor =
-      periodEndIso && periodEndIso >= today.toISODate()!
-        ? DateTime.fromISO(periodEndIso, { zone: today.zone })
-        : today
-
-    const newPeriodStart = anchor
-    const newPeriodEnd = anchor.plus({ months: 1 })
-
-    // ── 5. Transacción atómica ────────────────────────────────────────────────
-    let payment: BillingPayment
+    // ── 3. Transacción atómica (saldo + periodo + pago) ─────────────────────
+    let result: { payment: BillingPayment; subscription: BillingSubscription }
     try {
-      payment = await db.transaction(async (trx) => {
+      result = await db.transaction(async (trx) => {
+        // Concurrencia del saldo (spec §12): recarga bloqueante dentro de la trx.
+        const subscription = await BillingSubscription.query({ client: trx })
+          .where('billingSubscriptionId', subscriptionId)
+          .whereNull('billing_subscription_deleted_at')
+          .forUpdate()
+          .first()
+
+        if (!subscription) {
+          throw new BillingPaymentServiceError(
+            `Suscripción ${subscriptionId} no encontrada`,
+            BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_NOT_FOUND,
+            404,
+            'suscripcion-no-encontrada',
+            'La suscripción solicitada no existe.'
+          )
+        }
+
+        this.assertNotCanceled(subscriptionId, subscription)
+
+        const periodAmountCents = this.resolveGovernedAmount(subscription, input, allowCustomAmount)
+        const amountAsentado = allowCustomAmount ? input.amountCents! : periodAmountCents
+
+        // ── Regla 4: acumulación ──────────────────────────────────────────
+        const saldoDisponible = subscription.billingSubscriptionCreditBalanceCents + amountAsentado
+
+        // ── Regla 5, 6: periodos completos + tope (regla 7) ───────────────
+        const periodsCovered = Math.floor(saldoDisponible / periodAmountCents)
+
+        if (periodsCovered > MAX_PERIODS_PER_PAYMENT) {
+          throw new BillingPaymentServiceError(
+            `El pago cubriría ${periodsCovered} periodos, por encima del tope ${MAX_PERIODS_PER_PAYMENT}`,
+            BILLING_PAYMENT_ERROR_CODES.PERIODS_OUT_OF_RANGE,
+            422,
+            'periodos-fuera-de-rango',
+            'El importe cubriría más periodos que el máximo permitido por pago.'
+          )
+        }
+
+        const creditAppliedCents = periodsCovered * periodAmountCents
+        const creditBalanceAfterCents = saldoDisponible - creditAppliedCents
+
+        let newPeriodStart: DateTime | null = null
+        let newPeriodEnd: DateTime | null = null
+
+        if (periodsCovered >= 1) {
+          const today = todayInBusinessZone()
+          const rawPeriodEnd = subscription.billingSubscriptionCurrentPeriodEnd
+          const periodEndIso = rawPeriodEnd ? toCalendarIsoDate(rawPeriodEnd) : null
+
+          // anchor = current_period_end si ≥ hoy, si no hoy (semántica conservada)
+          const anchor =
+            periodEndIso && periodEndIso >= today.toISODate()!
+              ? DateTime.fromISO(periodEndIso, { zone: today.zone })
+              : today
+
+          newPeriodStart = anchor
+          newPeriodEnd = anchor.plus({ months: periodsCovered })
+        }
+
+        const snapshot = this.computeFinancialSnapshot(subscription)
         const paidAtDt = DateTime.fromISO(input.paidAt)
 
         const newPayment = await BillingPayment.create(
           {
             billingSubscriptionId: subscriptionId,
-            billingPaymentAmountCents: input.amountCents,
+            billingPaymentAmountCents: amountAsentado,
+            billingPaymentPeriodAmountCents: periodAmountCents,
+            billingPaymentPeriodsCovered: periodsCovered,
+            billingPaymentCreditAppliedCents: creditAppliedCents,
+            billingPaymentCreditBalanceAfterCents: creditBalanceAfterCents,
+            billingPaymentIsCustomAmount: allowCustomAmount,
+            billingPaymentGrossCents: snapshot.grossCents,
+            billingPaymentDiscountAmountCents: snapshot.discountAmountCents,
+            billingPaymentSubtotalCents: snapshot.subtotalCents,
+            billingPaymentTaxAmountCents: snapshot.taxAmountCents,
+            billingPaymentTotalCents: snapshot.totalCents,
+            billingPaymentDiscountPercent: snapshot.discountPercent,
+            billingPaymentTaxRate: snapshot.taxRate,
             billingPaymentMethod: input.method,
             billingPaymentReference: input.reference ?? null,
             billingPaymentReceiptPath: s3Key,
@@ -186,17 +242,22 @@ export default class BillingPaymentService {
           { client: trx }
         )
 
-        subscription.useTransaction(trx)
-        subscription.billingSubscriptionStatus = 'active'
-        subscription.billingSubscriptionCurrentPeriodStart = newPeriodStart
-        subscription.billingSubscriptionCurrentPeriodEnd = newPeriodEnd
-        // Sincronizar columna espejo si venía de un estado a reactivar
-        if (!subscription.billingSubscriptionLiveBusinessUnitId) {
-          subscription.billingSubscriptionLiveBusinessUnitId = subscription.businessUnitId
+        subscription.billingSubscriptionCreditBalanceCents = creditBalanceAfterCents
+
+        // Regla 5, 6: solo se extiende periodo y estado con ≥ 1 periodo cubierto.
+        if (periodsCovered >= 1) {
+          subscription.billingSubscriptionStatus = 'active'
+          subscription.billingSubscriptionCurrentPeriodStart = newPeriodStart
+          subscription.billingSubscriptionCurrentPeriodEnd = newPeriodEnd
+          // Sincronizar columna espejo si venía de un estado a reactivar
+          if (!subscription.billingSubscriptionLiveBusinessUnitId) {
+            subscription.billingSubscriptionLiveBusinessUnitId = subscription.businessUnitId
+          }
         }
+
         await subscription.save()
 
-        return newPayment
+        return { payment: newPayment, subscription }
       })
     } catch (error) {
       // Compensación: borrar el objeto S3 subido antes de la trx
@@ -204,7 +265,146 @@ export default class BillingPaymentService {
       throw error
     }
 
-    return this.toResult(payment, subscription)
+    return this.toResult(result.payment, result.subscription)
+  }
+
+  // ─── Validaciones de suscripción ──────────────────────────────────────────
+
+  private async loadSubscriptionOrFail(subscriptionId: number): Promise<BillingSubscription> {
+    const subscription = await BillingSubscription.query()
+      .where('billingSubscriptionId', subscriptionId)
+      .whereNull('billing_subscription_deleted_at')
+      .first()
+
+    if (!subscription) {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscriptionId} no encontrada`,
+        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_NOT_FOUND,
+        404,
+        'suscripcion-no-encontrada',
+        'La suscripción solicitada no existe.'
+      )
+    }
+
+    return subscription
+  }
+
+  private assertNotCanceled(subscriptionId: number, subscription: BillingSubscription): void {
+    if (subscription.billingSubscriptionStatus === 'canceled') {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscriptionId} está cancelada`,
+        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_CANCELED,
+        422,
+        'suscripcion-cancelada',
+        'No se puede registrar un pago sobre una suscripción cancelada.'
+      )
+    }
+  }
+
+  // ─── Monto gobernado (reglas 1-3) ─────────────────────────────────────────
+
+  /**
+   * Resuelve el monto del periodo desde el trato congelado y valida el
+   * monto de la petición contra las reglas del flujo (normal vs. importe
+   * distinto). Devuelve `periodAmountCents` (monto del periodo gobernado).
+   *
+   * @throws {BillingPaymentServiceError} PERIOD_AMOUNT_UNAVAILABLE,
+   *   AMOUNT_NOT_ALLOWED, AMOUNT_REQUIRED o AMOUNT_INVALID según el caso.
+   */
+  private resolveGovernedAmount(
+    subscription: BillingSubscription,
+    input: RegisterPaymentInput,
+    allowCustomAmount: boolean
+  ): number {
+    const periodAmountCents = this.toPeriodAmountCents(subscription.billingSubscriptionContractedTotal)
+
+    if (periodAmountCents === null) {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscription.billingSubscriptionId}: contracted_total no permite determinar el monto del periodo`,
+        BILLING_PAYMENT_ERROR_CODES.PERIOD_AMOUNT_UNAVAILABLE,
+        422,
+        'monto-periodo-no-disponible',
+        'No fue posible determinar el monto del periodo desde el trato de la suscripción.'
+      )
+    }
+
+    if (!allowCustomAmount) {
+      if (input.amountCents !== undefined && input.amountCents !== periodAmountCents) {
+        throw new BillingPaymentServiceError(
+          `amountCents (${input.amountCents}) distinto al monto gobernado del periodo (${periodAmountCents})`,
+          BILLING_PAYMENT_ERROR_CODES.AMOUNT_NOT_ALLOWED,
+          422,
+          'monto-no-permitido',
+          'El monto del pago lo determina el trato de la suscripción y no es editable.'
+        )
+      }
+      return periodAmountCents
+    }
+
+    // ── Importe distinto explícito (regla 3) ──────────────────────────────
+    if (input.amountCents === undefined) {
+      throw new BillingPaymentServiceError(
+        'allowCustomAmount=true requiere amountCents',
+        BILLING_PAYMENT_ERROR_CODES.AMOUNT_REQUIRED,
+        422,
+        'monto-requerido',
+        'Debes indicar el monto cuando el registro es de importe distinto.'
+      )
+    }
+
+    if (
+      !Number.isInteger(input.amountCents) ||
+      input.amountCents < AMOUNT_MIN_CENTS ||
+      input.amountCents > AMOUNT_MAX_CENTS
+    ) {
+      throw new BillingPaymentServiceError(
+        `Monto inválido: ${input.amountCents} centavos`,
+        BILLING_PAYMENT_ERROR_CODES.AMOUNT_INVALID,
+        422,
+        'monto-invalido',
+        `El monto debe ser un entero positivo entre ${AMOUNT_MIN_CENTS} y ${AMOUNT_MAX_CENTS} centavos.`
+      )
+    }
+
+    return periodAmountCents
+  }
+
+  /** Convierte el trato congelado (pesos, decimal) a centavos con redondeo único. Null si no es determinable. */
+  private toPeriodAmountCents(contractedTotal: unknown): number | null {
+    const value = Number(contractedTotal)
+    if (!Number.isFinite(value) || value <= 0) {
+      return null
+    }
+    return Math.round(value * 100)
+  }
+
+  // ─── Foto financiera (regla 12; secuencia de resolvePrice) ────────────────
+
+  private computeFinancialSnapshot(subscription: BillingSubscription): FinancialSnapshot {
+    const unitAmount = Number(subscription.billingSubscriptionContractedUnitAmount)
+    const employees = subscription.billingSubscriptionContractedEmployees
+    const discountPercent = Number(subscription.billingSubscriptionDiscountPercent)
+    const taxRate = Number(subscription.billingSubscriptionContractedTaxRate)
+
+    const grossAmount = unitAmount * employees
+    const discountAmount = this.round2(grossAmount * (discountPercent / 100))
+    const subtotal = this.round2(grossAmount - discountAmount)
+    const taxAmount = this.round2(subtotal * taxRate)
+    const total = this.round2(subtotal + taxAmount)
+
+    return {
+      grossCents: Math.round(grossAmount * 100),
+      discountAmountCents: Math.round(discountAmount * 100),
+      subtotalCents: Math.round(subtotal * 100),
+      taxAmountCents: Math.round(taxAmount * 100),
+      totalCents: Math.round(total * 100),
+      discountPercent,
+      taxRate,
+    }
+  }
+
+  private round2(value: number): number {
+    return Math.round(value * 100) / 100
   }
 
   // ─── Validación del comprobante ───────────────────────────────────────────
@@ -342,8 +542,8 @@ export default class BillingPaymentService {
       method: payment.billingPaymentMethod,
       reference: payment.billingPaymentReference,
       paidAt: (payment.billingPaymentPaidAt as DateTime).toISO()!,
-      periodStart: (payment.billingPaymentPeriodStart as DateTime).toISODate()!,
-      periodEnd: (payment.billingPaymentPeriodEnd as DateTime).toISODate()!,
+      periodStart: toCalendarIsoDate(payment.billingPaymentPeriodStart),
+      periodEnd: toCalendarIsoDate(payment.billingPaymentPeriodEnd),
       receiptAvailable: !!payment.billingPaymentReceiptPath,
     }
   }
@@ -370,14 +570,20 @@ export default class BillingPaymentService {
       method: payment.billingPaymentMethod,
       reference: payment.billingPaymentReference,
       paidAt: (payment.billingPaymentPaidAt as DateTime).toISO()!,
-      periodStart: (payment.billingPaymentPeriodStart as DateTime).toISODate()!,
-      periodEnd: (payment.billingPaymentPeriodEnd as DateTime).toISODate()!,
+      periodStart: toCalendarIsoDate(payment.billingPaymentPeriodStart),
+      periodEnd: toCalendarIsoDate(payment.billingPaymentPeriodEnd),
       hasReceipt: !!payment.billingPaymentReceiptPath,
+      isCustomAmount: payment.billingPaymentIsCustomAmount,
+      periodAmountCents: payment.billingPaymentPeriodAmountCents,
+      periodsCovered: payment.billingPaymentPeriodsCovered,
+      creditAppliedCents: payment.billingPaymentCreditAppliedCents,
+      creditBalanceAfterCents: payment.billingPaymentCreditBalanceAfterCents,
       subscription: {
         billingSubscriptionId: subscription.billingSubscriptionId,
         status: subscription.billingSubscriptionStatus,
         currentPeriodStart: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodStart),
         currentPeriodEnd: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd),
+        creditBalanceCents: subscription.billingSubscriptionCreditBalanceCents,
       },
     }
   }
