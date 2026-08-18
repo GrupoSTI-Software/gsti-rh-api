@@ -157,6 +157,17 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Ancla: app/models/empresa_contratante.ts (columna `rfc`)
   { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
 
+  // ─── TenantBillingProfile: identificación (USRH1786737531057) ─────────────
+  // RFC fiscal del tenant; cifrado AES + blind index para búsqueda interna.
+  // Ancla: app/models/tenant_billing_profile.ts (columna `rfc`)
+  {
+    model: 'TenantBillingProfile',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar-buscable',
+    encrypted: true,
+  },
+
   // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
   // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.
   // Ancla: app/models/employee_salary_history.ts:56-66

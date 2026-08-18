@@ -54,6 +54,8 @@ export const middleware = router.named({
   platformAdmin: () => import('#middleware/platform_admin_middleware'),
   /** Pieza única declarativa de control de acceso (USRH1785766406721). Fail-closed. */
   permissionGate: () => import('#middleware/permission_gate_middleware'),
+  /** Resuelve `:userId` en scope de empresa + force-logout anti-IDOR (USRH1786736057519). */
+  userResourceScope: () => import('#middleware/user_resource_scope_middleware'),
   ...(env.get('APP_MODE') === 'demo'
     ? { demoGuard: () => import('../app/modules/demo/middleware/demo_guard_middleware.js') }
     : {}),
