@@ -14,7 +14,6 @@ import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import Person from '#models/person'
 import BillingCatalogService from '#services/billing_catalog_service'
-import BillingSubscriptionService from '#services/billing_subscription_service'
 import { DateTime } from 'luxon'
 
 /**
@@ -52,7 +51,7 @@ test.group('verifyEmployeeLimit — cupo contratado (BD real)', (group) => {
     })
     planId = plan.billingPlanId
 
-    await BillingPlanPrice.create({
+    const price = await BillingPlanPrice.create({
       billingPlanId: planId,
       billingPlanPriceAmount: 65,
       billingPlanPriceCurrency: 'MXN',
@@ -80,11 +79,32 @@ test.group('verifyEmployeeLimit — cupo contratado (BD real)', (group) => {
     await businessUnit.save()
     businessUnitId = businessUnit.businessUnitId
 
-    const subscriptionService = new BillingSubscriptionService()
-    await subscriptionService.createSubscription({
-      businessUnitPublicId: businessUnit.businessUnitPublicId,
+    // Creación directa del modelo (no vía BillingSubscriptionService): esta
+    // prueba ejercita el cupo de empleados de EmployeeService con un límite
+    // de 1, deliberadamente por debajo del bloque de 10 que exige
+    // USRH1785962095089 en el alta manual — no es su objeto de prueba.
+    const now = DateTime.now()
+    await BillingSubscription.create({
+      businessUnitId,
       billingPlanId: planId,
-      contractedEmployees: 1,
+      billingPlanPriceId: price.billingPlanPriceId,
+      billingSubscriptionProvider: 'manual',
+      billingSubscriptionStatus: 'active',
+      billingSubscriptionContractedUnitAmount: 65,
+      billingSubscriptionContractedEmployees: 1,
+      billingSubscriptionDiscountPercent: 0,
+      billingSubscriptionContractedTrialDays: 0,
+      billingSubscriptionContractedCurrency: 'MXN',
+      billingSubscriptionContractedTaxRate: 0.16,
+      billingSubscriptionContractedSubtotal: 65,
+      billingSubscriptionContractedTaxAmount: 10.4,
+      billingSubscriptionContractedTotal: 75.4,
+      billingSubscriptionContractedEffectiveFrom: now,
+      billingSubscriptionTrialEndsAt: null,
+      billingSubscriptionCurrentPeriodStart: now,
+      billingSubscriptionCurrentPeriodEnd: now,
+      billingSubscriptionSubscribedAt: now,
+      billingSubscriptionLiveBusinessUnitId: businessUnitId,
     })
 
     const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()

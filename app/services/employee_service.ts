@@ -5,7 +5,9 @@ import {
   isSensitiveExportPlaceholder,
   SENSITIVE_EXPORT_PLACEHOLDER,
 } from '#constants/sensitive_export_placeholder'
-import { EMPLOYEE_IMPORT_UPLOAD } from '#constants/employee_import_error_codes'
+import { EMPLOYEE_IMPORT_UPLOAD, EMPLOYEE_IMPORT_ERROR_CODES } from '#constants/employee_import_error_codes'
+import { resolveEmployeeImportApiError } from '#helpers/employee_import_api_error'
+import logger from '@adonisjs/core/services/logger'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -363,7 +365,7 @@ export default class EmployeeService {
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
 
-    
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
@@ -784,7 +786,7 @@ export default class EmployeeService {
         }
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+        console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', (error as Error).message)
       }
 
       await newEmployee.load('businessUnit')
@@ -6102,9 +6104,10 @@ async generateShiftAssignmentTemplate(
  * @param file - Archivo Excel subido
  * @param rawHeaders - Headers de la request para logs
  * @param userId - ID del usuario para logs
+ * @param allowedBusinessUnitIds - Alcance de empresa ya resuelto por el controller (fail-closed si vacío)
  * @returns Promise con resultados de la importación
  */
-async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number) {
+async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number, allowedBusinessUnitIds: number[] = []) {
   const workbook = new ExcelJS.Workbook()
 
   try {
@@ -6270,8 +6273,17 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         continue
       }
 
-      // Verificar que el empleado existe
-      const employee = await Employee.find(employeeId)
+      // Verificar que el empleado existe DENTRO del alcance de empresa del usuario.
+      // Filtro explícito además del mixin (defensa en profundidad, USRH1786595131487).
+      // whereIn con arreglo vacío produce `1 = 0`: fail-closed sin branch de longitud.
+      const numericEmployeeId = Number(employeeId)
+      const employee = Number.isInteger(numericEmployeeId) && numericEmployeeId > 0
+        ? await Employee.query()
+            .whereIn('businessUnitId', allowedBusinessUnitIds)
+            .where('employeeId', numericEmployeeId)
+            .first()
+        : null
+
       if (!employee) {
         results.skipped++
         results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeId} no encontrado`)
@@ -6322,7 +6334,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
           try {
             const shiftException = {
-              employeeId: employeeId,
+              employeeId: employee.employeeId,
               exceptionTypeId: massiveExceptionTypeId,
               shiftExceptionsDate: dateStr,
               shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
@@ -6357,8 +6369,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             processedAny = true
             results.created++
           } catch (error: any) {
+            logger.error({ err: error, rowNumber }, 'Error al crear excepción de turno en importación masiva')
             results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción`
             )
           }
           continue
@@ -6398,7 +6411,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             }
 
             const shiftException = {
-              employeeId: employeeId,
+              employeeId: employee.employeeId,
               exceptionTypeId: exceptionTypeId,
               shiftExceptionsDate: dateStr,
               shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
@@ -6433,8 +6446,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
             processedAny = true
             results.created++
           } catch (error: any) {
+            logger.error({ err: error, rowNumber }, 'Error al crear excepción de turno en importación masiva')
             results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción`
             )
           }
           continue
@@ -6571,7 +6585,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
         try {
           const employeeShift = {
-            employeeId: employeeId,
+            employeeId: employee.employeeId,
             shiftId: shiftId,
             employeShiftsApplySince: employeeShiftService.getDateAndTime(dateStr),
           } as EmployeeShift
@@ -6604,13 +6618,14 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           }
 
           const dateObj = date.toJSDate()
-          await employeeShiftService.updateAssistCalendar(employeeId, dateObj)
+          await employeeShiftService.updateAssistCalendar(employee.employeeId, dateObj)
 
           processedAny = true
           results.created++
         } catch (error: any) {
+          logger.error({ err: error, rowNumber }, 'Error al asignar turno en importación masiva')
           results.errors.push(
-            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al asignar turno - ${error.message}`
+            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al asignar turno`
           )
         }
       }
@@ -6628,12 +6643,19 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       data: results
     }
   } catch (error: any) {
+    logger.error({ err: error }, 'Error inesperado al procesar el archivo Excel de asignaciones de turnos')
+    const resolved = resolveEmployeeImportApiError(error, 500, this.i18n, {
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+      key: 'error-importacion-turnos',
+    })
     return {
       status: 500,
       type: 'error',
       title: 'Error al importar',
       message: 'Ocurrió un error al procesar el archivo Excel',
-      error: error.message,
+      detail: resolved.detail,
+      key: resolved.key,
+      code: resolved.errorCode,
       data: null
     }
   }
@@ -8149,7 +8171,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
-    
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {

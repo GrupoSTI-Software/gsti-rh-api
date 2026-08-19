@@ -1196,6 +1196,19 @@
       "ignore_notice": "Si no solicitaste este acceso, ignora este correo. Tu cuenta permanece segura.",
       "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
     },
+    "user_invitation": {
+      "subject": "Te invitaron a {tradeName}",
+      "preheader": "Activa tu cuenta y elige tu contraseña con tu enlace personal.",
+      "greeting": "Hola, {firstName}",
+      "intro": "Te dieron de alta en {tradeName}. Para empezar, elige tu contraseña con el enlace personal de abajo.",
+      "cta": "Activar mi cuenta",
+      "cta_caption": "Te llevará a una página segura donde podrás crear tu contraseña.",
+      "validity": "Este enlace es válido por {days} días y solo puede usarse una vez.",
+      "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
+      "app_notice": "Descarga la app del empleado en tu dispositivo móvil. Accede con el correo con el que fuiste registrado y la contraseña que elijas en el enlace.",
+      "backoffice_notice": "También puedes acceder al backoffice web desde tu navegador con el mismo correo y la contraseña que elijas en el enlace.",
+      "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
+    },
     "password_recovery": {
       "subject": "Restablece tu contraseña en {tradeName}",
       "preheader": "Recibimos una solicitud para restablecer tu contraseña. Usa el enlace y el código de verificación.",

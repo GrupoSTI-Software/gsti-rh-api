@@ -232,6 +232,34 @@ async function registerPaymentViaService(
       subscriptionId,
       {
         amountCents,
+        // (USRH1785962095095 v2) Con monto gobernado, cualquier amountCents distinto
+        // al del periodo — como el prorrateo del adeudo que cubren estos tests —
+        // solo se acepta como importe distinto explícito.
+        allowCustomAmount: true,
+        method: 'transfer',
+        reference: reference ?? `REF-${Date.now()}`,
+        paidAt: DateTime.now().toISO()!,
+      },
+      {
+        tmpPath,
+        clientName: 'receipt.pdf',
+        size: VALID_PDF_BUFFER.length,
+        headers: { 'content-type': 'application/pdf' },
+      }
+    )
+  } finally {
+    await unlink(tmpPath).catch(() => null)
+  }
+}
+
+/** Flujo normal (USRH1785962095095 v2): sin amountCents, el servidor gobierna el monto del periodo. */
+async function registerGovernedPaymentViaService(subscriptionId: number, reference?: string | null) {
+  const tmpPath = await writeTempReceipt()
+  const service = new BillingPaymentService()
+  try {
+    return await service.registerPayment(
+      subscriptionId,
+      {
         method: 'transfer',
         reference: reference ?? `REF-${Date.now()}`,
         paidAt: DateTime.now().toISO()!,
@@ -259,6 +287,7 @@ async function registerPaymentViaHttp(
     .post(`/api/platform/billing/subscriptions/${subscriptionId}/payments`)
     .loginAs(admin)
     .field('amountCents', amountCents)
+    .field('allowCustomAmount', 'true')
     .field('method', 'transfer')
     .field('reference', reference ?? `HTTP-${Date.now()}`)
     .field('paidAt', DateTime.now().toISO()!)
@@ -600,7 +629,8 @@ test.group('POST /api/platform/billing/subscriptions/:id/payments — aplicar au
 
     try {
       const before = await BillingSubscription.findOrFail(subscription.billingSubscriptionId)
-      const result = await registerPaymentViaService(subscription.billingSubscriptionId, 50_000)
+      // Flujo normal (monto gobernado): cubre exactamente 1 periodo, sin coexistencia.
+      const result = await registerGovernedPaymentViaService(subscription.billingSubscriptionId)
 
       assert.isNull(result.appliedChange)
       assert.equal(result.subscription.status, 'active')

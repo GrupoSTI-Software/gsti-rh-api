@@ -12,11 +12,12 @@ import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import {
+  assertContractedEmployees as assertContractedEmployeesRule,
   employeesAboveSafetyCapError,
   employeesBelowActiveHeadcountError,
-  employeesNotBlockOfTenError,
-  MIN_CONTRACTED_EMPLOYEES,
-  EMPLOYEE_BLOCK_SIZE,
+  resolveMinimumContractedEmployees as resolveMinimumContractedEmployeesRule,
+} from '../helpers/contracted_employees_rules.js'
+import {
   originNotSelfServiceError,
   planUnavailableError,
   PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
@@ -165,13 +166,7 @@ export default class BillingTenantService {
    * Con 0 activos devuelve el mínimo general de la superficie self-service (10).
    */
   resolveMinimumContractedEmployees(activeEmployees: number): number {
-    if (activeEmployees <= 0) {
-      return MIN_CONTRACTED_EMPLOYEES
-    }
-    return Math.max(
-      MIN_CONTRACTED_EMPLOYEES,
-      Math.ceil(activeEmployees / EMPLOYEE_BLOCK_SIZE) * EMPLOYEE_BLOCK_SIZE
-    )
+    return resolveMinimumContractedEmployeesRule(activeEmployees)
   }
 
   /**
@@ -245,13 +240,7 @@ export default class BillingTenantService {
    * Método compartido con signup/start y complete() (hermana B).
    */
   assertContractedEmployees(employeeCount: number): void {
-    if (employeeCount > PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP) {
-      throw employeesAboveSafetyCapError()
-    }
-
-    if (employeeCount < MIN_CONTRACTED_EMPLOYEES || employeeCount % EMPLOYEE_BLOCK_SIZE !== 0) {
-      throw employeesNotBlockOfTenError()
-    }
+    assertContractedEmployeesRule(employeeCount)
   }
 
   /**
