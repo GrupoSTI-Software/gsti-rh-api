@@ -12,6 +12,16 @@ import {
   isContratoImportRateLimitError,
   respondContratoImportRateLimit,
 } from '../helpers/contrato_import_request_errors.js'
+import {
+  isResendAccessPath,
+  isResendAccessRateLimitError,
+  respondResendAccessRateLimit,
+} from '../helpers/user_resend_access_request_errors.js'
+import {
+  isAuthInvitationPath,
+  isAuthInvitationRateLimitError,
+  respondAuthInvitationRateLimit,
+} from '../helpers/auth_invitation_request_errors.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -50,6 +60,14 @@ export default class HttpExceptionHandler extends ExceptionHandler {
 
     if (isContratoImportRateLimitError(error) && isContratoImportExcelPath(ctx.request.url())) {
       return respondContratoImportRateLimit(ctx, error)
+    }
+
+    if (isResendAccessRateLimitError(error) && isResendAccessPath(ctx.request.url())) {
+      return respondResendAccessRateLimit(ctx, error)
+    }
+
+    if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {
+      return respondAuthInvitationRateLimit(ctx, error)
     }
 
     return super.handle(error, ctx)

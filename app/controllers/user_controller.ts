@@ -20,12 +20,41 @@ import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import AuthTokenService from '#services/auth_token_service'
 import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_service'
+import RoleService from '#services/role_service'
+import { AUTH_LOGIN_ERRORS } from '#constants/auth_login_error_codes'
 import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
+import { secureRandomInt } from '#helpers/csprng_string'
+import {
+  buildInvitationTokenExpiresAt,
+  generateInvitationToken,
+  generateProvisionalPassword,
+} from '#helpers/user_invitation_credentials'
+import { USER_INVITATION_LOGIN_ERRORS, USER_INVITATION_RESEND_ERRORS } from '#constants/user_invitation_error_codes'
 
+/**
+ * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
+ * de siempre; solo cambia la fuente de aleatoriedad — `crypto.randomInt`
+ * ya es uniforme y sin sesgo de módulo, así que no hace falta reimplementar
+ * el muestreo con rechazo (helper compartido con USRH1783115930049).
+ */
 function generateRecoveryPin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(secureRandomInt(100000, 1000000))
+}
+
+async function dispatchUserInvitationEmail(user: User): Promise<void> {
+  await user.load('person')
+  const empleadoRole = await new RoleService().findRoleBySlug('empleado')
+  const canAccessBackoffice = !empleadoRole || user.roleId !== empleadoRole.roleId
+  const authMailService = new AuthMailService()
+  await authMailService.sendUserInvitation({
+    to: user.userEmail,
+    firstName: user.person?.personFirstname || user.userEmail,
+    invitationToken: user.userToken,
+    language: 'es',
+    canAccessBackoffice,
+  })
 }
 
 export default class UserController {
@@ -147,6 +176,21 @@ export default class UserController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Acceso denegado (empleado en web o cuenta pendiente de activar)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
    *       default:
    *         description: Unexpected error
    *         content:
@@ -201,6 +245,17 @@ export default class UserController {
           title: 'Login',
           message: 'Incorrect email or password',
           data: { user: {} },
+        }
+      }
+
+      if (user.userPasswordSetAt === null) {
+        const err = USER_INVITATION_LOGIN_ERRORS.PENDING_ACTIVATION
+        response.status(err.status)
+        return {
+          title: err.title,
+          detail: err.detail,
+          key: err.key,
+          code: err.code,
         }
       }
 
@@ -295,6 +350,39 @@ export default class UserController {
         }
       }
 
+      let userVerify = false
+      try {
+        await User.verifyCredentials(userEmail, userPassword)
+        userVerify = true
+      } catch (error) {
+        if (error.code !== 'E_INVALID_CREDENTIALS') {
+          throw error
+        }
+      }
+
+      if (!userVerify) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Login',
+          message: 'Incorrect email or password',
+          data: { user: {} },
+        }
+      }
+
+      if (origin === 'web') {
+        const roleService = new RoleService()
+        const employeeRole = await roleService.findRoleBySlug('empleado')
+        if (employeeRole && user.roleId === employeeRole.roleId) {
+          response.status(403)
+          return {
+            title: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.title,
+            detail: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.detail,
+            key: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.key,
+          }
+        }
+      }
+
       await ApiToken.query().where('tokenable_id', user.userId).where('origin', origin).delete()
 
       if (Ws.io) {
@@ -303,47 +391,36 @@ export default class UserController {
         } catch (error) {}
       }
 
-      const userVerify = await User.verifyCredentials(userEmail, userPassword)
       const authTokenService = new AuthTokenService()
       const { accessToken, refreshToken } = await authTokenService.issueTokenPair(user, origin)
 
-      if (userVerify) {
-        const date = DateTime.local().setZone('utc').toISO()
-        try {
-          const rawHeaders = request.request.rawHeaders
-          const userService = new UserService(i18n)
-          const userAgent = userService.getHeaderValue(rawHeaders, 'User-Agent')
-          const secChUaPlatform = userService.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
-          const secChUa = userService.getHeaderValue(rawHeaders, 'sec-ch-ua')
-          const originHeader = userService.getHeaderValue(rawHeaders, 'Origin')
-          await LogStore.set('log_authentication', {
-            user_agent: userAgent,
-            sec_ch_ua_platform: secChUaPlatform,
-            sec_ch_ua: secChUa,
-            origin: originHeader,
-            date: date ? date : '',
-            user_id: user.userId,
-          } as LogAuthentication)
-        } catch (err) {}
-        response.status(200)
-        return {
-          type: 'success',
-          title: 'Login',
-          message: 'You have successfully logged in',
-          data: {
-            user: user,
-            token: accessToken,
-            refreshToken,
-          },
-        }
-      } else {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'Login',
-          message: 'Incorrect email or password',
-          data: { user: {} },
-        }
+      const date = DateTime.local().setZone('utc').toISO()
+      try {
+        const rawHeaders = request.request.rawHeaders
+        const userService = new UserService(i18n)
+        const userAgent = userService.getHeaderValue(rawHeaders, 'User-Agent')
+        const secChUaPlatform = userService.getHeaderValue(rawHeaders, 'sec-ch-ua-platform')
+        const secChUa = userService.getHeaderValue(rawHeaders, 'sec-ch-ua')
+        const originHeader = userService.getHeaderValue(rawHeaders, 'Origin')
+        await LogStore.set('log_authentication', {
+          user_agent: userAgent,
+          sec_ch_ua_platform: secChUaPlatform,
+          sec_ch_ua: secChUa,
+          origin: originHeader,
+          date: date ? date : '',
+          user_id: user.userId,
+        } as LogAuthentication)
+      } catch (err) {}
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Login',
+        message: 'You have successfully logged in',
+        data: {
+          user: user,
+          token: accessToken,
+          refreshToken,
+        },
       }
     } catch (error) {
       response.status(500)
@@ -1371,11 +1448,6 @@ export default class UserController {
    *                 description: User email
    *                 required: true
    *                 default: ''
-   *               userPassword:
-   *                 type: string
-   *                 description: User password
-   *                 required: true
-   *                 default: ''
    *               userActive:
    *                 type: boolean
    *                 description: User status
@@ -1480,11 +1552,6 @@ export default class UserController {
   async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const userEmail = request.input('userEmail')
-      let userPassword = request.input('userPassword')
-      const passwordArray = Array.isArray(userPassword)
-      userPassword = passwordArray
-        ? userPassword.map((item: string) => item).join(',')
-        : userPassword
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
@@ -1500,11 +1567,14 @@ export default class UserController {
 
       const user = {
         userEmail: userEmail,
-        userPassword: userPassword,
+        userPassword: generateProvisionalPassword(),
         userActive: userActive,
         roleId: roleId,
         personId: personId,
         userEmailType: userEmailType,
+        userToken: generateInvitationToken(),
+        userTokenExpiresAt: buildInvitationTokenExpiresAt(),
+        userPasswordSetAt: null,
       } as User
       const userService = new UserService(i18n)
       const data = await request.validateUsing(createUserValidator)
@@ -1548,10 +1618,9 @@ export default class UserController {
           logUser.record_current = JSON.parse(JSON.stringify(newUser))
           await userService.saveActionOnLog(logUser)
         }
-        const url = request.header('origin')
-        if (url) {
-          userService.sendNewPasswordEmail(url, newUser, userPassword)
-        }
+
+        await dispatchUserInvitationEmail(newUser)
+
         response.status(201)
         return {
           type: 'success',
@@ -1570,6 +1639,144 @@ export default class UserController {
         message: 'An unexpected error has occurred on the server',
         error: messageError,
       }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/users/{userId}/resend-access:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Users
+   *     summary: Reenviar invitación de acceso a un usuario pendiente
+   *     description: |
+   *       Emite un token de invitación nuevo con vigencia de 5 días e invalida el anterior.
+   *       Solo aplica a usuarios pendientes de activar (`user_password_set_at IS NULL`)
+   *       dentro del scope de la empresa del administrador. Requiere permiso de edición.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         schema:
+   *           type: number
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Invitación reenviada
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   description: Message of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '404':
+   *         description: Usuario no encontrado en el scope
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '409':
+   *         description: Usuario ya activado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *       '429':
+   *         description: Límite de reenvíos alcanzado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 detail:
+   *                   type: string
+   *                   description: Detail of response generated
+   *                 key:
+   *                   type: string
+   *                   description: Key of response generated
+   *                 code:
+   *                   type: string
+   *                   description: Code of response generated
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   */
+  async resendAccess({ response, i18n, scopedUser }: HttpContext) {
+    const targetUser = scopedUser!
+    const userService = new UserService(i18n)
+
+    if (targetUser.userPasswordSetAt !== null) {
+      const err = USER_INVITATION_RESEND_ERRORS.ALREADY_ACTIVATED
+      response.status(err.status)
+      return {
+        title: err.title,
+        detail: err.detail,
+        key: err.key,
+        code: err.code,
+      }
+    }
+
+    const updatedUser = await userService.rotateInvitationAccess(targetUser)
+    await dispatchUserInvitationEmail(updatedUser)
+
+    response.status(200)
+    return {
+      message: 'Se reenvió la invitación de acceso correctamente.',
     }
   }
 
@@ -1601,11 +1808,6 @@ export default class UserController {
    *                 type: string
    *                 description: User email
    *                 required: true
-   *                 default: ''
-   *               userPassword:
-   *                 type: string
-   *                 description: User password
-   *                 required: false
    *                 default: ''
    *               userActive:
    *                 type: boolean
@@ -1708,18 +1910,13 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n, scopedUser }: HttpContext) {
     try {
-      const input = request.all()
-      const userId = request.param('userId')
+      const currentUser = scopedUser!
+      const userId = currentUser.userId
+      const userService = new UserService(i18n)
+
       const userEmail = request.input('userEmail')
-      let userPassword = request.input('userPassword')
-      const passwordArray = Array.isArray(userPassword)
-      userPassword = passwordArray
-        ? userPassword.map((item: string) => item).join(',')
-        : userPassword
-      input.userPassword = userPassword
-      request.updateBody(input)
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
@@ -1727,36 +1924,12 @@ export default class UserController {
       const user = {
         userId: userId,
         userEmail: userEmail,
-        userPassword: userPassword,
         userActive: userActive,
         roleId: roleId,
         personId: personId,
         userEmailType: userEmailType,
       } as User
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { ...user },
-        }
-      }
-      const currentUser = await User.query()
-        .whereNull('user_deleted_at')
-        .where('user_id', userId)
-        .first()
-      if (!currentUser) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { ...user },
-        }
-      }
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      const userService = new UserService(i18n)
       const data = await request.validateUsing(updateUserValidator)
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
@@ -1797,13 +1970,6 @@ export default class UserController {
           logUser.record_current = JSON.parse(JSON.stringify(updateUser))
           logUser.record_previous = previousUser
           await userService.saveActionOnLog(logUser)
-        }
-        if (userPassword) {
-          await updateUser.load('person')
-          const url = request.header('origin')
-          if (url) {
-            userService.sendNewPasswordEmail(url, updateUser, userPassword)
-          }
         }
         response.status(201)
         return {
@@ -1925,31 +2091,9 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async delete({ auth, request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n, scopedUser }: HttpContext) {
     try {
-      const userId = request.param('userId')
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { userId },
-        }
-      }
-      const currentUser = await User.query()
-        .whereNull('user_deleted_at')
-        .where('user_id', userId)
-        .first()
-      if (!currentUser) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { userId },
-        }
-      }
+      const currentUser = scopedUser!
       const userService = new UserService(i18n)
       const deleteUser = await userService.delete(currentUser)
       if (deleteUser) {
@@ -2079,29 +2223,11 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show({ response, i18n, businessUnitScope, scopedUser }: HttpContext) {
     try {
-      const userId = request.param('userId')
-      if (!userId) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'The user Id was not found',
-          message: 'Missing data to process',
-          data: { userId },
-        }
-      }
       const userService = new UserService(i18n)
-      const showUser = await userService.show(userId)
-      if (!showUser) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The user was not found',
-          message: 'The user was not found with the entered ID',
-          data: { userId },
-        }
-      } else {
+      const showUser = await userService.show(scopedUser!.userId, businessUnitScope)
+      if (showUser) {
         response.status(200)
         return {
           type: 'success',
@@ -2109,6 +2235,14 @@ export default class UserController {
           message: 'The user was found successfully',
           data: { user: showUser },
         }
+      }
+
+      response.status(404)
+      return {
+        type: 'warning',
+        title: 'The user was not found',
+        message: 'The user was not found with the entered ID',
+        data: { userId: scopedUser!.userId },
       }
     } catch (error) {
       response.status(500)

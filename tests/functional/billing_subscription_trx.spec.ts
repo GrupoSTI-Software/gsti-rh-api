@@ -194,3 +194,244 @@ test.group('BillingSubscriptionService.createSubscription — skipTrial (USRH178
     }
   })
 })
+
+test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscription (USRH1785962095087)', () => {
+  test('Criterio 1 — reemplazo feliz: cancela la viva y crea la nueva en un solo acto', async ({
+    assert,
+  }) => {
+    const stamp = Date.now() + 2
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Replace Happy BU ${stamp}`
+    businessUnit.businessUnitSlug = `replace-happy-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Replace Happy Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+    const today = toBusinessDateString()
+
+    try {
+      const original = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 10,
+      })
+      assert.equal(original.billingSubscriptionStatus, 'trialing')
+
+      const replacement = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 20,
+        replaceLiveSubscription: true,
+      })
+
+      assert.notEqual(replacement.billingSubscriptionId, original.billingSubscriptionId)
+      // La original ya gozó prueba (contracted_trial_days > 0): el reemplazo
+      // nace sin prueba, active (regla de prueba única por empresa).
+      assert.equal(replacement.billingSubscriptionStatus, 'active')
+      assert.equal(replacement.billingSubscriptionContractedEmployees, 20)
+
+      const reloadedOriginal = await BillingSubscription.find(original.billingSubscriptionId)
+      assert.equal(reloadedOriginal!.billingSubscriptionStatus, 'canceled')
+      assert.equal(toCalendarIsoDate(reloadedOriginal!.billingSubscriptionCanceledAt), today)
+      assert.isNull(reloadedOriginal!.billingSubscriptionLiveBusinessUnitId)
+
+      const liveRows = await BillingSubscription.query()
+        .where('business_unit_id', businessUnit.businessUnitId)
+        .whereIn('billing_subscription_status', ['trialing', 'active', 'past_due'])
+      assert.lengthOf(liveRows, 1)
+      assert.equal(liveRows[0].billingSubscriptionId, replacement.billingSubscriptionId)
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('Criterio 2 — sin la instrucción, sigue rechazando con ALREADY_LIVE (regresión)', async ({
+    assert,
+  }) => {
+    const stamp = Date.now() + 3
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Replace Regression BU ${stamp}`
+    businessUnit.businessUnitSlug = `replace-regression-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Replace Regression Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+
+    try {
+      const original = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 10,
+      })
+
+      let thrown: unknown = null
+      try {
+        await service.createSubscription({
+          businessUnitPublicId: businessUnit.businessUnitPublicId,
+          billingPlanId: planId,
+          contractedEmployees: 10,
+        })
+      } catch (error) {
+        thrown = error
+      }
+
+      assert.isNotNull(thrown)
+      assert.equal((thrown as { httpStatus?: number }).httpStatus, 409)
+      assert.equal((thrown as { errorCode?: string }).errorCode, 'PLT.SUB.ALREADY_LIVE')
+
+      const reloadedOriginal = await BillingSubscription.find(original.billingSubscriptionId)
+      assert.equal(reloadedOriginal!.billingSubscriptionStatus, 'trialing')
+      assert.isNull(reloadedOriginal!.billingSubscriptionCanceledAt)
+      assert.equal(reloadedOriginal!.billingSubscriptionLiveBusinessUnitId, businessUnit.businessUnitId)
+
+      const allRows = await BillingSubscription.query().where(
+        'business_unit_id',
+        businessUnit.businessUnitId
+      )
+      assert.lengthOf(allRows, 1)
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('Criterio 3 — todo-o-nada: si falla el alta nueva, la original sigue viva sin cambios', async ({
+    assert,
+  }) => {
+    const stamp = Date.now() + 4
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Replace Rollback BU ${stamp}`
+    businessUnit.businessUnitSlug = `replace-rollback-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Replace Rollback Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+
+    try {
+      const original = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 10,
+      })
+
+      // Un plan sin precio vigente (nunca publicado) hace fallar resolvePrice
+      // antes de llegar al bloque de creación — el reemplazo debe abortar
+      // sin cancelar la original.
+      const unpublished = await new BillingCatalogService().createPlan({
+        billingPlanName: `Replace Rollback Plan ${stamp}`,
+        billingPlanDescription: 'Fixture sin publicar',
+        billingPlanProvider: 'manual',
+      })
+
+      let thrown: unknown = null
+      try {
+        await service.createSubscription({
+          businessUnitPublicId: businessUnit.businessUnitPublicId,
+          billingPlanId: unpublished.billingPlanId,
+          contractedEmployees: 10,
+          replaceLiveSubscription: true,
+        })
+      } catch (error) {
+        thrown = error
+      }
+
+      assert.isNotNull(thrown)
+      assert.equal((thrown as { httpStatus?: number }).httpStatus, 422)
+
+      const reloadedOriginal = await BillingSubscription.find(original.billingSubscriptionId)
+      assert.equal(reloadedOriginal!.billingSubscriptionStatus, 'trialing')
+      assert.isNull(reloadedOriginal!.billingSubscriptionCanceledAt)
+      assert.equal(reloadedOriginal!.billingSubscriptionLiveBusinessUnitId, businessUnit.businessUnitId)
+
+      const allRows = await BillingSubscription.query().where(
+        'business_unit_id',
+        businessUnit.businessUnitId
+      )
+      assert.lengthOf(allRows, 1)
+
+      await BillingPlan.query().where('billing_plan_id', unpublished.billingPlanId).delete()
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('Criterio 4 — la instrucción sin contratación viva es inocua: alta normal', async ({
+    assert,
+  }) => {
+    const stamp = Date.now() + 5
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Replace Noop BU ${stamp}`
+    businessUnit.businessUnitSlug = `replace-noop-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Replace Noop Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+
+    try {
+      const subscription = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 10,
+        replaceLiveSubscription: true,
+      })
+
+      assert.equal(subscription.billingSubscriptionStatus, 'trialing')
+
+      const allRows = await BillingSubscription.query().where(
+        'business_unit_id',
+        businessUnit.businessUnitId
+      )
+      assert.lengthOf(allRows, 1)
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('regresión de cancel(): sigue devolviendo 422 si ya estaba cancelada', async ({ assert }) => {
+    const stamp = Date.now() + 6
+    const planId = await createPublishedPlan(stamp)
+    const businessUnit = new BusinessUnit()
+    businessUnit.businessUnitName = `Cancel Regression BU ${stamp}`
+    businessUnit.businessUnitSlug = `cancel-regression-bu-${stamp}`
+    businessUnit.businessUnitLegalName = `Cancel Regression Legal ${stamp}`
+    businessUnit.businessUnitActive = 1
+    await businessUnit.save()
+
+    const service = new BillingSubscriptionService()
+
+    try {
+      const subscription = await service.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: planId,
+        contractedEmployees: 10,
+      })
+
+      const canceled = await service.cancel(subscription.billingSubscriptionId)
+      assert.equal(canceled.billingSubscriptionStatus, 'canceled')
+
+      let thrown: unknown = null
+      try {
+        await service.cancel(subscription.billingSubscriptionId)
+      } catch (error) {
+        thrown = error
+      }
+      assert.isNotNull(thrown)
+      assert.equal((thrown as { httpStatus?: number }).httpStatus, 422)
+      assert.equal((thrown as { errorCode?: string }).errorCode, 'PLT.SUB.SUBSCRIPTION_CANCELED')
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(planId)
+    }
+  })
+})

@@ -13,10 +13,22 @@ export const BILLING_PAYMENT_ERROR_CODES = {
   SUBSCRIPTION_CANCELED: 'PLT.PAY.SUBSCRIPTION_CANCELED',
   /** Monto inválido (≤ 0 o fuera de cotas razonables) */
   AMOUNT_INVALID: 'PLT.PAY.AMOUNT_INVALID',
+  /** Flujo normal: se envió amountCents distinto al monto gobernado del periodo */
+  AMOUNT_NOT_ALLOWED: 'PLT.PAY.AMOUNT_NOT_ALLOWED',
+  /** allowCustomAmount=true sin enviar amountCents */
+  AMOUNT_REQUIRED: 'PLT.PAY.AMOUNT_REQUIRED',
+  /** El trato congelado no permite determinar el monto del periodo */
+  PERIOD_AMOUNT_UNAVAILABLE: 'PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE',
+  /** El importe cubriría más periodos que MAX_PERIODS_PER_PAYMENT */
+  PERIODS_OUT_OF_RANGE: 'PLT.PAY.PERIODS_OUT_OF_RANGE',
   /** Comprobante inválido (tipo no permitido, excede tope o ausente) */
   RECEIPT_INVALID: 'PLT.PAY.RECEIPT_INVALID',
   /** Fallo al subir el comprobante a S3 */
   RECEIPT_UPLOAD_FAILED: 'PLT.PAY.RECEIPT_UPLOAD_FAILED',
+  /** Falló aplicar el aumento junto con el registro del pago (rollback total) */
+  CHANGE_APPLY_FAILED: 'PLT.PAY.CHANGE_APPLY_FAILED',
+  /** Importes congelados del cambio incompletos o inválidos (fail-closed) */
+  CHANGE_INCONSISTENT_SNAPSHOT: 'PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.PAY.SYS_UNHANDLED',
 } as const

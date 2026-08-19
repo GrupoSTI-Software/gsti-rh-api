@@ -1,5 +1,7 @@
 import EmployeeAssistsCalendarService from '#services/employee_assist_calendar_service'
 import { HttpContext } from '@adonisjs/core/http'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 export default class EmployeeAssistCalendarController {
 
@@ -48,7 +50,8 @@ export default class EmployeeAssistCalendarController {
    *             schema:
    *               type: object
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     const syncAssistsService = new EmployeeAssistsCalendarService(i18n)
     const employeeID = request.input('employeeId')
@@ -56,6 +59,15 @@ export default class EmployeeAssistCalendarController {
     const filterDateEnd = request.input('date-end')
 
     try {
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeID),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAssistCalendars
+      )
+      if (!allowed) {
+        return
+      }
+
       const result = await syncAssistsService.index(
         {
           dateStart: filterDate,

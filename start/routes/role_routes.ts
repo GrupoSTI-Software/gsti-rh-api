@@ -3,6 +3,7 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
+    router.post('/assign-batch', '#controllers/role_controller.assignBatch')
     router.post('/assign/:roleId', '#controllers/role_controller.assign')
     router.get(
       '/has-access-department/:roleId/:departmentId',

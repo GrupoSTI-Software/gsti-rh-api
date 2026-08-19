@@ -193,6 +193,7 @@ test.group('BillingSubscriptionService — reglas de createSubscription', () => 
     businessUnitActive: boolean
     planExists: boolean
     planPublished: boolean
+    planActive?: boolean
     hasActivePrice: boolean
     hasLiveSubscription: boolean
   }) {
@@ -217,9 +218,11 @@ test.group('BillingSubscriptionService — reglas de createSubscription', () => 
         404
       )
     }
-    if (!context.planPublished) {
+    // Espeja `!plan.isPublished || !plan.billingPlanActive` (USRH1785962095081):
+    // un plan retirado (publicado pero desactivado) tampoco es contratable.
+    if (!context.planPublished || context.planActive === false) {
       throw new BillingSubscriptionServiceError(
-        'Plan no publicado',
+        'Plan no publicado y vigente',
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422
       )
@@ -246,6 +249,7 @@ test.group('BillingSubscriptionService — reglas de createSubscription', () => 
     businessUnitActive: true,
     planExists: true,
     planPublished: true,
+    planActive: true,
     hasActivePrice: true,
     hasLiveSubscription: false,
   }
@@ -288,6 +292,14 @@ test.group('BillingSubscriptionService — reglas de createSubscription', () => 
   test('sin precio vigente en el catálogo lanza NO_ACTIVE_PRICE con 422', ({ assert }) => {
     const error = captureError(() => tryCreate({ ...baseContext, hasActivePrice: false }))
     assert.equal(error?.errorCode, 'PLT.SUB.NO_ACTIVE_PRICE')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('contratar sobre un plan publicado pero retirado lanza PLAN_NOT_PUBLISHED con 422 (USRH1785962095081)', ({
+    assert,
+  }) => {
+    const error = captureError(() => tryCreate({ ...baseContext, planActive: false }))
+    assert.equal(error?.errorCode, 'PLT.SUB.PLAN_NOT_PUBLISHED')
     assert.equal(error?.httpStatus, 422)
   })
 
@@ -441,5 +453,51 @@ test.group('BillingSubscriptionService — snapshot congelado del trato', () => 
     assert.notEqual(snapshot.pricePerEmployee, catalogPriceAfterChange)
     assert.equal(snapshot.pricePerEmployee, 65)
     assert.equal(snapshot.total, 4071.6)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: un plan retirado no puede ser destino de un cambio de plan
+// (USRH1785962095081 — cierra la brecha de venta server-side)
+// ---------------------------------------------------------------------------
+
+test.group('BillingSubscriptionService — changePlan: plan destino publicado y vigente', () => {
+  /** Espeja `!plan.isPublished || !plan.billingPlanActive` en changePlan. */
+  function tryChangePlan(target: { published: boolean; active: boolean }) {
+    if (!target.published || !target.active) {
+      throw new BillingSubscriptionServiceError(
+        'Plan no publicado y vigente',
+        BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
+        422
+      )
+    }
+    return true
+  }
+
+  test('cambiar a un plan en borrador lanza PLAN_NOT_PUBLISHED con 422', ({ assert }) => {
+    try {
+      tryChangePlan({ published: false, active: true })
+      assert.fail('Se esperaba PLAN_NOT_PUBLISHED')
+    } catch (e) {
+      const error = e as BillingSubscriptionServiceError
+      assert.equal(error.errorCode, 'PLT.SUB.PLAN_NOT_PUBLISHED')
+      assert.equal(error.httpStatus, 422)
+    }
+  })
+
+  test('cambiar a un plan publicado pero retirado (desactivado) lanza PLAN_NOT_PUBLISHED con 422', ({
+    assert,
+  }) => {
+    try {
+      tryChangePlan({ published: true, active: false })
+      assert.fail('Se esperaba PLAN_NOT_PUBLISHED')
+    } catch (e) {
+      const error = e as BillingSubscriptionServiceError
+      assert.equal(error.errorCode, 'PLT.SUB.PLAN_NOT_PUBLISHED')
+    }
+  })
+
+  test('cambiar a un plan publicado y vigente no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryChangePlan({ published: true, active: true }))
   })
 })

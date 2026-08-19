@@ -22,6 +22,7 @@ import './routes/platform_magic_link_routes.js'
 import './routes/platform_recovery_routes.js'
 import './routes/login_routes.js'
 import './routes/auth_recovery_routes.js'
+import './routes/auth_invitation_routes.js'
 import './routes/auth_magic_link_routes.js'
 import './routes/passkey_routes.js'
 import './routes/synchronization_routes.js'
@@ -42,6 +43,7 @@ import './routes/holiday_routes.js'
 import './routes/shift_for_employees.js'
 import './routes/department_position_routes.js'
 import './routes/role_routes.js'
+import './routes/role_preset_routes.js'
 import './routes/exception_type_routes.js'
 import './routes/vacations_routes.js'
 import './routes/aircraft_class_routes.js'
@@ -198,6 +200,7 @@ import '#modules/repse-providers/validations/validations.routes'
 import '#modules/repse-providers/expediente/expediente.routes'
 import '#modules/employee-badge/badge.routes'
 import '#modules/employee-badge/badge_public.routes'
+import '#modules/employee-offboarding/concepts/concepts.routes'
 import './routes/empresas_contratantes_routes.js'
 import './routes/contratos_servicios_especializados_routes.js'
 import './routes/documentos_contrato_especializado_routes.js'
@@ -209,6 +212,8 @@ import './routes/competency_descriptor_routes.js'
 import './routes/competency_bracket_routes.js'
 import './routes/auth_signup_routes.js'
 import './routes/billing_routes.js'
+import './routes/tenant_billing_profile_routes.js'
+import './routes/sat_catalog_routes.js'
 import './routes/complaint_routes.js'
 import './routes/complaint_category_routes.js'
 import './routes/pii_reveal_routes.js'
@@ -261,7 +266,7 @@ router.get('/test-socket', async ({ response }) => {
       pin: '1',
       fingerId: 9,
       type: 'fingerprint',
-      overwrite: true
+      overwrite: true,
     })
 
     // Responder al cliente HTTP
