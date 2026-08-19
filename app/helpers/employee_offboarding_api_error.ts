@@ -18,6 +18,17 @@ export type ResolvedEmployeeOffboardingApiError = {
 }
 
 /**
+ * Códigos y `key` de los ramos genéricos (VineJS y no clasificado), que
+ * varían por slice del módulo: `concepts/` usa `OFFB.CONCEPT.*` (default) y
+ * `offboardings/` pasa los suyos `OFFB.CASE.*` (USRH1786568279587).
+ */
+export type EmployeeOffboardingErrorFallbacks = {
+  valInputCode?: EmployeeOffboardingErrorCode
+  unexpectedCode?: EmployeeOffboardingErrorCode
+  unexpectedKey?: string
+}
+
+/**
  * Convierte cualquier excepción del módulo de salidas de personal en la
  * respuesta estable `{ title, detail, key, code }` (molde
  * `resolvePositionLevelApiError`). Dictamen de códigos HTTP de la cadena:
@@ -26,7 +37,8 @@ export type ResolvedEmployeeOffboardingApiError = {
  */
 export function resolveEmployeeOffboardingApiError(
   error: unknown,
-  i18n: I18n
+  i18n: I18n,
+  fallbacks: EmployeeOffboardingErrorFallbacks = {}
 ): ResolvedEmployeeOffboardingApiError {
   const err = error as {
     code?: string
@@ -42,7 +54,7 @@ export function resolveEmployeeOffboardingApiError(
         err.messages?.[0]?.message ??
         i18n.formatMessage('employee_offboarding_val_input_message'),
       key: 'datos-invalidos',
-      code: EMPLOYEE_OFFBOARDING_ERROR_CODES.VAL_INPUT,
+      code: fallbacks.valInputCode ?? EMPLOYEE_OFFBOARDING_ERROR_CODES.VAL_INPUT,
     }
   }
 
@@ -63,7 +75,7 @@ export function resolveEmployeeOffboardingApiError(
       typeof err?.message === 'string'
         ? err.message
         : i18n.formatMessage('employee_offboarding_unexpected_message'),
-    key: 'error-inesperado',
-    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.SYS_UNHANDLED,
+    key: fallbacks.unexpectedKey ?? 'error-inesperado',
+    code: fallbacks.unexpectedCode ?? EMPLOYEE_OFFBOARDING_ERROR_CODES.SYS_UNHANDLED,
   }
 }

@@ -63,6 +63,8 @@ import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
 import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
+import logger from '@adonisjs/core/services/logger'
+import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import EmployeeAddress from '#models/employee_address'
 import EmployeeSpouse from '#models/employee_spouse'
@@ -1000,6 +1002,21 @@ export default class EmployeeService {
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
+
+    // Expediente de salida (USRH1786568279587): apertura automática NO
+    // bloqueante e idempotente — la baja NUNCA falla por el expediente
+    // (regla 8). Cubre a los 3 llamadores (empleado, piloto, sobrecargo);
+    // la fecha reutiliza `terminationDate` ya resuelta arriba (§7 D5).
+    try {
+      const offboardingsService = new OffboardingsService(this.i18n)
+      await offboardingsService.openAutomatically(currentEmployee, terminationDate)
+    } catch (error) {
+      logger.error(
+        { err: error, employeeId: currentEmployee.employeeId },
+        'EmployeeService.delete: fallo al abrir el expediente de salida; la baja se completó igual'
+      )
+    }
+
     return currentEmployee
   }
 
