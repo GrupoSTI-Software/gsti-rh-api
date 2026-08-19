@@ -13,6 +13,12 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * `billing_payment_period_start`/`_end` se relajan a nullable: un pago
  * parcial no cubre periodo alguno y llenarlos con el periodo vigente sería
  * registrar un dato falso.
+ *
+ * (v2 — coexistencia con USRH1786107870856) `billing_payment_debt_applied_cents`
+ * separa cuánto del dinero de este pago se consumió cubriendo el adeudo
+ * prorrateado de un aumento de `credit_applied_cents` (lo que se fue a
+ * periodos). El saldo a favor es la única puerta de entrada del dinero:
+ * primero el adeudo, después los periodos, el sobrante queda a favor.
  */
 export default class extends BaseSchema {
   protected tableName = 'billing_payments'
@@ -44,10 +50,16 @@ export default class extends BaseSchema {
         .defaultTo(0)
         .after('billing_payment_credit_applied_cents')
       table
+        .integer('billing_payment_debt_applied_cents')
+        .unsigned()
+        .notNullable()
+        .defaultTo(0)
+        .after('billing_payment_credit_balance_after_cents')
+      table
         .boolean('billing_payment_is_custom_amount')
         .notNullable()
         .defaultTo(false)
-        .after('billing_payment_credit_balance_after_cents')
+        .after('billing_payment_debt_applied_cents')
 
       // ─── Foto financiera del periodo cobrado, en centavos (regla 12) ───────
       table
@@ -110,6 +122,7 @@ export default class extends BaseSchema {
       table.dropColumn('billing_payment_periods_covered')
       table.dropColumn('billing_payment_credit_applied_cents')
       table.dropColumn('billing_payment_credit_balance_after_cents')
+      table.dropColumn('billing_payment_debt_applied_cents')
       table.dropColumn('billing_payment_is_custom_amount')
       table.dropColumn('billing_payment_gross_cents')
       table.dropColumn('billing_payment_discount_amount_cents')

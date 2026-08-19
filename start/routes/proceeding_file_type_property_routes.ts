@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 router
   .group(() => {
@@ -11,6 +12,8 @@ router
     router.get(
       '/get-categories-by-employee',
       '#controllers/proceeding_file_type_property_controller.getCategories'
+    ).use(
+      middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getProceedingFileTypePropertyCategoriesByEmployee)
     )
     router.get(
       '/get-categories-by-system-setting',

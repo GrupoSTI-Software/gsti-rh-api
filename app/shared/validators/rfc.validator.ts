@@ -46,6 +46,16 @@ const RFC_CHAR_VALUES: Record<string, number> = {
 const RFC_MORAL_PATTERN = /^[A-ZÑ&]{3}\d{6}[A-Z0-9]{3}$/
 const RFC_FISICA_PATTERN = /^[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}$/
 
+/** RFC genéricos oficiales del SAT (público en general); no aplican dígito verificador estándar. */
+export const SAT_GENERIC_RFCS = ['XAXX010101000', 'XEXX010101000'] as const
+
+/**
+ * Indica si el valor es un RFC genérico reservado por el SAT.
+ */
+export function isSatGenericRfc(value: string): boolean {
+  return (SAT_GENERIC_RFCS as readonly string[]).includes(normalizeRfc(value))
+}
+
 /**
  * Normaliza un RFC: trim y mayúsculas.
  */
@@ -87,6 +97,10 @@ export function computeRfcCheckDigit(rfcBase: string): string {
 export function isValidRfcSat(value: string): boolean {
   const rfc = normalizeRfc(value)
 
+  if (isSatGenericRfc(rfc)) {
+    return true
+  }
+
   if (rfc.length !== 12 && rfc.length !== 13) {
     return false
   }
@@ -125,3 +139,18 @@ export const rfcSatField = vine
   .maxLength(13)
   .use(rfcSatRule())
   .transform((value) => normalizeRfc(value))
+
+/**
+ * RFC opcional y nullable para upserts parciales.
+ * Debe declarar `.optional().nullable()` antes del `.transform()` final;
+ * encadenarlo sobre `rfcSatField` provoca `.trim()` sobre `null`.
+ */
+export const rfcSatOptionalNullableField = vine
+  .string()
+  .trim()
+  .minLength(12)
+  .maxLength(13)
+  .use(rfcSatRule())
+  .optional()
+  .nullable()
+  .transform((value) => (value === null || value === undefined ? value : normalizeRfc(value)))

@@ -166,15 +166,46 @@ export default class ReportJobService {
     let buffer:
       | Awaited<ReturnType<AssistsService['generateAssistanceAllBuffer']>>
       | Awaited<ReturnType<AssistsService['generateIncidentSummaryBuffer']>>
+      | Awaited<ReturnType<AssistsService['generateIncidentSummaryPayrollBuffer']>>
 
-    if (job.reportJobType === 'assistance_employee' || job.reportJobType === 'assistance_incident_summary') {
+    if (
+      job.reportJobType === 'assistance_employee' ||
+      job.reportJobType === 'assistance_incident_summary' ||
+      job.reportJobType === 'assistance_incident_summary_payroll'
+    ) {
       const employeeId = filters.employeeId
-      // El resumen de incidencias también existe en variante "toda la
-      // empresa" (sin employeeId): esa rama cae al `else` de abajo.
+      // El resumen de incidencias (nómina o no) también existe en variante
+      // "toda la empresa" (sin employeeId): esa rama cae al `else` de abajo.
       if (job.reportJobType === 'assistance_employee' && !employeeId) {
         throw new Error('Falta employeeId para el reporte por empleado')
       }
-      if (job.reportJobType === 'assistance_incident_summary' && employeeId) {
+      if (job.reportJobType === 'assistance_incident_summary_payroll' && employeeId) {
+        const employee = await Employee.query()
+          .withTrashed()
+          .where('employee_id', employeeId)
+          .preload('position')
+          .preload('department')
+          .preload('person')
+          .preload('businessUnit')
+          .preload('payrollBusinessUnit')
+          .first()
+        if (!employee) {
+          throw new Error('Empleado no encontrado al generar el reporte')
+        }
+        if (allowedIds.length > 0 && !allowedIds.includes(employee.businessUnitId)) {
+          throw new Error('Empleado no encontrado al generar el reporte')
+        }
+        buffer = await assistsService.generateIncidentSummaryPayrollEmployeeBuffer(
+          employee,
+          {
+            employeeId,
+            filterDate: filters.filterDate,
+            filterDateEnd: filters.filterDateEnd,
+            filterDatePay: filters.filterDatePay ?? '',
+          },
+          onProgress
+        )
+      } else if (job.reportJobType === 'assistance_incident_summary' && employeeId) {
         const employee = await Employee.query()
           .withTrashed()
           .where('employee_id', employeeId)
@@ -200,6 +231,18 @@ export default class ReportJobService {
           },
           filters.canDisplayPaymentsSummary ?? false,
           filters.canDisplayDiscountsSummary ?? false,
+          onProgress
+        )
+      } else if (job.reportJobType === 'assistance_incident_summary_payroll') {
+        // `assistance_incident_summary_payroll` sin employeeId: toda la empresa.
+        const excelFilters = {
+          ...filters,
+          userResponsibleId: filters.userResponsibleId ?? undefined,
+        }
+        buffer = await assistsService.generateIncidentSummaryPayrollBuffer(
+          excelFilters,
+          filters.departmentsList,
+          allowedIds,
           onProgress
         )
       } else if (employeeId) {
@@ -267,7 +310,9 @@ export default class ReportJobService {
         ? `${i18n.formatMessage('assistance_report')}.xlsx`
         : job.reportJobType === 'assistance_incident_summary'
           ? `${i18n.formatMessage('incident_summary')}.xlsx`
-          : REPORT_FILE_NAME
+          : job.reportJobType === 'assistance_incident_summary_payroll'
+            ? `${i18n.formatMessage('incident_summary_payroll_report')}.xlsx`
+            : REPORT_FILE_NAME
     let savedKey: string
 
     if (env.get('NODE_ENV') !== 'production') {

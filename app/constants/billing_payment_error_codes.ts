@@ -25,6 +25,10 @@ export const BILLING_PAYMENT_ERROR_CODES = {
   RECEIPT_INVALID: 'PLT.PAY.RECEIPT_INVALID',
   /** Fallo al subir el comprobante a S3 */
   RECEIPT_UPLOAD_FAILED: 'PLT.PAY.RECEIPT_UPLOAD_FAILED',
+  /** Falló aplicar el aumento junto con el registro del pago (rollback total) */
+  CHANGE_APPLY_FAILED: 'PLT.PAY.CHANGE_APPLY_FAILED',
+  /** Importes congelados del cambio incompletos o inválidos (fail-closed) */
+  CHANGE_INCONSISTENT_SNAPSHOT: 'PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.PAY.SYS_UNHANDLED',
 } as const

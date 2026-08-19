@@ -1,6 +1,7 @@
 import router from '@adonisjs/core/services/router'
 import limiter from '@adonisjs/limiter/services/main'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 const employeeBadgeBulkRateLimit = limiter.define('employee-badge-bulk', (ctx) => {
   return limiter.allowRequests(3).every('1 minute').usingKey(`user:${ctx.auth.user!.userId}`)
@@ -23,9 +24,15 @@ router
     router
       .post('/bulk', '#modules/employee-badge/badge.controller.bulk')
       .use(employeeBadgeBulkRateLimit)
-    router.get('/:employeeId', '#modules/employee-badge/badge.controller.show')
-    router.get('/:employeeId/pdf', '#modules/employee-badge/badge.controller.pdf')
-    router.get('/:employeeId/png', '#modules/employee-badge/badge.controller.png')
+    router
+      .get('/:employeeId', '#modules/employee-badge/badge.controller.show')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBadge))
+    router
+      .get('/:employeeId/pdf', '#modules/employee-badge/badge.controller.pdf')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeBadgePdf))
+    router
+      .get('/:employeeId/png', '#modules/employee-badge/badge.controller.png')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeBadgePng))
   })
   .prefix('/api/employee-badges')
   .use(middleware.auth())

@@ -2,8 +2,15 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import BillingSubscription from '#models/billing_subscription'
 import BillingPayment from '#models/billing_payment'
+import BillingPlan from '#models/billing_plan'
+import BusinessUnit from '#models/business_unit'
 import type { BillingPaymentMethod } from '#models/billing_payment'
 import UploadService from '#services/upload_service'
+import BillingInternalNotificationService from '#services/billing_internal_notification_service'
+import BillingSubscriptionChangeService, {
+  type ApplyIncreaseOutcome,
+  type SubscriptionChangeRecord,
+} from '#services/billing_subscription_change_service'
 import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
 import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
 import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
@@ -63,6 +70,8 @@ export interface RegisterPaymentResult {
   periodAmountCents: number
   periodsCovered: number
   creditAppliedCents: number
+  /** (v2) Dinero de este pago consumido cubriendo el adeudo del aumento (0856). 0 si no había. */
+  debtAppliedCents: number
   creditBalanceAfterCents: number
   subscription: {
     billingSubscriptionId: number
@@ -71,6 +80,8 @@ export interface RegisterPaymentResult {
     currentPeriodEnd: string | null
     creditBalanceCents: number
   }
+  /** Cambio de aumento aplicado o marcado not_applicable; null si no hubo cambio vivo aplicable. */
+  appliedChange: SubscriptionChangeRecord | null
 }
 
 /** Foto financiera del periodo cobrado, derivada del trato congelado (regla 12). */
@@ -88,16 +99,31 @@ interface FinancialSnapshot {
 
 /**
  * Servicio de pagos de suscripción (USRH1784574994922, gobernado desde
- * USRH1785962095095).
+ * USRH1785962095095 v2 — coexistencia con USRH1786107870856).
  *
  * Registrar un pago es un acto atómico:
- *   1. Valida existencia/estado y resuelve el monto gobernado del periodo
- *      con una lectura simple (fail-fast, antes de tocar S3).
+ *   1. Valida existencia/estado y resuelve el monto asentado (gobernado por el
+ *      trato congelado tal como estaba) con una lectura simple (fail-fast,
+ *      antes de tocar S3).
  *   2. Sube el comprobante a S3 privado (fuera de la trx — S3 no es transaccional).
  *   3. Abre db.transaction: recarga la suscripción con `.forUpdate()`, revalida
- *      `canceled` (protección de carrera), acumula saldo, traduce saldo en
- *      periodos completos, decide estado y persiste la foto financiera del pago.
+ *      `canceled` (protección de carrera), inserta el pago y aplica, en este
+ *      orden exacto, la **prelación de cobro** (spec v2, regla 13):
+ *        a. saldoDisponible = saldo previo + monto asentado.
+ *        b. `applyIncreaseOnPayment` cubre el adeudo prorrateado de un aumento
+ *           `pending_payment` (0856) desde ese saldo disponible → `consumedCents`.
+ *        c. saldoTrasAdeudo = saldoDisponible − consumedCents.
+ *        d. El monto del periodo se relee del trato congelado **ya mutado** por
+ *           el paso anterior (si hubo aumento, es el nuevo).
+ *        e. saldoTrasAdeudo se traduce en N periodos completos; el sobrante
+ *           queda a favor. Estado y periodo solo avanzan con N ≥ 1.
+ *      El pago se completa con los campos derivados y se persiste junto con la
+ *      suscripción dentro de la misma transacción.
  *   4. Si la trx falla → compensa borrando el objeto S3 subido.
+ *
+ * Invariante verificado en código antes de persistir (spec v2 §12):
+ *   saldoPrevio + montoAsentado = consumedCents + creditAppliedCents + creditBalanceAfterCents.
+ * Ningún centavo se aplica dos veces ni se pierde.
  *
  * El módulo NUNCA expone la URL del comprobante (solo la Key queda en BD).
  * El monto del flujo normal lo gobierna el servidor desde
@@ -105,6 +131,9 @@ interface FinancialSnapshot {
  * importe a través de la capacidad explícita `allowCustomAmount`.
  */
 export default class BillingPaymentService {
+  private readonly changeService = new BillingSubscriptionChangeService()
+  private readonly internalNotification = new BillingInternalNotificationService()
+
   /**
    * Registra un pago sobre una suscripción existente y no cancelada.
    *
@@ -148,11 +177,17 @@ export default class BillingPaymentService {
       )
     }
 
-    // ── 3. Transacción atómica (saldo + periodo + pago) ─────────────────────
-    let result: { payment: BillingPayment; subscription: BillingSubscription }
+    // ── 3. Transacción atómica (adeudo + saldo + periodo + pago, regla 13) ──
+    let result: {
+      payment: BillingPayment
+      subscription: BillingSubscription
+      applyOutcome: ApplyIncreaseOutcome
+    }
     try {
       result = await db.transaction(async (trx) => {
         // Concurrencia del saldo (spec §12): recarga bloqueante dentro de la trx.
+        // Mismo orden de bloqueos siempre: primero suscripción, después cambio
+        // (que toma el suyo dentro de applyIncreaseOnPayment).
         const subscription = await BillingSubscription.query({ client: trx })
           .where('billingSubscriptionId', subscriptionId)
           .whereNull('billing_subscription_deleted_at')
@@ -171,14 +206,81 @@ export default class BillingPaymentService {
 
         this.assertNotCanceled(subscriptionId, subscription)
 
-        const periodAmountCents = this.resolveGovernedAmount(subscription, input, allowCustomAmount)
-        const amountAsentado = allowCustomAmount ? input.amountCents! : periodAmountCents
+        // ── Regla 1, 14: monto asentado, resuelto ANTES de mutar el trato ──
+        const periodAmountCentsAntes = this.resolveGovernedAmount(
+          subscription,
+          input,
+          allowCustomAmount
+        )
+        const amountAsentado = allowCustomAmount ? input.amountCents! : periodAmountCentsAntes
+        const creditBalancePrevio = subscription.billingSubscriptionCreditBalanceCents
 
-        // ── Regla 4: acumulación ──────────────────────────────────────────
-        const saldoDisponible = subscription.billingSubscriptionCreditBalanceCents + amountAsentado
+        // ── Regla 13.1: el saldo a favor es la única puerta del dinero ────
+        const saldoDisponible = creditBalancePrevio + amountAsentado
 
-        // ── Regla 5, 6: periodos completos + tope (regla 7) ───────────────
-        const periodsCovered = Math.floor(saldoDisponible / periodAmountCents)
+        const paidAtDt = DateTime.fromISO(input.paidAt)
+
+        // Se inserta primero con los campos derivados en 0: applyIncreaseOnPayment
+        // necesita el billingPaymentId ya existente para marcar el cambio `applied`.
+        // Se completa con save() más abajo, dentro de la misma transacción abierta
+        // (no es una edición del histórico: la fila aún no salió de este acto atómico).
+        const newPayment = await BillingPayment.create(
+          {
+            billingSubscriptionId: subscriptionId,
+            billingPaymentAmountCents: amountAsentado,
+            billingPaymentPeriodAmountCents: 0,
+            billingPaymentPeriodsCovered: 0,
+            billingPaymentCreditAppliedCents: 0,
+            billingPaymentDebtAppliedCents: 0,
+            billingPaymentCreditBalanceAfterCents: 0,
+            billingPaymentIsCustomAmount: allowCustomAmount,
+            billingPaymentGrossCents: 0,
+            billingPaymentDiscountAmountCents: 0,
+            billingPaymentSubtotalCents: 0,
+            billingPaymentTaxAmountCents: 0,
+            billingPaymentTotalCents: 0,
+            billingPaymentDiscountPercent: 0,
+            billingPaymentTaxRate: 0,
+            billingPaymentMethod: input.method,
+            billingPaymentReference: input.reference ?? null,
+            billingPaymentReceiptPath: s3Key,
+            billingPaymentReceiptMime: receiptMime,
+            billingPaymentProvider: 'manual',
+            billingPaymentPaidAt: paidAtDt,
+            billingPaymentPeriodStart: null,
+            billingPaymentPeriodEnd: null,
+          },
+          { client: trx }
+        )
+
+        // ── Regla 13.2: cubrir primero el adeudo puntual (0856) ────────────
+        const applyOutcome = await this.changeService.applyIncreaseOnPayment(
+          subscription,
+          newPayment.billingPaymentId,
+          saldoDisponible,
+          trx
+        )
+        const consumedCents = applyOutcome.outcome === 'applied' ? applyOutcome.consumedCents : 0
+
+        // ── Regla 13.3 ──────────────────────────────────────────────────────
+        const saldoTrasAdeudo = saldoDisponible - consumedCents
+
+        // ── Regla 13.4, 14: el monto del periodo se relee del trato YA MUTADO ─
+        const periodAmountCents = this.toPeriodAmountCents(
+          subscription.billingSubscriptionContractedTotal
+        )
+        if (periodAmountCents === null) {
+          throw new BillingPaymentServiceError(
+            `Suscripción ${subscriptionId}: contracted_total no permite determinar el monto del periodo tras el aumento`,
+            BILLING_PAYMENT_ERROR_CODES.PERIOD_AMOUNT_UNAVAILABLE,
+            422,
+            'monto-periodo-no-disponible',
+            'No fue posible determinar el monto del periodo desde el trato de la suscripción.'
+          )
+        }
+
+        // ── Regla 13.5, 5, 6: periodos completos + tope (regla 7) ─────────
+        const periodsCovered = Math.floor(saldoTrasAdeudo / periodAmountCents)
 
         if (periodsCovered > MAX_PERIODS_PER_PAYMENT) {
           throw new BillingPaymentServiceError(
@@ -191,7 +293,21 @@ export default class BillingPaymentService {
         }
 
         const creditAppliedCents = periodsCovered * periodAmountCents
-        const creditBalanceAfterCents = saldoDisponible - creditAppliedCents
+        const creditBalanceAfterCents = saldoTrasAdeudo - creditAppliedCents
+
+        // ── Invariante del dinero (spec v2 §12): se verifica en código ────
+        if (
+          creditBalancePrevio + amountAsentado !==
+          consumedCents + creditAppliedCents + creditBalanceAfterCents
+        ) {
+          throw new BillingPaymentServiceError(
+            'Invariante de saldo violado al conciliar adeudo, periodos y sobrante',
+            BILLING_PAYMENT_ERROR_CODES.SYS_UNHANDLED,
+            500,
+            'saldo-inconsistente',
+            'No fue posible conciliar el dinero de este pago. Intenta de nuevo.'
+          )
+        }
 
         let newPeriodStart: DateTime | null = null
         let newPeriodEnd: DateTime | null = null
@@ -211,40 +327,33 @@ export default class BillingPaymentService {
           newPeriodEnd = anchor.plus({ months: periodsCovered })
         }
 
+        // Foto financiera con el trato vigente al cierre de la trx (regla 14):
+        // si hubo aumento, describe el periodo que efectivamente se extendió.
         const snapshot = this.computeFinancialSnapshot(subscription)
-        const paidAtDt = DateTime.fromISO(input.paidAt)
 
-        const newPayment = await BillingPayment.create(
-          {
-            billingSubscriptionId: subscriptionId,
-            billingPaymentAmountCents: amountAsentado,
-            billingPaymentPeriodAmountCents: periodAmountCents,
-            billingPaymentPeriodsCovered: periodsCovered,
-            billingPaymentCreditAppliedCents: creditAppliedCents,
-            billingPaymentCreditBalanceAfterCents: creditBalanceAfterCents,
-            billingPaymentIsCustomAmount: allowCustomAmount,
-            billingPaymentGrossCents: snapshot.grossCents,
-            billingPaymentDiscountAmountCents: snapshot.discountAmountCents,
-            billingPaymentSubtotalCents: snapshot.subtotalCents,
-            billingPaymentTaxAmountCents: snapshot.taxAmountCents,
-            billingPaymentTotalCents: snapshot.totalCents,
-            billingPaymentDiscountPercent: snapshot.discountPercent,
-            billingPaymentTaxRate: snapshot.taxRate,
-            billingPaymentMethod: input.method,
-            billingPaymentReference: input.reference ?? null,
-            billingPaymentReceiptPath: s3Key,
-            billingPaymentReceiptMime: receiptMime,
-            billingPaymentProvider: 'manual',
-            billingPaymentPaidAt: paidAtDt,
-            billingPaymentPeriodStart: newPeriodStart,
-            billingPaymentPeriodEnd: newPeriodEnd,
-          },
-          { client: trx }
-        )
+        newPayment.useTransaction(trx)
+        newPayment.billingPaymentPeriodAmountCents = periodAmountCents
+        newPayment.billingPaymentPeriodsCovered = periodsCovered
+        newPayment.billingPaymentCreditAppliedCents = creditAppliedCents
+        newPayment.billingPaymentDebtAppliedCents = consumedCents
+        newPayment.billingPaymentCreditBalanceAfterCents = creditBalanceAfterCents
+        newPayment.billingPaymentGrossCents = snapshot.grossCents
+        newPayment.billingPaymentDiscountAmountCents = snapshot.discountAmountCents
+        newPayment.billingPaymentSubtotalCents = snapshot.subtotalCents
+        newPayment.billingPaymentTaxAmountCents = snapshot.taxAmountCents
+        newPayment.billingPaymentTotalCents = snapshot.totalCents
+        newPayment.billingPaymentDiscountPercent = snapshot.discountPercent
+        newPayment.billingPaymentTaxRate = snapshot.taxRate
+        newPayment.billingPaymentPeriodStart = newPeriodStart
+        newPayment.billingPaymentPeriodEnd = newPeriodEnd
+        await newPayment.save()
 
+        subscription.useTransaction(trx)
         subscription.billingSubscriptionCreditBalanceCents = creditBalanceAfterCents
 
-        // Regla 5, 6: solo se extiende periodo y estado con ≥ 1 periodo cubierto.
+        // Regla 5, 6, 15: solo se extiende periodo y estado con ≥ 1 periodo cubierto.
+        // Cubrir solo el adeudo (periodsCovered = 0) libera el cupo pero NO pone
+        // al cliente al corriente: un past_due sigue past_due.
         if (periodsCovered >= 1) {
           subscription.billingSubscriptionStatus = 'active'
           subscription.billingSubscriptionCurrentPeriodStart = newPeriodStart
@@ -257,7 +366,7 @@ export default class BillingPaymentService {
 
         await subscription.save()
 
-        return { payment: newPayment, subscription }
+        return { payment: newPayment, subscription, applyOutcome }
       })
     } catch (error) {
       // Compensación: borrar el objeto S3 subido antes de la trx
@@ -265,7 +374,17 @@ export default class BillingPaymentService {
       throw error
     }
 
-    return this.toResult(result.payment, result.subscription)
+    if (result.applyOutcome.outcome === 'not_applicable') {
+      await this.notifyChangeNotApplicable(
+        result.subscription,
+        result.applyOutcome.change,
+        result.payment.billingPaymentId,
+        result.payment.billingPaymentAmountCents,
+        result.applyOutcome.reason
+      )
+    }
+
+    return this.toResult(result.payment, result.subscription, result.applyOutcome)
   }
 
   // ─── Validaciones de suscripción ──────────────────────────────────────────
@@ -557,11 +676,48 @@ export default class BillingPaymentService {
     return map[mime] ?? 'bin'
   }
 
+  private async notifyChangeNotApplicable(
+    subscription: BillingSubscription,
+    change: SubscriptionChangeRecord,
+    billingPaymentId: number,
+    amountCents: number,
+    reason: Extract<ApplyIncreaseOutcome, { outcome: 'not_applicable' }>['reason']
+  ): Promise<void> {
+    const [businessUnit, billingPlan] = await Promise.all([
+      BusinessUnit.query()
+        .where('business_unit_id', subscription.businessUnitId)
+        .whereNull('business_unit_deleted_at')
+        .first(),
+      BillingPlan.query()
+        .where('billing_plan_id', subscription.billingPlanId)
+        .whereNull('billing_plan_deleted_at')
+        .first(),
+    ])
+
+    await this.internalNotification.notifySubscriptionChangeNotApplicable({
+      subscription,
+      change,
+      businessUnitName: businessUnit?.businessUnitName ?? `Empresa #${subscription.businessUnitId}`,
+      billingPlanName: billingPlan?.billingPlanName ?? `Plan #${subscription.billingPlanId}`,
+      billingPaymentId,
+      amountCents,
+      reason,
+    })
+  }
+
+  private resolveAppliedChange(outcome: ApplyIncreaseOutcome): SubscriptionChangeRecord | null {
+    if (outcome.outcome === 'applied' || outcome.outcome === 'not_applicable') {
+      return outcome.change
+    }
+    return null
+  }
+
   // ─── Serialización de respuesta ───────────────────────────────────────────
 
   private toResult(
     payment: BillingPayment,
-    subscription: BillingSubscription
+    subscription: BillingSubscription,
+    applyOutcome: ApplyIncreaseOutcome
   ): RegisterPaymentResult {
     return {
       billingPaymentId: payment.billingPaymentId,
@@ -577,6 +733,7 @@ export default class BillingPaymentService {
       periodAmountCents: payment.billingPaymentPeriodAmountCents,
       periodsCovered: payment.billingPaymentPeriodsCovered,
       creditAppliedCents: payment.billingPaymentCreditAppliedCents,
+      debtAppliedCents: payment.billingPaymentDebtAppliedCents,
       creditBalanceAfterCents: payment.billingPaymentCreditBalanceAfterCents,
       subscription: {
         billingSubscriptionId: subscription.billingSubscriptionId,
@@ -585,6 +742,7 @@ export default class BillingPaymentService {
         currentPeriodEnd: toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd),
         creditBalanceCents: subscription.billingSubscriptionCreditBalanceCents,
       },
+      appliedChange: this.resolveAppliedChange(applyOutcome),
     }
   }
 }

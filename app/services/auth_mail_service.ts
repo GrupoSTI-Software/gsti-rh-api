@@ -7,7 +7,9 @@ import SignupOtpMail from '#mails/signup_otp_mail'
 import WelcomeMail from '#mails/welcome_mail'
 import MagicLinkMail from '#mails/magic_link_mail'
 import PasswordRecoveryMail from '#mails/password_recovery_mail'
+import UserInvitationMail from '#mails/user_invitation_mail'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
+import { USER_INVITATION_TOKEN_VALIDITY_DAYS } from '#constants/user_invitation'
 
 /**
  * Idiomas soportados por las plantillas de correo del flujo de signup.
@@ -72,6 +74,15 @@ interface SendPasswordRecoveryParams {
   resetUrl: string
   pinCode: string
   language: AuthMailLanguage
+}
+
+interface SendUserInvitationParams {
+  to: string
+  firstName: string
+  invitationToken: string
+  language: AuthMailLanguage
+  /** `false` para rol empleado (solo app); `true` incluye opción de backoffice web. */
+  canAccessBackoffice: boolean
 }
 
 /**
@@ -258,6 +269,47 @@ export default class AuthMailService {
       logger.error(
         { err: error, to: this.redactEmail(to) },
         'AuthMailService.sendPasswordRecovery: fallo al enviar correo de recuperación.'
+      )
+    }
+  }
+
+  /**
+   * Envía el correo de invitación de acceso al dar de alta un usuario.
+   * URL desde `BACKOFFICE_URL`; nunca incluye contraseña. Nunca lanza ante fallos de SMTP.
+   */
+  async sendUserInvitation(params: SendUserInvitationParams): Promise<void> {
+    const { to, firstName, invitationToken, language, canAccessBackoffice } = params
+
+    try {
+      const senderEmail = this.resolveSenderEmail()
+      if (!senderEmail) {
+        logger.error(
+          { to: this.redactEmail(to) },
+          'AuthMailService.sendUserInvitation: SMTP_USERNAME no configurado; correo de invitación omitido.'
+        )
+        return
+      }
+
+      const branding = await this.resolveBranding()
+      const backofficeUrl = env.get('BACKOFFICE_URL') ?? DEFAULT_BACKOFFICE_URL
+      const invitationUrl = `${backofficeUrl.replace(/\/$/, '')}/set-password/${invitationToken}`
+
+      await mail.send(
+        new UserInvitationMail({
+          to,
+          from: senderEmail,
+          firstName,
+          invitationUrl,
+          language,
+          branding,
+          validityDays: USER_INVITATION_TOKEN_VALIDITY_DAYS,
+          canAccessBackoffice,
+        })
+      )
+    } catch (error) {
+      logger.error(
+        { err: error, to: this.redactEmail(to) },
+        'AuthMailService.sendUserInvitation: fallo al enviar correo de invitación.'
       )
     }
   }

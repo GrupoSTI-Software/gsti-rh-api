@@ -6,6 +6,8 @@ import {
   createEmployeeMedicalConditionValidator,
   updateEmployeeMedicalConditionValidator,
 } from '#validators/employee_medical_condition'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 export default class EmployeeMedicalConditionController {
   /**
@@ -521,7 +523,8 @@ export default class EmployeeMedicalConditionController {
    *       default:
    *         description: Unexpected error
    */
-  async getByEmployee({ request, response }: HttpContext) {
+  async getByEmployee(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -532,6 +535,15 @@ export default class EmployeeMedicalConditionController {
           message: 'Missing data to process',
           data: { employeeId },
         }
+      }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeId),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getMedicalConditionsByEmployee
+      )
+      if (!allowed) {
+        return
       }
 
       const employeeMedicalConditions = await EmployeeMedicalCondition.query()

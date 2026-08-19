@@ -11,5 +11,6 @@ router
   })
   .prefix('/api/career-path-templates')
   .use(middleware.auth())
+  .use(middleware.businessScope())
 
 

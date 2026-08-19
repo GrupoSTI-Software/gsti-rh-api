@@ -14,6 +14,16 @@ import { cuid } from '@adonisjs/core/helpers'
 import path from 'node:path'
 import { DateTime } from 'luxon'
 import { ProceedingFileExpiredFilterInterface } from '../interfaces/proceeding_file_expired_filter_interface.js'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  proceedingFileTypeIsEmployeeArea,
+  proceedingFileIsEmployeeArea,
+} from '#helpers/proceeding_file_is_employee_area'
+import {
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
+} from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION } from '#constants/employees_read_permission_declarations'
 
 export type ProceedingFileMultipartStoreOptions = {
   /** systemSettingId fijado por la ruta (POST /api/system-settings-proceeding-files); si no, se toma del multipart/query */
@@ -48,9 +58,10 @@ function buildMissingUploadFileResponse(request: HttpContext['request']) {
  * Subida multipart de proceeding files (empleados, system-setting, etc.).
  */
 export async function processProceedingFileMultipartStore(
-  { request, response }: HttpContext,
+  ctx: HttpContext,
   options?: ProceedingFileMultipartStoreOptions
 ) {
+  const { request, response } = ctx
   const proceedingFileService = new ProceedingFileService()
   let inputs = request.all()
   inputs = proceedingFileService.sanitizeInput(inputs)
@@ -133,6 +144,16 @@ export async function processProceedingFileMultipartStore(
       title: 'Proceeding file type not found',
       message: 'The proceeding file type was not found',
       data: { proceedingFileTypeId },
+    }
+  }
+
+  if (await proceedingFileTypeIsEmployeeArea(proceedingFileTypeId)) {
+    const allowed = await ensureSecondaryPermission(
+      ctx,
+      EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION
+    )
+    if (!allowed) {
+      return
     }
   }
 
@@ -692,17 +713,10 @@ export default class ProceedingFileController {
    *                       type: string
    */
   @inject()
-  async update({ request, response, auth }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, auth } = ctx
     try {
       const proceedingFileService = new ProceedingFileService()
-      let inputs = request.all()
-      inputs = proceedingFileService.sanitizeInput(inputs)
-      await request.validateUsing(updateProceedingFileValidator)
-      const validationOptions = {
-        types: ['image', 'document', 'text', 'application', 'archive'],
-        size: '1mb',
-      }
-      const file = request.file('file', validationOptions)
       const proceedingFileId = request.param('proceedingFileId')
       if (!proceedingFileId) {
         response.status(400)
@@ -726,6 +740,29 @@ export default class ProceedingFileController {
           data: { proceedingFileId },
         }
       }
+      const nextProceedingFileTypeId = Number(
+        request.input('proceedingFileTypeId') ?? currentProceedingFile.proceedingFileTypeId
+      )
+      const requiresEmployeePermission =
+        (await proceedingFileIsEmployeeArea(Number(proceedingFileId))) ||
+        (await proceedingFileTypeIsEmployeeArea(nextProceedingFileTypeId))
+      if (requiresEmployeePermission) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
+      let inputs = request.all()
+      inputs = proceedingFileService.sanitizeInput(inputs)
+      await request.validateUsing(updateProceedingFileValidator)
+      const validationOptions = {
+        types: ['image', 'document', 'text', 'application', 'archive'],
+        size: '1mb',
+      }
+      const file = request.file('file', validationOptions)
       const previousProceedingFile = JSON.parse(
         JSON.stringify(currentProceedingFile)
       )
@@ -942,7 +979,8 @@ export default class ProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileId = request.param('proceedingFileId')
       if (!proceedingFileId) {
@@ -965,6 +1003,15 @@ export default class ProceedingFileController {
           title: 'The proceeding file was not found',
           message: 'The proceeding file was not found with the entered ID',
           data: { proceedingFileId },
+        }
+      }
+      if (await proceedingFileIsEmployeeArea(Number(proceedingFileId))) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const proceedingFileService = new ProceedingFileService()
@@ -1088,7 +1135,8 @@ export default class ProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileId = request.param('proceedingFileId')
       if (!proceedingFileId) {
@@ -1098,6 +1146,15 @@ export default class ProceedingFileController {
           title: 'The proceeding file Id was not found',
           message: 'Missing data to process',
           data: { proceedingFileId },
+        }
+      }
+      if (await proceedingFileIsEmployeeArea(Number(proceedingFileId))) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION
+        )
+        if (!allowed) {
+          return
         }
       }
       const proceedingFileService = new ProceedingFileService()

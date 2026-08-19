@@ -6,6 +6,8 @@ import {
   updateEmployeeEmergencyContactValidator,
 } from '#validators/employee_emergency_contact'
 import { HttpContext } from '@adonisjs/core/http'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 export default class EmployeeEmergencyContactController {
   /**
@@ -796,7 +798,8 @@ export default class EmployeeEmergencyContactController {
    *                     error:
    *                       type: string
    */
-  async getByEmployeeId({ request, response }: HttpContext) {
+  async getByEmployeeId(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -808,6 +811,15 @@ export default class EmployeeEmergencyContactController {
           message: 'The employee ID was not found',
           data: { employeeId },
         }
+      }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeId),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmergencyContactsByEmployee
+      )
+      if (!allowed) {
+        return
       }
 
       // Verificar que el empleado existe

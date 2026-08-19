@@ -48,6 +48,14 @@ export default class BillingPayment extends BaseModel {
   @column()
   declare billingPaymentCreditBalanceAfterCents: number
 
+  /**
+   * Dinero de este pago consumido cubriendo adeudos puntuales (v2, USRH1786107870856):
+   * hoy, el prorrateo de un aumento de cantidad. Va separado de `creditAppliedCents`,
+   * que es lo que se fue a periodos. `0` cuando no había adeudo pendiente.
+   */
+  @column()
+  declare billingPaymentDebtAppliedCents: number
+
   /** `true` si el monto fue capturado como importe distinto explícito (`allowCustomAmount`). */
   @column()
   declare billingPaymentIsCustomAmount: boolean

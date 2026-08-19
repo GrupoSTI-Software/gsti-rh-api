@@ -6,10 +6,24 @@ import RoleService from '#services/role_service'
 import env from '#start/env'
 import type { ReportJobFilters, ReportJobType } from '#models/report_job'
 import Employee from '#models/employee'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { employeesAttendanceReportJobDeclaration } from '#constants/employees_download_permission_declarations'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
 export default class ReportJobsController {
+  /** Ídem `AssistsController.parseBranchNameIds`: CSV de ids → number[] o `undefined`. */
+  private parseBranchNameIds(value: unknown): number[] | undefined {
+    if (value === null || value === undefined || value === '') {
+      return undefined
+    }
+    const parts = String(value)
+      .split(',')
+      .map((part) => Number(part.trim()))
+      .filter((id) => !Number.isNaN(id) && id > 0)
+    return parts.length > 0 ? parts : undefined
+  }
+
   /**
    * POST /api/v1/assists/reports
    *
@@ -20,7 +34,8 @@ export default class ReportJobsController {
    *   date, date-end, reportType, businessUnitId?, payrollBusinessUnitId?,
    *   branchNameIds?
    */
-  async create({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async create(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -40,6 +55,7 @@ export default class ReportJobsController {
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
         ? Number(request.input('payrollBusinessUnitId'))
         : undefined
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
       const businessUnitId =
         businessUnitIdRaw !== null && businessUnitIdRaw !== undefined && Number(businessUnitIdRaw) > 0
           ? Number(businessUnitIdRaw)
@@ -55,6 +71,7 @@ export default class ReportJobsController {
         'assistance_all',
         'assistance_employee',
         'assistance_incident_summary',
+        'assistance_incident_summary_payroll',
       ]
       if (!validTypes.includes(reportTypeRaw)) {
         response.status(400)
@@ -100,6 +117,34 @@ export default class ReportJobsController {
         )
       }
 
+      // Gate server-side del reporte de nómina (USRH1785766125045): la
+      // única fuente de verdad de "quién puede ver el modo de nómina" es
+      // el permiso `see-payroll`, NUNCA el modo de visualización elegido
+      // en el cliente. Se rechaza antes de encolar (antes del primer byte).
+      if (reportJobType === 'assistance_incident_summary_payroll') {
+        const roleService = new RoleService()
+        const canSeePayroll = await roleService.hasAccess(
+          user.role.roleId,
+          ATTENDANCE_MONITOR_MODULE_SLUG,
+          'see-payroll'
+        )
+        if (!canSeePayroll) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
+        }
+      }
+
+      const allowed = await ensureSecondaryPermission(
+        ctx,
+        employeesAttendanceReportJobDeclaration(reportJobType, employeeId)
+      )
+      if (!allowed) return
+
       if (!filterDate || !filterDateEnd) {
         response.status(400)
         return {
@@ -113,9 +158,14 @@ export default class ReportJobsController {
         businessUnitId !== undefined ? [businessUnitId] : businessUnitScope
 
       // No-oráculo: inexistente y fuera de scope responden exactamente igual.
-      // El resumen de incidencias por empleado reutiliza este mismo gate
-      // (misma ruta by-employee, `reportType='assistance_incident_summary'`).
-      if (reportJobType === 'assistance_employee' || (reportJobType === 'assistance_incident_summary' && employeeId)) {
+      // El resumen de incidencias por empleado (nómina o no) reutiliza este
+      // mismo gate (misma ruta by-employee).
+      if (
+        reportJobType === 'assistance_employee' ||
+        ((reportJobType === 'assistance_incident_summary' ||
+          reportJobType === 'assistance_incident_summary_payroll') &&
+          employeeId)
+      ) {
         if (!employeeId) {
           response.status(400)
           const entity = t('employee')
@@ -160,7 +210,7 @@ export default class ReportJobsController {
         userResponsibleId,
         businessUnitId,
         payrollBusinessUnitId,
-        branchNameIds: undefined,
+        branchNameIds,
         departmentsList,
         locale: i18n.locale,
         employeeId,
@@ -266,7 +316,8 @@ export default class ReportJobsController {
    * Verifica que el job pertenezca al usuario autenticado.
    * Si el job no está completado, devuelve 409.
    */
-  async download({ auth, params, response, i18n }: HttpContext) {
+  async download(ctx: HttpContext) {
+    const { auth, params, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -314,6 +365,12 @@ export default class ReportJobsController {
           },
         }
       }
+
+      const allowed = await ensureSecondaryPermission(
+        ctx,
+        employeesAttendanceReportJobDeclaration(job.reportJobType, job.reportJobFilters?.employeeId)
+      )
+      if (!allowed) return
 
       const fileName = job.reportJobFileName ?? 'datos.xlsx'
 
