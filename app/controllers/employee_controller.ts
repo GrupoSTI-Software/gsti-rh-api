@@ -43,7 +43,7 @@ import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_er
 import { resolveEmployeeQuotaApiError } from '../helpers/employee_quota_api_error.js'
 import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
 import { respondEmployeeImportValFileError } from '../helpers/employee_import_request_errors.js'
-import { EMPLOYEE_IMPORT_UPLOAD } from '../constants/employee_import_error_codes.js'
+import { EMPLOYEE_IMPORT_UPLOAD, EMPLOYEE_IMPORT_ERROR_CODES } from '../constants/employee_import_error_codes.js'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 import {
@@ -7375,9 +7375,14 @@ export default class EmployeeController {
    *                 message:
    *                   type: string
    *                   example: Ocurrió un error inesperado al generar la plantilla
-   *                 error:
+   *                 detail:
    *                   type: string
-   *                   example: Error details
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion-turnos
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER_SHIFTS
    */
   async getShiftAssignmentTemplate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -7496,12 +7501,19 @@ export default class EmployeeController {
       response.status(200)
       return response.send(buffer)
     } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al generar la plantilla de asignación de turnos')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+        key: 'error-importacion-turnos',
+      })
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al generar la plantilla',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }
@@ -7946,7 +7958,7 @@ export default class EmployeeController {
    *                   example: Validation error
    *                 message:
    *                   type: string
-   *                   example: Excel file is required
+   *                   example: El archivo debe ser un Excel válido (.xlsx o .xls).
    *       500:
    *         description: Error interno del servidor
    *         content:
@@ -7963,10 +7975,16 @@ export default class EmployeeController {
    *                 message:
    *                   type: string
    *                   example: Ocurrió un error al procesar el archivo Excel
-   *                 error:
+   *                 detail:
    *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion-turnos
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER_SHIFTS
    */
-  async importShiftAssignments({ auth, request, response, i18n }: HttpContext) {
+  async importShiftAssignments({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
 
@@ -8003,11 +8021,12 @@ export default class EmployeeController {
           const workbook = new ExcelJSLib.Workbook()
           await workbook.xlsx.readFile(file.tmpPath || '')
         } catch (excelError: any) {
+          logger.warn({ err: excelError }, 'ExcelJS no pudo leer el archivo de importación de turnos')
           response.status(400)
           return {
             type: 'error',
             title: 'Validation error',
-            message: `El archivo debe ser un Excel válido (.xlsx o .xls). Error: ${excelError.message}`,
+            message: 'El archivo debe ser un Excel válido (.xlsx o .xls).',
           }
         }
       }
@@ -8018,18 +8037,26 @@ export default class EmployeeController {
       const result = await employeeService.importShiftAssignmentsFromExcel(
         file,
         rawHeaders,
-        userId
+        userId,
+        businessUnitScope
       )
 
       response.status(result.status)
       return result
     } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al importar asignaciones de turnos')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+        key: 'error-importacion-turnos',
+      })
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al importar las asignaciones',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }
