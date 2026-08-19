@@ -3,7 +3,7 @@ import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import {
   SAT_CATALOG_EXPECTED_COUNTS,
   SAT_TAX_REGIME_SEED_DATA,
-} from './data/sat_catalog_seed_data.js'
+} from '#database/data/sat_catalog_seed_data'
 
 /**
  * Semilla idempotente de c_RegimenFiscal (USRH1786737531063).

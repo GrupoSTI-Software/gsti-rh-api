@@ -5,7 +5,7 @@ import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import {
   SAT_CATALOG_EXPECTED_COUNTS,
   SAT_CFDI_USE_SEED_DATA,
-} from './data/sat_catalog_seed_data.js'
+} from '#database/data/sat_catalog_seed_data'
 
 /**
  * Semilla idempotente de c_UsoCFDI y pivote uso↔régimen (USRH1786737531063).

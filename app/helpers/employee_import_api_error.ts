@@ -87,11 +87,19 @@ export function resolveEmployeeImportValFileError(
 /**
  * Convierte errores de importación de empleados en respuesta HTTP estándar.
  * Cabeceras inválidas y fallos de servidor no exponen detalle interno en 500.
+ * El 4.º parámetro opcional solo altera el branch 500 (códigos de turnos/vacaciones);
+ * sin él el comportamiento es idéntico al de la importación de empleados.
  */
 export function resolveEmployeeImportApiError(
   error: unknown,
   fallbackStatus: number,
-  i18n?: I18n
+  i18n?: I18n,
+  serverOverride?: {
+    errorCode?: EmployeeImportErrorCode | string
+    key?: string
+    title?: string
+    message?: string
+  }
 ): ResolvedEmployeeImportError {
   const err = error as {
     isHeaderValidationError?: boolean
@@ -147,12 +155,14 @@ export function resolveEmployeeImportApiError(
       'Ocurrió un error inesperado durante la importación.'
     )
     return {
-      title: translate(i18n, 'employee_import_server_title', 'Error del servidor'),
-      message: detail,
+      title:
+        serverOverride?.title ??
+        translate(i18n, 'employee_import_server_title', 'Error del servidor'),
+      message: serverOverride?.message ?? detail,
       detail,
       status: 500,
-      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER,
-      key: 'error-importacion',
+      errorCode: serverOverride?.errorCode ?? EMPLOYEE_IMPORT_ERROR_CODES.SERVER,
+      key: serverOverride?.key ?? 'error-importacion',
     }
   }
 

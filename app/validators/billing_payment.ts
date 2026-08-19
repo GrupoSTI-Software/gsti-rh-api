@@ -20,14 +20,21 @@ export const listBillingPaymentsValidator = vine.compile(
 /**
  * Body multipart para `POST /api/platform/billing/subscriptions/:id/payments`.
  *
- * El cliente envía el monto en centavos (amountCents); el avance del periodo
- * y la validación del monto contra el trato congelado son server-side.
- * El cliente NUNCA envía fechas de periodo ni el precio de referencia.
+ * El monto del flujo normal lo gobierna el servidor desde
+ * `billing_subscription_contracted_total` (USRH1785962095095): `amountCents`
+ * ya no es obligatorio y, si se envía sin `allowCustomAmount`, solo se admite
+ * si coincide con el monto gobernado. La capacidad de importe distinto es
+ * explícita (`allowCustomAmount: true`) y ahí sí exige `amountCents` dentro
+ * de las cotas server-side. El cliente NUNCA envía fechas de periodo ni el
+ * precio de referencia; esa validación y el avance del periodo son
+ * server-side.
  */
 export const registerBillingPaymentValidator = vine.compile(
   vine.object({
-    /** Monto pagado en centavos (ej. 927800 = $9,278.00 MXN). Entero positivo. */
-    amountCents: vine.number().positive().withoutDecimals(),
+    /** Monto pagado en centavos (ej. 927800 = $9,278.00 MXN). Opcional salvo con allowCustomAmount. */
+    amountCents: vine.number().positive().withoutDecimals().optional(),
+    /** Capacidad explícita de importe distinto al monto gobernado del periodo. Default false. */
+    allowCustomAmount: vine.boolean().optional(),
     /** Método de pago: transferencia, efectivo u otro. */
     method: vine.enum(['transfer', 'cash', 'other'] as const),
     /** Folio de transferencia, nota o referencia (opcional). */

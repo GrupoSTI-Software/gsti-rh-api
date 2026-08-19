@@ -1,6 +1,9 @@
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import { EmployeeVacationExcelFilterInterface } from '../interfaces/employee_vacation_excel_filter_interface.js'
 import EmployeeVacationService from '#services/employee_vacation_service'
+import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
+import { EMPLOYEE_IMPORT_ERROR_CODES } from '../constants/employee_import_error_codes.js'
 
 export default class EmployeeVacationController {
   /**
@@ -474,6 +477,28 @@ export default class EmployeeVacationController {
    *         description: Archivo Excel generado correctamente
    *       500:
    *         description: Error al generar el template
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Server Error
+   *                 message:
+   *                   type: string
+   *                   example: An unexpected error has occurred on the server
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion-vacaciones
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER_VACATIONS
    */
   async getVacationImportTemplate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -539,16 +564,25 @@ export default class EmployeeVacationController {
           type: result.type,
           title: result.title,
           message: result.message,
-          error: result.error,
+          detail: result.detail,
+          key: result.key,
+          code: result.code,
         }
       }
     } catch (error) {
+      logger.error({ err: error }, 'Error inesperado al generar la plantilla de importación de vacaciones')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_VACATIONS,
+        key: 'error-importacion-vacaciones',
+      })
       response.status(500)
       return {
         type: 'error',
         title: 'Server Error',
         message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }
@@ -579,8 +613,30 @@ export default class EmployeeVacationController {
    *         description: Errores de validación (no se guardó ningún dato)
    *       500:
    *         description: Error inesperado del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Server Error
+   *                 message:
+   *                   type: string
+   *                   example: An unexpected error has occurred on the server
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion-vacaciones
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER_VACATIONS
    */
-  async importVacationExcel({ request, response, i18n }: HttpContext) {
+  async importVacationExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const file = request.file('file', {
         extnames: ['xlsx'],
@@ -606,7 +662,7 @@ export default class EmployeeVacationController {
       }
 
       const service = new EmployeeVacationService(i18n)
-      const result = await service.importVacationFromExcel(file)
+      const result = await service.importVacationFromExcel(file, businessUnitScope)
 
       response.status(result.status)
       return {
@@ -616,12 +672,19 @@ export default class EmployeeVacationController {
         data: result.data,
       }
     } catch (error) {
+      logger.error({ err: error }, 'Error inesperado al importar vacaciones desde Excel')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_VACATIONS,
+        key: 'error-importacion-vacaciones',
+      })
       response.status(500)
       return {
         type: 'error',
         title: 'Server Error',
         message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }

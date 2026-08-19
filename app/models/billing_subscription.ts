@@ -78,6 +78,14 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
   @column()
   declare billingSubscriptionContractedTotal: number
 
+  /**
+   * Saldo a favor vigente de la suscripción, en centavos (USRH1785962095095).
+   * Se lee y escribe siempre dentro de la transacción del pago con
+   * `.forUpdate()` sobre la fila (ver `billing_payment_service.ts`).
+   */
+  @column()
+  declare billingSubscriptionCreditBalanceCents: number
+
   @column.date({
     serialize: (value: DateTime | null) => value?.toISODate() ?? null,
   })

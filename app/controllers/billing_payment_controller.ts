@@ -70,11 +70,16 @@ export default class BillingPaymentController {
    *       - Platform Billing
    *     summary: Registrar pago con comprobante
    *     description: |
-   *       Registra un pago manual sobre una suscripción no cancelada. De forma atómica:
-   *       sube el comprobante privado, inserta el pago, intenta aplicar un aumento
-   *       `pending_payment` si el monto cubre el adeudo prorrateado (USRH1786107870856),
-   *       avanza el periodo un mes y pone la suscripción en `active`.
-   *       `appliedChange` es null si no había cambio vivo o el pago fue insuficiente.
+   *       Registra un pago manual sobre una suscripción no cancelada. El monto del
+   *       flujo normal lo gobierna el servidor desde el trato congelado
+   *       (`contracted_total`) y no es editable; `allowCustomAmount: true` habilita
+   *       un importe distinto explícito. De forma atómica: sube el comprobante
+   *       privado, inserta el pago y aplica la prelación de cobro (USRH1785962095095
+   *       v2): primero el adeudo prorrateado de un aumento `pending_payment` si existe
+   *       (USRH1786107870856), después N periodos completos con el saldo restante,
+   *       y el sobrante queda a favor de la suscripción.
+   *       `appliedChange` es null si no había cambio vivo; trae el registro cuando
+   *       quedó `applied` o `not_applicable`.
    *     operationId: registerBillingPayment
    *     parameters:
    *       - in: path
@@ -90,7 +95,6 @@ export default class BillingPaymentController {
    *           schema:
    *             type: object
    *             required:
-   *               - amountCents
    *               - method
    *               - paidAt
    *               - receipt
@@ -98,7 +102,11 @@ export default class BillingPaymentController {
    *               amountCents:
    *                 type: integer
    *                 minimum: 100
-   *                 description: Monto en centavos MXN
+   *                 description: Obligatorio solo con allowCustomAmount=true. Ignorado (salvo verificación de igualdad) en flujo normal.
+   *               allowCustomAmount:
+   *                 type: boolean
+   *                 default: false
+   *                 description: Declara de forma explícita el registro por importe distinto.
    *               method:
    *                 type: string
    *                 enum: [transfer, cash, other]
@@ -149,6 +157,19 @@ export default class BillingPaymentController {
    *                       format: date
    *                     hasReceipt:
    *                       type: boolean
+   *                     isCustomAmount:
+   *                       type: boolean
+   *                     periodAmountCents:
+   *                       type: integer
+   *                     periodsCovered:
+   *                       type: integer
+   *                     creditAppliedCents:
+   *                       type: integer
+   *                     debtAppliedCents:
+   *                       type: integer
+   *                       description: Dinero de este pago consumido cubriendo el adeudo del aumento (0856). 0 si no había.
+   *                     creditBalanceAfterCents:
+   *                       type: integer
    *                     subscription:
    *                       type: object
    *                       properties:
@@ -164,6 +185,8 @@ export default class BillingPaymentController {
    *                           type: string
    *                           format: date
    *                           nullable: true
+   *                         creditBalanceCents:
+   *                           type: integer
    *                     appliedChange:
    *                       nullable: true
    *                       type: object
@@ -213,7 +236,11 @@ export default class BillingPaymentController {
    *                   type: string
    *                   enum:
    *                     - PLT.PAY.SUBSCRIPTION_CANCELED
+   *                     - PLT.PAY.AMOUNT_NOT_ALLOWED
+   *                     - PLT.PAY.AMOUNT_REQUIRED
    *                     - PLT.PAY.AMOUNT_INVALID
+   *                     - PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE
+   *                     - PLT.PAY.PERIODS_OUT_OF_RANGE
    *                     - PLT.PAY.RECEIPT_INVALID
    *                     - PLT.PAY.VAL_INPUT
    *       '500':
@@ -241,21 +268,28 @@ export default class BillingPaymentController {
    * @store
    * @summary Registrar pago con comprobante
    * @description Registra un pago manual sobre una suscripción existente y no cancelada.\
-   *   De forma atómica: sube el comprobante privado, inserta el pago en el histórico,\
-   *   intenta aplicar un aumento `pending_payment` si el monto cubre el adeudo (0856),\
-   *   avanza el periodo un ciclo mensual y pone la suscripción en estado `active`.\
-   *   El monto se recibe en centavos; el avance del periodo lo calcula el servidor.\
-   *   `appliedChange` es null si no había cambio vivo, el pago fue insuficiente o no surtió efecto;\
-   *   trae el registro del cambio cuando quedó `applied` o `not_applicable`.\
+   *   El monto del flujo normal lo gobierna el servidor desde el trato congelado\
+   *   de la suscripción (`contracted_total`); no es editable por el cliente.\
+   *   `allowCustomAmount: true` habilita la captura explícita de un importe\
+   *   distinto (parcial o mayor), validado con las cotas del servidor.\
+   *   De forma atómica: sube el comprobante privado, inserta el pago y aplica\
+   *   la prelación de cobro (USRH1785962095095 v2): primero cubre el adeudo\
+   *   prorrateado de un aumento `pending_payment` si existe (USRH1786107870856),\
+   *   después traduce el resto del saldo disponible en N periodos completos\
+   *   (extiende `current_period_end` esos meses solo si periodsCovered ≥ 1)\
+   *   y el sobrante queda a favor de la suscripción. Cubrir solo el adeudo\
+   *   libera el cupo de inmediato pero no pone la suscripción en `active`.\
+   *   `appliedChange` es null si no había cambio vivo; trae el registro cuando\
+   *   quedó `applied` o `not_applicable`.\
    *   La descarga del comprobante es del endpoint de histórico (04-05).
    * @tag Billing · Payments
    * @operationId registerBillingPayment
    * @security [{"bearerAuth": []}]
    * @paramPath subscriptionId - ID interno de la suscripción - integer
-   * @requestBody {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["amountCents", "method", "paidAt", "receipt"], "properties": {"amountCents": {"type": "integer", "minimum": 100}, "method": {"type": "string", "enum": ["transfer", "cash", "other"]}, "reference": {"type": "string", "maxLength": 191}, "paidAt": {"type": "string", "format": "date-time"}, "receipt": {"type": "string", "format": "binary"}}}}}}
-   * @responseBody 201 - {"type": "success", "data": {"billingPaymentId": 1, "billingSubscriptionId": 7, "amountCents": 927800, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-07-28T15:04:00.000-06:00", "periodStart": "2026-07-28", "periodEnd": "2026-08-28", "hasReceipt": true, "subscription": {"billingSubscriptionId": 7, "status": "active", "currentPeriodStart": "2026-07-28", "currentPeriodEnd": "2026-08-28"}, "appliedChange": {"billingSubscriptionChangeId": 42, "billingSubscriptionId": 7, "billingSubscriptionChangeType": "increase", "billingSubscriptionChangeStatus": "applied", "billingSubscriptionChangePreviousEmployees": 100, "billingSubscriptionChangeNewEmployees": 150, "billingSubscriptionChangeProratedAmountCents": 91210, "billingSubscriptionChangeAppliedAt": "2026-07-28T15:04:01.000-06:00", "supersededBillingSubscriptionChangeId": null}}}
+   * @requestBody {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["method", "paidAt", "receipt"], "properties": {"amountCents": {"type": "integer", "minimum": 100, "description": "Obligatorio solo con allowCustomAmount=true. En flujo normal, si se envía, debe coincidir con el monto gobernado del periodo."}, "allowCustomAmount": {"type": "boolean", "default": false, "description": "Declara de forma explícita el registro por importe distinto."}, "method": {"type": "string", "enum": ["transfer", "cash", "other"]}, "reference": {"type": "string", "maxLength": 191}, "paidAt": {"type": "string", "format": "date-time"}, "receipt": {"type": "string", "format": "binary"}}}}}}
+   * @responseBody 201 - {"type": "success", "data": {"billingPaymentId": 12, "billingSubscriptionId": 7, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "hasReceipt": true, "isCustomAmount": true, "periodAmountCents": 927800, "periodsCovered": 3, "creditAppliedCents": 2783400, "debtAppliedCents": 0, "creditBalanceAfterCents": 216600, "subscription": {"billingSubscriptionId": 7, "status": "active", "currentPeriodStart": "2026-08-05", "currentPeriodEnd": "2026-11-05", "creditBalanceCents": 216600}, "appliedChange": null}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_NOT_FOUND"}
-   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_NOT_ALLOWED|PLT.PAY.AMOUNT_REQUIRED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE|PLT.PAY.PERIODS_OUT_OF_RANGE|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
    * @responseBody 500 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.CHANGE_APPLY_FAILED|PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT|PLT.PAY.RECEIPT_UPLOAD_FAILED|PLT.PAY.SYS_UNHANDLED"}
    */
   async store({ params, request, response }: HttpContext) {
@@ -276,6 +310,7 @@ export default class BillingPaymentController {
         Number(params.subscriptionId),
         {
           amountCents: data.amountCents,
+          allowCustomAmount: data.allowCustomAmount,
           method: data.method,
           reference: data.reference,
           paidAt: data.paidAt,
