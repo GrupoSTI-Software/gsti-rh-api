@@ -136,6 +136,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       fixture!
     )
     expectNeverDenied(employeeRes, assert)
+    expectNeverDenied(bankRes, assert)
+    expectNeverDenied(medicalRes, assert)
     expectElevenMasked(
       employeePerson(employeeRes.body()),
       employeeBankBody(bankRes.body()),
@@ -269,6 +271,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       actor!,
       fixture!
     )
+    expectNeverDenied(employeeRes, assert)
+    expectNeverDenied(bankRes, assert)
     expectNeverDenied(medicalRes, assert)
     expectMedicalClear(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
     expectPersonContactoMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
@@ -289,17 +293,25 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     client,
     assert,
   }) => {
+    const originalEmail = actor!.person.personEmail
+    const originalPhone = actor!.person.personPhone
     const actorEmail = `sesion-${Date.now()}@empresa.com`
     actor!.person.personEmail = actorEmail
     actor!.person.personPhone = fixture!.clear.phone
     await actor!.person.save()
     await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
 
-    const response = await client.get('/api/auth/session').loginAs(actor!.user)
-    expectNeverDenied(response, assert)
-    const person = sessionPerson(response.body())
-    assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
-    assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+    try {
+      const response = await client.get('/api/auth/session').loginAs(actor!.user)
+      expectNeverDenied(response, assert)
+      const person = sessionPerson(response.body())
+      assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
+      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+    } finally {
+      actor!.person.personEmail = originalEmail
+      actor!.person.personPhone = originalPhone
+      await actor!.person.save()
+    }
   })
 
   test('GET /api/persons/:id con contacto destapa correo y teléfonos del colaborador', async ({
@@ -351,6 +363,18 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       assert.isAbove(lookupsOne.grants, 0)
       assert.equal(lookupsTwo.roles, lookupsOne.roles)
       assert.equal(lookupsTwo.grants, lookupsOne.grants)
+      const listed = extractEmployeeRows(two.result.body()).find(
+        (row) => Number(row.employeeId ?? row.employee_id) === fixture!.employee.employeeId
+      )
+      const listedPerson =
+        listed && typeof listed.person === 'object' && listed.person
+          ? (listed.person as Record<string, unknown>)
+          : {}
+      assert.equal(listedPerson.personEmail, fixture!.clear.email)
+      assert.equal(
+        listedPerson.personCurp,
+        maskSensitiveValue(fixture!.clear.curp, 'identificacion')
+      )
     } finally {
       await cleanupSensitiveFixture(second)
     }
@@ -378,7 +402,9 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
         .loginAs(actor!.user)
         .header('X-Business-Unit-Id', buHeader(actor!))
       assert.equal(response.status(), 404)
-      assert.notEqual(response.status(), 200)
+      const dumped = JSON.stringify(response.body() ?? {})
+      assert.notInclude(dumped, foreign.clear.email)
+      assert.notInclude(dumped, foreign.clear.curp)
     } finally {
       await cleanupSensitiveFixture(foreign)
       await cleanupActor(other)
