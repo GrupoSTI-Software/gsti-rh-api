@@ -130,6 +130,16 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column()
   declare userToken: string
 
+  @column.dateTime()
+  declare userTokenExpiresAt: DateTime | null
+
+  /**
+   * Marca de cuándo la persona fijó su propia contraseña.
+   * `null` = pendiente de activar (USRH1786736057522).
+   */
+  @column.dateTime()
+  declare userPasswordSetAt: DateTime | null
+
   @column()
   declare userActive: number
 

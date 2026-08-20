@@ -2,20 +2,29 @@ import { BILLING_CATALOG_ERROR_CODES } from '../constants/billing_catalog_error_
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingCatalogServiceError } from '../exceptions/billing_catalog_service_error.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import {
+  employeesAboveSafetyCapError,
+  employeesBelowActiveHeadcountError,
+  employeesNotBlockOfTenError,
+  MIN_CONTRACTED_EMPLOYEES,
+  PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
+} from './contracted_employees_rules.js'
 
-/** Tope defensivo de empleados en la superficie pública self-service (no comercial). */
-export const PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP = 100_000
+// Reglas de cantidad movidas al módulo neutral `contracted_employees_rules.ts`
+// (USRH1785962095089): se re-exportan aquí para no romper a los consumidores
+// existentes de este helper (`BillingTenantService`, `SignupDraftService`).
+export {
+  employeesAboveSafetyCapError,
+  employeesBelowActiveHeadcountError,
+  employeesNotBlockOfTenError,
+  MIN_CONTRACTED_EMPLOYEES,
+  PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
+}
 
-/** Mínimo comercial de empleados contratados en superficie self-service (bloques de 10). */
-export const MIN_CONTRACTED_EMPLOYEES = 10
+/** Tamaño del bloque comercial de empleados contratados (múltiplos de 10). */
+export const EMPLOYEE_BLOCK_SIZE = 10
 
 const PLAN_UNAVAILABLE_DETAIL = 'El plan solicitado no está disponible.'
-
-const EMPLOYEES_BLOCK_DETAIL =
-  'La cantidad de empleados se contrata en bloques de 10, con un mínimo de 10.'
-
-const EMPLOYEES_SAFETY_CAP_DETAIL =
-  'La cantidad de empleados solicitada excede el máximo permitido en línea. Contacta a Valanserh para un plan a la medida.'
 
 /**
  * Errores de catálogo que en la superficie pública se colapsan a plan no disponible
@@ -54,17 +63,6 @@ export function planUnavailableError(): BillingSubscriptionServiceError {
   )
 }
 
-/** Cantidad fuera de bloques de 10 o por debajo del mínimo (superficie pública). */
-export function employeesNotBlockOfTenError(): BillingSubscriptionServiceError {
-  return new BillingSubscriptionServiceError(
-    EMPLOYEES_BLOCK_DETAIL,
-    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_NOT_BLOCK_OF_TEN,
-    422,
-    'cantidad-no-multiplo-de-diez',
-    EMPLOYEES_BLOCK_DETAIL
-  )
-}
-
 /** Borrador de registro sin plan o cantidad seleccionados. */
 export function planNotSelectedError(): BillingSubscriptionServiceError {
   const detail =
@@ -75,17 +73,6 @@ export function planNotSelectedError(): BillingSubscriptionServiceError {
     422,
     'plan-no-seleccionado',
     detail
-  )
-}
-
-/** Cantidad sobre el tope defensivo de la superficie pública. */
-export function employeesAboveSafetyCapError(): BillingSubscriptionServiceError {
-  return new BillingSubscriptionServiceError(
-    EMPLOYEES_SAFETY_CAP_DETAIL,
-    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_ABOVE_SAFETY_CAP,
-    422,
-    'cantidad-fuera-de-rango',
-    EMPLOYEES_SAFETY_CAP_DETAIL
   )
 }
 
@@ -114,18 +101,110 @@ export function originNotSelfServiceError(): BillingSubscriptionServiceError {
   )
 }
 
-/** Cantidad contratada por debajo del mínimo exigido por la plantilla activa. */
-export function employeesBelowActiveHeadcountError(
-  activeEmployees: number,
-  minimum: number
-): BillingSubscriptionServiceError {
-  const detail = `Tienes ${activeEmployees} empleados activos. La cantidad mínima que puedes contratar es ${minimum}.`
+/** Sin suscripción viva para previsualizar un cambio de cantidad. */
+export function noLiveSubscriptionError(): BillingSubscriptionServiceError {
+  const detail = 'No tienes una contratación viva que se pueda cambiar.'
   return new BillingSubscriptionServiceError(
     detail,
-    BILLING_SUBSCRIPTION_ERROR_CODES.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT,
+    BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_SUBSCRIPTION,
     422,
-    'cantidad-menor-a-plantilla-activa',
+    'sin-suscripcion-viva',
+    detail
+  )
+}
+
+/** Suscripción con pago atrasado; debe regularizarse antes de cambiar cantidad. */
+export function subscriptionPastDueError(): BillingSubscriptionServiceError {
+  const detail =
+    'Tu suscripción tiene un pago pendiente. Ponte al corriente para poder cambiar tu cantidad contratada.'
+  return new BillingSubscriptionServiceError(
     detail,
-    { active: activeEmployees, minimum }
+    BILLING_SUBSCRIPTION_ERROR_CODES.SUBSCRIPTION_PAST_DUE,
+    422,
+    'suscripcion-con-pago-atrasado',
+    detail
+  )
+}
+
+/** Periodo vigente sin días por delante para prorratear. */
+export function periodNotProratableError(): BillingSubscriptionServiceError {
+  const detail =
+    'Tu periodo vigente no tiene días por delante, así que no hay nada que prorratear. Registra tu pago para abrir el siguiente periodo.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.PERIOD_NOT_PRORATABLE,
+    422,
+    'periodo-sin-dias-por-prorratear',
+    detail
+  )
+}
+
+/** Solo el dueño de la cuenta puede consultar el costo del cambio. */
+export function onlyAccountOwnerError(): BillingSubscriptionServiceError {
+  const detail =
+    'Solo el dueño de la cuenta puede consultar el costo de un cambio de suscripción.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE,
+    403,
+    'solo-el-dueno-de-la-cuenta',
+    detail
+  )
+}
+
+/** La cantidad pedida no supera la contratada vigente (regla 5 — USRH1786107870850). */
+export function changeNotAnIncreaseError(
+  contracted: number,
+  requested: number
+): BillingSubscriptionServiceError {
+  const detail =
+    'La cantidad solicitada no es mayor a tu cantidad contratada actual. Para reducir tu suscripción usa la opción de reducción.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_NOT_AN_INCREASE,
+    422,
+    'cantidad-no-es-aumento',
+    detail,
+    { contracted, requested }
+  )
+}
+
+/** La suscripción se movió entre el cálculo y el registro (USRH1786107870850). */
+export function subscriptionChangeConflictError(): BillingSubscriptionServiceError {
+  const detail = 'Tu suscripción cambió mientras procesábamos la solicitud. Vuelve a intentarlo.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_CONFLICT,
+    409,
+    'cambio-en-conflicto',
+    detail
+  )
+}
+
+/** La cantidad pedida no es menor a la contratada: esta operación solo reduce (USRH1786107870853). */
+export function changeNotADecreaseError(
+  contracted: number,
+  requested: number
+): BillingSubscriptionServiceError {
+  const detail = `Esta operación solo reduce la cantidad contratada. Tienes ${contracted} empleados contratados y pediste ${requested}.`
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_NOT_A_DECREASE,
+    422,
+    'cambio-no-es-reduccion',
+    detail,
+    { contracted, requested }
+  )
+}
+
+/** No hay ningún cambio vivo que cancelar (USRH1786107870853). */
+export function noLiveSubscriptionChangeError(): BillingSubscriptionServiceError {
+  const detail = 'No tienes ningún cambio de suscripción agendado que se pueda cancelar.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_CHANGE,
+    422,
+    'sin-cambio-vivo',
+    detail
   )
 }

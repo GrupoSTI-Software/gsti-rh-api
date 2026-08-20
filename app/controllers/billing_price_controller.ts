@@ -48,9 +48,16 @@ export default class BillingPriceController {
    *     tags:
    *       - Platform Billing
    *     summary: Agregar versión de precio al plan (append-only)
-   *     description: |
-   *       Inserta una nueva versión de precio. Las versiones existentes son inmutables.
-   *       El precio vigente es siempre el de MAX(effective_from ≤ hoy).
+   *     description: >
+   *       Inserta una nueva versión de precio. Las versiones existentes son
+   *       inmutables. El precio vigente es siempre el de MAX(effective_from ≤ hoy).
+   *       `billingPlanPriceEffectiveFrom` se interpreta como día de calendario
+   *       en la zona del negocio (America/Mexico_City) — "hoy" siempre lo
+   *       decide el servidor, nunca el cliente. Si el plan ya tiene una
+   *       versión vigente, la nueva no puede quedar por detrás de hoy (se
+   *       rechaza con 422 PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST); sin versión
+   *       vigente se acepta fecha pasada, para poder dejar publicable un plan
+   *       nuevo.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -95,10 +102,14 @@ export default class BillingPriceController {
    *     responses:
    *       '201':
    *         description: Versión de precio creada
+   *       '404':
+   *         description: Plan no encontrado
    *       '409':
-   *         description: Ya existe una versión con esa fecha de vigencia
+   *         description: Ya existe una versión con esa fecha de vigencia — PLT.CAT.PRICE_EFFECTIVE_FROM_DUPLICATE
    *       '422':
-   *         description: Datos inválidos
+   *         description: >
+   *           Datos inválidos (PLT.CAT.VAL_INPUT) o vigencia anterior a hoy
+   *           con versión vigente existente (PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST)
    */
   async store({ params, request, response }: HttpContext) {
     try {

@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import { PLATFORM_TENANT_ERROR_CODES } from '../../../app/constants/platform_tenant_error_codes.js'
 import { PlatformTenantServiceError } from '../../../app/exceptions/platform_tenant_service_error.js'
 import { resolvePlatformTenantApiError } from '../../../app/helpers/platform_tenant_api_error.js'
+import { isValidRfcSat } from '../../../app/shared/validators/rfc.validator.js'
 import { TENANT_SUBSCRIPTION_STATUSES } from '../../../app/validators/platform_tenant.js'
 
 // ─── Helpers que simulan lógica del servicio ──────────────────────────────────
@@ -165,8 +166,9 @@ test.group('TENANT_SUBSCRIPTION_STATUSES — valores válidos del filtro', () =>
 
 test.group('listTenants — defaults de paginación', () => {
   test('page y limit usan defaults 1 y 20 si no se pasan', ({ assert }) => {
-    const page = undefined ?? 1
-    const limit = undefined ?? 20
+    const filters: { page?: number; limit?: number } = {}
+    const page = filters.page ?? 1
+    const limit = Math.min(filters.limit ?? 20, 100)
     assert.equal(page, 1)
     assert.equal(limit, 20)
   })
@@ -186,5 +188,20 @@ test.group('listTenants — defaults de paginación', () => {
   test('lastPage mínimo es 1 aunque total sea 0', ({ assert }) => {
     const lastPage = Math.max(1, Math.ceil(0 / 20))
     assert.equal(lastPage, 1)
+  })
+})
+
+test.group('fetchAllCompanyIds — búsqueda por RFC (USRH1786737531069)', () => {
+  test('RFC completo y válido SAT activa la rama de huella', ({ assert }) => {
+    assert.isTrue(isValidRfcSat('ABC010101AB9'))
+    assert.isTrue(isValidRfcSat('ABCD010101AB0'))
+  })
+
+  test('fragmento de RFC no activa la rama de huella', ({ assert }) => {
+    assert.isFalse(isValidRfcSat('ABC0101'))
+  })
+
+  test('RFC con dígito verificador inválido no activa la rama de huella', ({ assert }) => {
+    assert.isFalse(isValidRfcSat('ABC010101AB0'))
   })
 })

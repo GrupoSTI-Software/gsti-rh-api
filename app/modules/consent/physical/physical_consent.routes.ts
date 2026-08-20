@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 /**
  * Rutas del slice `consent/physical` (USRH1784146205513): registrar el consentimiento
@@ -22,6 +23,9 @@ router
       '/employees/:employeeId/consents/status',
       '#modules/consent/physical/physical_consent.controller.status'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeConsentStatus)
+      )
     router.get(
       '/employees/:employeeId/consents/:userConsentId/evidence-download-url',
       '#modules/consent/physical/physical_consent.controller.downloadUrl'

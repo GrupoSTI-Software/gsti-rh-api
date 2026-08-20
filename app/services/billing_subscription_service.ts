@@ -6,8 +6,16 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
+import BillingSubscriptionChange from '#models/billing_subscription_change'
+import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import {
+  assertContractedEmployees,
+  assertMinimumContractedEmployees,
+  resolveMinimumContractedEmployees,
+} from '../helpers/contracted_employees_rules.js'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 
 // ---------------------------------------------------------------------------
@@ -24,12 +32,46 @@ export interface CreateSubscriptionInput {
    * backoffice (USRH1785441822058): la prueba gratuita es una sola vez por empresa.
    */
   skipTrial?: boolean
+  /**
+   * Instrucción explícita de reemplazo: si la empresa ya tiene una
+   * contratación viva, se cancela dentro de la misma transacción y se
+   * continúa con el alta, en vez de rechazar con `ALREADY_LIVE`. Ausente o
+   * `false`: comportamiento idéntico al actual (USRH1785962095087).
+   */
+  replaceLiveSubscription?: boolean
 }
 
 export interface BusinessUnitListItem {
   businessUnitPublicId: string
   businessUnitName: string
   activeEmployees: number
+  /** Mínimo contratable: plantilla activa redondeada al siguiente bloque de 10. */
+  minimumContractedEmployees: number
+}
+
+/**
+ * Criterios de `GET /api/platform/billing/subscriptions` (USRH1785962095092).
+ * Todos opcionales; se combinan con AND sobre la consulta.
+ */
+export interface ListSubscriptionsFilters {
+  search?: string
+  status?: BillingSubscription['billingSubscriptionStatus']
+  billingPlanId?: number
+  minEmployees?: number
+  maxEmployees?: number
+  minTotal?: number
+  maxTotal?: number
+  /** Fecha `YYYY-MM-DD`, día civil en zona de negocio, límite inferior inclusive. */
+  trialEndsFrom?: string
+  /** Fecha `YYYY-MM-DD`, día civil en zona de negocio, límite superior inclusive. */
+  trialEndsTo?: string
+  page?: number
+  limit?: number
+}
+
+export interface ListSubscriptionsResult {
+  data: BillingSubscription[]
+  meta: { total: number; page: number; limit: number; lastPage: number }
 }
 
 /** Código de error MySQL para violación de índice UNIQUE (defensa en profundidad). */
@@ -53,12 +95,16 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
  */
 export default class BillingSubscriptionService {
   private readonly catalog = new BillingCatalogService()
+  private readonly employeeQuota = new EmployeeQuotaService()
 
   // ─── Empresas (picker del alta) ──────────────────────────────────────────
 
   /**
-   * Lista empresas activas con su conteo de empleados activos, para el
-   * picker del drawer de alta (`GET /api/platform/billing/business-units`).
+   * Lista empresas activas con su conteo canónico de empleados activos y el
+   * mínimo contratable, para el picker del drawer de alta
+   * (`GET /api/platform/billing/business-units`). El conteo sale de
+   * `EmployeeQuotaService`, fuente única (USRH1785441817258); este servicio
+   * no calcula empleados activos por su cuenta.
    */
   async listBusinessUnits(): Promise<BusinessUnitListItem[]> {
     const businessUnits = await BusinessUnit.query()
@@ -70,39 +116,142 @@ export default class BillingSubscriptionService {
       return []
     }
 
-    // Se usa db.from() en vez de Employee.query() para evitar que el mixin
-    // withBusinessUnitScope() del modelo Employee intercepte la query global.
-    const counts = await db
-      .from('employees')
-      .whereIn(
-        'business_unit_id',
-        businessUnits.map((bu) => bu.businessUnitId)
-      )
-      .whereNull('employee_deleted_at')
-      .groupBy('business_unit_id')
-      .select('business_unit_id')
-      .count('* as total')
+    const countByBusinessUnitId = await this.employeeQuota.countActiveEmployeesByBusinessUnits(
+      businessUnits.map((bu) => bu.businessUnitId)
+    )
 
-    const countByBusinessUnitId = new Map<number, number>()
-    for (const row of counts as Array<{ business_unit_id: number; total: string | number }>) {
-      countByBusinessUnitId.set(Number(row.business_unit_id), Number(row.total))
-    }
-
-    return businessUnits.map((bu) => ({
-      businessUnitPublicId: bu.businessUnitPublicId,
-      businessUnitName: bu.businessUnitName,
-      activeEmployees: countByBusinessUnitId.get(bu.businessUnitId) ?? 0,
-    }))
+    return businessUnits.map((bu) => {
+      const activeEmployees = countByBusinessUnitId.get(bu.businessUnitId) ?? 0
+      return {
+        businessUnitPublicId: bu.businessUnitPublicId,
+        businessUnitName: bu.businessUnitName,
+        activeEmployees,
+        minimumContractedEmployees: resolveMinimumContractedEmployees(activeEmployees),
+      }
+    })
   }
 
   // ─── Suscripciones ────────────────────────────────────────────────────────
 
-  async listSubscriptions(): Promise<BillingSubscription[]> {
-    return BillingSubscription.query()
+  /**
+   * Listado paginado de suscripciones con filtrado server-side
+   * (USRH1785962095092). Sin criterios, se comporta como antes: todas las
+   * suscripciones vivas, en orden `billing_subscription_id asc`. Ningún
+   * filtro relaja `whereNull(deleted_at)` ni cambia el orden por defecto.
+   */
+  async listSubscriptions(
+    filters: ListSubscriptionsFilters = {}
+  ): Promise<ListSubscriptionsResult> {
+    this.assertSubscriptionFilterRanges(filters)
+
+    const page = filters.page ?? 1
+    const limit = Math.min(filters.limit ?? 20, 100)
+
+    const query = BillingSubscription.query()
       .whereNull('billing_subscription_deleted_at')
       .preload('businessUnit')
       .preload('plan')
       .orderBy('billing_subscription_id', 'asc')
+
+    if (filters.search) {
+      const term = `%${filters.search.toUpperCase()}%`
+      query.whereHas('businessUnit', (buQuery) => {
+        buQuery.whereRaw('UPPER(business_unit_name) LIKE ?', [term])
+      })
+    }
+
+    if (filters.status !== undefined) {
+      query.where('billing_subscription_status', filters.status)
+    }
+
+    if (filters.billingPlanId !== undefined) {
+      query.where('billing_plan_id', filters.billingPlanId)
+    }
+
+    if (filters.minEmployees !== undefined) {
+      query.where('billing_subscription_contracted_employees', '>=', filters.minEmployees)
+    }
+
+    if (filters.maxEmployees !== undefined) {
+      query.where('billing_subscription_contracted_employees', '<=', filters.maxEmployees)
+    }
+
+    if (filters.minTotal !== undefined) {
+      query.where('billing_subscription_contracted_total', '>=', filters.minTotal)
+    }
+
+    if (filters.maxTotal !== undefined) {
+      query.where('billing_subscription_contracted_total', '<=', filters.maxTotal)
+    }
+
+    if (filters.trialEndsFrom !== undefined) {
+      query.whereRaw('DATE(billing_subscription_trial_ends_at) >= ?', [filters.trialEndsFrom])
+    }
+
+    if (filters.trialEndsTo !== undefined) {
+      query.whereRaw('DATE(billing_subscription_trial_ends_at) <= ?', [filters.trialEndsTo])
+    }
+
+    const paginated = await query.paginate(page, limit)
+    const json = paginated.toJSON()
+
+    return {
+      data: json.data as BillingSubscription[],
+      meta: {
+        total: json.meta.total,
+        page: json.meta.currentPage,
+        limit: json.meta.perPage,
+        lastPage: json.meta.lastPage,
+      },
+    }
+  }
+
+  /**
+   * Validación cruzada de rangos (regla 7 del spec): un mínimo mayor que su
+   * máximo, o un `trialEndsFrom` posterior a `trialEndsTo`, se rechaza con
+   * `422 PLT.SUB.VAL_INPUT`. VineJS no ofrece una regla inclusiva de
+   * comparación entre dos campos, por eso se valida aquí.
+   */
+  private assertSubscriptionFilterRanges(filters: ListSubscriptionsFilters): void {
+    if (
+      filters.minEmployees !== undefined &&
+      filters.maxEmployees !== undefined &&
+      filters.minEmployees > filters.maxEmployees
+    ) {
+      throw this.filterRangeError(
+        'El mínimo de empleados contratados no puede ser mayor que el máximo.'
+      )
+    }
+
+    if (
+      filters.minTotal !== undefined &&
+      filters.maxTotal !== undefined &&
+      filters.minTotal > filters.maxTotal
+    ) {
+      throw this.filterRangeError(
+        'El total mínimo contratado no puede ser mayor que el máximo.'
+      )
+    }
+
+    if (
+      filters.trialEndsFrom !== undefined &&
+      filters.trialEndsTo !== undefined &&
+      filters.trialEndsFrom > filters.trialEndsTo
+    ) {
+      throw this.filterRangeError(
+        'La fecha final de fin de prueba no puede ser anterior a la inicial.'
+      )
+    }
+  }
+
+  private filterRangeError(detail: string): BillingSubscriptionServiceError {
+    return new BillingSubscriptionServiceError(
+      detail,
+      BILLING_SUBSCRIPTION_ERROR_CODES.VAL_INPUT,
+      422,
+      'PLT.SUB.VAL_INPUT',
+      detail
+    )
   }
 
   async getSubscription(subscriptionId: number): Promise<BillingSubscription> {
@@ -125,6 +274,71 @@ export default class BillingSubscriptionService {
     }
 
     return subscription
+  }
+
+  /**
+   * Detalle de suscripción para el landlord, enriquecido con el aviso de
+   * adeudo pendiente (USRH1785962095095 v2): si existe un cambio de aumento
+   * en `pending_payment` sobre esta suscripción, se expone en
+   * `pendingIncreaseChange` para que el drawer de registro de pago lo
+   * muestre sin calcular cifras propias. `null` cuando no hay adeudo vivo.
+   */
+  async getSubscriptionDetail(
+    subscriptionId: number
+  ): Promise<Record<string, unknown> & { pendingIncreaseChange: SubscriptionChangeRecord | null }> {
+    const subscription = await this.getSubscription(subscriptionId)
+    const pendingIncreaseChange = await this.findPendingIncreaseChange(
+      subscription.billingSubscriptionId
+    )
+
+    return {
+      ...subscription.serialize(),
+      pendingIncreaseChange,
+    }
+  }
+
+  /**
+   * Lectura directa del cambio de aumento en `pending_payment`, sin pasar por
+   * `BillingSubscriptionChangeService` (evita el ciclo de instanciación
+   * Tenant ↔ Subscription ↔ SubscriptionChange).
+   */
+  private async findPendingIncreaseChange(
+    billingSubscriptionId: number
+  ): Promise<SubscriptionChangeRecord | null> {
+    const change = await BillingSubscriptionChange.query()
+      .where('billing_subscription_id', billingSubscriptionId)
+      .where('billing_subscription_change_type', 'increase')
+      .where('billing_subscription_change_status', 'pending_payment')
+      .whereNull('billing_subscription_change_deleted_at')
+      .orderBy('billing_subscription_change_id', 'desc')
+      .first()
+
+    if (!change) {
+      return null
+    }
+
+    return {
+      billingSubscriptionChangeId: change.billingSubscriptionChangeId,
+      billingSubscriptionId: change.billingSubscriptionId,
+      billingSubscriptionChangeType: change.billingSubscriptionChangeType,
+      billingSubscriptionChangeStatus: change.billingSubscriptionChangeStatus,
+      billingSubscriptionChangePreviousEmployees: change.billingSubscriptionChangePreviousEmployees,
+      billingSubscriptionChangeNewEmployees: change.billingSubscriptionChangeNewEmployees,
+      billingSubscriptionChangeUnitAmount: Number(change.billingSubscriptionChangeUnitAmount),
+      billingSubscriptionChangeDiscountPercent: Number(
+        change.billingSubscriptionChangeDiscountPercent
+      ),
+      billingSubscriptionChangeTaxRate: Number(change.billingSubscriptionChangeTaxRate),
+      billingSubscriptionChangeSubtotal: Number(change.billingSubscriptionChangeSubtotal),
+      billingSubscriptionChangeTaxAmount: Number(change.billingSubscriptionChangeTaxAmount),
+      billingSubscriptionChangeTotal: Number(change.billingSubscriptionChangeTotal),
+      billingSubscriptionChangeProratedAmountCents: change.billingSubscriptionChangeProratedAmountCents,
+      billingSubscriptionChangeEffectiveAt: change.billingSubscriptionChangeEffectiveAt
+        ? toCalendarIsoDate(change.billingSubscriptionChangeEffectiveAt)
+        : null,
+      billingSubscriptionChangeAppliedAt: change.billingSubscriptionChangeAppliedAt?.toISO() ?? null,
+      supersededBillingSubscriptionChangeId: null,
+    }
   }
 
   /**
@@ -193,18 +407,28 @@ export default class BillingSubscriptionService {
       )
     }
 
-    if (!plan.isPublished) {
+    if (!plan.isPublished || !plan.billingPlanActive) {
       throw new BillingSubscriptionServiceError(
-        `Plan ${input.billingPlanId} no está publicado`,
+        `Plan ${input.billingPlanId} no está publicado y vigente`,
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422,
         'plan-no-publicado',
-        'Solo se puede contratar sobre un plan publicado del catálogo.'
+        'Solo se puede contratar sobre un plan publicado y vigente del catálogo.'
       )
     }
 
+    // De lo barato a lo caro: se resuelve la cantidad y se valida contra las
+    // reglas de bloques de 10 / mínimo por plantilla ANTES de tocar el
+    // catálogo (USRH1785962095089 §13).
+    const activeEmployees = await this.employeeQuota.countActiveEmployees(
+      businessUnit.businessUnitId,
+      trx
+    )
     const contractedEmployees =
-      input.contractedEmployees ?? (await this.countActiveEmployees(businessUnit.businessUnitId))
+      input.contractedEmployees ?? resolveMinimumContractedEmployees(activeEmployees)
+
+    assertContractedEmployees(contractedEmployees)
+    assertMinimumContractedEmployees(contractedEmployees, activeEmployees)
 
     const today = toBusinessDateString()
 
@@ -233,7 +457,9 @@ export default class BillingSubscriptionService {
     }
 
     const nowBusiness = todayInBusinessZone()
-    const skipTrial = input.skipTrial === true
+    const skipTrial =
+      input.skipTrial === true ||
+      (await this.hasConsumedTrial(businessUnit.businessUnitId, trx))
     const trialDays = skipTrial ? 0 : resolved.trialDays
     const trialEndsAt = skipTrial ? null : nowBusiness.plus({ days: trialDays })
     const periodEnd = skipTrial ? nowBusiness : trialEndsAt!
@@ -246,13 +472,20 @@ export default class BillingSubscriptionService {
       .first()
 
     if (existingLive) {
-      throw new BillingSubscriptionServiceError(
-        `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
-        BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
-        409,
-        'suscripcion-viva-existente',
-        'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
-      )
+      if (!input.replaceLiveSubscription) {
+        throw new BillingSubscriptionServiceError(
+          `Empresa ${input.businessUnitPublicId} ya tiene una suscripción viva (${existingLive.billingSubscriptionId})`,
+          BILLING_SUBSCRIPTION_ERROR_CODES.ALREADY_LIVE,
+          409,
+          'suscripcion-viva-existente',
+          'Esta empresa ya tiene una suscripción viva. Cancélala antes de contratar una nueva.'
+        )
+      }
+
+      // Reemplazo en un solo acto: se cancela la viva DENTRO de esta misma
+      // transacción, antes del INSERT, para que el índice único de la
+      // columna espejo nunca vea dos filas vivas de la misma empresa.
+      await this.cancelWithin(existingLive, trx)
     }
 
     try {
@@ -341,15 +574,26 @@ export default class BillingSubscriptionService {
       )
     }
 
-    if (!plan.isPublished) {
+    if (!plan.isPublished || !plan.billingPlanActive) {
       throw new BillingSubscriptionServiceError(
-        `Plan ${billingPlanId} no está publicado`,
+        `Plan ${billingPlanId} no está publicado y vigente`,
         BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_NOT_PUBLISHED,
         422,
         'plan-no-publicado',
-        'Solo se puede cambiar a un plan publicado del catálogo.'
+        'Solo se puede cambiar a un plan publicado y vigente del catálogo.'
       )
     }
+
+    // Misma regla de cantidad que el alta (USRH1785962095089 §6 regla 3):
+    // la cantidad contratada vigente debe seguir cumpliendo bloques de 10 y
+    // el mínimo por plantilla activa, aunque la plantilla haya crecido desde
+    // que se contrató.
+    const contractedEmployees = subscription.billingSubscriptionContractedEmployees
+    const activeEmployees = await this.employeeQuota.countActiveEmployees(
+      subscription.businessUnitId
+    )
+    assertContractedEmployees(contractedEmployees)
+    assertMinimumContractedEmployees(contractedEmployees, activeEmployees)
 
     const today = toBusinessDateString()
     let resolved
@@ -420,17 +664,28 @@ export default class BillingSubscriptionService {
       )
     }
 
-    return db.transaction(async (trx) => {
-      subscription.useTransaction(trx)
-      subscription.billingSubscriptionStatus = 'canceled'
-      subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
-      subscription.billingSubscriptionLiveBusinessUnitId = null
-      await subscription.save()
-      return subscription
-    })
+    return db.transaction((trx) => this.cancelWithin(subscription, trx))
   }
 
-  private async getCurrentPrice(
+  /**
+   * Cambia el estado a 'canceled' dentro de una transacción del llamador.
+   * Sin guard de "ya cancelada": el llamador es responsable de esa validación
+   * (la del acto de reemplazo nunca llega aquí con una ya cancelada, porque
+   * `existingLive` solo trae suscripciones vivas).
+   */
+  private async cancelWithin(
+    subscription: BillingSubscription,
+    trx: TransactionClientContract
+  ): Promise<BillingSubscription> {
+    subscription.useTransaction(trx)
+    subscription.billingSubscriptionStatus = 'canceled'
+    subscription.billingSubscriptionCanceledAt = todayInBusinessZone()
+    subscription.billingSubscriptionLiveBusinessUnitId = null
+    await subscription.save()
+    return subscription
+  }
+
+  async getCurrentPrice(
     billingPlanId: number,
     referenceDate: string
   ): Promise<InstanceType<typeof BillingPlanPrice> | null> {
@@ -441,14 +696,21 @@ export default class BillingSubscriptionService {
       .first()
   }
 
-  private async countActiveEmployees(businessUnitId: number): Promise<number> {
-    const result = await db
-      .from('employees')
+  /**
+   * Detecta si la empresa ya gozó periodo de prueba en cualquier
+   * contratación anterior, sin importar su estado ni si fue borrada
+   * lógicamente: la evidencia es histórica (USRH1785962095089 §10).
+   */
+  private async hasConsumedTrial(
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<boolean> {
+    const row = await BillingSubscription.query({ client: trx })
+      .withTrashed()
       .where('business_unit_id', businessUnitId)
-      .whereNull('employee_deleted_at')
-      .count('* as total')
+      .where('billing_subscription_contracted_trial_days', '>', 0)
       .first()
 
-    return Number((result as { total: string | number } | null)?.total ?? 0)
+    return row !== null
   }
 }
