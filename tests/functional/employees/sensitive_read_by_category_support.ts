@@ -1,4 +1,6 @@
 import type { Assert } from '@japa/assert'
+import type { ApiClient } from '@japa/api-client'
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -42,6 +44,35 @@ export async function withSqlLog<T>(work: () => Promise<T>): Promise<{
 }
 
 export const TEST_PASSWORD = 'SensitiveReadByCategoryQa123!'
+
+export async function activateUser(user: User) {
+  user.userPasswordSetAt = DateTime.utc()
+  await user.save()
+}
+
+export async function loginWeb(
+  client: ApiClient,
+  email: string,
+  password: string = TEST_PASSWORD
+) {
+  return client.post('/api/auth/login').json({
+    userEmail: email,
+    userPassword: password,
+    deviceOrigin: 'web',
+  })
+}
+
+export function bearerFromLogin(body: Record<string, unknown>): string {
+  const data =
+    body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : {}
+  const token = data.token
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new Error('Login e2e: data.token no es un string.')
+  }
+  return token
+}
 
 export const CLEAR_FIXED = {
   curp: 'ABCD123456MDFABC01',
@@ -119,6 +150,24 @@ export async function grantOnly(roleId: number, permissionSlugs: string[]) {
       systemPermissionId: await permissionId(slug),
     })
   }
+}
+
+export async function grantAdditionally(roleId: number, permissionSlugs: string[]) {
+  for (const slug of permissionSlugs) {
+    const systemPermissionId = await permissionId(slug)
+    await RoleSystemPermission.firstOrCreate(
+      { roleId, systemPermissionId },
+      { roleId, systemPermissionId }
+    )
+  }
+}
+
+export async function revokeSlugs(roleId: number, permissionSlugs: string[]) {
+  const ids = await Promise.all(permissionSlugs.map((slug) => permissionId(slug)))
+  await RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .whereIn('system_permission_id', ids)
+    .delete()
 }
 
 export async function createActor(emailPrefix: string): Promise<TenantActor> {
@@ -376,6 +425,64 @@ export function medicalConditionBody(body: Record<string, unknown>) {
 
 export function personShowBody(body: Record<string, unknown>) {
   return asRecord(asRecord(body.data).person)
+}
+
+export function loginUserPerson(body: Record<string, unknown>) {
+  const data =
+    body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : {}
+  const user =
+    data.user && typeof data.user === 'object'
+      ? (data.user as Record<string, unknown>)
+      : {}
+  return user.person && typeof user.person === 'object'
+    ? (user.person as Record<string, unknown>)
+    : {}
+}
+
+export function customerPerson(body: Record<string, unknown>) {
+  const data =
+    body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : {}
+  const customer =
+    data.customer && typeof data.customer === 'object'
+      ? (data.customer as Record<string, unknown>)
+      : {}
+  return customer.person && typeof customer.person === 'object'
+    ? (customer.person as Record<string, unknown>)
+    : {}
+}
+
+export function nestedEmployeePerson(
+  body: Record<string, unknown>,
+  rootKey: 'pilot' | 'flightAttendant'
+) {
+  const data =
+    body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : {}
+  const root =
+    data[rootKey] && typeof data[rootKey] === 'object'
+      ? (data[rootKey] as Record<string, unknown>)
+      : {}
+  const employee =
+    root.employee && typeof root.employee === 'object'
+      ? (root.employee as Record<string, unknown>)
+      : {}
+  return employee.person && typeof employee.person === 'object'
+    ? (employee.person as Record<string, unknown>)
+    : {}
+}
+
+export function nestedBanks(body: Record<string, unknown>): Record<string, unknown>[] {
+  const data =
+    body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : {}
+  const rows = data.data
+  return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : []
 }
 
 export function sessionPerson(body: Record<string, unknown>) {
