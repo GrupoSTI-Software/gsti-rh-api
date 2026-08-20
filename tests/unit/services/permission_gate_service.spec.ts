@@ -408,6 +408,26 @@ test.group('PermissionGateService', (group) => {
     assert.equal(decision.reason, 'denied')
   })
 
+  test('evaluateEnforced con interruptor apagado: super-administrador NO tiene bypass standard', async ({
+    assert,
+  }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const direccionGeneral = await findPrivilegedRole('super-administrador')
+    const service = new PermissionGateService()
+    const decision = await service.evaluateEnforced(fakeUser(direccionGeneral.roleId), {
+      module: MODULE_SLUG,
+      action: 'read',
+      bypass: 'standard',
+    })
+
+    assert.isFalse(decision.allowed)
+    assert.equal(decision.reason, 'denied')
+    assert.notEqual(decision.reason, 'bypass')
+    assert.notEqual(decision.reason, 'module-not-enforced')
+  })
+
   test('evaluate con interruptor apagado sigue cortando en module-not-enforced (no regresión)', async ({
     assert,
   }) => {
