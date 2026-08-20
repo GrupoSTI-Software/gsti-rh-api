@@ -5,7 +5,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import encryption from '@adonisjs/core/services/encryption'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Employee from './employee.js'
 import MedicalConditionType from './medical_condition_type.js'
@@ -86,7 +86,7 @@ export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDel
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'salud'),
+    serialize: sensitiveSerialize('EmployeeMedicalCondition', 'employeeMedicalConditionDiagnosis'),
   })
   declare employeeMedicalConditionDiagnosis: string
 
@@ -105,7 +105,7 @@ export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDel
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'salud'),
+    serialize: sensitiveSerialize('EmployeeMedicalCondition', 'employeeMedicalConditionNotes'),
   })
   declare employeeMedicalConditionNotes: string
 

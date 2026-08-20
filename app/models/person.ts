@@ -6,7 +6,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
 import { blindIndex } from '#utils/blind_index'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import Employee from './employee.js'
 import User from './user.js'
 /**
@@ -108,7 +108,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'contacto'),
+    serialize: sensitiveSerialize('Person', 'personPhone'),
   })
   declare personPhone: string | null
 
@@ -129,7 +129,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'contacto'),
+    serialize: sensitiveSerialize('Person', 'personEmail'),
   })
   declare personEmail: string | null
 
@@ -148,7 +148,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'contacto'),
+    serialize: sensitiveSerialize('Person', 'personPhoneSecondary'),
   })
   declare personPhoneSecondary: string | null
 
@@ -169,7 +169,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'identificacion'),
+    serialize: sensitiveSerialize('Person', 'personCurp'),
   })
   declare personCurp: string | null
 
@@ -189,7 +189,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'identificacion'),
+    serialize: sensitiveSerialize('Person', 'personRfc'),
   })
   declare personRfc: string | null
 
@@ -210,7 +210,7 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'identificacion'),
+    serialize: sensitiveSerialize('Person', 'personImssNss'),
   })
   declare personImssNss: string | null
 
