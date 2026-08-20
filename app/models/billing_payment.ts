@@ -14,6 +14,10 @@ export type BillingPaymentMethod = 'transfer' | 'cash' | 'other'
  *
  * billing_payment_amount_cents almacena el monto en centavos (primera columna
  * billing en centavos; el resto del módulo se migrará en ticket posterior).
+ *
+ * Desde USRH1785962095095 el monto del flujo normal lo gobierna el servidor
+ * (`billing_subscription_contracted_total`); `billingPaymentIsCustomAmount`
+ * marca cuándo el importe vino de la capacidad explícita de importe distinto.
  */
 export default class BillingPayment extends BaseModel {
   static readonly table = 'billing_payments'
@@ -27,6 +31,56 @@ export default class BillingPayment extends BaseModel {
   /** Monto pagado en centavos (ej. 927800 = $9,278.00 MXN). */
   @column()
   declare billingPaymentAmountCents: number
+
+  /** Monto del periodo vigente al asentar el pago (gobernado por el servidor). */
+  @column()
+  declare billingPaymentPeriodAmountCents: number
+
+  /** Cantidad de periodos completos que este pago cubrió (0 = parcial, no movió el periodo). */
+  @column()
+  declare billingPaymentPeriodsCovered: number
+
+  /** Saldo a favor aplicado por este pago (`periodsCovered * periodAmountCents`). */
+  @column()
+  declare billingPaymentCreditAppliedCents: number
+
+  /** Saldo a favor de la suscripción justo después de este pago. */
+  @column()
+  declare billingPaymentCreditBalanceAfterCents: number
+
+  /**
+   * Dinero de este pago consumido cubriendo adeudos puntuales (v2, USRH1786107870856):
+   * hoy, el prorrateo de un aumento de cantidad. Va separado de `creditAppliedCents`,
+   * que es lo que se fue a periodos. `0` cuando no había adeudo pendiente.
+   */
+  @column()
+  declare billingPaymentDebtAppliedCents: number
+
+  /** `true` si el monto fue capturado como importe distinto explícito (`allowCustomAmount`). */
+  @column()
+  declare billingPaymentIsCustomAmount: boolean
+
+  // ─── Foto financiera del periodo cobrado (regla 12; no se recalcula) ──────
+  @column()
+  declare billingPaymentGrossCents: number
+
+  @column()
+  declare billingPaymentDiscountAmountCents: number
+
+  @column()
+  declare billingPaymentSubtotalCents: number
+
+  @column()
+  declare billingPaymentTaxAmountCents: number
+
+  @column()
+  declare billingPaymentTotalCents: number
+
+  @column()
+  declare billingPaymentDiscountPercent: number
+
+  @column()
+  declare billingPaymentTaxRate: number
 
   @column()
   declare billingPaymentMethod: BillingPaymentMethod
@@ -47,15 +101,17 @@ export default class BillingPayment extends BaseModel {
   @column.dateTime()
   declare billingPaymentPaidAt: DateTime
 
+  /** Nulo cuando el pago fue parcial (`periodsCovered = 0`, no cubrió periodo). */
   @column.date({
     serialize: (value: DateTime | null) => value?.toISODate() ?? null,
   })
-  declare billingPaymentPeriodStart: DateTime
+  declare billingPaymentPeriodStart: DateTime | null
 
+  /** Nulo cuando el pago fue parcial (`periodsCovered = 0`, no cubrió periodo). */
   @column.date({
     serialize: (value: DateTime | null) => value?.toISODate() ?? null,
   })
-  declare billingPaymentPeriodEnd: DateTime
+  declare billingPaymentPeriodEnd: DateTime | null
 
   @column.dateTime({ autoCreate: true })
   declare billingPaymentCreatedAt: DateTime

@@ -114,7 +114,12 @@ export type ApplyIncreaseOutcome =
       change: SubscriptionChangeRecord
       reason: ApplyIncreaseNotApplicableReason
     }
-  | { outcome: 'applied'; change: SubscriptionChangeRecord }
+  | {
+      outcome: 'applied'
+      change: SubscriptionChangeRecord
+      /** (USRH1785962095095 v2) Cuánto del dinero disponible tomó el adeudo prorrateado. */
+      consumedCents: number
+    }
 
 export type ApplyScheduledDecreaseNotApplicableReason = 'cantidad-menor-a-plantilla-activa'
 
@@ -553,8 +558,15 @@ export default class BillingSubscriptionChangeService {
   }
 
   /**
-   * Aplica un aumento `pending_payment` cuando el pago cubre el adeudo prorrateado
-   * (USRH1786107870856). Mutar la suscripción en memoria; el caller persiste con `save()`.
+   * Aplica un aumento `pending_payment` cuando el dinero disponible cubre el adeudo
+   * prorrateado (USRH1786107870856). Mutar la suscripción en memoria; el caller persiste
+   * con `save()`.
+   *
+   * (USRH1785962095095 v2) `availableCents` es el saldo disponible del acto de cobro
+   * (saldo previo + monto asentado), **no** el importe del pago: el saldo a favor es la
+   * única puerta de entrada del dinero, y el adeudo se cubre desde ahí antes que los
+   * periodos. Si se cubre, el `outcome: 'applied'` regresa `consumedCents` para que el
+   * llamador reste ese dinero antes de traducir el resto en periodos completos.
    *
    * @throws {BillingPaymentServiceError} si el cambio no pertenece a la empresa o el
    *   snapshot congelado es inválido (fail-closed, rollback de la transacción del pago).
@@ -562,7 +574,7 @@ export default class BillingSubscriptionChangeService {
   async applyIncreaseOnPayment(
     subscription: BillingSubscription,
     billingPaymentId: number,
-    amountCents: number,
+    availableCents: number,
     trx: TransactionClientContract
   ): Promise<ApplyIncreaseOutcome> {
     const liveChange = await BillingSubscriptionChange.query({ client: trx })
@@ -587,7 +599,7 @@ export default class BillingSubscriptionChangeService {
 
     this.assertIncreaseChangeSnapshotConsistent(liveChange)
 
-    if (amountCents < liveChange.billingSubscriptionChangeProratedAmountCents) {
+    if (availableCents < liveChange.billingSubscriptionChangeProratedAmountCents) {
       return {
         outcome: 'insufficient_payment',
         change: this.buildChangeRecord(liveChange, null),
@@ -663,6 +675,7 @@ export default class BillingSubscriptionChangeService {
     return {
       outcome: 'applied',
       change: this.buildChangeRecord(liveChange, null),
+      consumedCents: liveChange.billingSubscriptionChangeProratedAmountCents,
     }
   }
 
