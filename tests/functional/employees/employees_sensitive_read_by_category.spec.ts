@@ -8,11 +8,13 @@ import {
   cleanupActor,
   cleanupSensitiveFixture,
   cleanupSystemActor,
+  countGateLookups,
   createActor,
   createSensitiveFixture,
   createSystemActor,
   employeeBankBody,
   employeePerson,
+  extractEmployeeRows,
   expectBankMasked,
   expectContactoClearIdentificacionMasked,
   expectElevenClear,
@@ -29,6 +31,7 @@ import {
   restoreEmployeesGrants,
   sessionPerson,
   snapshotAndClearEmployeesGrants,
+  withSqlLog,
   type SensitiveFixture,
   type TenantActor,
 } from './sensitive_read_by_category_support.js'
@@ -311,5 +314,72 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     expectNeverDenied(response, assert)
     const person = personShowBody(response.body())
     expectContactoClearIdentificacionMasked(person, fixture!.clear, assert)
+  })
+
+  test('CA-8: las lookups de roles y grants no crecen con el N de empleados del listado', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [
+      'full-employee-assigned',
+      'sensitive-contacto-read',
+    ])
+    const list = () =>
+      client
+        .get(
+          `/api/employees/?search=${encodeURIComponent(fixture!.searchToken)}&limit=100`
+        )
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', buHeader(actor!))
+
+    const one = await withSqlLog(() => list())
+    expectNeverDenied(one.result, assert)
+    assert.lengthOf(extractEmployeeRows(one.result.body()), 1)
+
+    const second = await createSensitiveFixture(
+      actor!.businessUnit.businessUnitId,
+      'sens-ca8',
+      fixture!.searchToken
+    )
+    try {
+      const two = await withSqlLog(() => list())
+      expectNeverDenied(two.result, assert)
+      assert.lengthOf(extractEmployeeRows(two.result.body()), 2)
+      const lookupsOne = countGateLookups(one.sqls)
+      const lookupsTwo = countGateLookups(two.sqls)
+      assert.equal(lookupsTwo.roles, lookupsOne.roles)
+      assert.equal(lookupsTwo.grants, lookupsOne.grants)
+    } finally {
+      await cleanupSensitiveFixture(second)
+    }
+  })
+
+  test('empleado de otra unidad responde 404 de scope, no dato en claro', async ({
+    client,
+    assert,
+  }) => {
+    const other = await createActor('sens-other-bu')
+    const foreign = await createSensitiveFixture(
+      other.businessUnit.businessUnitId,
+      'sens-foreign'
+    )
+    try {
+      await grantOnly(actor!.role.roleId, [
+        'sensitive-identificacion-read',
+        'sensitive-contacto-read',
+        'sensitive-financiero-read',
+        'sensitive-salud-read',
+        'sensitive-biometrico-read',
+      ])
+      const response = await client
+        .get(`/api/employees/${foreign.employee.employeeId}`)
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', buHeader(actor!))
+      assert.equal(response.status(), 404)
+      assert.notEqual(response.status(), 200)
+    } finally {
+      await cleanupSensitiveFixture(foreign)
+      await cleanupActor(other)
+    }
   })
 })

@@ -15,6 +15,32 @@ import SystemPermission from '#models/system_permission'
 import { TenantContext } from '#utils/tenant_context'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
 
+export function countGateLookups(sqls: string[]) {
+  const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
+  const grants = sqls.filter((sql) =>
+    /from\s+[`"]?role_system_permissions[`"]?/i.test(sql)
+  ).length
+  return { roles, grants }
+}
+
+export async function withSqlLog<T>(work: () => Promise<T>): Promise<{
+  result: T
+  sqls: string[]
+}> {
+  const sqls: string[] = []
+  const knex = db.connection().getWriteClient()
+  const onQuery = (query: { sql?: string }) => {
+    if (query.sql) sqls.push(query.sql)
+  }
+  knex.on('query', onQuery)
+  try {
+    const result = await work()
+    return { result, sqls }
+  } finally {
+    knex.off('query', onQuery)
+  }
+}
+
 export const TEST_PASSWORD = 'SensitiveReadByCategoryQa123!'
 
 export const CLEAR_FIXED = {
@@ -259,6 +285,7 @@ export async function createSensitiveFixture(
     employee_second_last_name: searchToken,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: person.personId,
