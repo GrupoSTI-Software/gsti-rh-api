@@ -28,10 +28,53 @@ export async function resolveSensitiveReadDecisions(
   return decisions
 }
 
+/**
+ * Reabre el ALS cuando Adonis JSON-encodea el cuerpo.
+ *
+ * `send` solo guarda el modelo en `lazyBody`. Lucid `serialize` corre en
+ * `finish` → `writeBody` → `safeStringify`, después de que `next()` ya
+ * devolvió y el `run` exterior se cerró. Sin este reingreso, `canRead`
+ * es false para todos (incluido owner).
+ */
+function reenterSensitiveReadOnResponse(
+  ctx: HttpContext,
+  decisions: Record<LegalCategory, boolean>
+): void {
+  const response = ctx.response
+  if (!response) {
+    return
+  }
+
+  const originalSend = response.send.bind(response)
+  response.send = ((body: unknown, generateEtag?: boolean) =>
+    SensitiveAccessContext.run(decisions, () => originalSend(body, generateEtag))) as typeof response.send
+
+  if (typeof response.json === 'function') {
+    const originalJson = response.json.bind(response)
+    response.json = ((body: unknown, generateEtag?: boolean) =>
+      SensitiveAccessContext.run(decisions, () => originalJson(body, generateEtag))) as typeof response.json
+  }
+
+  if (typeof response.jsonp === 'function') {
+    const originalJsonp = response.jsonp.bind(response)
+    response.jsonp = ((body: unknown, callbackName?: string, generateEtag?: boolean) =>
+      SensitiveAccessContext.run(decisions, () =>
+        originalJsonp(body, callbackName, generateEtag)
+      )) as typeof response.jsonp
+  }
+
+  if (typeof response.finish === 'function') {
+    const originalFinish = response.finish.bind(response)
+    response.finish = (() =>
+      SensitiveAccessContext.run(decisions, () => originalFinish())) as typeof response.finish
+  }
+}
+
 export async function runWithSensitiveReadDecisions(
   ctx: HttpContext,
   next: NextFn
 ): Promise<unknown> {
   const decisions = await resolveSensitiveReadDecisions(ctx)
+  reenterSensitiveReadOnResponse(ctx, decisions)
   return SensitiveAccessContext.run(decisions, () => next())
 }

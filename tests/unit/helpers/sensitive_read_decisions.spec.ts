@@ -9,6 +9,8 @@ import {
   runWithSensitiveReadDecisions,
 } from '#helpers/sensitive_read_decisions'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import Person from '#models/person'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
 
 test.group('isSensitiveReadAllowed', () => {
   test('solo granted y bypass abren el dato', ({ assert }) => {
@@ -37,6 +39,55 @@ function makeCtx(
     auth: { user: { userId: 1, roleId: 1 } },
     permissionGate: fakeService,
   } as unknown as HttpContext
+}
+
+const CLEAR_EMAIL = 'owner@example.com'
+const CLEAR_CURP = 'ABCD123456HDFRRN08'
+
+function makePerson(): Person {
+  const person = new Person()
+  person.personEmail = CLEAR_EMAIL
+  person.personCurp = CLEAR_CURP
+  person.personFirstname = 'Ana'
+  return person
+}
+
+function serializeIfModel(body: unknown): Record<string, unknown> {
+  if (body && typeof body === 'object' && 'serialize' in body) {
+    return (body as Person).serialize()
+  }
+  return body as Record<string, unknown>
+}
+
+function makeCtxWithResponse(
+  evaluateEnforced: (action: string) => PermissionGateDecision
+): { ctx: HttpContext; sent: { body?: unknown; serialized?: Record<string, unknown> } } {
+  const sent: { body?: unknown; serialized?: Record<string, unknown> } = {}
+  const ctx = makeCtx(evaluateEnforced)
+
+  ctx.response = {
+    send(body: unknown) {
+      sent.body = body
+      sent.serialized = serializeIfModel(body)
+    },
+    json(body: unknown) {
+      this.send(body)
+    },
+    finish() {
+      if (sent.body !== undefined) {
+        sent.serialized = serializeIfModel(sent.body)
+      }
+    },
+  } as unknown as HttpContext['response']
+
+  return { ctx, sent }
+}
+
+function contactoGranted(): (action: string) => PermissionGateDecision {
+  return (action) =>
+    action === 'sensitive-contacto-read'
+      ? { allowed: true, reason: 'granted' }
+      : { allowed: false, reason: 'denied' }
 }
 
 test.group('resolveSensitiveReadDecisions', () => {
@@ -89,5 +140,54 @@ test.group('runWithSensitiveReadDecisions', () => {
     await runWithSensitiveReadDecisions(ctx, next)
     assert.isTrue(seenInside)
     assert.isFalse(SensitiveAccessContext.canRead('salud'))
+  })
+
+  test('serializar Person después de next() tapa el correo aunque contacto sea true', async ({
+    assert,
+  }) => {
+    const { ctx } = makeCtxWithResponse(contactoGranted())
+    const person = makePerson()
+    const next: NextFn = async () => person
+
+    await runWithSensitiveReadDecisions(ctx, next)
+
+    assert.isFalse(SensitiveAccessContext.canRead('contacto'))
+    assert.equal(person.serialize().personEmail, maskSensitiveValue(CLEAR_EMAIL, 'contacto'))
+  })
+
+  test('send posterior al run() serializa el correo en claro si contacto es true', async ({
+    assert,
+  }) => {
+    const { ctx, sent } = makeCtxWithResponse(contactoGranted())
+    const person = makePerson()
+    const next: NextFn = async () => person
+
+    await runWithSensitiveReadDecisions(ctx, next)
+    assert.isFalse(SensitiveAccessContext.isActive())
+
+    ctx.response.send(person)
+
+    assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
+    assert.equal(sent.serialized?.personFirstname, 'Ana')
+    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
+  })
+
+  test('finish posterior al run() serializa el correo en claro si contacto es true', async ({
+    assert,
+  }) => {
+    const { ctx, sent } = makeCtxWithResponse(contactoGranted())
+    const person = makePerson()
+    const next: NextFn = async () => {
+      ctx.response.send(person)
+    }
+
+    await runWithSensitiveReadDecisions(ctx, next)
+    assert.isFalse(SensitiveAccessContext.isActive())
+
+    ctx.response.finish()
+
+    assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
+    assert.equal(sent.serialized?.personFirstname, 'Ana')
+    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
   })
 })
