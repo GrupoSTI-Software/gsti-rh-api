@@ -347,6 +347,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       assert.lengthOf(extractEmployeeRows(two.result.body()), 2)
       const lookupsOne = countGateLookups(one.sqls)
       const lookupsTwo = countGateLookups(two.sqls)
+      assert.isAbove(lookupsOne.roles, 0)
+      assert.isAbove(lookupsOne.grants, 0)
       assert.equal(lookupsTwo.roles, lookupsOne.roles)
       assert.equal(lookupsTwo.grants, lookupsOne.grants)
     } finally {
