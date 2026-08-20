@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import {
   TEST_PASSWORD,
@@ -28,6 +29,7 @@ import {
   loginUserPerson,
   loginWeb,
   medicalConditionBody,
+  permissionId,
   revokeSlugs,
   type SensitiveFixture,
   type TenantActor,
@@ -218,7 +220,16 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       'sens-e2e-dg',
       actor!.businessUnit.businessUnitId
     )
+    const alreadyGranted = new Set<string>()
+    for (const slug of FIVE_READS) {
+      const existing = await RoleSystemPermission.query()
+        .where('role_id', dg.roleId)
+        .where('system_permission_id', await permissionId(slug))
+        .first()
+      if (existing) alreadyGranted.add(slug)
+    }
     await grantAdditionally(dg.roleId, [...FIVE_READS])
+    const addedSlugs = FIVE_READS.filter((slug) => !alreadyGranted.has(slug))
     try {
       const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
         client,
@@ -234,7 +245,9 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
         assert
       )
     } finally {
-      await revokeSlugs(dg.roleId, [...FIVE_READS])
+      if (addedSlugs.length > 0) {
+        await revokeSlugs(dg.roleId, addedSlugs)
+      }
       await cleanupSystemActor(dg)
     }
   })
