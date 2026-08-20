@@ -140,6 +140,28 @@ test.group('SessionPermissionTreeService', (group) => {
     }
   })
 
+  test('grant de sensitive-identificacion-read no exige reveal-sensitive-data', async ({
+    assert,
+  }) => {
+    const permission = await findEmployeesPermission('sensitive-identificacion-read')
+    const grant = await RoleSystemPermission.create({
+      roleId: plainRole.roleId,
+      systemPermissionId: permission.systemPermissionId,
+    })
+
+    try {
+      const tree = await new SessionPermissionTreeService().buildForUser(fakeUser(plainRole.roleId))
+      const readAction = employeesActionFrom(tree, 'sensitive-identificacion-read')
+      const writeAction = employeesActionFrom(tree, 'sensitive-identificacion-write')
+
+      assert.isTrue(readAction.allowed)
+      assert.equal(readAction.reason, 'assignment')
+      assert.isFalse(writeAction.allowed)
+    } finally {
+      await grant.delete()
+    }
+  })
+
   test('rol owner sin grants de employees ve acciones standard como rol privilegiado', async ({
     assert,
   }) => {
