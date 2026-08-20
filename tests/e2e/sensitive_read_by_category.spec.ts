@@ -372,4 +372,18 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     assert.exists(match)
     expectBankClear(match as Record<string, unknown>, fixture!.clear, assert)
   })
+
+  test('E.12: GET ficha sin Authorization es 401 y el cuerpo no trae CURP ni email claros', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employees/${fixture!.employee.employeeId}`)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(response.status(), 401)
+    const dumped = JSON.stringify(response.body() ?? {})
+    assert.notInclude(dumped, fixture!.clear.email)
+    assert.notInclude(dumped, fixture!.clear.curp)
+    assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
 })
