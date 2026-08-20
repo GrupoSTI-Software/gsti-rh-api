@@ -5,18 +5,23 @@ import {
   buHeader,
   cleanupActor,
   cleanupSensitiveFixture,
+  cleanupSystemActor,
   createActor,
   createSensitiveFixture,
+  createSystemActor,
   employeeBankBody,
   employeePerson,
   expectBankMasked,
   expectContactoClearIdentificacionMasked,
+  expectElevenClear,
   expectElevenMasked,
   expectMedicalMasked,
   expectNeverDenied,
   expectNonSensitiveIntact,
   grantOnly,
   medicalConditionBody,
+  restoreEmployeesGrants,
+  snapshotAndClearEmployeesGrants,
   type SensitiveFixture,
   type TenantActor,
 } from './sensitive_read_by_category_support.js'
@@ -148,5 +153,95 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
     expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
     expectNonSensitiveIntact(person, employeeRes.body().data.employee, assert)
+  })
+
+  test('CA-2: owner sin slugs sensibles y switch OFF recibe las 11 en claro', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await createSystemActor(
+      'owner',
+      'sens-owner',
+      actor!.businessUnit.businessUnitId
+    )
+    const snapshot = await snapshotAndClearEmployeesGrants(owner.roleId)
+    try {
+      const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+        client,
+        { ...actor!, user: owner.user },
+        fixture!
+      )
+      expectNeverDenied(employeeRes, assert)
+      expectElevenClear(
+        employeePerson(employeeRes.body()),
+        employeeBankBody(bankRes.body()),
+        medicalConditionBody(medicalRes.body()),
+        fixture!.clear,
+        assert
+      )
+    } finally {
+      await restoreEmployeesGrants(snapshot)
+      await cleanupSystemActor(owner)
+    }
+  })
+
+  test('CA-2: root sin slugs sensibles y switch OFF recibe las 11 en claro', async ({
+    client,
+    assert,
+  }) => {
+    const root = await createSystemActor(
+      'root',
+      'sens-root',
+      actor!.businessUnit.businessUnitId
+    )
+    const snapshot = await snapshotAndClearEmployeesGrants(root.roleId)
+    try {
+      const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+        client,
+        { ...actor!, user: root.user },
+        fixture!
+      )
+      expectNeverDenied(employeeRes, assert)
+      expectElevenClear(
+        employeePerson(employeeRes.body()),
+        employeeBankBody(bankRes.body()),
+        medicalConditionBody(medicalRes.body()),
+        fixture!.clear,
+        assert
+      )
+    } finally {
+      await restoreEmployeesGrants(snapshot)
+      await cleanupSystemActor(root)
+    }
+  })
+
+  test('CA-2: super-administrador sin slugs recibe las 11 tapadas y 200', async ({
+    client,
+    assert,
+  }) => {
+    const dg = await createSystemActor(
+      'super-administrador',
+      'sens-dg',
+      actor!.businessUnit.businessUnitId
+    )
+    const snapshot = await snapshotAndClearEmployeesGrants(dg.roleId)
+    try {
+      const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+        client,
+        { ...actor!, user: dg.user },
+        fixture!
+      )
+      expectNeverDenied(employeeRes, assert)
+      expectElevenMasked(
+        employeePerson(employeeRes.body()),
+        employeeBankBody(bankRes.body()),
+        medicalConditionBody(medicalRes.body()),
+        fixture!.clear,
+        assert
+      )
+    } finally {
+      await restoreEmployeesGrants(snapshot)
+      await cleanupSystemActor(dg)
+    }
   })
 })
