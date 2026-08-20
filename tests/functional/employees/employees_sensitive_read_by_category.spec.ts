@@ -9,7 +9,10 @@ import {
   createSensitiveFixture,
   employeeBankBody,
   employeePerson,
+  expectBankMasked,
+  expectContactoClearIdentificacionMasked,
   expectElevenMasked,
+  expectMedicalMasked,
   expectNeverDenied,
   expectNonSensitiveIntact,
   grantOnly,
@@ -125,5 +128,25 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       fixture!.clear,
       assert
     )
+  })
+
+  test('CA-1: solo sensitive-contacto-read destapa correo y teléfonos; el resto tapado; 200', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+      client,
+      actor!,
+      fixture!
+    )
+    expectNeverDenied(employeeRes, assert)
+    expectNeverDenied(bankRes, assert)
+    expectNeverDenied(medicalRes, assert)
+    const person = employeePerson(employeeRes.body())
+    expectContactoClearIdentificacionMasked(person, fixture!.clear, assert)
+    expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
+    expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
+    expectNonSensitiveIntact(person, employeeRes.body().data.employee, assert)
   })
 })
