@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
+import PiiAccessLog from '#models/pii_access_log'
 import SystemModule from '#models/system_module'
 import {
   buHeader,
@@ -15,8 +16,11 @@ import {
   expectContactoClearIdentificacionMasked,
   expectElevenClear,
   expectElevenMasked,
+  expectMedicalClear,
   expectMedicalMasked,
   expectNeverDenied,
+  expectPersonContactoMasked,
+  expectPersonIdentificacionMasked,
   expectNonSensitiveIntact,
   grantOnly,
   medicalConditionBody,
@@ -243,5 +247,35 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       await restoreEmployeesGrants(snapshot)
       await cleanupSystemActor(dg)
     }
+  })
+
+  test('CA-3: sensitive-salud-read destapa diagnóstico y notas; bitácora sin filas nuevas', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-salud-read'])
+    const before = await PiiAccessLog.query().where(
+      'accessorUserId',
+      actor!.user.userId
+    )
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+      client,
+      actor!,
+      fixture!
+    )
+    expectNeverDenied(medicalRes, assert)
+    expectMedicalClear(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
+    expectPersonContactoMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
+    expectPersonIdentificacionMasked(
+      employeePerson(employeeRes.body()),
+      fixture!.clear,
+      assert
+    )
+    expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
+    const after = await PiiAccessLog.query().where(
+      'accessorUserId',
+      actor!.user.userId
+    )
+    assert.equal(after.length, before.length)
   })
 })
