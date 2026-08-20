@@ -372,4 +372,99 @@ test.group('PermissionGateService', (group) => {
       await grant.delete()
     }
   })
+
+  test('evaluateEnforced con interruptor apagado: root resuelve bypass, no module-not-enforced', async ({
+    assert,
+  }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const root = await findPrivilegedRole('root')
+    const service = new PermissionGateService()
+    const decision = await service.evaluateEnforced(fakeUser(root.roleId), {
+      module: MODULE_SLUG,
+      action: 'read',
+      bypass: 'standard',
+    })
+
+    assert.isTrue(decision.allowed)
+    assert.equal(decision.reason, 'bypass')
+  })
+
+  test('evaluateEnforced con interruptor apagado: rol de cliente sin concesión queda denied', async ({
+    assert,
+  }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const service = new PermissionGateService()
+    const decision = await service.evaluateEnforced(fakeUser(plainRole.roleId), {
+      module: MODULE_SLUG,
+      action: 'read',
+      bypass: 'standard',
+    })
+
+    assert.isFalse(decision.allowed)
+    assert.equal(decision.reason, 'denied')
+  })
+
+  test('evaluate con interruptor apagado sigue cortando en module-not-enforced (no regresión)', async ({
+    assert,
+  }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const service = new PermissionGateService()
+    const decision = await service.evaluate(fakeUser(plainRole.roleId), {
+      module: MODULE_SLUG,
+      action: 'read',
+      bypass: 'strict',
+    })
+
+    assert.isTrue(decision.allowed)
+    assert.equal(decision.reason, 'module-not-enforced')
+  })
+
+  test('evaluateEnforced con usuario nulo: unresolved, no module-not-enforced', async ({
+    assert,
+  }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const service = new PermissionGateService()
+    const decision = await service.evaluateEnforced(null, {
+      module: MODULE_SLUG,
+      action: 'read',
+      bypass: 'standard',
+    })
+
+    assert.isFalse(decision.allowed)
+    assert.equal(decision.reason, 'unresolved')
+  })
+
+  test('evaluateEnforced con permiso concedido: granted aunque el interruptor esté apagado', async ({
+    assert,
+  }) => {
+    testModule.systemModulePermissionEnforcementActive = false
+    await testModule.save()
+
+    const grant = await RoleSystemPermission.create({
+      roleId: plainRole.roleId,
+      systemPermissionId: readPermission.systemPermissionId,
+    })
+
+    try {
+      const service = new PermissionGateService()
+      const decision = await service.evaluateEnforced(fakeUser(plainRole.roleId), {
+        module: MODULE_SLUG,
+        action: 'read',
+        bypass: 'strict',
+      })
+
+      assert.isTrue(decision.allowed)
+      assert.equal(decision.reason, 'granted')
+    } finally {
+      await grant.delete()
+    }
+  })
 })
