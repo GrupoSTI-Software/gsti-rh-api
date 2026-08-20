@@ -9,7 +9,6 @@ import {
   runWithSensitiveReadDecisions,
 } from '#helpers/sensitive_read_decisions'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
-import type { LegalCategory } from '#constants/sensitive_fields'
 
 test.group('isSensitiveReadAllowed', () => {
   test('solo granted y bypass abren el dato', ({ assert }) => {
