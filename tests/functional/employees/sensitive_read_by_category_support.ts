@@ -400,7 +400,7 @@ export async function cleanupSensitiveFixture(fixture: SensitiveFixture | null) 
     await MedicalConditionType.query()
       .where('medical_condition_type_id', fixture.medicalConditionType.medicalConditionTypeId)
       .delete()
-  })
+  }, 'limpieza fixture lectura sensible')
 }
 
 export function buHeader(actor: TenantActor) {

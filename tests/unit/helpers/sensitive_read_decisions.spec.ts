@@ -65,14 +65,13 @@ function makeCtxWithResponse(
   const sent: { body?: unknown; serialized?: Record<string, unknown> } = {}
   const ctx = makeCtx(evaluateEnforced)
 
+  const send = (body: unknown) => {
+    sent.body = body
+    sent.serialized = serializeIfModel(body)
+  }
   ctx.response = {
-    send(body: unknown) {
-      sent.body = body
-      sent.serialized = serializeIfModel(body)
-    },
-    json(body: unknown) {
-      this.send(body)
-    },
+    send,
+    json: send,
     finish() {
       if (sent.body !== undefined) {
         sent.serialized = serializeIfModel(sent.body)
