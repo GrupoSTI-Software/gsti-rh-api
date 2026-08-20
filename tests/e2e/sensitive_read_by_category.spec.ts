@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiClient } from '@japa/api-client'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import SystemModule from '#models/system_module'
 import {
@@ -8,16 +9,60 @@ import {
   buHeader,
   cleanupActor,
   cleanupSensitiveFixture,
+  cleanupSystemActor,
   createActor,
   createSensitiveFixture,
+  createSystemActor,
+  employeeBankBody,
   employeePerson,
+  expectBankClear,
+  expectBankMasked,
+  expectElevenClear,
+  expectMedicalMasked,
   expectNeverDenied,
+  expectPersonContactoMasked,
+  expectPersonIdentificacionClear,
+  expectPersonIdentificacionMasked,
+  grantAdditionally,
   grantOnly,
   loginUserPerson,
   loginWeb,
+  medicalConditionBody,
+  revokeSlugs,
   type SensitiveFixture,
   type TenantActor,
 } from '../functional/employees/sensitive_read_by_category_support.js'
+
+async function getThreeSurfaces(
+  client: ApiClient,
+  actor: TenantActor,
+  fixture: SensitiveFixture
+) {
+  const header = buHeader(actor)
+  const employeeRes = await client
+    .get(`/api/employees/${fixture.employee.employeeId}`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', header)
+  const bankRes = await client
+    .get(`/api/employee-banks/${fixture.bank.employeeBankId}`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', header)
+  const medicalRes = await client
+    .get(
+      `/api/employee-medical-conditions/${fixture.medical.employeeMedicalConditionId}`
+    )
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', header)
+  return { employeeRes, bankRes, medicalRes }
+}
+
+const FIVE_READS = [
+  'sensitive-identificacion-read',
+  'sensitive-contacto-read',
+  'sensitive-financiero-read',
+  'sensitive-salud-read',
+  'sensitive-biometrico-read',
+] as const
 
 test.group('Lectura sensible por categoría — E2E Japa', (group) => {
   let employeesModule: SystemModule
@@ -104,5 +149,93 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       person.personCurp,
       maskSensitiveValue(fixture!.clear.curp, 'identificacion')
     )
+  })
+
+  test('E.3: solo sensitive-identificacion-read destapa CURP/RFC/NSS; contacto y bancos tapados', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-identificacion-read'])
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+      client,
+      actor!,
+      fixture!
+    )
+    expectNeverDenied(employeeRes, assert)
+    expectNeverDenied(bankRes, assert)
+    expectNeverDenied(medicalRes, assert)
+    const person = employeePerson(employeeRes.body())
+    expectPersonIdentificacionClear(person, fixture!.clear, assert)
+    expectPersonContactoMasked(person, fixture!.clear, assert)
+    expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
+    expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
+  })
+
+  test('E.4: solo sensitive-financiero-read destapa CLABE/cuenta/tarjeta; persona tapada', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-financiero-read'])
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+      client,
+      actor!,
+      fixture!
+    )
+    expectNeverDenied(bankRes, assert)
+    expectBankClear(employeeBankBody(bankRes.body()), fixture!.clear, assert)
+    expectPersonContactoMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
+    expectPersonIdentificacionMasked(
+      employeePerson(employeeRes.body()),
+      fixture!.clear,
+      assert
+    )
+    expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
+  })
+
+  test('E.5: las cinco lecturas entregan las 11 en claro', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, [...FIVE_READS])
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+      client,
+      actor!,
+      fixture!
+    )
+    expectNeverDenied(employeeRes, assert)
+    expectElevenClear(
+      employeePerson(employeeRes.body()),
+      employeeBankBody(bankRes.body()),
+      medicalConditionBody(medicalRes.body()),
+      fixture!.clear,
+      assert
+    )
+  })
+
+  test('E.6: super-administrador con las cinco lecturas recibe las 11 en claro', async ({
+    client,
+    assert,
+  }) => {
+    const dg = await createSystemActor(
+      'super-administrador',
+      'sens-e2e-dg',
+      actor!.businessUnit.businessUnitId
+    )
+    await grantAdditionally(dg.roleId, [...FIVE_READS])
+    try {
+      const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
+        client,
+        { ...actor!, user: dg.user },
+        fixture!
+      )
+      expectNeverDenied(employeeRes, assert)
+      expectElevenClear(
+        employeePerson(employeeRes.body()),
+        employeeBankBody(bankRes.body()),
+        medicalConditionBody(medicalRes.body()),
+        fixture!.clear,
+        assert
+      )
+    } finally {
+      await revokeSlugs(dg.roleId, [...FIVE_READS])
+      await cleanupSystemActor(dg)
+    }
   })
 })
