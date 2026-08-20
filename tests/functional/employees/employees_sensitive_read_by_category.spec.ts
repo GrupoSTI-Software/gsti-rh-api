@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import PiiAccessLog from '#models/pii_access_log'
 import SystemModule from '#models/system_module'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import {
   buHeader,
   cleanupActor,
@@ -24,7 +25,9 @@ import {
   expectNonSensitiveIntact,
   grantOnly,
   medicalConditionBody,
+  personShowBody,
   restoreEmployeesGrants,
+  sessionPerson,
   snapshotAndClearEmployeesGrants,
   type SensitiveFixture,
   type TenantActor,
@@ -277,5 +280,36 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       actor!.user.userId
     )
     assert.equal(after.length, before.length)
+  })
+
+  test('CA-6: GET /api/auth/session tapa el correo del actor aunque tenga contacto', async ({
+    client,
+    assert,
+  }) => {
+    const actorEmail = `sesion-${Date.now()}@empresa.com`
+    actor!.person.personEmail = actorEmail
+    actor!.person.personPhone = fixture!.clear.phone
+    await actor!.person.save()
+    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
+
+    const response = await client.get('/api/auth/session').loginAs(actor!.user)
+    expectNeverDenied(response, assert)
+    const person = sessionPerson(response.body())
+    assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
+    assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+  })
+
+  test('GET /api/persons/:id con contacto destapa correo y teléfonos del colaborador', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
+    const response = await client
+      .get(`/api/persons/${fixture!.person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectNeverDenied(response, assert)
+    const person = personShowBody(response.body())
+    expectContactoClearIdentificacionMasked(person, fixture!.clear, assert)
   })
 })
