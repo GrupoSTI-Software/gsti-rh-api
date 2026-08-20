@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import SystemModule from '#models/system_module'
 import {
   TEST_PASSWORD,
@@ -9,7 +10,10 @@ import {
   cleanupSensitiveFixture,
   createActor,
   createSensitiveFixture,
+  employeePerson,
+  expectNeverDenied,
   grantOnly,
+  loginUserPerson,
   loginWeb,
   type SensitiveFixture,
   type TenantActor,
@@ -51,5 +55,54 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     assert.equal(response.status(), 200)
     const token = bearerFromLogin(response.body())
     assert.isAbove(token.length, 10)
+  })
+
+  test('E.1 CA-6: POST /api/auth/login tapa el correo del actor aunque tenga contacto', async ({
+    client,
+    assert,
+  }) => {
+    const originalPersonEmail = actor!.person.personEmail
+    const originalUserEmail = actor!.user.userEmail
+    const actorEmail = `e2e-login-${Date.now()}@empresa.com`
+    try {
+      actor!.person.personEmail = actorEmail
+      actor!.person.personPhone = fixture!.clear.phone
+      await actor!.person.save()
+      actor!.user.userEmail = actorEmail
+      await actor!.user.save()
+      await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
+      const response = await loginWeb(client, actorEmail, TEST_PASSWORD)
+      expectNeverDenied(response, assert)
+      const person = loginUserPerson(response.body())
+      assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
+      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+      assert.notEqual(person.personEmail, actorEmail)
+    } finally {
+      actor!.person.personEmail = originalPersonEmail
+      await actor!.person.save()
+      actor!.user.userEmail = originalUserEmail
+      await actor!.user.save()
+    }
+  })
+
+  test('E.2: ficha con Bearer del login y contacto destapa email del colaborador', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
+    const login = await loginWeb(client, actor!.user.userEmail, TEST_PASSWORD)
+    expectNeverDenied(login, assert)
+    const token = bearerFromLogin(login.body())
+    const response = await client
+      .get(`/api/employees/${fixture!.employee.employeeId}`)
+      .header('Authorization', `Bearer ${token}`)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectNeverDenied(response, assert)
+    const person = employeePerson(response.body())
+    assert.equal(person.personEmail, fixture!.clear.email)
+    assert.equal(
+      person.personCurp,
+      maskSensitiveValue(fixture!.clear.curp, 'identificacion')
+    )
   })
 })
