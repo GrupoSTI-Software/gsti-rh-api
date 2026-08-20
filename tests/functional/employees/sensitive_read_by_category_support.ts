@@ -482,7 +482,12 @@ export function nestedBanks(body: Record<string, unknown>): Record<string, unkno
       ? (body.data as Record<string, unknown>)
       : {}
   const rows = data.data
-  return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : []
+  if (Array.isArray(rows)) return rows as Record<string, unknown>[]
+  if (rows && typeof rows === 'object') {
+    const nested = (rows as Record<string, unknown>).data
+    if (Array.isArray(nested)) return nested as Record<string, unknown>[]
+  }
+  return []
 }
 
 export function sessionPerson(body: Record<string, unknown>) {
