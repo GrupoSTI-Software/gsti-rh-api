@@ -11,6 +11,10 @@ export const EMPLOYEE_IMPORT_ERROR_CODES = {
   VAL_ROWS: 'EMP.IMPORT.VAL_ROWS',
   /** Fallo inesperado durante la importación */
   SERVER: 'EMP.IMPORT.SERVER',
+  /** Fallo inesperado durante la importación masiva de turnos (USRH1786595131487) */
+  SERVER_SHIFTS: 'EMP.IMPORT.SERVER_SHIFTS',
+  /** Fallo inesperado durante la importación masiva de vacaciones (USRH1786595131487) */
+  SERVER_VACATIONS: 'EMP.IMPORT.SERVER_VACATIONS',
 } as const
 
 export type EmployeeImportErrorCode =
