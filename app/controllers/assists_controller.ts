@@ -18,6 +18,9 @@ import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_
 import env from '#start/env'
 import RoleService from '#services/role_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
+import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -34,6 +37,11 @@ export default class AssistsController {
   private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
     const roleService = new RoleService()
     return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
+  }
+
+  private async assertCanSyncAssist(userRoleId: number): Promise<boolean> {
+    const roleService = new RoleService()
+    return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'sync-assist')
   }
 
   /**
@@ -93,9 +101,35 @@ export default class AssistsController {
    *                 message:
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
+   *       403:
+   *         description: Sin permiso `sync-assist` (key `sin-autorizacion-para-sincronizar-asistencia`, code `AST.AUTHZ.003`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Sin autorización para sincronizar asistencia
+   *               message: No tienes autorización para sincronizar la asistencia desde el equipo biométrico.
+   *               detail: No tienes autorización para sincronizar la asistencia desde el equipo biométrico.
+   *               key: sin-autorizacion-para-sincronizar-asistencia
+   *               code: AST.AUTHZ.003
    */
   @inject()
-  async synchronize({ request, response,i18n }: HttpContext) {
+  async synchronize({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    const userRoleId = auth.user?.roleId
+    if (!userRoleId || !(await this.assertCanSyncAssist(userRoleId))) {
+      const detail = t('assist_sync_forbidden_message')
+      response.status(403)
+      return {
+        type: 'warning',
+        title: t('assist_sync_forbidden_title'),
+        message: detail,
+        detail,
+        key: 'sin-autorizacion-para-sincronizar-asistencia',
+        code: ASSIST_ERROR_CODES.AUTHZ_SYNC,
+      }
+    }
+
     const dateParamApi = request.input('date')
     const page = request.input('page')
 
@@ -1061,24 +1095,63 @@ export default class AssistsController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           Parámetros inválidos. Incluye `employeeId` ausente o no entero positivo
+   *           (key `identificador-de-colaborador-invalido`, code `AST.VAL.002`) o empleado
+   *           inexistente/fuera de alcance (formato legacy con `data`).
+   *         content:
+   *           application/json:
+   *             examples:
+   *               invalidEmployeeId:
+   *                 summary: Identificador de colaborador inválido
+   *                 value:
+   *                   type: warning
+   *                   title: Datos inválidos
+   *                   message: El identificador del colaborador es inválido.
+   *                   detail: El identificador del colaborador es inválido.
+   *                   key: identificador-de-colaborador-invalido
+   *                   code: AST.VAL.002
+   *               employeeNotFound:
+   *                 summary: Empleado inexistente o fuera de alcance
+   *                 value:
+   *                   type: warning
+   *                   title: Empleado no fue encontrado
+   *                   message: Empleado no fue encontrado con el ID ingresado
+   *                   data:
+   *                     employeeId: 999999
+   *                     assistPunchTime: null
+   *       '403':
+   *         description: Captura ajena sin permiso `add-assist-manual` (key `sin-autorizacion-para-registrar-asistencia-ajena`, code `AST.AUTHZ.002`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Sin autorización para registrar asistencia ajena
+   *               message: No tienes autorización para registrar la asistencia de otra persona.
+   *               detail: No tienes autorización para registrar la asistencia de otra persona.
+   *               key: sin-autorizacion-para-registrar-asistencia-ajena
+   *               code: AST.AUTHZ.002
+   *       '422':
+   *         description: Colaborador dado de baja (key `colaborador-dado-de-baja`, code `AST.AUTHZ.001`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Colaborador dado de baja
+   *               message: No se puede registrar asistencia de un colaborador dado de baja.
+   *               detail: No se puede registrar asistencia de un colaborador dado de baja.
+   *               key: colaborador-dado-de-baja
+   *               code: AST.AUTHZ.001
+   *       '429':
+   *         description: Límite de volumen superado (20 registros cada 5 minutos por usuario; respuesta estándar de `@adonisjs/limiter`, code documental `AST.RATE.001`).
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *                   description: Mensaje del limitador
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1105,7 +1178,34 @@ export default class AssistsController {
   async store({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const employeeId = request.input('employeeId')
+      const employeeIdNumber = Number(request.input('employeeId'))
+      if (!Number.isInteger(employeeIdNumber) || employeeIdNumber <= 0) {
+        const detail = t('assist_register_val_employee_id_message')
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('assist_register_val_employee_id_title'),
+          message: detail,
+          detail,
+          key: 'identificador-de-colaborador-invalido',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_ID,
+        }
+      }
+
+      const { allowed, isOwner } = await ensureEmployeeAssistWrite(auth.user, employeeIdNumber)
+      if (!allowed) {
+        const detail = t('assist_write_forbidden_message')
+        response.status(403)
+        return {
+          type: 'warning',
+          title: t('assist_write_forbidden_title'),
+          message: detail,
+          detail,
+          key: 'sin-autorizacion-para-registrar-asistencia-ajena',
+          code: ASSIST_ERROR_CODES.AUTHZ_FOREIGN_WRITE,
+        }
+      }
+
       let assistPunchTime = request.input('assistPunchTime')
       const assistLongitude = request.input('assistLongitude')
       const assistLatitude = request.input('assistLatitude')
@@ -1113,7 +1213,7 @@ export default class AssistsController {
       const assistType = request.input('assistType')
       const employee = await Employee.query()
         .withTrashed()
-        .where('employee_id', employeeId)
+        .where('employee_id', employeeIdNumber)
         .preload('position')
         .preload('department')
         .first()
@@ -1125,11 +1225,26 @@ export default class AssistsController {
           type: 'warning',
           title: t('entity_was_not_found', { entity }),
           message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { employeeId, assistPunchTime },
+          data: { employeeId: employeeIdNumber, assistPunchTime },
         }
       }
 
-      if (!assistPunchTime) {
+      if (employee.deletedAt) {
+        const detail = t('assist_employee_terminated_message')
+        response.status(422)
+        return {
+          type: 'warning',
+          title: t('assist_employee_terminated_title'),
+          message: detail,
+          detail,
+          key: 'colaborador-dado-de-baja',
+          code: ASSIST_ERROR_CODES.AUTHZ_EMPLOYEE_TERMINATED,
+        }
+      }
+
+      if (isOwner) {
+        assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
+      } else if (!assistPunchTime) {
         assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
       }
 
@@ -1154,7 +1269,7 @@ export default class AssistsController {
         assistLatitude: assistLatitude,
         assistPrecision: assistPrecision,
         assistUploadTime: dateTimePunchTime,
-        assistEmpId: employeeId,
+        assistEmpId: employee.employeeId,
         assistTerminalId: null,
         assistSyncId: 0,
         assistType: assistType,
@@ -1185,7 +1300,9 @@ export default class AssistsController {
         if (userId) {
           const logAssist = await assistsService.createActionLog(rawHeaders, 'store')
           logAssist.user_id = userId
-          logAssist.create_from = 'manual'
+          logAssist.create_from = isOwner
+            ? ASSIST_ORIGIN.SELF_SERVICE
+            : ASSIST_ORIGIN.ADMIN_CAPTURE
           logAssist.record_current = JSON.parse(JSON.stringify(newAssist))
           await assistsService.saveActionOnLog(logAssist)
         }
