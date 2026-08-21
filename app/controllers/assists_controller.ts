@@ -1259,6 +1259,9 @@ export default class AssistsController {
         }
       }
 
+      const assistOrigin = isOwner ? ASSIST_ORIGIN.SELF_SERVICE : ASSIST_ORIGIN.ADMIN_CAPTURE
+      const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
+
       const assist = {
         assistId: 1,
         assistEmpCode: employee.employeeCode ? employee.employeeCode : '',
@@ -1273,6 +1276,8 @@ export default class AssistsController {
         assistTerminalId: null,
         assistSyncId: 0,
         assistType: assistType,
+        assistOrigin,
+        assistCreatedByUserId,
         assistPunchTime: dateTimePunchTime,
         assistPunchTimeUtc: dateTimePunchTime,
         assistPunchTimeOrigin: dateTimePunchTime,
@@ -1295,17 +1300,6 @@ export default class AssistsController {
       const newAssist = await assistsService.store(assist)
 
       if (newAssist) {
-        const rawHeaders = request.request.rawHeaders
-        const userId = auth.user?.userId
-        if (userId) {
-          const logAssist = await assistsService.createActionLog(rawHeaders, 'store')
-          logAssist.user_id = userId
-          logAssist.create_from = isOwner
-            ? ASSIST_ORIGIN.SELF_SERVICE
-            : ASSIST_ORIGIN.ADMIN_CAPTURE
-          logAssist.record_current = JSON.parse(JSON.stringify(newAssist))
-          await assistsService.saveActionOnLog(logAssist)
-        }
         response.status(201)
         return {
           type: 'success',
