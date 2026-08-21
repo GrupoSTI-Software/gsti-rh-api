@@ -933,3 +933,108 @@ export function expectAmountNull(value: unknown, assert: Assert) {
   assert.isNull(value)
   assert.notEqual(value, '•••0.75')
 }
+
+export async function prepareSensitiveJourney(
+  roleId: number,
+  employeeSlugs: string[],
+  extraModules: Array<[string, string]> = [
+    ['repse-registrations', 'read'],
+    ['traumatic-event-reports', 'read'],
+  ]
+) {
+  await grantOnly(roleId, employeeSlugs)
+  for (const [moduleSlug, actionSlug] of extraModules) {
+    await grantModuleAction(roleId, moduleSlug, actionSlug)
+  }
+}
+
+export function bearerGet(
+  client: ApiClient,
+  path: string,
+  token: string,
+  actor: TenantActor,
+  qs?: Record<string, string | number>
+) {
+  const request = client
+    .get(path)
+    .header('Authorization', `Bearer ${token}`)
+    .header('X-Business-Unit-Id', buHeader(actor))
+  return qs ? request.qs(qs) : request
+}
+
+export function bearerPut(
+  client: ApiClient,
+  path: string,
+  token: string,
+  actor: TenantActor
+) {
+  return client
+    .put(path)
+    .header('Authorization', `Bearer ${token}`)
+    .header('X-Business-Unit-Id', buHeader(actor))
+}
+
+export function expectNoClearRemaining(body: unknown, assert: Assert) {
+  const dumped = JSON.stringify(body ?? {})
+  assert.notInclude(dumped, CLEAR_REMAINING.disabilityDescription)
+  assert.notInclude(dumped, CLEAR_REMAINING.traumaPeople)
+  assert.notInclude(dumped, CLEAR_REMAINING.traumaDescription)
+  assert.notInclude(dumped, CLEAR_REMAINING.lactationNotes)
+  assert.notInclude(dumped, CLEAR_REMAINING.biometricData)
+  assert.notInclude(dumped, CLEAR_REMAINING.faceToken)
+  assert.notInclude(dumped, CLEAR_FIXED.phone)
+  assert.notInclude(dumped, CLEAR_FIXED.phoneSecondary)
+  assert.notInclude(dumped, String(CLEAR_REMAINING.salaryDaily))
+  assert.notInclude(dumped, CLEAR_REMAINING.empresaRfc)
+}
+
+export function lactationNotesFromIndex(
+  body: Record<string, unknown>,
+  lactationPeriodId: number
+): unknown {
+  const rows =
+    (asRecord(asRecord(body.data).employeeLactationPeriods).data as unknown[]) ?? []
+  const match = rows.find(
+    (row) => Number(asRecord(row).employeeLactationPeriodId) === lactationPeriodId
+  )
+  return match ? asRecord(match).employeeLactationPeriodNotes : undefined
+}
+
+export function traumaFromShow(body: Record<string, unknown>) {
+  const data = asRecord(body.data)
+  if (data.traumaticEventReport && typeof data.traumaticEventReport === 'object') {
+    return asRecord(data.traumaticEventReport)
+  }
+  return data
+}
+
+export function traumaFromIndex(body: Record<string, unknown>, reportId: number) {
+  const bundle = asRecord(asRecord(body.data).traumaticEventReports)
+  const rows = Array.isArray(bundle.data) ? (bundle.data as unknown[]) : []
+  const match = rows.find(
+    (row) => Number(asRecord(row).traumaticEventReportId) === reportId
+  )
+  return match ? asRecord(match) : {}
+}
+
+export function empresaRfcFromIndex(
+  body: Record<string, unknown>,
+  empresaContratanteId: number
+): unknown {
+  const bundle = asRecord(asRecord(body.data).empresasContratantes)
+  const rows = Array.isArray(bundle.data) ? (bundle.data as unknown[]) : []
+  const match = rows.find((row) => Number(asRecord(row).id) === empresaContratanteId)
+  return match ? asRecord(match).rfc : undefined
+}
+
+export function emergencyPhonesFromEmployeeList(
+  body: Record<string, unknown>,
+  contactId: number
+): unknown {
+  const rows = asRecord(body.data).employeeEmergencyContacts
+  const list = Array.isArray(rows) ? rows : []
+  const match = list.find(
+    (row) => Number(asRecord(row).employeeEmergencyContactId) === contactId
+  )
+  return match ? asRecord(match).employeeEmergencyContactPhone : undefined
+}
