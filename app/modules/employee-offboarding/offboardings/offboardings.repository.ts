@@ -80,4 +80,10 @@ export interface OffboardingsRepository {
 
   /** Usuarios con su persona, para el nombre visible de la autoría del cumplimiento. */
   findUsersByIds(userIds: number[]): Promise<User[]>
+
+  /**
+   * Evidencias vivas por pendiente (extensión aditiva de USRH1786568279593):
+   * alimenta `evidenceCount` del DTO; un pendiente sin filas cuenta 0.
+   */
+  countLiveEvidencesByItemIds(itemIds: number[]): Promise<Map<number, number>>
 }

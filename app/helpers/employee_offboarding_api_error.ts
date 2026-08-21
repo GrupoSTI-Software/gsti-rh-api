@@ -15,6 +15,8 @@ export type ResolvedEmployeeOffboardingApiError = {
   detail: string
   key: string
   code: EmployeeOffboardingErrorCode
+  /** Carga adicional opcional (`rejectedFiles[]` del envío de evidencias, D-3). */
+  data?: Record<string, unknown>
 }
 
 /**
@@ -65,6 +67,7 @@ export function resolveEmployeeOffboardingApiError(
       detail: error.message,
       key: error.key,
       code: error.errorCode,
+      ...(error.data !== undefined ? { data: error.data } : {}),
     }
   }
 

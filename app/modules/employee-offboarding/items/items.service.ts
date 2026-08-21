@@ -410,11 +410,16 @@ export default class ItemsService {
       toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate) ??
       null
 
+    const evidenceCountsByItemId = await this.repository.countLiveEvidencesByItemIds([
+      item.employeeOffboardingItemId,
+    ])
+
     const dto = toItemDto(item, {
       hoyIso: toBusinessDateString(),
       referenceDate,
       suppliesById,
       userNamesById: buildUserNamesMap(users),
+      evidenceCountsByItemId,
     })
 
     const diagnostics = operation

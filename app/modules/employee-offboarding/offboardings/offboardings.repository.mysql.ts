@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
+import EmployeeOffboardingItemEvidence from '#models/employee_offboarding_item_evidence'
 import EmployeeSupplie from '#models/employee_supplie'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
@@ -122,6 +123,19 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     // `withTrashed`: la autoría del cumplimiento no debe perder el nombre
     // cuando el usuario se elimina lógicamente después de cumplir.
     return await User.query().withTrashed().whereIn('user_id', userIds).preload('person')
+  }
+
+  async countLiveEvidencesByItemIds(itemIds: number[]): Promise<Map<number, number>> {
+    if (itemIds.length === 0) return new Map()
+    const rows = await EmployeeOffboardingItemEvidence.query()
+      .select('employee_offboarding_item_id')
+      .whereIn('employee_offboarding_item_id', itemIds)
+      .whereNull('employee_offboarding_item_evidence_deleted_at')
+      .groupBy('employee_offboarding_item_id')
+      .count('* as total')
+    return new Map(
+      rows.map((row) => [row.employeeOffboardingItemId, Number(row.$extras.total)])
+    )
   }
 
   async findByIdWithItems(employeeOffboardingId: number): Promise<EmployeeOffboarding | null> {

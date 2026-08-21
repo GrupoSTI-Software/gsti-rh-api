@@ -266,9 +266,12 @@ export default class OffboardingsService {
           .filter((id): id is number => id !== null && id !== undefined)
       ),
     ]
-    const [supplies, users] = await Promise.all([
+    const [supplies, users, evidenceCountsByItemId] = await Promise.all([
       this.repository.findSuppliesByIds(supplyIds, offboarding.businessUnitId),
       this.repository.findUsersByIds(userIds),
+      this.repository.countLiveEvidencesByItemIds(
+        items.map((item) => item.employeeOffboardingItemId)
+      ),
     ])
 
     return toOffboardingDto(offboarding, {
@@ -277,6 +280,7 @@ export default class OffboardingsService {
       hoyIso: toBusinessDateString(),
       suppliesById: buildSuppliesMap(supplies),
       userNamesById: buildUserNamesMap(users),
+      evidenceCountsByItemId,
     })
   }
 

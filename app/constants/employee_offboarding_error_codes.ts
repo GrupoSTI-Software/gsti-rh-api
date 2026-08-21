@@ -57,6 +57,16 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
    * se cerró sin retirar nada.
    */
   ITEM_SUPPLY_UNAVAILABLE: 'OFFB.ITEM.SUPPLY_UNAVAILABLE',
+  /** Archivo con extensión o MIME fuera de PDF/JPG/PNG (regla 2, USRH1786568279593) — 400. */
+  EVID_INVALID_FILE_TYPE: 'OFFB.EVID.INVALID_FILE_TYPE',
+  /** Archivo mayor a 10 MB (regla 2, USRH1786568279593) — 400. */
+  EVID_FILE_TOO_LARGE: 'OFFB.EVID.FILE_TOO_LARGE',
+  /** Envío vacío o con más de 5 archivos (regla 2, USRH1786568279593) — 400. */
+  EVID_BATCH_INVALID: 'OFFB.EVID.BATCH_INVALID',
+  /** Evidencia inexistente o ajena al pendiente (D-8, USRH1786568279593) — 404 uniforme. */
+  EVID_NOT_FOUND: 'OFFB.EVID.NOT_FOUND',
+  /** Fallo de S3 al subir o al firmar el enlace (USRH1786568279593) — 500. */
+  EVID_S3_FAILED: 'OFFB.EVID.S3_FAILED',
 } as const
 
 export type EmployeeOffboardingErrorCode =

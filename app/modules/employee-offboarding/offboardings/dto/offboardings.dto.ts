@@ -29,6 +29,12 @@ export interface EmployeeOffboardingItemDto {
   allowsAmount: boolean
   isOverdue: boolean
   /**
+   * Conteo de evidencias vivas del pendiente (extensión aditiva de
+   * USRH1786568279593). El BO pinta la advertencia de comprobante faltante
+   * cuando `requiresEvidence` y este conteo es 0 — aviso, nunca bloqueo (D-6).
+   */
+  evidenceCount: number
+  /**
    * Diagnóstico del insumo (D-3 de USRH1786568279590): derivado en cada
    * lectura del inventario, nunca persistido. `null` = insumo vivo aún
    * asignado (sin desenlace todavía).
@@ -62,6 +68,8 @@ export interface ItemDtoContext {
   suppliesById: Map<number, EmployeeSupplie>
   /** Nombre visible por id de usuario, para la autoría del cumplimiento. */
   userNamesById: Map<number, string>
+  /** Evidencias vivas por id de pendiente (USRH1786568279593); ausente = 0. */
+  evidenceCountsByItemId: Map<number, number>
 }
 
 /** Mapa insumo-por-id para el diagnóstico de lectura. */
@@ -164,6 +172,7 @@ export function toItemDto(
       completedByUserId !== null ? (context.userNamesById.get(completedByUserId) ?? null) : null,
     requiresEvidence: Boolean(item.concept?.offboardingConceptRequiresEvidence ?? false),
     allowsAmount: Boolean(item.concept?.offboardingConceptAllowsAmount ?? false),
+    evidenceCount: context.evidenceCountsByItemId.get(item.employeeOffboardingItemId) ?? 0,
     isOverdue:
       item.employeeOffboardingItemStatus === EMPLOYEE_OFFBOARDING_ITEM_STATUS.PENDING &&
       context.referenceDate !== null &&
@@ -184,6 +193,7 @@ export function toOffboardingDto(
     hoyIso: string
     suppliesById: Map<number, EmployeeSupplie>
     userNamesById: Map<number, string>
+    evidenceCountsByItemId: Map<number, number>
   }
 ): EmployeeOffboardingDto {
   const plannedDate = toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate)
@@ -196,6 +206,7 @@ export function toOffboardingDto(
     referenceDate,
     suppliesById: params.suppliesById,
     userNamesById: params.userNamesById,
+    evidenceCountsByItemId: params.evidenceCountsByItemId,
   }
 
   return {

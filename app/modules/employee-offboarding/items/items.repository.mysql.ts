@@ -2,6 +2,7 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingItem from '#models/employee_offboarding_item'
+import EmployeeOffboardingItemEvidence from '#models/employee_offboarding_item_evidence'
 import EmployeeSupplie from '#models/employee_supplie'
 import OffboardingConcept from '#models/offboarding_concept'
 import User from '#models/user'
@@ -113,6 +114,19 @@ export default class ItemsRepositoryMysql implements ItemsRepository {
       async () =>
         await Employee.query().withTrashed().where('employee_id', employeeId).first(),
       'fecha de referencia del expediente: colaborador por id ya autorizado'
+    )
+  }
+
+  async countLiveEvidencesByItemIds(itemIds: number[]): Promise<Map<number, number>> {
+    if (itemIds.length === 0) return new Map()
+    const rows = await EmployeeOffboardingItemEvidence.query()
+      .select('employee_offboarding_item_id')
+      .whereIn('employee_offboarding_item_id', itemIds)
+      .whereNull('employee_offboarding_item_evidence_deleted_at')
+      .groupBy('employee_offboarding_item_id')
+      .count('* as total')
+    return new Map(
+      rows.map((row) => [row.employeeOffboardingItemId, Number(row.$extras.total)])
     )
   }
 }

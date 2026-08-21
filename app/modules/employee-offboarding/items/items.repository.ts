@@ -74,4 +74,10 @@ export interface ItemsRepository {
    * verificado contra el `business_unit_id` snapshoteado del expediente.
    */
   findEmployeeWithTrashed(employeeId: number): Promise<Employee | null>
+
+  /**
+   * Evidencias vivas por pendiente (extensión aditiva de USRH1786568279593):
+   * alimenta `evidenceCount` en las respuestas de este slice.
+   */
+  countLiveEvidencesByItemIds(itemIds: number[]): Promise<Map<number, number>>
 }
