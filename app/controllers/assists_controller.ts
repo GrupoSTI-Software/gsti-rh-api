@@ -17,6 +17,7 @@ import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_inte
 import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_dates_excel_filter_interface.js'
 import env from '#start/env'
 import RoleService from '#services/role_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -243,7 +244,7 @@ export default class AssistsController {
    *         required: true
    *         schema:
    *           type: number
-   *         description: Number of limit on paginator page
+   *         description: Identificador del empleado cuyas checadas se consultan
    *     responses:
    *       200:
    *         description: |
@@ -256,11 +257,28 @@ export default class AssistsController {
    *               type: object
    *               example: {}
    *       400:
-   *         description: Invalid data
+   *         description: Falta el parámetro obligatorio employeeId
    *         content:
    *           application/json:
    *             schema:
    *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: warning
+   *                 title:
+   *                   type: string
+   *                   example: Recurso
+   *                 message:
+   *                   type: string
+   *                   example: ID de Empleado no fue encontrado
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     employeeId:
+   *                       type: number
+   *                       nullable: true
+   *                       example: null
    */
   async index({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
@@ -270,23 +288,18 @@ export default class AssistsController {
     const filterDateEnd = request.input('date-end')
     const page = request.input('page')
     const limit = request.input('limit')
-    /*     if (employeeID) {
-      const employee = await Employee.query()
-        .where('employee_id', employeeID)
-        .first()
-      if (employee) {
 
-          const filter: SyncAssistsServiceIndexInterface = {
-            date: filterDate,
-            dateEnd: filterDateEnd,
-            employeeID: employee.employeeId
-          }
-          console.log('procesando: ' + employee.employeeId)
-          const syncAssistsService = new SyncAssistsService()
-          await syncAssistsService.setDateCalendar(filter)
-
+    if (!employeeID) {
+      const entity = t('employee')
+      response.status(400)
+      return {
+        type: 'warning',
+        title: t('resource'),
+        message: t('entity_id_was_not_found', { entity }),
+        data: { employeeId: employeeID ?? null },
       }
-    } */
+    }
+
     try {
       const result = await syncAssistsService.index(
         {
@@ -1450,7 +1463,7 @@ export default class AssistsController {
    *                     error:
    *                       type: string
    */
-  async inactivate({ request, response, i18n }: HttpContext) {
+  async inactivate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const assistId = request.param('assistId')
@@ -1477,6 +1490,30 @@ export default class AssistsController {
           data: { assistId },
         }
       }
+
+      const assistOwner = await Employee.query()
+        .withTrashed()
+        .where('employee_id', currentAssist.assistEmpId)
+        .first()
+
+      if (!assistOwner) {
+        await ScopeDeniedLogService.log({
+          domain: 'assist',
+          action: 'inactivate',
+          requestedId: assistId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        const entity = t('assist')
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { assistId },
+        }
+      }
+
       currentAssist.assistActive = 0
       await currentAssist.save()
       if (currentAssist.assistPunchTimeUtc) {

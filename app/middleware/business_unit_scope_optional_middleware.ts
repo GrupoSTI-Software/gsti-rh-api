@@ -4,6 +4,7 @@ import BusinessAccessScopeService from '#services/business_access_scope_service'
 import { resolveLegacyCompanyIdParam } from '#helpers/resolve_legacy_company_id_param'
 import { resolveBusinessUnitIdParam } from '#helpers/resolve_business_unit_id_param'
 import { TenantContext } from '#utils/tenant_context'
+import { runWithSensitiveReadDecisions } from '#helpers/sensitive_read_decisions'
 
 /** Header que el cliente envía para seleccionar la unidad de negocio activa. */
 const BUSINESS_UNIT_HEADER = 'x-business-unit-id'
@@ -51,7 +52,7 @@ export default class BusinessUnitScopeOptionalMiddleware {
     if (headerValue === undefined) {
       // Sin header → scope completo del usuario, sin narrowing.
       ctx.businessUnitScope = fullScope
-      return TenantContext.run(fullScope, () => next())
+      return TenantContext.run(fullScope, () => runWithSensitiveReadDecisions(ctx, next))
     }
 
     const requestedId = await scopeService.resolveInternalId(headerValue, fullScope)
@@ -93,6 +94,6 @@ export default class BusinessUnitScopeOptionalMiddleware {
 
     ctx.businessUnitScope = [requestedId]
 
-    return TenantContext.run([requestedId], () => next())
+    return TenantContext.run([requestedId], () => runWithSensitiveReadDecisions(ctx, next))
   }
 }

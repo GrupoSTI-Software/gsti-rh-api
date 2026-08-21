@@ -20,6 +20,7 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 import { buildPermissionGateIdentity } from '#helpers/permission_gate_identity'
 import type { PermissionGateIdentity } from '#helpers/permission_gate_identity'
 import { decideSessionPermissionAction } from '#helpers/session_permission_decision'
+import { isCatalogActionGranted } from '#helpers/session_permission_grant'
 import SessionPermissionTreeUnresolvedError from '#exceptions/session_permission_tree_unresolved_error'
 
 type ModulesBySlug = Map<string, SystemModule>
@@ -135,12 +136,11 @@ export default class SessionPermissionTreeService {
       : new Set<string>()
 
     for (const action of actions) {
-      const slugToMatch = action.legacyEquivalence?.systemPermissionSlug ?? action.slug
       const decision = decideSessionPermissionAction({
         identity,
         exceptionProfile: action.exceptionProfile,
         moduleActive,
-        isGranted: grantedSlugs.has(slugToMatch),
+        isGranted: isCatalogActionGranted(action, grantedSlugs),
       })
 
       const sectionActions = sections.get(action.section) ?? []
