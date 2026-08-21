@@ -115,7 +115,9 @@ function parseDate(value: string | Date | DateTime): DateTime {
 export default class TraumaticEventReportService {
   /**
    * Lista paginada de reportes visibles para el scope del usuario.
-   * Filtra por businessUnitIds para aislar multitenant.
+   * La unidad de negocio la aplica `withBusinessUnitScope()` sobre la
+   * columna propia (USRH1786595131490). El whereHas solo excluye
+   * empleados dados de baja y corta fail-closed si el alcance llega vacío.
    */
   async listPaginated(
     filters: TraumaticEventReportListFilters,
@@ -128,9 +130,7 @@ export default class TraumaticEventReportService {
       .whereNull('traumatic_event_report_deleted_at')
       .whereHas('employee', (q) => {
         q.whereNull('employee_deleted_at')
-        if (allowedBusinessUnitIds.length > 0) {
-          q.whereIn('business_unit_id', allowedBusinessUnitIds)
-        } else {
+        if (allowedBusinessUnitIds.length === 0) {
           q.whereRaw('1 = 0')
         }
       })
@@ -261,7 +261,7 @@ export default class TraumaticEventReportService {
     await report.load('employee')
     const guard = new RetentionGuardService()
     await guard.assertCanDelete(
-      report.employee.businessUnitId,
+      report.businessUnitId,
       'traumatic_event_report',
       report.traumaticEventReportElaboratedAt
     )
@@ -289,9 +289,7 @@ export default class TraumaticEventReportService {
       .whereNull('traumatic_event_report_deleted_at')
       .whereHas('employee', (q) => {
         q.whereNull('employee_deleted_at')
-        if (allowedBusinessUnitIds.length > 0) {
-          q.whereIn('business_unit_id', allowedBusinessUnitIds)
-        } else {
+        if (allowedBusinessUnitIds.length === 0) {
           q.whereRaw('1 = 0')
         }
       })
