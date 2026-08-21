@@ -203,13 +203,6 @@ export default class CareerPathTemplateController {
    *           schema:
    *             type: object
    *             properties:
-   *               companyId:
-   *                 type: number
-   *                 description: >
-   *                   Ignorado. La empresa la estampa el servidor desde la unidad
-   *                   activa de la sesión (header X-Business-Unit-Id).
-   *                 required: false
-   *                 default: ''
    *               originPositionId:
    *                 type: number
    *                 description: Origin position id
@@ -304,13 +297,13 @@ export default class CareerPathTemplateController {
   async store({ request, response, i18n, auth, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const [companyId] = businessUnitScope
+      const [businessUnitId] = businessUnitScope
       const originPositionId = request.input('originPositionId')
       const targetPositionId = request.input('targetPositionId')
       const createdBy = auth.user?.userId
       const updatedBy = auth.user?.userId
       const careerPathTemplate = {
-        companyId: companyId,
+        businessUnitId: businessUnitId,
         originPositionId: originPositionId,
         targetPositionId: targetPositionId,
         createdBy: createdBy,
@@ -377,13 +370,6 @@ export default class CareerPathTemplateController {
    *           schema:
    *             type: object
    *             properties:
-   *               companyId:
-   *                 type: number
-   *                 description: >
-   *                   Ignorado. La empresa la estampa el servidor desde la unidad
-   *                   activa de la sesión (header X-Business-Unit-Id).
-   *                 required: false
-   *                 default: ''
    *               originPositionId:
    *                 type: number
    *                 description: Origin position id
@@ -511,7 +497,7 @@ export default class CareerPathTemplateController {
         })
         return careerPathTemplateNotFoundResponse(response)
       }
-      careerPathTemplate.companyId = currentCareerPathTemplate.companyId
+      careerPathTemplate.businessUnitId = currentCareerPathTemplate.businessUnitId
       const careerPathTemplateService = new CareerPathTemplateService(i18n)
       const data = await request.validateUsing(updateCareerPathTemplateValidator)
       const exist = await careerPathTemplateService.verifyInfoExist(careerPathTemplate)
