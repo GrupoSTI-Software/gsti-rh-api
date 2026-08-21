@@ -8,8 +8,26 @@ import type {
   TenantBillingProfileUpsertInput,
 } from '../interfaces/tenant_billing_profile_interface.js'
 
+/** Campos opcionales/nullable del body HTTP cuya ausencia significa "no tocar". */
+type TenantBillingProfileUpsertRawBody = {
+  legalName?: string
+  rfc?: string | null
+  postalCode?: string | null
+  taxRegimeCode?: string | null
+  billingEmail?: string | null
+  cfdiUseCode?: string | null
+}
+
+const OPTIONAL_UPSERT_FIELDS = [
+  'rfc',
+  'postalCode',
+  'taxRegimeCode',
+  'billingEmail',
+  'cfdiUseCode',
+] as const satisfies ReadonlyArray<keyof TenantBillingProfileUpsertInput>
+
 /**
- * Perfil de facturación fiscal del tenant (USRH1786737531057).
+ * Perfil de facturación fiscal del tenant (USRH1786737531057, USRH1786737531066).
  *
  * Contrato de éxito: `{ type: 'success', data: TenantBillingProfileView }`.
  * Errores: `{ title, detail, key, code }` con prefijo `TNT.BILL.*`.
@@ -25,7 +43,9 @@ export default class TenantBillingProfileController {
    *       - Tenant Billing Profile
    *     summary: Consultar perfil de facturación de la empresa
    *     description: |
-   *       Devuelve el perfil fiscal vivo de la empresa activa del tenant.
+   *       Devuelve el perfil fiscal vivo de la empresa activa del tenant, incluyendo
+   *       código postal, régimen fiscal, correo de facturación, uso de CFDI y los
+   *       derivados `taxpayerType`, `billingProfileComplete` y `missingFields`.
    *       Si nunca se ha capturado, responde **200** con `exists: false` y propone
    *       la razón social fiscal desde `business_unit_legal_name` — **nunca 404**.
    *       Solo el dueño de la cuenta (`owner`, `root`, `super-administrador`).
@@ -56,8 +76,40 @@ export default class TenantBillingProfileController {
    *                     rfc:
    *                       type: string
    *                       nullable: true
+   *                       example: ABC010101AB9
    *                     legalName:
    *                       type: string
+   *                       example: Abc SA de CV
+   *                     postalCode:
+   *                       type: string
+   *                       nullable: true
+   *                       example: "06600"
+   *                     taxRegimeCode:
+   *                       type: string
+   *                       nullable: true
+   *                       example: "601"
+   *                     billingEmail:
+   *                       type: string
+   *                       nullable: true
+   *                       example: facturas@empresa.mx
+   *                     cfdiUseCode:
+   *                       type: string
+   *                       nullable: true
+   *                       example: G03
+   *                     taxpayerType:
+   *                       type: string
+   *                       nullable: true
+   *                       enum: [fisica, moral]
+   *                       example: moral
+   *                     billingProfileComplete:
+   *                       type: boolean
+   *                       example: true
+   *                     missingFields:
+   *                       type: array
+   *                       items:
+   *                         type: string
+   *                         enum: [rfc, legalName, postalCode, taxRegimeCode, cfdiUseCode]
+   *                       example: []
    *                     createdAt:
    *                       type: string
    *                       format: date-time
@@ -127,8 +179,9 @@ export default class TenantBillingProfileController {
    *     summary: Guardar perfil de facturación de la empresa
    *     description: |
    *       Upsert del perfil fiscal de la empresa activa (un registro vivo por tenant).
-   *       `legalName` es obligatorio; `rfc` es opcional y se valida contra el SAT
-   *       si se envía. Omitir `rfc` conserva el valor previo; `rfc: null` lo limpia.
+   *       `legalName` es obligatorio; el resto de campos son opcionales.
+   *       Omitir una clave conserva el valor previo; enviar `null` la limpia.
+   *       Validación cruzada contra el catálogo SAT antes de persistir.
    *       Solo el dueño de la cuenta (`owner`, `root`, `super-administrador`).
    *     security:
    *       - bearerAuth: []
@@ -155,9 +208,30 @@ export default class TenantBillingProfileController {
    *                 minLength: 12
    *                 maxLength: 13
    *                 nullable: true
+   *               postalCode:
+   *                 type: string
+   *                 pattern: "^\\d{5}$"
+   *                 nullable: true
+   *                 example: "06600"
+   *               taxRegimeCode:
+   *                 type: string
+   *                 maxLength: 3
+   *                 nullable: true
+   *                 example: "601"
+   *               billingEmail:
+   *                 type: string
+   *                 format: email
+   *                 maxLength: 191
+   *                 nullable: true
+   *                 example: facturas@empresa.mx
+   *               cfdiUseCode:
+   *                 type: string
+   *                 maxLength: 4
+   *                 nullable: true
+   *                 example: G03
    *     responses:
    *       '200':
-   *         description: Perfil guardado (`exists: true`)
+   *         description: Perfil guardado con exists true
    *         content:
    *           application/json:
    *             schema:
@@ -177,6 +251,28 @@ export default class TenantBillingProfileController {
    *                       nullable: true
    *                     legalName:
    *                       type: string
+   *                     postalCode:
+   *                       type: string
+   *                       nullable: true
+   *                     taxRegimeCode:
+   *                       type: string
+   *                       nullable: true
+   *                     billingEmail:
+   *                       type: string
+   *                       nullable: true
+   *                     cfdiUseCode:
+   *                       type: string
+   *                       nullable: true
+   *                     taxpayerType:
+   *                       type: string
+   *                       nullable: true
+   *                       enum: [fisica, moral]
+   *                     billingProfileComplete:
+   *                       type: boolean
+   *                     missingFields:
+   *                       type: array
+   *                       items:
+   *                         type: string
    *                     createdAt:
    *                       type: string
    *                       format: date-time
@@ -219,7 +315,7 @@ export default class TenantBillingProfileController {
    *                   type: string
    *                   example: TNT.BILL.PROFILE_CONFLICT
    *       '422':
-   *         description: Datos inválidos o RFC incorrecto
+   *         description: Datos inválidos, RFC incorrecto o validación cruzada SAT
    *         content:
    *           application/json:
    *             schema:
@@ -232,10 +328,32 @@ export default class TenantBillingProfileController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   example: rfc-invalido
+   *                   example: datos-invalidos
    *                 code:
    *                   type: string
-   *                   example: TNT.BILL.RFC_INVALID
+   *                   example: TNT.BILL.VAL_INPUT
+   *             examples:
+   *               formaInvalida:
+   *                 summary: CP o correo con forma inválida
+   *                 value:
+   *                   title: Datos de facturación
+   *                   detail: El campo postalCode no es válido
+   *                   key: datos-invalidos
+   *                   code: TNT.BILL.VAL_INPUT
+   *               regimenNoAplicable:
+   *                 summary: Régimen incompatible con tipo de RFC
+   *                 value:
+   *                   title: Régimen fiscal no aplicable
+   *                   detail: El régimen fiscal seleccionado no corresponde al tipo de contribuyente del RFC registrado.
+   *                   key: regimen-fiscal-no-aplicable
+   *                   code: TNT.BILL.TAX_REGIME_NOT_FOR_PERSON_TYPE
+   *               usoCfdiNoCompatible:
+   *                 summary: Uso de CFDI incompatible con régimen
+   *                 value:
+   *                   title: Uso de CFDI no compatible
+   *                   detail: El uso de CFDI seleccionado no es válido para el régimen fiscal elegido.
+   *                   key: uso-cfdi-no-compatible
+   *                   code: TNT.BILL.CFDI_USE_NOT_FOR_REGIME
    *       '500':
    *         description: Empresa activa no resuelta u error del sistema
    *         content:
@@ -260,14 +378,16 @@ export default class TenantBillingProfileController {
 
       const businessUnitId = this.service.resolveActiveBusinessUnitId()
       const validated = await request.validateUsing(tenantBillingProfileUpsertValidator)
-      const rawBody = request.body() as { rfc?: string | null; legalName?: string }
+      const rawBody = request.body() as TenantBillingProfileUpsertRawBody
 
       const input: TenantBillingProfileUpsertInput = {
         legalName: validated.legalName,
       }
 
-      if ('rfc' in rawBody) {
-        input.rfc = validated.rfc ?? null
+      for (const field of OPTIONAL_UPSERT_FIELDS) {
+        if (field in rawBody) {
+          input[field] = validated[field] ?? null
+        }
       }
 
       const data = await this.service.upsertForTenant(businessUnitId, input)

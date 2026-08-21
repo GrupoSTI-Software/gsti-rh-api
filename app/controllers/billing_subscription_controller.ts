@@ -217,12 +217,56 @@ export default class BillingSubscriptionController {
    *     responses:
    *       '200':
    *         description: Detalle de la suscripción
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 data:
+   *                   type: object
+   *                   description: Serialización natural del modelo `BillingSubscription`, más `pendingIncreaseChange`.
+   *                   properties:
+   *                     pendingIncreaseChange:
+   *                       type: object
+   *                       nullable: true
+   *                       description: >
+   *                         Cambio de aumento en `pending_payment` sobre esta suscripción
+   *                         (USRH1785962095095 v2). `null` cuando no hay adeudo vivo.
+   *                         El drawer de registro de pago debe avisarlo en una línea sin
+   *                         calcular cifras propias ni modificar el monto propuesto.
+   *                       properties:
+   *                         billingSubscriptionChangeId:
+   *                           type: integer
+   *                         billingSubscriptionId:
+   *                           type: integer
+   *                         billingSubscriptionChangeType:
+   *                           type: string
+   *                           example: increase
+   *                         billingSubscriptionChangeStatus:
+   *                           type: string
+   *                           example: pending_payment
+   *                         billingSubscriptionChangePreviousEmployees:
+   *                           type: integer
+   *                         billingSubscriptionChangeNewEmployees:
+   *                           type: integer
+   *                         billingSubscriptionChangeProratedAmountCents:
+   *                           type: integer
+   *                           description: Monto (en centavos) del adeudo pendiente por este cambio.
+   *                         billingSubscriptionChangeEffectiveAt:
+   *                           type: string
+   *                           nullable: true
+   *                         billingSubscriptionChangeAppliedAt:
+   *                           type: string
+   *                           nullable: true
    *       '404':
    *         description: Suscripción no encontrada
    */
   async show({ params, response }: HttpContext) {
     try {
-      const subscription = await this.service.getSubscription(Number(params.subscriptionId))
+      const subscription = await this.service.getSubscriptionDetail(Number(params.subscriptionId))
       return response.status(200).json({ type: 'success', data: subscription })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
