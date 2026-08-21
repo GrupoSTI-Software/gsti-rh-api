@@ -4,6 +4,7 @@ import BusinessAccessScopeService from '#services/business_access_scope_service'
 import { resolveLegacyCompanyIdParam } from '#helpers/resolve_legacy_company_id_param'
 import { resolveBusinessUnitIdParam } from '#helpers/resolve_business_unit_id_param'
 import { TenantContext } from '#utils/tenant_context'
+import { runWithSensitiveReadDecisions } from '#helpers/sensitive_read_decisions'
 
 /** Header que el cliente envía para seleccionar la unidad de negocio activa. */
 const BUSINESS_UNIT_HEADER = 'x-business-unit-id'
@@ -110,7 +111,7 @@ export default class BusinessUnitScopeMiddleware {
 
     ctx.businessUnitScope = [requestedId]
 
-    return TenantContext.run([requestedId], () => next())
+    return TenantContext.run([requestedId], () => runWithSensitiveReadDecisions(ctx, next))
   }
 }
 

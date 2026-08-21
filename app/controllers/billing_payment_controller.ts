@@ -38,6 +38,40 @@ export default class BillingPaymentController {
   }
 
   /**
+   * @show
+   * @summary Detalle financiero de un pago
+   * @description Devuelve un pago con su desglose financiero persistido al\
+   *   asentarlo (USRH1785962095098): subtotal, descuento, impuesto, total,\
+   *   monto y periodos cubiertos, saldo aplicado, saldo por adeudo aplicado\
+   *   y saldo restante. Las cifras nunca se recalculan; son las que el\
+   *   servidor guardó en `registerPayment`. `breakdownAvailable=false`\
+   *   marca los pagos anteriores a USRH1785962095095, sin foto financiera\
+   *   guardada — `breakdown` viaja en `null`, nunca en ceros como si fueran\
+   *   datos reales. El pago se busca acotado a la suscripción de la ruta:\
+   *   uno ajeno o inexistente responde el mismo `404 PLT.PAY.NOT_FOUND`.\
+   *   Solo lectura; nunca incluye la Key ni una URL del comprobante.
+   * @tag Billing · Payments
+   * @operationId getBillingPaymentDetail
+   * @security [{"bearerAuth": []}]
+   * @paramPath subscriptionId - ID interno de la suscripción - integer
+   * @paramPath paymentId - ID interno del pago - integer
+   * @responseBody 200 - {"type": "success", "data": {"billingPaymentId": 12, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "receiptAvailable": true, "periodsCovered": 3, "isCustomAmount": true, "periodAmountCents": 928000, "creditAppliedCents": 2784000, "debtAppliedCents": 0, "creditBalanceAfterCents": 216000, "breakdownAvailable": true, "breakdown": {"grossCents": 1000000, "discountPercent": 20.00, "discountAmountCents": 200000, "subtotalCents": 800000, "taxRate": 0.16, "taxAmountCents": 128000, "totalCents": 928000}}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "pago-no-encontrado", "code": "PLT.PAY.NOT_FOUND"}
+   */
+  async show({ params, response }: HttpContext) {
+    try {
+      const data = await this.service.getPaymentDetail(
+        Number(params.subscriptionId),
+        Number(params.paymentId)
+      )
+      return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveBillingPaymentApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
    * @download
    * @summary Enlace de descarga del comprobante
    * @description Genera un enlace temporal firmado para descargar el comprobante\

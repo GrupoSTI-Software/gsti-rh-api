@@ -24,6 +24,14 @@
  */
 export type LegalCategory = 'identificacion' | 'financiero' | 'biometrico' | 'salud' | 'contacto'
 
+export const LEGAL_CATEGORIES = [
+  'identificacion',
+  'financiero',
+  'biometrico',
+  'salud',
+  'contacto',
+] as const satisfies readonly LegalCategory[]
+
 /**
  * Tratamiento técnico que debe aplicarse al campo en reposo.
  *
@@ -55,17 +63,21 @@ export interface SensitiveField {
    */
   readonly encrypted: boolean
   /**
-   * `true` = el campo debe entregarse enmascarado en la serialización JSON del API
-   * (USRH1783019898097). El BO puede solicitar el valor completo vía el endpoint
-   * `GET /reveal/:token` que registra el acceso antes de revelar.
+   * Marca de elegibilidad para el endpoint de revelado (`GET /reveal/:token`).
    *
-   * Ausencia (o `false`) = el campo se serializa sin modificar (comportamiento previo).
+   * A partir de USRH1787204602825 el enmascaramiento en serialización ya no
+   * se decide con esta bandera: lo decide el permiso de lectura de la
+   * categoría legal, vía `sensitiveSerialize`. `true` solo indica que el
+   * campo puede pedirse completo por el flujo de revelado con motivo.
+   *
+   * Ausencia (o `false`) = el campo aún no entra a ese flujo de revelado.
+   * No cambiar ninguna entrada del arreglo en esta historia.
    */
   readonly maskedInApi?: true
 }
 
 /**
- * Catálogo maestro de campos personales sensibles de Valanserh (~24 columnas).
+ * Catálogo maestro de campos personales sensibles de Valanserh (27 columnas).
  *
  * Exclusiones justificadas (no se incluyen porque no son datos sensibles de la persona):
  *   - `workDisabilityPeriodFile`           — ruta S3, no dato clínico.
