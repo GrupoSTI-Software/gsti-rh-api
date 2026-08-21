@@ -2,6 +2,9 @@ import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
+import EmployeeSupplie from '#models/employee_supplie'
+import User from '#models/user'
+import { TenantContext } from '#utils/tenant_context'
 import {
   EMPLOYEE_OFFBOARDING_STATUS,
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
@@ -93,18 +96,54 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     )
   }
 
+  async findSuppliesByIds(
+    supplyIds: number[],
+    businessUnitId: number
+  ): Promise<EmployeeSupplie[]> {
+    if (supplyIds.length === 0) return []
+    // `runUnscoped`: el criterio de esta lectura es el BU SNAPSHOTEADO del
+    // expediente (filtro explícito de abajo), no el alcance del request.
+    // `EmployeeSupplie` compone el mixin de tenant y, con contexto activo,
+    // apilaría su whereIn(scope) sobre el filtro explícito: si el
+    // colaborador cambió de empresa con expediente abierto, la conjunción
+    // quedaría vacía y todo insumo se diagnosticaría 'unavailable'.
+    return await TenantContext.runUnscoped(
+      async () =>
+        await EmployeeSupplie.query()
+          .withTrashed()
+          .whereIn('employee_supply_id', supplyIds)
+          .where('business_unit_id', businessUnitId),
+      'diagnóstico de insumos del expediente de salida por su empresa snapshoteada'
+    )
+  }
+
+  async findUsersByIds(userIds: number[]): Promise<User[]> {
+    if (userIds.length === 0) return []
+    // `withTrashed`: la autoría del cumplimiento no debe perder el nombre
+    // cuando el usuario se elimina lógicamente después de cumplir.
+    return await User.query().withTrashed().whereIn('user_id', userIds).preload('person')
+  }
+
   async findByIdWithItems(employeeOffboardingId: number): Promise<EmployeeOffboarding | null> {
-    return await EmployeeOffboarding.query()
-      .where('employee_offboarding_id', employeeOffboardingId)
-      .whereNull('employee_offboarding_deleted_at')
-      .preload('items', (itemsQuery) => {
-        itemsQuery
-          .whereNull('employee_offboarding_item_deleted_at')
-          .orderBy('employee_offboarding_item_id', 'asc')
-          // El concepto puede estar soft-deleted; sus banderas siguen
-          // gobernando el pendiente (§7 D8). El withTrashed vive en la relación.
-          .preload('concept')
-      })
-      .first()
+    // `runUnscoped`: el expediente ya se resolvió dentro del alcance por su
+    // BU snapshoteado; el concepto de cada pendiente viaja por FK y su
+    // modelo compone el mixin de tenant, que con contexto activo filtraría
+    // el preload por el alcance del request en vez de por el expediente.
+    return await TenantContext.runUnscoped(
+      async () =>
+        await EmployeeOffboarding.query()
+          .where('employee_offboarding_id', employeeOffboardingId)
+          .whereNull('employee_offboarding_deleted_at')
+          .preload('items', (itemsQuery) => {
+            itemsQuery
+              .whereNull('employee_offboarding_item_deleted_at')
+              .orderBy('employee_offboarding_item_id', 'asc')
+              // El concepto puede estar soft-deleted; sus banderas siguen
+              // gobernando el pendiente (§7 D8). El withTrashed vive en la relación.
+              .preload('concept')
+          })
+          .first(),
+      'lectura del expediente de salida ya resuelto en alcance; conceptos por FK'
+    )
   }
 }

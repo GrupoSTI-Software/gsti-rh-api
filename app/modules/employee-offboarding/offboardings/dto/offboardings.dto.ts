@@ -1,12 +1,17 @@
 import type EmployeeOffboarding from '#models/employee_offboarding'
 import type EmployeeOffboardingItem from '#models/employee_offboarding_item'
+import type EmployeeSupplie from '#models/employee_supplie'
+import type User from '#models/user'
 import { toCalendarIsoDate, isBusinessCalendarDateBefore } from '#utils/business_date'
 import { EMPLOYEE_OFFBOARDING_ITEM_STATUS } from '../offboardings.constants.js'
+import { SUPPLY_OUTCOME, type SupplyOutcome } from '../../items/items.constants.js'
 
 /**
- * Pendiente del expediente tal como viaja al cliente (spec §10). Las
- * banderas `requiresEvidence`/`allowsAmount` se resuelven del concepto con
- * `withTrashed()` (§7 D8); `false` para pendientes derivados de un activo.
+ * Pendiente del expediente tal como viaja al cliente (spec §10 de
+ * USRH1786568279587, extendido de forma ADITIVA por USRH1786568279590 con la
+ * autoría del cumplimiento y el diagnóstico de solo lectura del insumo).
+ * Las banderas `requiresEvidence`/`allowsAmount` se resuelven del concepto
+ * con `withTrashed()` (§7 D8); `false` para pendientes derivados de un activo.
  */
 export interface EmployeeOffboardingItemDto {
   employeeOffboardingItemId: number
@@ -16,9 +21,21 @@ export interface EmployeeOffboardingItemDto {
   employeeOffboardingItemStatus: string
   employeeOffboardingItemAmount: number | null
   employeeOffboardingItemNote: string | null
+  employeeOffboardingItemCompletedAt: string | null
+  employeeOffboardingItemCompletedByUserId: number | null
+  /** Nombre visible de quien marcó el cumplimiento; null si no hay autoría. */
+  employeeOffboardingItemCompletedByUserName: string | null
   requiresEvidence: boolean
   allowsAmount: boolean
   isOverdue: boolean
+  /**
+   * Diagnóstico del insumo (D-3 de USRH1786568279590): derivado en cada
+   * lectura del inventario, nunca persistido. `null` = insumo vivo aún
+   * asignado (sin desenlace todavía).
+   */
+  supplyOutcome: SupplyOutcome | null
+  supplyRetirementDate: string | null
+  supplyRetirementReason: string | null
 }
 
 /** Expediente de salida con sus pendientes y la marca de vencido (spec §10). */
@@ -33,6 +50,40 @@ export interface EmployeeOffboardingDto {
   referenceDate: string | null
   employeeDeleted: boolean
   items: EmployeeOffboardingItemDto[]
+}
+
+/** Contexto de lectura para armar los DTO de pendientes. */
+export interface ItemDtoContext {
+  /** "Hoy" resuelto UNA vez por request con `toBusinessDateString()` (regla 9). */
+  hoyIso: string
+  /** Fecha de referencia del expediente: baja real si existe, si no la tentativa. */
+  referenceDate: string | null
+  /** Insumos del expediente resueltos con `withTrashed()` en el alcance, por id. */
+  suppliesById: Map<number, EmployeeSupplie>
+  /** Nombre visible por id de usuario, para la autoría del cumplimiento. */
+  userNamesById: Map<number, string>
+}
+
+/** Mapa insumo-por-id para el diagnóstico de lectura. */
+export function buildSuppliesMap(supplies: EmployeeSupplie[]): Map<number, EmployeeSupplie> {
+  return new Map(supplies.map((supply) => [supply.employeeSupplyId, supply]))
+}
+
+/**
+ * Mapa nombre-visible-por-id-de-usuario para la autoría del cumplimiento:
+ * nombre de la persona cuando existe, correo del usuario como respaldo.
+ */
+export function buildUserNamesMap(users: User[]): Map<number, string> {
+  return new Map(
+    users.map((user) => {
+      const person = user.person
+      const fullName = [person?.personFirstname, person?.personLastname]
+        .filter((part) => typeof part === 'string' && part.trim().length > 0)
+        .join(' ')
+        .trim()
+      return [user.userId, fullName.length > 0 ? fullName : user.userEmail]
+    })
+  )
 }
 
 /**
@@ -50,16 +101,55 @@ export function sortItems(items: EmployeeOffboardingItem[]): EmployeeOffboarding
 }
 
 /**
- * Construye el DTO del pendiente. `hoyIso` es el "hoy" resuelto UNA vez por
- * request con `toBusinessDateString()` (regla 9); `referenceDate` es la
- * fecha real de baja si existe, si no la tentativa.
+ * Diagnóstico de LECTURA del insumo (D-2/D-3 de USRH1786568279590): la fila
+ * se resuelve con `withTrashed()`, así que el borrado lógico no la oculta
+ * pero sí la marca como no disponible. Un insumo retirado devuelve la fecha
+ * y el motivo originales; uno vivo aún asignado no tiene desenlace (`null`).
  */
+export function resolveSupplyDiagnostics(
+  item: Pick<EmployeeOffboardingItem, 'employeeSupplyId'>,
+  suppliesById: Map<number, EmployeeSupplie>
+): {
+  supplyOutcome: SupplyOutcome | null
+  supplyRetirementDate: string | null
+  supplyRetirementReason: string | null
+} {
+  if (!item.employeeSupplyId) {
+    return {
+      supplyOutcome: SUPPLY_OUTCOME.NOT_APPLICABLE,
+      supplyRetirementDate: null,
+      supplyRetirementReason: null,
+    }
+  }
+
+  const supply = suppliesById.get(item.employeeSupplyId)
+  if (!supply || supply.deletedAt) {
+    return {
+      supplyOutcome: SUPPLY_OUTCOME.UNAVAILABLE,
+      supplyRetirementDate: null,
+      supplyRetirementReason: null,
+    }
+  }
+
+  if (supply.employeeSupplyStatus === 'retired') {
+    return {
+      supplyOutcome: SUPPLY_OUTCOME.RETIRED,
+      supplyRetirementDate: supply.employeeSupplyRetirementDate?.toISO() ?? null,
+      supplyRetirementReason: supply.employeeSupplyRetirementReason ?? null,
+    }
+  }
+
+  return { supplyOutcome: null, supplyRetirementDate: null, supplyRetirementReason: null }
+}
+
+/** Construye el DTO del pendiente con el contexto de lectura ya resuelto. */
 export function toItemDto(
   item: EmployeeOffboardingItem,
-  referenceDate: string | null,
-  hoyIso: string
+  context: ItemDtoContext
 ): EmployeeOffboardingItemDto {
   const amount = item.employeeOffboardingItemAmount
+  const completedByUserId = item.employeeOffboardingItemCompletedByUserId ?? null
+  const diagnostics = resolveSupplyDiagnostics(item, context.suppliesById)
   return {
     employeeOffboardingItemId: item.employeeOffboardingItemId,
     offboardingConceptId: item.offboardingConceptId,
@@ -68,12 +158,17 @@ export function toItemDto(
     employeeOffboardingItemStatus: item.employeeOffboardingItemStatus,
     employeeOffboardingItemAmount: amount === null || amount === undefined ? null : Number(amount),
     employeeOffboardingItemNote: item.employeeOffboardingItemNote ?? null,
+    employeeOffboardingItemCompletedAt: item.employeeOffboardingItemCompletedAt?.toISO() ?? null,
+    employeeOffboardingItemCompletedByUserId: completedByUserId,
+    employeeOffboardingItemCompletedByUserName:
+      completedByUserId !== null ? (context.userNamesById.get(completedByUserId) ?? null) : null,
     requiresEvidence: Boolean(item.concept?.offboardingConceptRequiresEvidence ?? false),
     allowsAmount: Boolean(item.concept?.offboardingConceptAllowsAmount ?? false),
     isOverdue:
       item.employeeOffboardingItemStatus === EMPLOYEE_OFFBOARDING_ITEM_STATUS.PENDING &&
-      referenceDate !== null &&
-      isBusinessCalendarDateBefore(referenceDate, hoyIso),
+      context.referenceDate !== null &&
+      isBusinessCalendarDateBefore(context.referenceDate, context.hoyIso),
+    ...diagnostics,
   }
 }
 
@@ -87,6 +182,8 @@ export function toOffboardingDto(
     employeeTerminatedDate: unknown
     employeeDeleted: boolean
     hoyIso: string
+    suppliesById: Map<number, EmployeeSupplie>
+    userNamesById: Map<number, string>
   }
 ): EmployeeOffboardingDto {
   const plannedDate = toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate)
@@ -94,6 +191,12 @@ export function toOffboardingDto(
   const referenceDate = terminatedDate ?? plannedDate ?? null
 
   const orderedItems = sortItems(offboarding.items ?? [])
+  const context: ItemDtoContext = {
+    hoyIso: params.hoyIso,
+    referenceDate,
+    suppliesById: params.suppliesById,
+    userNamesById: params.userNamesById,
+  }
 
   return {
     employeeOffboardingId: offboarding.employeeOffboardingId,
@@ -105,6 +208,6 @@ export function toOffboardingDto(
     employeeOffboardingNotes: offboarding.employeeOffboardingNotes ?? null,
     referenceDate,
     employeeDeleted: params.employeeDeleted,
-    items: orderedItems.map((item) => toItemDto(item, referenceDate, params.hoyIso)),
+    items: orderedItems.map((item) => toItemDto(item, context)),
   }
 }

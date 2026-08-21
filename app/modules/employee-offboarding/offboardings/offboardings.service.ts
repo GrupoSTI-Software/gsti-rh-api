@@ -15,7 +15,12 @@ import type {
   EmployeeOffboardingItemCreateData,
   OffboardingsRepository,
 } from './offboardings.repository.js'
-import { toOffboardingDto, type EmployeeOffboardingDto } from './dto/offboardings.dto.js'
+import {
+  buildSuppliesMap,
+  buildUserNamesMap,
+  toOffboardingDto,
+  type EmployeeOffboardingDto,
+} from './dto/offboardings.dto.js'
 
 /** Acciones del módulo `employee-offboardings` que usa este slice. */
 export type EmployeeOffboardingCaseAction = 'read' | 'create'
@@ -244,10 +249,34 @@ export default class OffboardingsService {
       throw this.caseNotFoundError()
     }
 
+    // Diagnóstico de insumo (D-3 de USRH1786568279590) y autoría del
+    // cumplimiento: se derivan en cada lectura, nunca se persisten.
+    const items = offboarding.items ?? []
+    const supplyIds = [
+      ...new Set(
+        items
+          .map((item) => item.employeeSupplyId)
+          .filter((id): id is number => id !== null && id !== undefined)
+      ),
+    ]
+    const userIds = [
+      ...new Set(
+        items
+          .map((item) => item.employeeOffboardingItemCompletedByUserId)
+          .filter((id): id is number => id !== null && id !== undefined)
+      ),
+    ]
+    const [supplies, users] = await Promise.all([
+      this.repository.findSuppliesByIds(supplyIds, offboarding.businessUnitId),
+      this.repository.findUsersByIds(userIds),
+    ])
+
     return toOffboardingDto(offboarding, {
       employeeTerminatedDate: employee.employeeTerminatedDate,
       employeeDeleted: employee.deletedAt !== null,
       hoyIso: toBusinessDateString(),
+      suppliesById: buildSuppliesMap(supplies),
+      userNamesById: buildUserNamesMap(users),
     })
   }
 

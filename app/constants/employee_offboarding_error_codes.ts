@@ -42,6 +42,21 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   CASE_FORBIDDEN: 'OFFB.CASE.FORBIDDEN',
   /** Error no controlado del expediente — 500. */
   CASE_UNEXPECTED: 'OFFB.CASE.UNEXPECTED',
+  /** Pendiente o expediente inexistente o fuera del alcance (USRH1786568279590) — 404 uniforme. */
+  ITEM_NOT_FOUND: 'OFFB.ITEM.NOT_FOUND',
+  /** Completar un pendiente ya cumplido (regla 3, USRH1786568279590) — 409. */
+  ITEM_ALREADY_COMPLETED: 'OFFB.ITEM.ALREADY_COMPLETED',
+  /** Revertir un pendiente que sigue pendiente (regla 3, USRH1786568279590) — 409. */
+  ITEM_NOT_COMPLETED: 'OFFB.ITEM.NOT_COMPLETED',
+  /** Importe en un pendiente cuyo concepto no lo admite (regla 4, USRH1786568279590) — 422. */
+  ITEM_AMOUNT_NOT_ALLOWED: 'OFFB.ITEM.AMOUNT_NOT_ALLOWED',
+  /**
+   * Insumo no disponible al completar (regla 10, USRH1786568279590). NO es
+   * respuesta de error: viaja como `supplyDiagnosticCode` en el cuerpo de
+   * ÉXITO — el pendiente se completa igual y soporte puede rastrear por qué
+   * se cerró sin retirar nada.
+   */
+  ITEM_SUPPLY_UNAVAILABLE: 'OFFB.ITEM.SUPPLY_UNAVAILABLE',
 } as const
 
 export type EmployeeOffboardingErrorCode =
