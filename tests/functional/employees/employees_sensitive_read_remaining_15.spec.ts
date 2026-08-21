@@ -1,11 +1,16 @@
 import { test } from '@japa/runner'
+import type { I18n } from '@adonisjs/i18n'
 import SystemModule from '#models/system_module'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import EmployeeBiometricService from '#services/employee_biometric_service'
 import {
+  allDenied,
   buHeader,
   cleanupActor,
   cleanupRemainingSensitiveFixture,
   cleanupSensitiveFixture,
+  CLEAR_FIXED,
   CLEAR_REMAINING,
   createActor,
   createRemainingSensitiveFixture,
@@ -17,12 +22,17 @@ import {
   firstSalaryDaily,
   grantModuleAction,
   grantOnly,
+  medicalConditionBody,
   rangeAmounts,
   workDisabilityNoteBody,
   type RemainingSensitiveFixture,
   type SensitiveFixture,
   type TenantActor,
 } from './sensitive_read_by_category_support.js'
+
+function fakeI18n(): I18n {
+  return { formatMessage: (key: string) => key } as I18n
+}
 
 test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
   let employeesModule: SystemModule
@@ -149,5 +159,143 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(response, assert)
     assert.equal(empresaRfcFromShow(response.body()), CLEAR_REMAINING.empresaRfc)
+  })
+
+  test('CA-4: solo sensitive-salud-read destapa las 6 de salud', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-salud-read', 'read'])
+    await grantModuleAction(actor!.role.roleId, 'traumatic-event-reports', 'read')
+    const medicalRes = await client
+      .get(
+        `/api/employee-medical-conditions/${fixture!.medical.employeeMedicalConditionId}`
+      )
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectNeverDenied(medicalRes, assert)
+    const medical = medicalConditionBody(medicalRes.body())
+    assert.equal(medical.employeeMedicalConditionDiagnosis, CLEAR_FIXED.diagnosis)
+    assert.equal(medical.employeeMedicalConditionNotes, CLEAR_FIXED.notes)
+
+    const noteRes = await client
+      .get(`/api/work-disability-notes/${extra!.note.workDisabilityNoteId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    assert.equal(
+      workDisabilityNoteBody(noteRes.body()).workDisabilityNoteDescription,
+      CLEAR_REMAINING.disabilityDescription
+    )
+
+    const lactationRes = await client
+      .get('/api/employee-lactation-periods')
+      .qs({ employeeId: fixture!.employee.employeeId, page: 1, limit: 10 })
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectNeverDenied(lactationRes, assert)
+    const lactationRows =
+      (lactationRes.body()?.data?.employeeLactationPeriods?.data as Record<string, unknown>[]) ??
+      []
+    const lactationRow = lactationRows.find(
+      (row) => row.employeeLactationPeriodId === extra!.lactation.employeeLactationPeriodId
+    )
+    assert.exists(lactationRow)
+    assert.equal(lactationRow!.employeeLactationPeriodNotes, CLEAR_REMAINING.lactationNotes)
+
+    const traumaRes = await client
+      .get(`/api/traumatic-event-reports/${extra!.trauma.traumaticEventReportId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectNeverDenied(traumaRes, assert)
+    const trauma = traumaRes.body()?.data?.traumaticEventReport as Record<string, unknown>
+    assert.equal(trauma.traumaticEventReportInvolvedPeople, CLEAR_REMAINING.traumaPeople)
+    assert.equal(trauma.traumaticEventReportDescription, CLEAR_REMAINING.traumaDescription)
+  })
+
+  test('CA-4: sin salud las 4 columnas nuevas van tapadas', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['read'])
+    await grantModuleAction(actor!.role.roleId, 'traumatic-event-reports', 'read')
+    const noteRes = await client
+      .get(`/api/work-disability-notes/${extra!.note.workDisabilityNoteId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectMaskedHealth(
+      workDisabilityNoteBody(noteRes.body()).workDisabilityNoteDescription,
+      assert
+    )
+    const traumaRes = await client
+      .get(`/api/traumatic-event-reports/${extra!.trauma.traumaticEventReportId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    const trauma = traumaRes.body()?.data?.traumaticEventReport as Record<string, unknown>
+    expectMaskedHealth(trauma.traumaticEventReportInvolvedPeople, assert)
+    expectMaskedHealth(trauma.traumaticEventReportDescription, assert)
+  })
+
+  test('CA-1: GET biometrics muestra conteo y no el string Finger', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    const response = await client
+      .get(`/api/employees/${fixture!.employee.employeeId}/biometrics`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    expectNeverDenied(response, assert)
+    const biometric = response.body()?.data?.employeeBiometric as Record<string, unknown>
+    assert.isArray(biometric.fingers)
+    assert.include(biometric.fingers as number[], 1)
+    assert.include(biometric.fingers as number[], 4)
+    assert.isTrue(Boolean(biometric.face))
+    assert.isUndefined(biometric.employeeBiometricData)
+    assert.notInclude(JSON.stringify(response.body()), CLEAR_REMAINING.biometricData)
+  })
+
+  test('CA-2: getEnrollmentStatus tapa biometricData sin ALS y lo destapa con biometrico', async ({
+    assert,
+  }) => {
+    const service = new EmployeeBiometricService(fakeI18n())
+    const masked = await service.getEnrollmentStatus(fixture!.employee.employeeId)
+    assert.exists(masked)
+    assert.equal(masked!.biometricData, MASK_CHAR.repeat(5))
+    assert.include(masked!.fingers, 1)
+    assert.isTrue(masked!.face)
+
+    const clear = await SensitiveAccessContext.run(
+      { ...allDenied, biometrico: true },
+      () => service.getEnrollmentStatus(fixture!.employee.employeeId)
+    )
+    assert.equal(clear!.biometricData, CLEAR_REMAINING.biometricData)
+  })
+
+  test('CA-1: serialize de FaceId tapa token y photoUrl', async ({ assert }) => {
+    await extra!.faceId.refresh()
+    const masked = extra!.faceId.serialize()
+    assert.equal(masked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
+    assert.equal(masked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
+    const clear = SensitiveAccessContext.run({ ...allDenied, biometrico: true }, () =>
+      extra!.faceId.serialize()
+    )
+    assert.equal(clear.employeeBiometricFaceIdToken, CLEAR_REMAINING.faceToken)
+    assert.equal(clear.employeeBiometricFaceIdPhotoUrl, CLEAR_REMAINING.facePhotoUrl)
+  })
+
+  test('UserConsent.serialize tapa IP y UA sin contacto', async ({ assert }) => {
+    if (!extra!.consent) {
+      assert.isTrue(true)
+      return
+    }
+    await extra!.consent.refresh()
+    const masked = extra!.consent.serialize()
+    assert.equal(
+      masked.userConsentIp,
+      maskSensitiveValue(CLEAR_REMAINING.consentIp, 'contacto')
+    )
+    assert.equal(
+      masked.userConsentUserAgent,
+      maskSensitiveValue(CLEAR_REMAINING.consentUa, 'contacto')
+    )
+    const clear = SensitiveAccessContext.run({ ...allDenied, contacto: true }, () =>
+      extra!.consent!.serialize()
+    )
+    assert.equal(clear.userConsentIp, CLEAR_REMAINING.consentIp)
+    assert.equal(clear.userConsentUserAgent, CLEAR_REMAINING.consentUa)
   })
 })
