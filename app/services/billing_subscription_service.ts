@@ -6,6 +6,8 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
+import BillingSubscriptionChange from '#models/billing_subscription_change'
+import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
@@ -272,6 +274,71 @@ export default class BillingSubscriptionService {
     }
 
     return subscription
+  }
+
+  /**
+   * Detalle de suscripción para el landlord, enriquecido con el aviso de
+   * adeudo pendiente (USRH1785962095095 v2): si existe un cambio de aumento
+   * en `pending_payment` sobre esta suscripción, se expone en
+   * `pendingIncreaseChange` para que el drawer de registro de pago lo
+   * muestre sin calcular cifras propias. `null` cuando no hay adeudo vivo.
+   */
+  async getSubscriptionDetail(
+    subscriptionId: number
+  ): Promise<Record<string, unknown> & { pendingIncreaseChange: SubscriptionChangeRecord | null }> {
+    const subscription = await this.getSubscription(subscriptionId)
+    const pendingIncreaseChange = await this.findPendingIncreaseChange(
+      subscription.billingSubscriptionId
+    )
+
+    return {
+      ...subscription.serialize(),
+      pendingIncreaseChange,
+    }
+  }
+
+  /**
+   * Lectura directa del cambio de aumento en `pending_payment`, sin pasar por
+   * `BillingSubscriptionChangeService` (evita el ciclo de instanciación
+   * Tenant ↔ Subscription ↔ SubscriptionChange).
+   */
+  private async findPendingIncreaseChange(
+    billingSubscriptionId: number
+  ): Promise<SubscriptionChangeRecord | null> {
+    const change = await BillingSubscriptionChange.query()
+      .where('billing_subscription_id', billingSubscriptionId)
+      .where('billing_subscription_change_type', 'increase')
+      .where('billing_subscription_change_status', 'pending_payment')
+      .whereNull('billing_subscription_change_deleted_at')
+      .orderBy('billing_subscription_change_id', 'desc')
+      .first()
+
+    if (!change) {
+      return null
+    }
+
+    return {
+      billingSubscriptionChangeId: change.billingSubscriptionChangeId,
+      billingSubscriptionId: change.billingSubscriptionId,
+      billingSubscriptionChangeType: change.billingSubscriptionChangeType,
+      billingSubscriptionChangeStatus: change.billingSubscriptionChangeStatus,
+      billingSubscriptionChangePreviousEmployees: change.billingSubscriptionChangePreviousEmployees,
+      billingSubscriptionChangeNewEmployees: change.billingSubscriptionChangeNewEmployees,
+      billingSubscriptionChangeUnitAmount: Number(change.billingSubscriptionChangeUnitAmount),
+      billingSubscriptionChangeDiscountPercent: Number(
+        change.billingSubscriptionChangeDiscountPercent
+      ),
+      billingSubscriptionChangeTaxRate: Number(change.billingSubscriptionChangeTaxRate),
+      billingSubscriptionChangeSubtotal: Number(change.billingSubscriptionChangeSubtotal),
+      billingSubscriptionChangeTaxAmount: Number(change.billingSubscriptionChangeTaxAmount),
+      billingSubscriptionChangeTotal: Number(change.billingSubscriptionChangeTotal),
+      billingSubscriptionChangeProratedAmountCents: change.billingSubscriptionChangeProratedAmountCents,
+      billingSubscriptionChangeEffectiveAt: change.billingSubscriptionChangeEffectiveAt
+        ? toCalendarIsoDate(change.billingSubscriptionChangeEffectiveAt)
+        : null,
+      billingSubscriptionChangeAppliedAt: change.billingSubscriptionChangeAppliedAt?.toISO() ?? null,
+      supersededBillingSubscriptionChangeId: null,
+    }
   }
 
   /**

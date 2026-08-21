@@ -8,7 +8,7 @@ import BusinessUnit from '#models/business_unit'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
- * Perfil de facturación fiscal de una empresa (USRH1786737531057).
+ * Perfil de facturación fiscal de una empresa (USRH1786737531057, USRH1786737531066).
  * Un registro vivo por tenant; el RFC viaja cifrado en reposo con huella buscable.
  */
 export default class TenantBillingProfile extends compose(
@@ -51,6 +51,22 @@ export default class TenantBillingProfile extends compose(
 
   @column({ columnName: 'tenant_billing_profile_legal_name' })
   declare legalName: string
+
+  /** Código postal del domicilio fiscal (5 dígitos; admite cero inicial). */
+  @column({ columnName: 'tenant_billing_profile_postal_code' })
+  declare postalCode: string | null
+
+  /** Clave c_RegimenFiscal del SAT. */
+  @column({ columnName: 'tenant_billing_profile_tax_regime_code' })
+  declare taxRegimeCode: string | null
+
+  /** Correo de contacto fiscal; independiente del correo del usuario owner. */
+  @column({ columnName: 'tenant_billing_profile_billing_email' })
+  declare billingEmail: string | null
+
+  /** Clave c_UsoCFDI por default de la empresa. */
+  @column({ columnName: 'tenant_billing_profile_cfdi_use_code' })
+  declare cfdiUseCode: string | null
 
   @column.dateTime({ columnName: 'tenant_billing_profile_created_at', autoCreate: true })
   declare createdAt: DateTime

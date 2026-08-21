@@ -43,3 +43,23 @@ export function tenantBillingProfileErrorFromDefinition(
 ): TenantBillingProfileServiceError {
   return toServiceError(definition, detailOverride)
 }
+
+/** Clave de régimen fiscal fuera del catálogo sembrado (regla 2). */
+export function tenantBillingTaxRegimeUnknownError(): TenantBillingProfileServiceError {
+  return toServiceError(TENANT_BILLING_PROFILE_ERRORS.TAX_REGIME_UNKNOWN)
+}
+
+/** Régimen fiscal incompatible con el tipo de persona del RFC (regla 3). */
+export function tenantBillingTaxRegimeNotForPersonTypeError(): TenantBillingProfileServiceError {
+  return toServiceError(TENANT_BILLING_PROFILE_ERRORS.TAX_REGIME_NOT_FOR_PERSON_TYPE)
+}
+
+/** Clave de uso de CFDI fuera del catálogo sembrado (regla 4). */
+export function tenantBillingCfdiUseUnknownError(): TenantBillingProfileServiceError {
+  return toServiceError(TENANT_BILLING_PROFILE_ERRORS.CFDI_USE_UNKNOWN)
+}
+
+/** Uso de CFDI incompatible con el régimen fiscal elegido (regla 4). */
+export function tenantBillingCfdiUseNotForRegimeError(): TenantBillingProfileServiceError {
+  return toServiceError(TENANT_BILLING_PROFILE_ERRORS.CFDI_USE_NOT_FOR_REGIME)
+}
