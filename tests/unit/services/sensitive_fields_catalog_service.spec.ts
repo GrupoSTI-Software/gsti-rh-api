@@ -31,6 +31,30 @@ test.group('SensitiveFieldsCatalogService.categoryOf', () => {
   })
 })
 
+test.group('SensitiveFieldsCatalogService.revealEligibility', () => {
+  test('maskedInApi es revelable', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(catalog.revealEligibility('Person', 'personCurp'), 'revealable')
+  })
+
+  test('clasificada sin maskedInApi no es revelable', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(
+      catalog.revealEligibility('EmployeeBiometric', 'employeeBiometricData'),
+      'not_revealable'
+    )
+    assert.equal(
+      catalog.revealEligibility('WorkDisabilityNote', 'workDisabilityNoteDescription'),
+      'not_revealable'
+    )
+  })
+
+  test('par ausente del catálogo no está clasificado', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(catalog.revealEligibility('Person', 'personFirstname'), 'not_classified')
+  })
+})
+
 test.group('LEGAL_CATEGORIES', () => {
   test('enumera exactamente las cinco categorías del type LegalCategory', ({ assert }) => {
     assert.deepEqual(

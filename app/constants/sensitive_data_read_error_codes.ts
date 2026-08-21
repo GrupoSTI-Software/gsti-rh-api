@@ -11,7 +11,12 @@
  *
  * `key` = slug del título en kebab-case español.
  */
-export const SENSITIVE_DATA_READ_ERROR_CODES = {} as const
+export const SENSITIVE_DATA_READ_ERROR_CODES = {
+  /** Columna clasificada pero fuera del registry de PiiRevealService — 422. */
+  NOT_REVEALABLE: 'EMP.SENS.READ.NOT_REVEALABLE',
+  /** Par modelo/columna ausente del catálogo de campos sensibles — 422. */
+  NOT_CLASSIFIED: 'EMP.SENS.READ.NOT_CLASSIFIED',
+} as const
 
 export type SensitiveDataReadErrorCode =
   (typeof SENSITIVE_DATA_READ_ERROR_CODES)[keyof typeof SENSITIVE_DATA_READ_ERROR_CODES]
