@@ -59,11 +59,11 @@ export function resolveTenantBillingProfileApiError(
     const definition = resolveDefinitionByCode(error.errorCode)
 
     return {
-      title: definition?.title ?? TENANT_BILLING_PROFILE_ERRORS.FORBIDDEN_ROLE.title,
+      title: definition?.title ?? TENANT_BILLING_PROFILE_ERRORS.SYS_UNHANDLED.title,
       detail: error.detail ?? error.message,
       key: error.key ?? definition?.key ?? error.errorCode,
       code: error.errorCode,
-      status: error.httpStatus,
+      status: definition?.status ?? error.httpStatus,
     }
   }
 

@@ -1,6 +1,9 @@
 import { DateTime } from 'luxon'
 import ExcelJS from 'exceljs'
+import logger from '@adonisjs/core/services/logger'
 import Employee from '#models/employee'
+import { EMPLOYEE_IMPORT_ERROR_CODES } from '#constants/employee_import_error_codes'
+import { resolveEmployeeImportApiError } from '#helpers/employee_import_api_error'
 import { EmployeeVacationExcelFilterInterface } from '../interfaces/employee_vacation_excel_filter_interface.js'
 import EmployeeService from './employee_service.js'
 import { EmployeeVacationExcelRowInterface } from '../interfaces/employee_vacation_excel_row_interface.js'
@@ -978,7 +981,16 @@ export default class EmployeeVacationService {
   async generateVacationImportTemplate(
     filters: EmployeeVacationExcelFilterInterface,
     allowedBusinessUnitIds: number[] = []
-  ): Promise<{ status: number; buffer?: Buffer; type?: string; title?: string; message?: string; error?: string }> {
+  ): Promise<{
+    status: number
+    buffer?: Buffer
+    type?: string
+    title?: string
+    message?: string
+    detail?: string
+    key?: string
+    code?: string
+  }> {
     try {
       // ── Obtener color corporativo y logo (igual que generateShiftAssignmentTemplate) ──
       // USRH1783712837584: reutiliza el `allowedBusinessUnitIds` ya resuelto por
@@ -1353,12 +1365,19 @@ export default class EmployeeVacationService {
       const buffer = await workbook.xlsx.writeBuffer()
       return { status: 201, buffer: Buffer.from(buffer) }
     } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al generar la plantilla de importación de vacaciones')
+      const resolved = resolveEmployeeImportApiError(error, 500, this.i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_VACATIONS,
+        key: 'error-importacion-vacaciones',
+      })
       return {
         status: 500,
         type: 'error',
         title: 'Error al generar template',
         message: 'Ocurrió un error al generar la plantilla de vacaciones',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }
@@ -1385,13 +1404,15 @@ export default class EmployeeVacationService {
    * luego registra los días de vacaciones en los periodos disponibles.
    * Si hay cualquier error de validación, no guarda nada y retorna detalle de errores.
    */
-  async importVacationFromExcel(file: any): Promise<{
+  async importVacationFromExcel(file: any, allowedBusinessUnitIds: number[] = []): Promise<{
     status: number
     type: string
     title: string
     message: string
     data?: any
-    error?: string
+    detail?: string
+    key?: string
+    code?: string
   }> {
     // ── 1. Leer el workbook ──
     const workbook = new ExcelJS.Workbook()
@@ -1486,9 +1507,11 @@ export default class EmployeeVacationService {
       // Fila completamente vacía → saltar silenciosamente
       if (!payrollId) continue
 
-      // Buscar empleado por identificador de nómina
+      // Buscar empleado por identificador de nómina, dentro del alcance de empresa del usuario.
+      // El whereIn va FUERA del callback de grupo: dentro quedaría bajo el OR y no acotaría nada.
       const employee = await Employee.query()
         .whereNull('employee_deleted_at')
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
         .where((q) => {
           q.where('employee_payroll_num', payrollId).orWhere('employee_payroll_code', payrollId)
         })
