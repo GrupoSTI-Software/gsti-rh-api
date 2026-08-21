@@ -136,6 +136,7 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *                 description: Notas del periodo. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               employeeChildrenId:
    *                 type: integer
    *                 nullable: true
@@ -215,6 +216,7 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *                 description: Notas del periodo. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               employeeChildrenId:
    *                 type: integer
    *                 nullable: true

@@ -27,7 +27,7 @@ import { sensitiveSerialize } from '#helpers/sensitive_serialize'
  *           description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *         employeeBiometricData:
  *           type: string
- *           description: Biometric data in format "Finger:1, Finger:2, Face"
+ *           description: Biometric data in format "Finger:1, Finger:2, Face". Puede llegar enmascarado según el permiso de lectura de su categoría.
  *         employeeBiometricCreatedAt:
  *           type: string
  *         employeeBiometricUpdatedAt:

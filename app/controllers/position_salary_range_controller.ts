@@ -49,10 +49,10 @@ export default class PositionSalaryRangeController {
    *                 type: integer
    *               minSalaryDaily:
    *                 type: number
-   *                 description: Salario mínimo diario
+   *                 description: Salario mínimo diario. Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
    *               maxSalaryDaily:
    *                 type: number
-   *                 description: Salario máximo diario
+   *                 description: Salario máximo diario. Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
    *               validFrom:
    *                 type: string
    *                 format: date
@@ -310,8 +310,10 @@ export default class PositionSalaryRangeController {
    *             properties:
    *               minSalaryDaily:
    *                 type: number
+   *                 description: Salario mínimo diario. Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
    *               maxSalaryDaily:
    *                 type: number
+   *                 description: Salario máximo diario. Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
    *               validFrom:
    *                 type: string
    *                 format: date

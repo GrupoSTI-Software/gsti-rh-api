@@ -52,7 +52,7 @@ export default class EmployeeSpouseController {
    *                 default: ''
    *               employeeSpousePhone:
    *                 type: string
-   *                 description: Employee spouse phone
+   *                 description: Employee spouse phone. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: false
    *                 default: ''
    *               employeeId:
@@ -249,7 +249,7 @@ export default class EmployeeSpouseController {
    *                 default: ''
    *               employeeSpousePhone:
    *                 type: string
-   *                 description: Employee spouse phone
+   *                 description: Employee spouse phone. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: false
    *                 default: ''
    *     responses:
