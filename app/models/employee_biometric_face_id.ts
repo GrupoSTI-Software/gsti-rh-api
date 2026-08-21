@@ -7,6 +7,7 @@ import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -83,10 +84,13 @@ export default class EmployeeBiometricFaceId extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrl'),
   })
   declare employeeBiometricFaceIdPhotoUrl: string
 
-  @column()
+  @column({
+    serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdToken'),
+  })
   declare employeeBiometricFaceIdToken: string
 
   @column.dateTime({ autoCreate: true })

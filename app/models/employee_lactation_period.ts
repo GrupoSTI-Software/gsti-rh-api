@@ -8,6 +8,7 @@ import Employee from '#models/employee'
 import EmployeeChildren from '#models/employee_children'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * Tipo de aplicación del horario de lactancia.
@@ -151,6 +152,7 @@ export default class EmployeeLactationPeriod extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeLactationPeriod', 'employeeLactationPeriodNotes'),
   })
   declare employeeLactationPeriodNotes: string | null
 

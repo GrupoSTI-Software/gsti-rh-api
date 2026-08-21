@@ -8,7 +8,58 @@ const MODELS = [
   'app/models/employee_medical_condition.ts',
 ] as const
 
-test.group('Wiring sensitiveSerialize en los 3 modelos', () => {
+const TEXT_MODELS = [
+  'app/models/person.ts',
+  'app/models/employee_bank.ts',
+  'app/models/employee_medical_condition.ts',
+  'app/models/employee_biometric.ts',
+  'app/models/employee_biometric_face_id.ts',
+  'app/models/work_disability_note.ts',
+  'app/models/traumatic_event_report.ts',
+  'app/models/employee_lactation_period.ts',
+  'app/models/employee_emergency_contact.ts',
+  'app/models/employee_spouse.ts',
+  'app/models/user_consent.ts',
+  'app/models/empresa_contratante.ts',
+] as const
+
+const TEXT_WIRING: Array<{ file: string; model: string; columns: string[] }> = [
+  { file: 'app/models/employee_biometric.ts', model: 'EmployeeBiometric', columns: ['employeeBiometricData'] },
+  {
+    file: 'app/models/employee_biometric_face_id.ts',
+    model: 'EmployeeBiometricFaceId',
+    columns: ['employeeBiometricFaceIdToken', 'employeeBiometricFaceIdPhotoUrl'],
+  },
+  {
+    file: 'app/models/work_disability_note.ts',
+    model: 'WorkDisabilityNote',
+    columns: ['workDisabilityNoteDescription'],
+  },
+  {
+    file: 'app/models/traumatic_event_report.ts',
+    model: 'TraumaticEventReport',
+    columns: ['traumaticEventReportInvolvedPeople', 'traumaticEventReportDescription'],
+  },
+  {
+    file: 'app/models/employee_lactation_period.ts',
+    model: 'EmployeeLactationPeriod',
+    columns: ['employeeLactationPeriodNotes'],
+  },
+  {
+    file: 'app/models/employee_emergency_contact.ts',
+    model: 'EmployeeEmergencyContact',
+    columns: ['employeeEmergencyContactPhone'],
+  },
+  { file: 'app/models/employee_spouse.ts', model: 'EmployeeSpouse', columns: ['employeeSpousePhone'] },
+  {
+    file: 'app/models/user_consent.ts',
+    model: 'UserConsent',
+    columns: ['userConsentIp', 'userConsentUserAgent'],
+  },
+  { file: 'app/models/empresa_contratante.ts', model: 'EmpresaContratante', columns: ['rfc'] },
+]
+
+test.group('Wiring sensitiveSerialize en Person, EmployeeBank y EmployeeMedicalCondition', () => {
   test('los tres modelos importan sensitiveSerialize y no maskSensitiveValue', ({ assert }) => {
     for (const relative of MODELS) {
       const source = readFileSync(join(process.cwd(), relative), 'utf-8')
@@ -62,5 +113,26 @@ test.group('Wiring sensitiveSerialize en los 3 modelos', () => {
       const source = readFileSync(join(process.cwd(), relative), 'utf-8')
       assert.notMatch(source, /maskSensitiveValue\([^)]*'/)
     }
+  })
+})
+
+test.group('Wiring sensitiveSerialize en las 12 columnas de texto de orden 31', () => {
+  test('cada modelo importa la fábrica y cablea sus columnas', ({ assert }) => {
+    for (const entry of TEXT_WIRING) {
+      const source = readFileSync(join(process.cwd(), entry.file), 'utf-8')
+      assert.include(source, "import { sensitiveSerialize } from '#helpers/sensitive_serialize'")
+      assert.notInclude(source, 'maskSensitiveValue')
+      for (const column of entry.columns) {
+        assert.include(source, `sensitiveSerialize('${entry.model}', '${column}')`)
+      }
+    }
+  })
+
+  test('el proxy de la foto facial no usa sensitiveSerialize', ({ assert }) => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/models/employee_biometric_face_id.ts'),
+      'utf-8'
+    )
+    assert.notInclude(source, "sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrlProxy')")
   })
 })

@@ -7,6 +7,7 @@ import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -71,6 +72,7 @@ export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, w
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeBiometric', 'employeeBiometricData'),
   })
   declare employeeBiometricData: string
 
