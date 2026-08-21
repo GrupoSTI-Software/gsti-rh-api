@@ -9,6 +9,7 @@ import BusinessUnit from './business_unit.js'
 import Position from './position.js'
 import User from './user.js'
 import PositionSalaryRangeAudit from './position_salary_range_audit.js'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -71,6 +72,7 @@ export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes,
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily'),
   })
   declare minSalaryDaily: number
 
@@ -86,6 +88,7 @@ export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes,
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRange', 'maxSalaryDaily'),
   })
   declare maxSalaryDaily: number
 

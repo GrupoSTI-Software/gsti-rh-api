@@ -8,6 +8,7 @@ import Employee from './employee.js'
 import User from './user.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -85,6 +86,7 @@ export default class EmployeeSalaryHistory extends compose(
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily'),
   })
   declare salaryDaily: number
 

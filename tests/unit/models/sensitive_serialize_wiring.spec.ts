@@ -136,3 +136,17 @@ test.group('Wiring sensitiveSerialize en las 12 columnas de texto de orden 31', 
     assert.notInclude(source, "sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrlProxy')")
   })
 })
+
+test.group('Wiring sensitiveSerializeNumeric en los 3 importes', () => {
+  test('histórico y rango usan la rama numérica, no maskLastFour', ({ assert }) => {
+    const history = readFileSync(join(process.cwd(), 'app/models/employee_salary_history.ts'), 'utf-8')
+    const range = readFileSync(join(process.cwd(), 'app/models/position_salary_range.ts'), 'utf-8')
+    assert.include(history, "import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'")
+    assert.include(range, "import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'")
+    assert.include(history, "sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily')")
+    assert.include(range, "sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily')")
+    assert.include(range, "sensitiveSerializeNumeric('PositionSalaryRange', 'maxSalaryDaily')")
+    assert.notInclude(history, 'sensitiveSerialize(')
+    assert.notInclude(range, 'sensitiveSerialize(')
+  })
+})
