@@ -8,21 +8,6 @@ const MODELS = [
   'app/models/employee_medical_condition.ts',
 ] as const
 
-const TEXT_MODELS = [
-  'app/models/person.ts',
-  'app/models/employee_bank.ts',
-  'app/models/employee_medical_condition.ts',
-  'app/models/employee_biometric.ts',
-  'app/models/employee_biometric_face_id.ts',
-  'app/models/work_disability_note.ts',
-  'app/models/traumatic_event_report.ts',
-  'app/models/employee_lactation_period.ts',
-  'app/models/employee_emergency_contact.ts',
-  'app/models/employee_spouse.ts',
-  'app/models/user_consent.ts',
-  'app/models/empresa_contratante.ts',
-] as const
-
 const TEXT_WIRING: Array<{ file: string; model: string; columns: string[] }> = [
   { file: 'app/models/employee_biometric.ts', model: 'EmployeeBiometric', columns: ['employeeBiometricData'] },
   {

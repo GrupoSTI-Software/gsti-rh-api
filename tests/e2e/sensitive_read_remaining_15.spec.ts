@@ -2,13 +2,12 @@ import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import type { Assert } from '@japa/assert'
 import SystemModule from '#models/system_module'
-import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
+import { maskSensitiveValue } from '#helpers/sensitive_mask'
 import {
   TEST_PASSWORD,
   activateUser,
   bearerFromLogin,
   bearerGet,
-  buHeader,
   cleanupActor,
   cleanupRemainingSensitiveFixture,
   cleanupSensitiveFixture,
@@ -23,7 +22,6 @@ import {
   expectAmountNull,
   expectMaskedHealth,
   expectNeverDenied,
-  expectNoClearRemaining,
   firstSalaryDaily,
   grantOnly,
   lactationNotesFromIndex,
@@ -39,14 +37,6 @@ import {
   type SensitiveFixture,
   type TenantActor,
 } from '../functional/employees/sensitive_read_by_category_support.js'
-
-const FIVE_READS = [
-  'sensitive-identificacion-read',
-  'sensitive-contacto-read',
-  'sensitive-financiero-read',
-  'sensitive-salud-read',
-  'sensitive-biometrico-read',
-] as const
 
 async function sessionToken(
   client: ApiClient,
