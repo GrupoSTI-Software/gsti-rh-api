@@ -2,6 +2,7 @@ import type { Assert } from '@japa/assert'
 import type { ApiClient } from '@japa/api-client'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { LegalCategory } from '#constants/sensitive_fields'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -14,8 +15,25 @@ import MedicalConditionType from '#models/medical_condition_type'
 import Bank from '#models/bank'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemPermission from '#models/system_permission'
+import WorkDisability from '#models/work_disability'
+import WorkDisabilityNote from '#models/work_disability_note'
+import InsuranceCoverageType from '#models/insurance_coverage_type'
+import EmployeeSpouse from '#models/employee_spouse'
+import EmployeeEmergencyContact from '#models/employee_emergency_contact'
+import EmployeeLactationPeriod from '#models/employee_lactation_period'
+import TraumaticEventReport from '#models/traumatic_event_report'
+import TraumaticEventType from '#models/traumatic_event_type'
+import EmployeeBiometric from '#models/employee_biometric'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import EmployeeSalaryHistory from '#models/employee_salary_history'
+import PositionSalaryRange from '#models/position_salary_range'
+import EmpresaContratante from '#models/empresa_contratante'
+import UserConsent from '#models/user_consent'
+import LegalDocument from '#models/legal_document'
 import { TenantContext } from '#utils/tenant_context'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { blindIndex } from '#utils/blind_index'
+import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
+import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -407,7 +425,7 @@ export function buHeader(actor: TenantActor) {
   return actor.businessUnit.businessUnitPublicId
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
+export function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
 }
 
@@ -634,4 +652,284 @@ export function expectContactoClearIdentificacionMasked(
 ) {
   expectPersonContactoClear(person, clear, assert)
   expectPersonIdentificacionMasked(person, clear, assert)
+}
+
+export const allDenied: Record<LegalCategory, boolean> = {
+  identificacion: false,
+  contacto: false,
+  financiero: false,
+  salud: false,
+  biometrico: false,
+}
+
+export const CLEAR_REMAINING = {
+  disabilityDescription: 'nota clinica de incapacidad qa',
+  traumaPeople: 'Ana y Luis',
+  traumaDescription: 'caida en andamio',
+  lactationNotes: 'notas de lactancia qa',
+  spouseFirstname: 'ConyugeQa',
+  spouseLastname: 'Prueba',
+  emergencyFirstname: 'EmerQa',
+  emergencyLastname: 'Contacto',
+  emergencyRelationship: 'hermano',
+  biometricData: 'Finger:1, Finger:4, Face',
+  faceToken: 'face-token-qa-xyz',
+  facePhotoUrl: 's3://gsti-qa/face.jpg',
+  empresaRfc: 'VACW850312J95',
+  empresaRazon: 'QA Contratante Sensible SA de CV',
+  salaryDaily: 1250.75,
+  minSalaryDaily: 1000,
+  maxSalaryDaily: 2000,
+  consentIp: '203.0.113.10',
+  consentUa: 'QaAgent/1.0',
+} as const
+
+export interface RemainingSensitiveFixture {
+  disability: WorkDisability
+  note: WorkDisabilityNote
+  spouse: EmployeeSpouse
+  emergency: EmployeeEmergencyContact
+  lactation: EmployeeLactationPeriod
+  trauma: TraumaticEventReport
+  biometric: EmployeeBiometric
+  faceId: EmployeeBiometricFaceId
+  salary: EmployeeSalaryHistory
+  range: PositionSalaryRange
+  empresa: EmpresaContratante
+  consent: UserConsent | null
+}
+
+export async function grantModuleAction(
+  roleId: number,
+  moduleSlug: string,
+  actionSlug: string
+) {
+  const permission = await SystemPermission.query()
+    .whereNull('system_permission_deleted_at')
+    .where('system_permission_slug', actionSlug)
+    .whereHas('systemModule', (query) =>
+      query.whereNull('system_module_deleted_at').where('system_module_slug', moduleSlug)
+    )
+    .first()
+  if (!permission) {
+    throw new Error(`Se requiere ${moduleSlug}:${actionSlug} en BD para este test.`)
+  }
+  await RoleSystemPermission.firstOrCreate(
+    { roleId, systemPermissionId: permission.systemPermissionId },
+    { roleId, systemPermissionId: permission.systemPermissionId }
+  )
+}
+
+export async function createRemainingSensitiveFixture(
+  actor: TenantActor,
+  base: SensitiveFixture
+): Promise<RemainingSensitiveFixture> {
+  const coverage = await InsuranceCoverageType.query()
+    .whereNull('insurance_coverage_type_deleted_at')
+    .firstOrFail()
+  const disability = await WorkDisability.create({
+    employeeId: base.employee.employeeId,
+    insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
+    workDisabilityUuid: `wd-sens15-${Date.now()}`,
+  })
+  const note = await WorkDisabilityNote.create({
+    workDisabilityId: disability.workDisabilityId,
+    workDisabilityNoteDescription: CLEAR_REMAINING.disabilityDescription,
+    userId: actor.user.userId,
+  })
+  const spouse = await EmployeeSpouse.create({
+    employeeId: base.employee.employeeId,
+    employeeSpouseFirstname: CLEAR_REMAINING.spouseFirstname,
+    employeeSpouseLastname: CLEAR_REMAINING.spouseLastname,
+    employeeSpouseSecondLastname: 'Qa',
+    employeeSpouseOcupation: 'QA',
+    employeeSpouseBirthday: '1990-01-15',
+    employeeSpousePhone: CLEAR_FIXED.phoneSecondary,
+  })
+  const emergency = await EmployeeEmergencyContact.create({
+    employeeId: base.employee.employeeId,
+    employeeEmergencyContactFirstname: CLEAR_REMAINING.emergencyFirstname,
+    employeeEmergencyContactLastname: CLEAR_REMAINING.emergencyLastname,
+    employeeEmergencyContactSecondLastname: 'Qa',
+    employeeEmergencyContactRelationship: CLEAR_REMAINING.emergencyRelationship,
+    employeeEmergencyContactPhone: CLEAR_FIXED.phone,
+  })
+  const lactation = new EmployeeLactationPeriod()
+  lactation.employeeId = base.employee.employeeId
+  lactation.employeeLactationPeriodStartDate = DateTime.now().startOf('day')
+  lactation.employeeLactationPeriodEndDate = DateTime.now().startOf('day').plus({ days: 60 })
+  lactation.employeeLactationPeriodType = 'reduced_hour'
+  lactation.employeeLactationPeriodReductionApplication = 'end'
+  lactation.employeeLactationPeriodNotes = CLEAR_REMAINING.lactationNotes
+  await lactation.save()
+  const traumaType = await TraumaticEventType.query()
+    .whereNull('traumatic_event_type_deleted_at')
+    .firstOrFail()
+  const trauma = await TraumaticEventReport.create({
+    employeeId: base.employee.employeeId,
+    traumaticEventTypeId: traumaType.traumaticEventTypeId,
+    traumaticEventReportOccurredAt: DateTime.now().startOf('day'),
+    traumaticEventReportElaboratedAt: DateTime.now(),
+    traumaticEventReportInvolvedPeople: CLEAR_REMAINING.traumaPeople,
+    traumaticEventReportDescription: CLEAR_REMAINING.traumaDescription,
+    traumaticEventReportOrigin: 'rh',
+    traumaticEventReportCapturedByUserId: actor.user.userId,
+  })
+  const biometric = await EmployeeBiometric.create({
+    employeeId: base.employee.employeeId,
+    businessUnitId: actor.businessUnit.businessUnitId,
+    employeeBiometricData: CLEAR_REMAINING.biometricData,
+    employeeBiometricStatus: 'completed_both',
+  })
+  const faceId = await EmployeeBiometricFaceId.create({
+    employeeId: base.employee.employeeId,
+    businessUnitId: actor.businessUnit.businessUnitId,
+    employeeBiometricFaceIdToken: CLEAR_REMAINING.faceToken,
+    employeeBiometricFaceIdPhotoUrl: CLEAR_REMAINING.facePhotoUrl,
+  })
+  const salary = await EmployeeSalaryHistory.create({
+    employeeId: base.employee.employeeId,
+    salaryDaily: CLEAR_REMAINING.salaryDaily,
+    validFrom: DateTime.now().startOf('day'),
+    validTo: null,
+    changedBy: actor.user.userId,
+    reason: 'qa-orden-31',
+  })
+  const range = await PositionSalaryRange.create({
+    businessUnitId: actor.businessUnit.businessUnitId,
+    positionId: base.positionId,
+    minSalaryDaily: CLEAR_REMAINING.minSalaryDaily,
+    maxSalaryDaily: CLEAR_REMAINING.maxSalaryDaily,
+    validFrom: DateTime.now().startOf('day'),
+    validTo: null,
+    createdBy: actor.user.userId,
+  })
+  const normalizedRfc = normalizeRfc(CLEAR_REMAINING.empresaRfc)
+  const empresa = await EmpresaContratante.create({
+    businessUnitId: actor.businessUnit.businessUnitId,
+    razonSocial: CLEAR_REMAINING.empresaRazon,
+    rfc: CLEAR_REMAINING.empresaRfc,
+    rfcHash: blindIndex(normalizedRfc),
+    domicilioFiscal: 'Calle QA 1, CDMX',
+  })
+  const legal = await LegalDocument.query().first()
+  let consent: UserConsent | null = null
+  if (legal) {
+    consent = await UserConsent.create({
+      userId: actor.user.userId,
+      employeeId: base.employee.employeeId,
+      legalDocumentId: legal.legalDocumentId,
+      userConsentDocumentVersion: 'qa-1',
+      userConsentIp: CLEAR_REMAINING.consentIp,
+      userConsentUserAgent: CLEAR_REMAINING.consentUa,
+      userConsentAcceptedAt: DateTime.now(),
+      userConsentChannel: 'digital',
+    })
+  }
+  return {
+    disability,
+    note,
+    spouse,
+    emergency,
+    lactation,
+    trauma,
+    biometric,
+    faceId,
+    salary,
+    range,
+    empresa,
+    consent,
+  }
+}
+
+export async function cleanupRemainingSensitiveFixture(
+  extra: RemainingSensitiveFixture | null
+) {
+  if (!extra) return
+  if (extra.consent) {
+    await UserConsent.query().where('user_consent_id', extra.consent.userConsentId).delete()
+  }
+  await EmpresaContratante.query()
+    .where('empresa_contratante_id', extra.empresa.empresaContratanteId)
+    .delete()
+  await PositionSalaryRange.query()
+    .where('position_salary_range_id', extra.range.positionSalaryRangeId)
+    .delete()
+  await EmployeeSalaryHistory.query()
+    .where('employee_salary_history_id', extra.salary.employeeSalaryHistoryId)
+    .delete()
+  await EmployeeBiometricFaceId.query()
+    .where('employee_biometric_face_id_id', extra.faceId.employeeBiometricFaceIdId)
+    .delete()
+  await EmployeeBiometric.query()
+    .where('employee_biometric_id', extra.biometric.employeeBiometricId)
+    .delete()
+  await TraumaticEventReport.query()
+    .where('traumatic_event_report_id', extra.trauma.traumaticEventReportId)
+    .delete()
+  await EmployeeLactationPeriod.query()
+    .where('employee_lactation_period_id', extra.lactation.employeeLactationPeriodId)
+    .delete()
+  await EmployeeEmergencyContact.query()
+    .where('employee_emergency_contact_id', extra.emergency.employeeEmergencyContactId)
+    .delete()
+  await EmployeeSpouse.query()
+    .where('employee_spouse_id', extra.spouse.employeeSpouseId)
+    .delete()
+  await WorkDisabilityNote.query()
+    .where('work_disability_note_id', extra.note.workDisabilityNoteId)
+    .delete()
+  await WorkDisability.query()
+    .where('work_disability_id', extra.disability.workDisabilityId)
+    .delete()
+}
+
+export function workDisabilityNoteBody(body: Record<string, unknown>) {
+  return asRecord(asRecord(body.data).workDisabilityNote)
+}
+
+export function spouseBody(body: Record<string, unknown>) {
+  return asRecord(asRecord(body.data).employeeSpouse)
+}
+
+export function emergencyBody(body: Record<string, unknown>) {
+  return asRecord(asRecord(body.data).employeeEmergencyContact)
+}
+
+export function firstSalaryDaily(body: Record<string, unknown>): unknown {
+  const data = body.data
+  const rows = Array.isArray(data)
+    ? data
+    : Array.isArray(asRecord(data).data)
+      ? (asRecord(data).data as unknown[])
+      : []
+  const first = asRecord(rows[0])
+  return first.salaryDaily
+}
+
+export function rangeAmounts(body: Record<string, unknown>): {
+  min: unknown
+  max: unknown
+} {
+  const data = body.data
+  const rows = Array.isArray(data) ? data : []
+  const first = asRecord(rows[0])
+  return { min: first.minSalaryDaily, max: first.maxSalaryDaily }
+}
+
+export function empresaRfcFromShow(body: Record<string, unknown>): unknown {
+  const data = asRecord(body.data)
+  const direct = asRecord(data.empresaContratante)
+  if (direct.rfc !== undefined) return direct.rfc
+  if (data.rfc !== undefined) return data.rfc
+  return undefined
+}
+
+export function expectMaskedHealth(value: unknown, assert: Assert) {
+  assert.equal(value, MASK_CHAR.repeat(5))
+}
+
+export function expectAmountNull(value: unknown, assert: Assert) {
+  assert.isNull(value)
+  assert.notEqual(value, '•••0.75')
 }
