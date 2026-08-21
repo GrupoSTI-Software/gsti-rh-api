@@ -12,6 +12,7 @@ import {
 } from '../helpers/repse_tenant_scope.js'
 import { normalizeRfc } from '../shared/validators/rfc.validator.js'
 import { blindIndex } from '#utils/blind_index'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 
 export interface EmpresaContratanteCreatePayload {
   businessUnitId: number
@@ -48,7 +49,7 @@ export function serializeEmpresaContratante(row: EmpresaContratante) {
   return {
     id: row.empresaContratanteId,
     razonSocial: row.razonSocial,
-    rfc: row.rfc,
+    rfc: maskSensitiveDtoValue('EmpresaContratante', 'rfc', row.rfc),
     domicilioFiscal: row.domicilioFiscal,
     representanteLegal: row.representanteLegal,
     correo: row.correo,
