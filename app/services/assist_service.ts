@@ -3394,6 +3394,8 @@ export default class AssistsService {
     newAssist.assistTerminalId = assist.assistTerminalId
     newAssist.assistSyncId = assist.assistSyncId
     newAssist.assistType = assist.assistType
+    newAssist.assistOrigin = assist.assistOrigin
+    newAssist.assistCreatedByUserId = assist.assistCreatedByUserId
     newAssist.assistPunchTime = assist.assistPunchTime
     newAssist.assistPunchTimeUtc = assist.assistPunchTimeUtc
     newAssist.assistPunchTimeOrigin = assist.assistPunchTimeOrigin

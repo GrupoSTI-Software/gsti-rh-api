@@ -10,9 +10,9 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 147 operaciones con module employees y bypass standard', ({ assert }) => {
+  test('declara exactamente 150 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 147)
+    assert.equal(keys.length, 150)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -94,6 +94,10 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.createEmployeeProceedingFile.action, 'tab-expediente-write')
     assert.equal(d.updateEmployeeProceedingFile.action, 'tab-expediente-write')
     assert.equal(d.deleteEmployeeProceedingFile.action, 'tab-expediente-delete')
+    // USRH1786648597850: catálogo compartido de categorías de propiedades de expediente
+    assert.equal(d.storeProceedingFileTypeProperty.action, 'tab-expediente-write')
+    assert.equal(d.storeMultipleProceedingFileTypeProperties.action, 'tab-expediente-write')
+    assert.equal(d.deleteProceedingFileTypeProperty.action, 'tab-expediente-delete')
     assert.equal(d.createCertification.action, 'tab-certificaciones-write')
     assert.equal(d.updateCertification.action, 'tab-certificaciones-write')
     assert.equal(d.deleteCertification.action, 'tab-certificaciones-delete')

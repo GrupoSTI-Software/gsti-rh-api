@@ -1,5 +1,5 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
@@ -8,6 +8,8 @@ import Employee from '#models/employee'
 import TraumaticEventType from '#models/traumatic_event_type'
 import User from '#models/user'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 export type TraumaticEventReportOrigin = 'employee' | 'rh'
 
@@ -24,6 +26,9 @@ export type TraumaticEventReportOrigin = 'employee' | 'rh'
  *         employeeId:
  *           type: integer
  *           description: Empleado afectado (FK a employees).
+ *         businessUnitId:
+ *           type: integer
+ *           description: Unidad de negocio dueña (estampada al crear desde el empleado, USRH1786595131490).
  *         traumaticEventTypeId:
  *           type: integer
  *           description: Tipo de evento (FK a traumatic_event_types).
@@ -60,7 +65,11 @@ export type TraumaticEventReportOrigin = 'employee' | 'rh'
  *           format: date-time
  *           nullable: true
  */
-export default class TraumaticEventReport extends compose(BaseModel, SoftDeletes) {
+export default class TraumaticEventReport extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'traumatic_event_reports'
 
   @column({ isPrimary: true })
@@ -68,6 +77,20 @@ export default class TraumaticEventReport extends compose(BaseModel, SoftDeletes
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (empresa donde ocurrió el evento, USRH1786595131490). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado al crear (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: TraumaticEventReport) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado del reporte'
+    )
+  }
 
   @column()
   declare traumaticEventTypeId: number
