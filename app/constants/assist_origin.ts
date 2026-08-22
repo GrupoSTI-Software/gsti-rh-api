@@ -1,6 +1,6 @@
 /**
- * Origen de una checada en la bitácora MongoDB (`log_assist.create_from`).
- * USRH1787157820192 — vocabulario cerrado; no inventar valores fuera de esta unión.
+ * Procedencia de una checada (`assists.assist_origin` y bitácora legacy).
+ * USRH1787157820192 / USRH1787157820195 — vocabulario cerrado.
  */
 export const ASSIST_ORIGIN = {
   /** La propia persona registró su checada (autoservicio / app). */
