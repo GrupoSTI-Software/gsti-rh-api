@@ -3452,6 +3452,7 @@ export default class AssistsService {
     newAssist.assistTerminalAlias = deviceAlias
     newAssist.assistAreaAlias = ''
     newAssist.assistSyncId = 0
+    newAssist.businessUnitId = employee.businessUnitId
 
     await newAssist.save()
 
@@ -5069,52 +5070,6 @@ export default class AssistsService {
 
   capitalizeFirstLetter(text: string) {
     return text.charAt(0).toUpperCase() + text.slice(1);
-  }
-
-  /**
-   * Elimina todas las asistencias existentes
-   *
-   * Esta función:
-   * 1. Elimina todas las asistencias
-   *
-   * @returns Objeto con el resultado de la operación
-   */
-  async deleteAllAssists() {
-    try {
-      // Contar registros antes de eliminar
-      const totalAssists = await Assist.query()
-        .count('* as total')
-
-      const counts = {
-        assists: Number(totalAssists[0].$extras.total),
-      }
-
-      // 1. Eliminar todas las asistencias
-      await Assist.query()
-        .delete()
-
-      return {
-        status: 200,
-        type: 'success',
-        title: 'Assists deleted successfully',
-        message: 'All assists have been deleted successfully',
-        data: {
-          deleted: {
-            assists: counts.assists,
-          },
-        },
-      }
-    } catch (error: any) {
-      console.error('Error al eliminar todas las asistencias:', error)
-      return {
-        status: 500,
-        type: 'error',
-        title: 'Error to delete assists',
-        message: 'An error occurred while trying to delete all assists',
-        error: error.message,
-        data: null,
-      }
-    }
   }
 
   /**

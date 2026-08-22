@@ -21,6 +21,10 @@ import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
 import { ASSIST_ORIGIN } from '#constants/assist_origin'
+import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
+import { resolveAssistApiError } from '#helpers/assist_api_error'
+import { AssistError } from '#exceptions/assist_error'
+import { TenantContext } from '#utils/tenant_context'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -135,7 +139,10 @@ export default class AssistsController {
 
     try {
       const syncAssistsService = new SyncAssistsService(i18n)
-      const result = await syncAssistsService.synchronize(dateParamApi, page)
+      const result = await TenantContext.runUnscoped(
+        () => syncAssistsService.synchronize(dateParamApi, page),
+        ASSIST_SYNC_RUN_UNSCOPED_REASON
+      )
       return response.status(200).json(result)
     } catch (error) {
       return response.status(400).json({ message: error.message })
@@ -212,7 +219,10 @@ export default class AssistsController {
         rawHeaders: rawHeaders,
       } as AssistSyncFilterInterface
       const  syncAssistsService = new SyncAssistsService(i18n)
-      const result = await syncAssistsService.synchronizeByEmployee(filters)
+      const result = await TenantContext.runUnscoped(
+        () => syncAssistsService.synchronizeByEmployee(filters),
+        ASSIST_SYNC_RUN_UNSCOPED_REASON
+      )
       return response.status(200).json(result)
     } catch (error) {
       return response.status(400).json({ message: error.message })
@@ -1309,6 +1319,19 @@ export default class AssistsController {
         }
       }
     } catch (error) {
+      if (error instanceof AssistError) {
+        const resolved = resolveAssistApiError(error, 422, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'warning',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.code,
+        }
+      }
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1626,6 +1649,8 @@ export default class AssistsController {
       }
 
       currentAssist.assistActive = 0
+      // Regla 16 (CA-23): inactivar no libera el slot de llave natural; un reenvío
+      // idéntico del checador/sync choca contra assists_natural_key_unique.
       await currentAssist.save()
       if (currentAssist.assistPunchTimeUtc) {
         const assistService = new AssistsService(i18n)

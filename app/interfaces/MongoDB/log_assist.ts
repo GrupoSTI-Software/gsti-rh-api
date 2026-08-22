@@ -1,3 +1,4 @@
+/** Solo tipado del snapshot en bitácora Mongo; sin escritura directa a `assists`. */
 import Assist from '#models/assist'
 import { Actions } from './enum/actions.js'
 import type { AssistCreateFrom } from '#constants/assist_origin'
