@@ -10,9 +10,13 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 150 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 152 desde la reestructura de UI de Empleados: se suman
+  // `assignEmployeeAccessPoint` y `removeEmployeeAccessPoint`, que cubren el
+  // hueco de asignar y retirar puntos de acceso al colaborador. Ambas reusan
+  // el slug `tab-biometricos-write` que ya existia en el catalogo.
+  test('declara exactamente 152 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 150)
+    assert.equal(keys.length, 152)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 

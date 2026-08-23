@@ -123,6 +123,10 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteEmployeeFaceId: employeesStandard('tab-biometricos-delete'),
   updateEmployeeFingers: employeesStandard('upload-fingers'),
   createEmployeeBiometric: employeesStandard('tab-biometricos-write'),
+  /** Asignar un punto de acceso al empleado desde la seccion de biometricos. */
+  assignEmployeeAccessPoint: employeesStandard('tab-biometricos-write'),
+  /** Retirar un punto de acceso del empleado. */
+  removeEmployeeAccessPoint: employeesStandard('tab-biometricos-write'),
   updateEmployeeBiometric: employeesStandard('tab-biometricos-write'),
   updateEmployeeFaceStatus: employeesStandard('tab-biometricos-write'),
   updateEmployeeDeviceStatus: employeesStandard('tab-dispositivos-write'),
