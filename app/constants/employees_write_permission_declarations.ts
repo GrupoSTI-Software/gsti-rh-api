@@ -1,4 +1,6 @@
 import type { PermissionGateOptions } from '#constants/permission_gate'
+import type { EmployeeActionSlug } from '#constants/employees_permission_catalog'
+import type { LegalCategory } from '#constants/sensitive_fields'
 
 const employeesStandard = (
   action: string | readonly string[]
@@ -7,6 +9,9 @@ const employeesStandard = (
   action,
   bypass: 'standard',
 })
+
+const employeesSensitiveWrite = (action: EmployeeActionSlug): PermissionGateOptions =>
+  employeesStandard(action)
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
@@ -194,3 +199,16 @@ export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION: Permissi
 /** Permiso secundario cuando la escritura de excepción / aceptación de solicitud asienta o altera vacaciones. */
 export const EMPLOYEES_MANAGE_VACATION_PERMISSION: PermissionGateOptions =
   employeesStandard('manage-vacation')
+
+/**
+ * Permisos de escritura por categoría legal (USRH1787204602831).
+ * Consumidos por `resolveSensitiveWriteDecisions`; no se montan en rutas.
+ * Un slug inventado no compila: `employeesSensitiveWrite` exige `EmployeeActionSlug`.
+ */
+export const EMPLOYEES_SENSITIVE_WRITE_PERMISSIONS: Record<LegalCategory, PermissionGateOptions> = {
+  identificacion: employeesSensitiveWrite('sensitive-identificacion-write'),
+  contacto: employeesSensitiveWrite('sensitive-contacto-write'),
+  financiero: employeesSensitiveWrite('sensitive-financiero-write'),
+  salud: employeesSensitiveWrite('sensitive-salud-write'),
+  biometrico: employeesSensitiveWrite('sensitive-biometrico-write'),
+}
