@@ -675,17 +675,7 @@ export default class EmployeeLactationPeriodsController {
    *                       type: string
    *                       format: date-time
    *       '401': { description: Sin autenticación }
-   *       '403':
-   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
-   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
-   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
-   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
+   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
    */
   async runExpiringCheck(ctx: HttpContext) {
     const { response } = ctx
@@ -1165,7 +1155,17 @@ export default class EmployeeLactationPeriodsController {
    *                       message: { type: string }
    *       '400': { description: Validación inválida del body }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Periodo inexistente o ajeno a la empresa }
    *       '422':
    *         description: |
