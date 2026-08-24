@@ -6,6 +6,10 @@ import {
   updateWorkDisabilityNoteValidator,
 } from '#validators/work_disability_note'
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 /** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
 function workDisabilityNoteNotFoundResponse(response: HttpContext['response']) {
@@ -126,7 +130,8 @@ export default class WorkDisabilityNoteController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, auth }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, auth } = ctx
     try {
       const userId = auth.user?.userId
       const workDisabilityNoteDescription = request.input('workDisabilityNoteDescription')
@@ -159,6 +164,7 @@ export default class WorkDisabilityNoteController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -414,7 +420,8 @@ export default class WorkDisabilityNoteController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const workDisabilityNoteId = request.param('workDisabilityNoteId')
       if (!workDisabilityNoteId) {
@@ -454,6 +461,7 @@ export default class WorkDisabilityNoteController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

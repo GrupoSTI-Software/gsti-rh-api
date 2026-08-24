@@ -1,6 +1,10 @@
 import { HttpContext } from '@adonisjs/core/http'
 import EmployeeBiometricService from '#services/employee_biometric_service'
 import { createEmployeeBiometricValidator, updateEmployeeBiometricValidator } from '#validators/employee_biometric'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBiometricController {
   /**
@@ -235,7 +239,8 @@ export default class EmployeeBiometricController {
    *       default:
    *         description: Unexpected error
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -280,6 +285,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -328,7 +334,8 @@ export default class EmployeeBiometricController {
    *       default:
    *         description: Unexpected error
    */
-  async updateFingers({ request, response, i18n }: HttpContext) {
+  async updateFingers(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -370,6 +377,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -416,7 +424,8 @@ export default class EmployeeBiometricController {
    *       default:
    *         description: Unexpected error
    */
-  async updateFaceStatus({ request, response, i18n }: HttpContext) {
+  async updateFaceStatus(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -458,6 +467,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -508,7 +518,8 @@ export default class EmployeeBiometricController {
    *       default:
    *         description: Unexpected error
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -556,6 +567,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

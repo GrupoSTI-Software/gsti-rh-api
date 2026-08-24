@@ -32,6 +32,10 @@ import {
   generateProvisionalPassword,
 } from '#helpers/user_invitation_credentials'
 import { USER_INVITATION_LOGIN_ERRORS, USER_INVITATION_RESEND_ERRORS } from '#constants/user_invitation_error_codes'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -1549,7 +1553,8 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       const userEmail = request.input('userEmail')
       const userActive = request.input('userActive')
@@ -1630,6 +1635,7 @@ export default class UserController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1910,7 +1916,8 @@ export default class UserController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response, i18n, scopedUser }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { auth, request, response, i18n, scopedUser } = ctx
     try {
       const currentUser = scopedUser!
       const userId = currentUser.userId
@@ -1980,6 +1987,7 @@ export default class UserController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

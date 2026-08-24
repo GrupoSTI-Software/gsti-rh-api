@@ -66,6 +66,10 @@ import { isEmployeeTerminationRecordChanged } from '#helpers/employee_terminatio
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 import EmployeeQuotaService from '#services/employee_quota_service'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -7197,7 +7201,8 @@ export default class EmployeeController {
    *                 data:
    *                   nullable: true
    */
-  async importFromExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async importFromExcel(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const file = request.file('file')
 
@@ -7274,6 +7279,7 @@ export default class EmployeeController {
         data: result,
       }
     } catch (error: unknown) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error instanceof EmployeeQuotaError) {
         const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
         response.status(resolved.status)

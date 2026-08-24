@@ -25,6 +25,10 @@ import { resolveEmployeeLactationPeriodApiError } from '../helpers/employee_lact
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import PiiExportService from '#services/pii_export_service'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 /**
  * Esta funcionalidad NO tiene módulo propio en `system_modules`: vive
@@ -180,6 +184,7 @@ export default class EmployeeLactationPeriodsController {
         201
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -262,6 +267,7 @@ export default class EmployeeLactationPeriodsController {
         'Periodo de lactancia actualizado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -829,6 +835,7 @@ export default class EmployeeLactationPeriodsController {
         'Día de lactancia revocado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 500)
     }
   }
@@ -921,6 +928,7 @@ export default class EmployeeLactationPeriodsController {
         'Día de lactancia reasignado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 500)
     }
   }
@@ -1136,6 +1144,7 @@ export default class EmployeeLactationPeriodsController {
         'Reasignación bulk procesada'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 500)
     }
   }

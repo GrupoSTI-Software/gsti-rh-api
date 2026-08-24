@@ -3,6 +3,10 @@ import EmployeeBiometricFaceIdService from '#services/employee_biometric_face_id
 import { HttpContext } from '@adonisjs/core/http'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBiometricFaceIdController {
   /**
@@ -120,9 +124,10 @@ export default class EmployeeBiometricFaceIdController {
    */
   @inject()
   async uploadPhoto(
-    { request, response }: HttpContext,
+    ctx: HttpContext,
     uploadService: UploadService
   ) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -214,6 +219,7 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
         type: 'error',
@@ -332,9 +338,10 @@ export default class EmployeeBiometricFaceIdController {
    */
   @inject()
   async replacePhoto(
-    { request, response }: HttpContext,
+    ctx: HttpContext,
     uploadService: UploadService
   ) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -408,6 +415,7 @@ export default class EmployeeBiometricFaceIdController {
         data: result.data,
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
         type: 'error',
@@ -817,7 +825,8 @@ export default class EmployeeBiometricFaceIdController {
    *                   type: string
    */
   @inject()
-  async getPhotoToken({ request, response }: HttpContext, uploadService: UploadService) {
+  async getPhotoToken(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
       const token = request.param('token')
@@ -899,6 +908,7 @@ export default class EmployeeBiometricFaceIdController {
         },
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
         type: 'error',

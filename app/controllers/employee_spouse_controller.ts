@@ -5,6 +5,10 @@ import {
   updateEmployeeSpouseValidator,
 } from '#validators/employee_spouse'
 import { HttpContext } from '@adonisjs/core/http'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeSpouseController {
   /**
@@ -141,7 +145,8 @@ export default class EmployeeSpouseController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeSpouseFirstname = request.input('employeeSpouseFirstname')
       const employeeSpouseLastname = request.input('employeeSpouseLastname')
@@ -185,6 +190,7 @@ export default class EmployeeSpouseController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -333,7 +339,8 @@ export default class EmployeeSpouseController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeSpouseId = request.param('employeeSpouseId')
       const employeeSpouseFirstname = request.input('employeeSpouseFirstname')
@@ -393,6 +400,7 @@ export default class EmployeeSpouseController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

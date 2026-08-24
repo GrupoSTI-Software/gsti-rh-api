@@ -8,6 +8,10 @@ import { personIsCollaborator } from '#helpers/person_is_collaborator'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { sessionUserOwnsPerson } from '#helpers/session_user_owns_employee'
 import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
+import {
   EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION,
   EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION,
 } from '#constants/employees_write_permission_declarations'
@@ -309,7 +313,8 @@ export default class PersonController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     try {
       const personFirstname = request.input('personFirstname')
       const personLastname = request.input('personLastname')
@@ -349,6 +354,7 @@ export default class PersonController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
         response.status(422)
@@ -632,6 +638,7 @@ export default class PersonController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
         response.status(422)

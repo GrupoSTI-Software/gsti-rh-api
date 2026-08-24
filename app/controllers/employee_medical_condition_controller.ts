@@ -8,6 +8,10 @@ import {
 } from '#validators/employee_medical_condition'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeMedicalConditionController {
   /**
@@ -137,7 +141,8 @@ export default class EmployeeMedicalConditionController {
    *         description: Unexpected error
    */
   @inject()
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeMedicalConditionService = new EmployeeMedicalConditionService()
       let inputs = request.all()
@@ -175,6 +180,7 @@ export default class EmployeeMedicalConditionController {
         data: { employeeMedicalCondition: newEmployeeMedicalCondition },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         response.status(422)
         return {
@@ -263,7 +269,8 @@ export default class EmployeeMedicalConditionController {
    *         description: Unexpected error
    */
   @inject()
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeMedicalConditionService = new EmployeeMedicalConditionService()
       let inputs = request.all()
@@ -332,6 +339,7 @@ export default class EmployeeMedicalConditionController {
         data: { employeeMedicalCondition: updateEmployeeMedicalCondition },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         response.status(422)
         return {

@@ -18,6 +18,10 @@ import { resolveTraumaticEventReportApiError } from '../helpers/traumatic_event_
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import PiiExportService from '#services/pii_export_service'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 const MODULE_SLUG = 'traumatic-event-reports'
 
@@ -175,6 +179,7 @@ export default class TraumaticEventReportController {
         201
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -273,6 +278,7 @@ export default class TraumaticEventReportController {
         201
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -388,6 +394,7 @@ export default class TraumaticEventReportController {
         'Reporte de evento traumático actualizado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
