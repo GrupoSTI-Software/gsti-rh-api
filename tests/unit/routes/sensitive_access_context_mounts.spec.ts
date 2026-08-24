@@ -4,6 +4,81 @@ import { test } from '@japa/runner'
 
 const ROOT = process.cwd()
 
+interface RouteGroup {
+  /** Cuerpo entre `.group(() => {` y su `}` de cierre (balanceado por llaves). */
+  body: string
+  /** Cadena de modificadores inmediatamente después del grupo: `.prefix(...).use(...)...`. */
+  chain: string
+}
+
+/**
+ * Extrae cada bloque `router.group(() => { ... }).prefix(...).use(...)` de un
+ * archivo de rutas mediante un escaneo balanceado por llaves (no un AST
+ * completo, pero suficiente para el estilo consistente de estos archivos —
+ * Important 4, revisión final de sensitive-write-by-category).
+ *
+ * Antes, el censo solo verificaba que la palabra `middleware.businessScope()`
+ * o `middleware.sensitiveAccess()` apareciera EN CUALQUIER PARTE del archivo,
+ * lo cual pasaba aunque la ruta de escritura real viviera en un grupo distinto
+ * y desprotegido dentro del mismo archivo (p. ej. `person_routes.ts` tiene 3
+ * grupos, solo uno de los cuales monta `sensitiveAccess()`).
+ */
+function extractRouteGroups(source: string): RouteGroup[] {
+  const groups: RouteGroup[] = []
+  const groupStartRegex = /\.group\(\(\)\s*=>\s*\{/g
+  let match: RegExpExecArray | null
+
+  while ((match = groupStartRegex.exec(source)) !== null) {
+    const bodyStart = match.index + match[0].length
+    let depth = 1
+    let i = bodyStart
+    while (i < source.length && depth > 0) {
+      if (source[i] === '{') depth++
+      else if (source[i] === '}') depth--
+      i++
+    }
+    const bodyEnd = i - 1
+    const body = source.slice(bodyStart, bodyEnd)
+
+    // Avanzar hasta el ')' que cierra la llamada `.group(`.
+    let j = bodyEnd
+    while (j < source.length && source[j] !== ')') j++
+    j++
+
+    // Capturar la cadena de modificadores `.prefix(...)`, `.use(...)`, etc.
+    // que sigue inmediatamente al grupo, línea por línea, hasta la primera
+    // línea no vacía que no continúe la cadena (no inicia con '.').
+    const rest = source.slice(j)
+    const chainLines: string[] = []
+    for (const line of rest.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      if (trimmed.startsWith('.')) {
+        chainLines.push(line)
+        continue
+      }
+      break
+    }
+
+    groups.push({ body, chain: chainLines.join('\n') })
+  }
+
+  return groups
+}
+
+const WRITE_METHOD_PATTERN = /\.(post|put|delete|patch)\(/
+
+function groupHasWriteRoute(group: RouteGroup): boolean {
+  return WRITE_METHOD_PATTERN.test(group.body)
+}
+
+function groupOpensSensitiveContext(group: RouteGroup): boolean {
+  return (
+    group.chain.includes('middleware.businessScope()') ||
+    group.chain.includes('middleware.sensitiveAccess()')
+  )
+}
+
 test.group('Apertura del contexto de lectura sensible', () => {
   test('kernel registra sensitiveAccess', ({ assert }) => {
     const kernel = readFileSync(join(ROOT, 'start/kernel.ts'), 'utf-8')
@@ -53,9 +128,13 @@ test.group('Apertura del contexto de lectura sensible', () => {
     )
   })
 
-  test('rutas de escritura de los 10 modelos abren businessScope o sensitiveAccess', ({
+  test('cada GRUPO con rutas de escritura de los 10 modelos abre businessScope o sensitiveAccess', ({
     assert,
   }) => {
+    // USRH1787204602825/831 — Critical 1 (revisión final): se agrega
+    // `synchronization_routes.ts` al censo porque `POST /api/synchronization/employees`
+    // y `.../by-selection/employees` crean/actualizan `Person` sin abrir el
+    // contexto de escritura sensible si no se monta `sensitiveAccess()` aquí.
     const writeRouteFiles = [
       'start/routes/person_routes.ts',
       'start/routes/employee_bank_routes.ts',
@@ -70,16 +149,35 @@ test.group('Apertura del contexto de lectura sensible', () => {
       'start/routes/employee_biometric_face_id_routes.ts',
       'start/routes/user_routes.ts',
       'start/routes/employee_routes.ts',
+      'start/routes/synchronization_routes.ts',
     ]
+
+    let totalWriteGroupsChecked = 0
+
     for (const relative of writeRouteFiles) {
       const source = readFileSync(join(ROOT, relative), 'utf-8')
-      const hasBusiness = source.includes('middleware.businessScope()')
-      const hasSensitive = source.includes('middleware.sensitiveAccess()')
-      assert.isTrue(
-        hasBusiness || hasSensitive,
-        `${relative} debe montar businessScope o sensitiveAccess`
+      const groups = extractRouteGroups(source)
+      assert.isAbove(groups.length, 0, `${relative}: no se detectó ningún router.group(...)`)
+
+      const writeGroups = groups.filter(groupHasWriteRoute)
+      assert.isAbove(
+        writeGroups.length,
+        0,
+        `${relative}: no se detectó ningún grupo con rutas post/put/delete/patch`
       )
+
+      writeGroups.forEach((group, index) => {
+        totalWriteGroupsChecked++
+        assert.isTrue(
+          groupOpensSensitiveContext(group),
+          `${relative}: el grupo de escritura #${index + 1} debe montar businessScope() o sensitiveAccess() en SU PROPIA cadena de modificadores, no solo en algún lugar del archivo`
+        )
+      })
     }
+
+    // Guarda contra que `extractRouteGroups` deje de encontrar grupos por un
+    // cambio de estilo no contemplado (falso verde silencioso).
+    assert.isAbove(totalWriteGroupsChecked, 0)
   })
 
   test('la consola landlord no abre contexto sensible (hueco declarado)', ({ assert }) => {
