@@ -7,6 +7,7 @@ import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import logger from '@adonisjs/core/services/logger'
 import { DateTime } from 'luxon'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 
 import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
 
@@ -61,14 +62,38 @@ export default class SyncAssistance extends BaseCommand {
     }
   }
 
+  /** Resuelve los destinatarios de alerta desde `ASSIST_SYNC_ALERT_EMAILS`. */
+  resolveAlertRecipients(): string[] {
+    const raw = env.get('ASSIST_SYNC_ALERT_EMAILS', '') ?? ''
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const part of raw.split(',')) {
+      const email = part.trim()
+      if (!email) continue
+      const key = email.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(email)
+    }
+    return out
+  }
+
   async sentMailStatus(messageText: string = '') {
+    const recipients = this.resolveAlertRecipients()
+    if (recipients.length === 0) {
+      logger.warn(
+        { source: 'ASSIST_SYNC_ALERT_EMAILS' },
+        'sync_assistance: no hay destinatarios de alerta configurados; se omite el correo de estado.'
+      )
+      return
+    }
+
     try {
       await mail.send((message) => {
-        message
-          .to('wramirez@siler-mx.com')
-          .from('wilvardo@gmail.com')
-          .subject('Synchronization')
-          .text(messageText)
+        for (const recipient of recipients) {
+          message.to(recipient)
+        }
+        message.from(resolveMailSender()).subject('Synchronization').text(messageText)
       })
     } catch (emailError) {
       logger.info('Error sending synchronization email:', emailError)

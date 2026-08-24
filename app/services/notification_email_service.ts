@@ -7,6 +7,7 @@ import mail from '@adonisjs/mail/services/main'
 import { DateTime } from 'luxon'
 import axios from 'axios'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 
 /**
  * Service class for sending notification emails when vacation or permission requests are approved
@@ -154,6 +155,7 @@ export default class NotificationEmailService {
           await mail.send((message) => {
             message
               .to(notificationEmail.email)
+              .from(resolveMailSender())
               .subject(`Notificación de Ausencia - ${emailData.employee.name}`)
               .htmlView('emails/vacation_permission_notification', emailData)
 
@@ -335,6 +337,7 @@ export default class NotificationEmailService {
           await mail.send((message) => {
             message
               .to(notificationEmail.email)
+              .from(resolveMailSender())
               .subject(`Notificación de Ausencia - ${emailData.employee.name}`)
               .htmlView('emails/vacation_permission_notification', emailData)
 

@@ -21,6 +21,7 @@ import { LogStore } from '#models/MongoDB/log_store'
 import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import { AssistIncidentPayrollExcelRowInterface } from '../interfaces/assist_incident_payroll_excel_row_interface.js'
@@ -5503,7 +5504,7 @@ export default class AssistsService {
       }
 
       let tradeName = 'BO'
-      const userEmail = env.get('SMTP_USERNAME')
+      const userEmail = resolveMailSender()
       let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
       if (systemSettingActive) {
         if ( systemSettingActive.systemSettingLogo) {
@@ -5601,11 +5602,7 @@ export default class AssistsService {
 
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
     let tradeName = 'BO'
-    const userEmail = env.get('SMTP_USERNAME')
-    if (!userEmail) {
-      console.error('Error to send email attendance lock: SMTP_USERNAME not found')
-      return
-    }
+    const userEmail = resolveMailSender()
     let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
     if (systemSettingActive) {
       if ( systemSettingActive.systemSettingLogo) {

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import logger from '@adonisjs/core/services/logger'
 import mail from '@adonisjs/mail/services/main'
-import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
@@ -412,7 +412,7 @@ export default class WorkJournalSealRunOrchestrator {
       return
     }
 
-    const from = env.get('SMTP_USERNAME', 'no-reply@valanserh.com')
+    const from = resolveMailSender()
 
     // Toma el nombre de marca y color del primer system_setting activo que
     // tenga al menos una empresa mapeada, para darle identidad visual al correo.

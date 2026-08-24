@@ -5,7 +5,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import ApiToken from '../models/api_token.js'
 import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
-import env from '../../start/env.js'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import UserService from '#services/user_service'
 import { createUserValidator, updateUserValidator } from '#validators/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
@@ -906,8 +906,6 @@ export default class UserController {
       user.pinCodeExpiresAt = DateTime.utc().plus({ minutes: PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES })
       await user.save()
 
-      const smtpUsername = env.get('SMTP_USERNAME')
-
       if (isApp) {
         // USRH1783712837584: este endpoint corre sin usuario autenticado
         // (recuperación de contraseña, previo al login) — no hay empresa en
@@ -919,23 +917,22 @@ export default class UserController {
         const backgroundImageLogo =
           'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
-        if (smtpUsername) {
-          const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
-          await mail.send((message) => {
-            message
-              .to(user.userEmail)
-              .from(smtpUsername, tradeName)
-              .subject(emailSubject)
-              .htmlView('emails/request_password', {
-                user,
-                token: user.userToken,
-                host_data: hostData,
-                backgroundImageLogo,
-                isApp: true,
-                pinCode: user.pinCode,
-              })
-          })
-        }
+        const smtpUsername = resolveMailSender()
+        const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
+        await mail.send((message) => {
+          message
+            .to(user.userEmail)
+            .from(smtpUsername, tradeName)
+            .subject(emailSubject)
+            .htmlView('emails/request_password', {
+              user,
+              token: user.userToken,
+              host_data: hostData,
+              backgroundImageLogo,
+              isApp: true,
+              pinCode: user.pinCode,
+            })
+        })
       } else {
         const resetUrl = `${hostData.host_uri.replace(/\/$/, '')}/new-password/${user.userToken}`
         const authMailService = new AuthMailService()

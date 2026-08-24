@@ -8,6 +8,7 @@ import {
 } from '#validators/exception_request'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Employee from '#models/employee'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
@@ -135,7 +136,7 @@ export default class ExceptionRequestsController {
           .first()
         if (user) {
           if (user.userEmail) {
-            const userEmail = env.get('SMTP_USERNAME')
+            const userEmail = resolveMailSender()
             if (userEmail) {
               let tradeName = 'BO'
               let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`

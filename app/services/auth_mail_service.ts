@@ -1,6 +1,7 @@
 import mail from '@adonisjs/mail/services/main'
 import logger from '@adonisjs/core/services/logger'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import SystemSetting from '#models/system_setting'
 import SystemSettingService from './system_setting_service.js'
 import SignupOtpMail from '#mails/signup_otp_mail'
@@ -118,14 +119,7 @@ export default class AuthMailService {
     const { to, firstName, pinCode, language } = params
 
     try {
-      const senderEmail = this.resolveSenderEmail()
-      if (!senderEmail) {
-        logger.error(
-          { to: this.redactEmail(to) },
-          'AuthMailService.sendSignupOtp: SMTP_USERNAME no configurado; correo de OTP omitido.'
-        )
-        return
-      }
+      const senderEmail = resolveMailSender()
 
       const isWhiteLabel = false
       const branding = await this.resolveBranding()
@@ -165,14 +159,7 @@ export default class AuthMailService {
     const { to, firstName, businessUnitName, language } = params
 
     try {
-      const senderEmail = this.resolveSenderEmail()
-      if (!senderEmail) {
-        logger.error(
-          { to: this.redactEmail(to) },
-          'AuthMailService.sendWelcome: SMTP_USERNAME no configurado; correo de bienvenida omitido.'
-        )
-        return
-      }
+      const senderEmail = resolveMailSender()
 
       const branding = await this.resolveBranding()
       const backofficeUrl = env.get('BACKOFFICE_URL') ?? DEFAULT_BACKOFFICE_URL
@@ -204,14 +191,7 @@ export default class AuthMailService {
     const { to, firstName, magicLinkUrl, language } = params
 
     try {
-      const senderEmail = this.resolveSenderEmail()
-      if (!senderEmail) {
-        logger.error(
-          { to: this.redactEmail(to) },
-          'AuthMailService.sendMagicLink: SMTP_USERNAME no configurado; correo omitido.'
-        )
-        return
-      }
+      const senderEmail = resolveMailSender()
 
       const branding = await this.resolveBranding()
 
@@ -242,14 +222,7 @@ export default class AuthMailService {
     const { to, firstName, resetUrl, pinCode, language } = params
 
     try {
-      const senderEmail = this.resolveSenderEmail()
-      if (!senderEmail) {
-        logger.error(
-          { to: this.redactEmail(to) },
-          'AuthMailService.sendPasswordRecovery: SMTP_USERNAME no configurado; correo omitido.'
-        )
-        return
-      }
+      const senderEmail = resolveMailSender()
 
       const branding = await this.resolveBranding()
 
@@ -281,14 +254,7 @@ export default class AuthMailService {
     const { to, firstName, invitationToken, language, canAccessBackoffice } = params
 
     try {
-      const senderEmail = this.resolveSenderEmail()
-      if (!senderEmail) {
-        logger.error(
-          { to: this.redactEmail(to) },
-          'AuthMailService.sendUserInvitation: SMTP_USERNAME no configurado; correo de invitación omitido.'
-        )
-        return
-      }
+      const senderEmail = resolveMailSender()
 
       const branding = await this.resolveBranding()
       const backofficeUrl = env.get('BACKOFFICE_URL') ?? DEFAULT_BACKOFFICE_URL
@@ -348,19 +314,6 @@ export default class AuthMailService {
     }
 
     return branding
-  }
-
-  /**
-   * Resuelve la dirección remitente desde `SMTP_USERNAME`. Devuelve `null`
-   * cuando no hay configuración válida, lo que el caller utiliza como señal
-   * para abortar el envío sin lanzar.
-   */
-  private resolveSenderEmail(): string | null {
-    const sender = env.get('SMTP_USERNAME')
-    if (typeof sender !== 'string' || sender.trim().length === 0) {
-      return null
-    }
-    return sender
   }
 
   /**
