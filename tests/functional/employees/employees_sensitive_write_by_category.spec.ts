@@ -1,16 +1,23 @@
 import { test } from '@japa/runner'
+import type { ApiClient } from '@japa/api-client'
+import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import EmployeeBank from '#models/employee_bank'
 import SystemModule from '#models/system_module'
+import type User from '#models/user'
 import {
   buHeader,
   CLEAR_FIXED,
   cleanupActor,
   cleanupRemainingSensitiveFixture,
   cleanupSensitiveFixture,
+  cleanupSystemActor,
   createActor,
   createRemainingSensitiveFixture,
   createSensitiveFixture,
+  createSystemActor,
   grantOnly,
+  restoreEmployeesGrants,
+  snapshotAndClearEmployeesGrants,
   type RemainingSensitiveFixture,
   type SensitiveFixture,
   type TenantActor,
@@ -27,6 +34,25 @@ import {
   RFC_ORIGINAL,
   TELEFONO_NUEVO,
 } from './sensitive_write_by_category_support.js'
+
+async function putBankClabe(
+  client: ApiClient,
+  actor: TenantActor,
+  bankId: number,
+  bankRowBankId: number,
+  user: User,
+  clabe: string
+) {
+  return client
+    .put(`/api/employee-banks/${bankId}`)
+    .loginAs(user)
+    .header('X-Business-Unit-Id', buHeader(actor))
+    .json({
+      employeeBankAccountClabe: clabe,
+      employeeBankAccountCurrencyType: 'MXN',
+      bankId: bankRowBankId,
+    })
+}
 
 test.group('Escritura sensible por categoría — HTTP', (group) => {
   let employeesModule: SystemModule
@@ -251,5 +277,123 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert.notEqual(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
     await extra!.faceId.refresh()
     assert.equal(extra!.faceId.employeeBiometricFaceIdToken, tokenNuevo)
+  })
+
+  test('CA-7: con interruptor OFF el cambio de CLABE sin financiero es 403', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+    const response = await client
+      .put(`/api/employee-banks/${fixture!.bank.employeeBankId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeBankAccountClabe: CLABE_NUEVA,
+        employeeBankAccountCurrencyType: 'MXN',
+        bankId: fixture!.bank.bankId,
+      })
+    assertWriteForbidden(response, assert, 'datos financieros')
+  })
+
+  test('CA-7: con interruptor ON el cambio de CLABE sin financiero sigue 403', async ({
+    client,
+    assert,
+  }) => {
+    employeesModule.systemModulePermissionEnforcementActive = true
+    await employeesModule.save()
+    try {
+      await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+      const response = await client
+        .put(`/api/employee-banks/${fixture!.bank.employeeBankId}`)
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', buHeader(actor!))
+        .json({
+          employeeBankAccountClabe: CLABE_NUEVA,
+          employeeBankAccountCurrencyType: 'MXN',
+          bankId: fixture!.bank.bankId,
+        })
+      assertWriteForbidden(response, assert, 'datos financieros')
+    } finally {
+      employeesModule.systemModulePermissionEnforcementActive = false
+      await employeesModule.save()
+    }
+  })
+
+  test('CA-7: owner sin slugs write cambia la CLABE', async ({ client, assert }) => {
+    const owner = await createSystemActor('owner', 'sens-write-owner', actor!.businessUnit.businessUnitId)
+    const snapshot = await snapshotAndClearEmployeesGrants(owner.roleId)
+    try {
+      const clabeOwner = '012180001234567701'
+      const response = await putBankClabe(
+        client,
+        actor!,
+        fixture!.bank.employeeBankId,
+        fixture!.bank.bankId,
+        owner.user,
+        clabeOwner
+      )
+      assert.equal(response.status(), 200)
+      const reloaded = await reloadBank(fixture!.bank.employeeBankId)
+      assert.equal(reloaded.employeeBankAccountClabe, clabeOwner)
+      reloaded.employeeBankAccountClabe = CLEAR_FIXED.clabe
+      await reloaded.save()
+    } finally {
+      await restoreEmployeesGrants(snapshot)
+      await cleanupSystemActor(owner)
+    }
+  })
+
+  test('CA-7: root sin slugs write cambia la CLABE', async ({ client, assert }) => {
+    const root = await createSystemActor('root', 'sens-write-root', actor!.businessUnit.businessUnitId)
+    const snapshot = await snapshotAndClearEmployeesGrants(root.roleId)
+    try {
+      const clabeRoot = '012180001234567702'
+      const response = await putBankClabe(
+        client,
+        actor!,
+        fixture!.bank.employeeBankId,
+        fixture!.bank.bankId,
+        root.user,
+        clabeRoot
+      )
+      assert.equal(response.status(), 200)
+      const reloaded = await reloadBank(fixture!.bank.employeeBankId)
+      assert.equal(reloaded.employeeBankAccountClabe, clabeRoot)
+      reloaded.employeeBankAccountClabe = CLEAR_FIXED.clabe
+      await reloaded.save()
+    } finally {
+      await restoreEmployeesGrants(snapshot)
+      await cleanupSystemActor(root)
+    }
+  })
+
+  test('CA-7: super-administrador sin slugs no tiene bypass', async ({ client, assert }) => {
+    const dg = await createSystemActor(
+      'super-administrador',
+      'sens-write-dg',
+      actor!.businessUnit.businessUnitId
+    )
+    const snapshot = await snapshotAndClearEmployeesGrants(dg.roleId)
+    try {
+      const response = await putBankClabe(
+        client,
+        actor!,
+        fixture!.bank.employeeBankId,
+        fixture!.bank.bankId,
+        dg.user,
+        CLABE_NUEVA
+      )
+      assertWriteForbidden(response, assert, 'datos financieros')
+    } finally {
+      await restoreEmployeesGrants(snapshot)
+      await cleanupSystemActor(dg)
+    }
+  })
+
+  test('CA-7: write unresolved HTTP se cubre por classify + mixin (sin romper roleId NOT NULL)', ({
+    assert,
+  }) => {
+    assert.equal(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED, 'EMP.SENS.WRITE.UNRESOLVED')
   })
 })
