@@ -6,7 +6,7 @@ import {
   sensitiveSerializeNumeric,
   maskSensitiveDtoValue,
 } from '#helpers/sensitive_serialize'
-import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import { SensitiveAccessContext, type SensitiveWriteDecision } from '#utils/sensitive_access_context'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import type { LegalCategory } from '#constants/sensitive_fields'
 
@@ -18,6 +18,14 @@ const allDenied: Record<LegalCategory, boolean> = {
   biometrico: false,
 }
 
+const deniedWrite: Record<LegalCategory, SensitiveWriteDecision> = {
+  identificacion: 'denied',
+  contacto: 'denied',
+  financiero: 'denied',
+  salud: 'denied',
+  biometrico: 'denied',
+}
+
 test.group('sensitiveSerialize', () => {
   test('sin contexto activo enmascara igual que hoy', ({ assert }) => {
     const serialize = sensitiveSerialize('Person', 'personCurp')
@@ -27,18 +35,30 @@ test.group('sensitiveSerialize', () => {
 
   test('con permiso de la categoría entrega el valor en claro', ({ assert }) => {
     const serialize = sensitiveSerialize('Person', 'personEmail')
-    SensitiveAccessContext.run({ ...allDenied, contacto: true }, () => {
-      assert.equal(serialize('juan@empresa.com'), 'juan@empresa.com')
-    })
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, contacto: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize('juan@empresa.com'), 'juan@empresa.com')
+      }
+    )
   })
 
   test('sin permiso de la categoría enmascara; otra categoría en claro no abre esta', ({
     assert,
   }) => {
     const serializeClabe = sensitiveSerialize('EmployeeBank', 'employeeBankAccountClabe')
-    SensitiveAccessContext.run({ ...allDenied, contacto: true }, () => {
-      assert.equal(serializeClabe('012345678901234567'), '••••••••••••••4567')
-    })
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, contacto: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serializeClabe('012345678901234567'), '••••••••••••••4567')
+      }
+    )
   })
 
   test('salud sin permiso entrega cinco MASK_CHAR', ({ assert }) => {
@@ -55,11 +75,14 @@ test.group('sensitiveSerialize', () => {
     const serialize = sensitiveSerialize('Person', 'personFirstname')
     SensitiveAccessContext.run(
       {
-        identificacion: true,
-        contacto: true,
-        financiero: true,
-        salud: true,
-        biometrico: true,
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
       },
       () => {
         assert.equal(serialize('Ana'), MASK_CHAR.repeat(5))
@@ -82,10 +105,16 @@ test.group('sensitiveSerializeNumeric', () => {
 
   test('con permiso de financiero entrega el number', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily')
-    SensitiveAccessContext.run({ ...allDenied, financiero: true }, () => {
-      assert.equal(serialize(1250.75), 1250.75)
-      assert.equal(typeof serialize(1250.75), 'number')
-    })
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, financiero: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize(1250.75), 1250.75)
+        assert.equal(typeof serialize(1250.75), 'number')
+      }
+    )
   })
 
   test('null permanece null', ({ assert }) => {
@@ -96,7 +125,16 @@ test.group('sensitiveSerializeNumeric', () => {
   test('sin clasificación entrega null (fail-closed de importe)', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
-      { identificacion: true, contacto: true, financiero: true, salud: true, biometrico: true },
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
       () => {
         assert.isNull(serialize(999))
       }
@@ -113,12 +151,18 @@ test.group('maskSensitiveDtoValue', () => {
   })
 
   test('biométrico con permiso entrega el valor en claro', ({ assert }) => {
-    SensitiveAccessContext.run({ ...allDenied, biometrico: true }, () => {
-      assert.equal(
-        maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', 'Finger:1, Face'),
-        'Finger:1, Face'
-      )
-    })
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, biometrico: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(
+          maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', 'Finger:1, Face'),
+          'Finger:1, Face'
+        )
+      }
+    )
   })
 
   test('cadena vacía permanece vacía (sin enrolamiento)', ({ assert }) => {

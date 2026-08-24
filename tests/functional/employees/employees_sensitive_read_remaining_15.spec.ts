@@ -2,7 +2,8 @@ import { test } from '@japa/runner'
 import type { I18n } from '@adonisjs/i18n'
 import SystemModule from '#models/system_module'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
-import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import { SensitiveAccessContext, type SensitiveWriteDecision } from '#utils/sensitive_access_context'
+import type { LegalCategory } from '#constants/sensitive_fields'
 import EmployeeBiometricService from '#services/employee_biometric_service'
 import {
   allDenied,
@@ -29,6 +30,14 @@ import {
   type SensitiveFixture,
   type TenantActor,
 } from './sensitive_read_by_category_support.js'
+
+const deniedWrite: Record<LegalCategory, SensitiveWriteDecision> = {
+  identificacion: 'denied',
+  contacto: 'denied',
+  financiero: 'denied',
+  salud: 'denied',
+  biometrico: 'denied',
+}
 
 function fakeI18n(): I18n {
   return { formatMessage: (key: string) => key } as I18n
@@ -259,7 +268,10 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert.isTrue(masked!.face)
 
     const clear = await SensitiveAccessContext.run(
-      { ...allDenied, biometrico: true },
+      {
+        read: { ...allDenied, biometrico: true },
+        write: deniedWrite,
+      },
       () => service.getEnrollmentStatus(fixture!.employee.employeeId)
     )
     assert.equal(clear!.biometricData, CLEAR_REMAINING.biometricData)
@@ -270,8 +282,12 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     const masked = extra!.faceId.serialize()
     assert.equal(masked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
     assert.equal(masked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
-    const clear = SensitiveAccessContext.run({ ...allDenied, biometrico: true }, () =>
-      extra!.faceId.serialize()
+    const clear = SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, biometrico: true },
+        write: deniedWrite,
+      },
+      () => extra!.faceId.serialize()
     )
     assert.equal(clear.employeeBiometricFaceIdToken, CLEAR_REMAINING.faceToken)
     assert.equal(clear.employeeBiometricFaceIdPhotoUrl, CLEAR_REMAINING.facePhotoUrl)
@@ -292,8 +308,12 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       masked.userConsentUserAgent,
       maskSensitiveValue(CLEAR_REMAINING.consentUa, 'contacto')
     )
-    const clear = SensitiveAccessContext.run({ ...allDenied, contacto: true }, () =>
-      extra!.consent!.serialize()
+    const clear = SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, contacto: true },
+        write: deniedWrite,
+      },
+      () => extra!.consent!.serialize()
     )
     assert.equal(clear.userConsentIp, CLEAR_REMAINING.consentIp)
     assert.equal(clear.userConsentUserAgent, CLEAR_REMAINING.consentUa)
