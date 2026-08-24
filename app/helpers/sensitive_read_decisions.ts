@@ -3,6 +3,7 @@ import type { NextFn } from '@adonisjs/core/types/http'
 import PermissionGateService from '#services/permission_gate_service'
 import type { PermissionGateDecision } from '#services/permission_gate_service'
 import { EMPLOYEES_SENSITIVE_READ_PERMISSIONS } from '#constants/employees_read_permission_declarations'
+import { EMPLOYEES_SENSITIVE_WRITE_PERMISSIONS } from '#constants/employees_write_permission_declarations'
 import { LEGAL_CATEGORIES } from '#constants/sensitive_fields'
 import type { LegalCategory } from '#constants/sensitive_fields'
 import {
@@ -10,14 +11,6 @@ import {
   type SensitiveAccessStore,
   type SensitiveWriteDecision,
 } from '#utils/sensitive_access_context'
-
-const emptyWrite: Record<LegalCategory, SensitiveWriteDecision> = {
-  identificacion: 'denied',
-  contacto: 'denied',
-  financiero: 'denied',
-  salud: 'denied',
-  biometrico: 'denied',
-}
 
 export function isSensitiveReadAllowed(decision: PermissionGateDecision): boolean {
   return decision.reason === 'granted' || decision.reason === 'bypass'
@@ -37,6 +30,29 @@ export async function resolveSensitiveReadDecisions(
     decisions[category] = isSensitiveReadAllowed(decision)
   }
 
+  return decisions
+}
+
+export function classifySensitiveWriteDecision(
+  decision: PermissionGateDecision
+): SensitiveWriteDecision {
+  if (decision.reason === 'granted' || decision.reason === 'bypass') return 'allowed'
+  if (decision.reason === 'unresolved') return 'unresolved'
+  return 'denied'
+}
+
+export async function resolveSensitiveWriteDecisions(
+  ctx: HttpContext
+): Promise<Record<LegalCategory, SensitiveWriteDecision>> {
+  const service = ctx.permissionGate ?? (ctx.permissionGate = new PermissionGateService())
+  const decisions = {} as Record<LegalCategory, SensitiveWriteDecision>
+  for (const category of LEGAL_CATEGORIES) {
+    const decision = await service.evaluateEnforced(
+      ctx.auth.user,
+      EMPLOYEES_SENSITIVE_WRITE_PERMISSIONS[category]
+    )
+    decisions[category] = classifySensitiveWriteDecision(decision)
+  }
   return decisions
 }
 
@@ -83,8 +99,9 @@ export async function runWithSensitiveReadDecisions(
   ctx: HttpContext,
   next: NextFn
 ): Promise<unknown> {
-  const decisions = await resolveSensitiveReadDecisions(ctx)
-  const store: SensitiveAccessStore = { read: decisions, write: emptyWrite }
+  const read = await resolveSensitiveReadDecisions(ctx)
+  const write = await resolveSensitiveWriteDecisions(ctx)
+  const store: SensitiveAccessStore = { read, write }
   reenterSensitiveReadOnResponse(ctx, store)
   return SensitiveAccessContext.run(store, () => next())
 }

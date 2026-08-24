@@ -4,8 +4,10 @@ import type { NextFn } from '@adonisjs/core/types/http'
 import PermissionGateService from '#services/permission_gate_service'
 import type { PermissionGateDecision } from '#services/permission_gate_service'
 import {
+  classifySensitiveWriteDecision,
   isSensitiveReadAllowed,
   resolveSensitiveReadDecisions,
+  resolveSensitiveWriteDecisions,
   runWithSensitiveReadDecisions,
 } from '#helpers/sensitive_read_decisions'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
@@ -188,5 +190,51 @@ test.group('runWithSensitiveReadDecisions', () => {
     assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
     assert.equal(sent.serialized?.personFirstname, 'Ana')
     assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
+  })
+})
+
+test.group('classifySensitiveWriteDecision', () => {
+  test('granted y bypass permiten; unresolved se distingue; el resto niega', ({ assert }) => {
+    const cases: Array<[PermissionGateDecision, string]> = [
+      [{ allowed: true, reason: 'granted' }, 'allowed'],
+      [{ allowed: true, reason: 'bypass' }, 'allowed'],
+      [{ allowed: false, reason: 'unresolved' }, 'unresolved'],
+      [{ allowed: false, reason: 'denied' }, 'denied'],
+      [{ allowed: true, reason: 'module-not-enforced' }, 'denied'],
+    ]
+    for (const [decision, expected] of cases) {
+      assert.equal(classifySensitiveWriteDecision(decision), expected, decision.reason)
+    }
+  })
+})
+
+test.group('resolveSensitiveWriteDecisions', () => {
+  test('usa evaluateEnforced y clasifica por categoría', async ({ assert }) => {
+    const ctx = makeCtx((action) => {
+      if (action === 'sensitive-contacto-write') return { allowed: true, reason: 'granted' }
+      if (action === 'sensitive-identificacion-write')
+        return { allowed: false, reason: 'unresolved' }
+      return { allowed: false, reason: 'denied' }
+    })
+    const write = await resolveSensitiveWriteDecisions(ctx)
+    assert.equal(write.contacto, 'allowed')
+    assert.equal(write.identificacion, 'unresolved')
+    assert.equal(write.financiero, 'denied')
+  })
+})
+
+test.group('runWithSensitiveReadDecisions write half', () => {
+  test('dentro de next() canWrite respeta la concesión de escritura', async ({ assert }) => {
+    const ctx = makeCtx((action) => {
+      if (String(action).endsWith('-read')) return { allowed: true, reason: 'bypass' }
+      if (action === 'sensitive-financiero-write') return { allowed: true, reason: 'granted' }
+      return { allowed: false, reason: 'denied' }
+    })
+    let sawWrite = false
+    await runWithSensitiveReadDecisions(ctx, (async () => {
+      sawWrite = SensitiveAccessContext.canWrite('financiero')
+      assert.isFalse(SensitiveAccessContext.canWrite('salud'))
+    }) as NextFn)
+    assert.isTrue(sawWrite)
   })
 })
