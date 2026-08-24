@@ -303,7 +303,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate soft-rollout', (group) =
     employeesModule.systemModulePermissionEnforcementActive = false
     await employeesModule.save()
     actor = await createActor('employees-persona-domicilio-bancos')
-    await grantOnly(actor.role.roleId, [])
+    await grantOnly(actor.role.roleId, ['sensitive-financiero-write', 'sensitive-contacto-write'])
     fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'soft-rollout')
   })
 
@@ -483,7 +483,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
   })
 
   test('nómina permite bancos y niega contactos de emergencia', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, ['tab-bancos-write', 'tab-bancos-delete'])
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write', 'tab-bancos-delete', 'sensitive-financiero-write'])
 
     const bankResponse = await client
       .post('/api/employee-banks')

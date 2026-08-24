@@ -364,7 +364,7 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
     client,
     assert,
   }) => {
-    await grantOnly(actor!.role.roleId, [])
+    await grantOnly(actor!.role.roleId, ['sensitive-biometrico-write'])
     const employeeId = fixture!.employee.employeeId
     const biometric = await ensureBiometricFixture(employeeId, actor!.businessUnit.businessUnitId)
     const biometricBefore = {
