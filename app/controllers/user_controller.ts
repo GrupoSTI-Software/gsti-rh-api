@@ -36,6 +36,10 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { normalizeToken } from '#helpers/employee_termination_record'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -59,6 +63,27 @@ async function dispatchUserInvitationEmail(user: User): Promise<void> {
     language: 'es',
     canAccessBackoffice,
   })
+}
+
+/**
+ * Verifica el permiso de categoría `contacto` ANTES de crear/actualizar el `User`,
+ * para no dejar un `User` huérfano si `Person.personEmail` cambiaría y el actor
+ * no tiene `sensitive-contacto-write` (hallazgo Important 1, revisión final de
+ * sensitive-write-by-category).
+ */
+function assertContactoEmailWriteAllowed(
+  currentEmail: string | null | undefined,
+  newEmail: string | null | undefined
+): void {
+  if (!SensitiveAccessContext.isActive() || SensitiveAccessContext.isUnguarded()) return
+  if (normalizeToken(currentEmail) === normalizeToken(newEmail)) return
+
+  const decision = SensitiveAccessContext.writeDecision('contacto')
+  if (decision === 'allowed') return
+  if (decision === 'unresolved') {
+    throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED)
+  }
+  throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.FORBIDDEN, 'contacto')
 }
 
 export default class UserController {
@@ -1604,16 +1629,25 @@ export default class UserController {
           data: { ...data },
         }
       }
+      let personForEmailSync: Person | null = null
+      if (userEmailType === 'personal') {
+        personForEmailSync = await Person.query()
+          .where('person_id', personId)
+          .whereNull('person_deleted_at')
+          .first()
+        if (personForEmailSync) {
+          // Verificar el permiso de `contacto` ANTES de crear el `User`: evita dejar
+          // un `User` huérfano si el correo de la persona no puede actualizarse.
+          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
+        }
+      }
+
       const newUser = await userService.create(user, businessUnitIds)
       if (newUser) {
         if (newUser.userEmailType === 'personal') {
-          const person = await Person.query()
-            .where('person_id', personId)
-            .whereNull('person_deleted_at')
-            .first()
-          if (person) {
-            person.personEmail = newUser.userEmail
-            await person.save()
+          if (personForEmailSync) {
+            personForEmailSync.personEmail = newUser.userEmail
+            await personForEmailSync.save()
           }
         } else {
           const employee = await Employee.query()
@@ -1970,16 +2004,25 @@ export default class UserController {
           data: { ...data },
         }
       }
+      let personForEmailSync: Person | null = null
+      if (userEmailType === 'personal') {
+        personForEmailSync = await Person.query()
+          .where('person_id', personId)
+          .whereNull('person_deleted_at')
+          .first()
+        if (personForEmailSync) {
+          // Verificar el permiso de `contacto` ANTES de actualizar el `User`: evita
+          // dejar el `User` ya actualizado sin poder sincronizar el correo de la persona.
+          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
+        }
+      }
+
       const updateUser = await userService.update(currentUser, user)
       if (updateUser) {
         if (updateUser.userEmailType === 'personal') {
-          const person = await Person.query()
-            .where('person_id', personId)
-            .whereNull('person_deleted_at')
-            .first()
-          if (person) {
-            person.personEmail = updateUser.userEmail
-            await person.save()
+          if (personForEmailSync) {
+            personForEmailSync.personEmail = updateUser.userEmail
+            await personForEmailSync.save()
           }
         } else {
           const employee = await Employee.query()

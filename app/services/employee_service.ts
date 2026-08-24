@@ -58,6 +58,7 @@ import {
   employeeImportQuotaExceededError,
   employeeImportQuotaNoPlanError,
 } from '../helpers/employee_quota_api_error.js'
+import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
@@ -2959,6 +2960,10 @@ export default class EmployeeService {
             created++
             processed++
           } catch (error: any) {
+            // Una denegación por dato sensible no es un error de fila: aborta
+            // toda la importación con un 403 (Important 2, revisión final de
+            // sensitive-write-by-category). No se registra como fila fallida.
+            if (isSensitiveDataWriteError(error)) throw error
             skipped++
             rowErrors.push({ row: rowNumber, message: error.message })
           }
@@ -3005,6 +3010,9 @@ export default class EmployeeService {
         throw error
       }
       if (error instanceof EmployeeQuotaError) {
+        throw error
+      }
+      if (isSensitiveDataWriteError(error)) {
         throw error
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
