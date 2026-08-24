@@ -15,6 +15,7 @@ import {
   createRemainingSensitiveFixture,
   createSensitiveFixture,
   createSystemActor,
+  grantModuleAction,
   grantOnly,
   restoreEmployeesGrants,
   snapshotAndClearEmployeesGrants,
@@ -395,5 +396,157 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert,
   }) => {
     assert.equal(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED, 'EMP.SENS.WRITE.UNRESOLVED')
+  })
+
+  test('CA-8: editar nombre, estado civil y ciudad sin categoría responde 201', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write'])
+    const person = fixture!.person
+    const rfcBefore = person.personRfc
+    const response = await client
+      .put(`/api/persons/${person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json(
+        personUpdateBase(person, {
+          personFirstname: 'NombreQa',
+          personMaritalStatus: 'divorced',
+          personPlaceOfBirthCity: 'Toluca',
+        })
+      )
+    assert.equal(response.status(), 201)
+    const reloaded = await reloadPerson(person.personId)
+    assert.equal(reloaded.personFirstname, 'NombreQa')
+    assert.equal(reloaded.personRfc, rfcBefore)
+  })
+
+  test('CA-8: diagnóstico médico sin salud responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['tab-condicion-medica-write'])
+    const diagnosisBefore = fixture!.medical.employeeMedicalConditionDiagnosis
+    const response = await client
+      .put(`/api/employee-medical-conditions/${fixture!.medical.employeeMedicalConditionId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeId: fixture!.employee.employeeId,
+        medicalConditionTypeId: fixture!.medical.medicalConditionTypeId,
+        employeeMedicalConditionDiagnosis: 'diagnostico qa nuevo',
+      })
+    assertWriteForbidden(response, assert, 'datos de salud')
+    await fixture!.medical.refresh()
+    assert.equal(fixture!.medical.employeeMedicalConditionDiagnosis, diagnosisBefore)
+  })
+
+  test('CA-8: teléfono de cónyuge sin contacto responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write'])
+    const phoneBefore = extra!.spouse.employeeSpousePhone
+    const response = await client
+      .put(`/api/employee-spouses/${extra!.spouse.employeeSpouseId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeSpouseFirstname: extra!.spouse.employeeSpouseFirstname,
+        employeeSpouseLastname: extra!.spouse.employeeSpouseLastname,
+        employeeSpouseSecondLastname: extra!.spouse.employeeSpouseSecondLastname ?? '',
+        employeeSpousePhone: TELEFONO_NUEVO,
+      })
+    assertWriteForbidden(response, assert, 'datos de contacto')
+    await extra!.spouse.refresh()
+    assert.equal(extra!.spouse.employeeSpousePhone, phoneBefore)
+  })
+
+  test('CA-8: ocupación de cónyuge sin contacto responde 200 y no toca el teléfono', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write'])
+    const phoneBefore = extra!.spouse.employeeSpousePhone
+    const response = await client
+      .put(`/api/employee-spouses/${extra!.spouse.employeeSpouseId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeSpouseFirstname: extra!.spouse.employeeSpouseFirstname,
+        employeeSpouseLastname: extra!.spouse.employeeSpouseLastname,
+        employeeSpouseSecondLastname: extra!.spouse.employeeSpouseSecondLastname ?? '',
+        employeeSpouseOcupation: 'Ingeniera QA',
+      })
+    assert.equal(response.status(), 200)
+    await extra!.spouse.refresh()
+    assert.equal(extra!.spouse.employeeSpouseOcupation, 'Ingeniera QA')
+    assert.equal(extra!.spouse.employeeSpousePhone, phoneBefore)
+  })
+
+  test('CA-8: teléfono de emergencia sin contacto responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write'])
+    const phoneBefore = extra!.emergency.employeeEmergencyContactPhone
+    const response = await client
+      .put(`/api/employee-emergency-contacts/${extra!.emergency.employeeEmergencyContactId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeEmergencyContactFirstname: extra!.emergency.employeeEmergencyContactFirstname,
+        employeeEmergencyContactLastname: extra!.emergency.employeeEmergencyContactLastname,
+        employeeEmergencyContactPhone: TELEFONO_NUEVO,
+      })
+    assertWriteForbidden(response, assert, 'datos de contacto')
+    await extra!.emergency.refresh()
+    assert.equal(extra!.emergency.employeeEmergencyContactPhone, phoneBefore)
+  })
+
+  test('CA-8: nota de incapacidad sin salud responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['manage-work-disabilities'])
+    const descBefore = extra!.note.workDisabilityNoteDescription
+    const response = await client
+      .put(`/api/work-disability-notes/${extra!.note.workDisabilityNoteId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({ workDisabilityNoteDescription: 'nota clinica nueva qa' })
+    assertWriteForbidden(response, assert, 'datos de salud')
+    await extra!.note.refresh()
+    assert.equal(extra!.note.workDisabilityNoteDescription, descBefore)
+  })
+
+  test('CA-8: reporte traumático sin salud responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, [])
+    await grantModuleAction(actor!.role.roleId, 'traumatic-event-reports', 'update')
+    const descBefore = extra!.trauma.traumaticEventReportDescription
+    const response = await client
+      .put(`/api/traumatic-event-reports/${extra!.trauma.traumaticEventReportId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({ traumaticEventReportDescription: 'descripcion trauma nueva qa' })
+    assertWriteForbidden(response, assert, 'datos de salud')
+    await extra!.trauma.refresh()
+    assert.equal(extra!.trauma.traumaticEventReportDescription, descBefore)
+  })
+
+  test('CA-8: notas de lactancia sin salud responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['tab-periodos-lactancia-write'])
+    await grantModuleAction(actor!.role.roleId, 'employees', 'update-information')
+    const notesBefore = extra!.lactation.employeeLactationPeriodNotes
+    const response = await client
+      .put(`/api/employee-lactation-periods/${extra!.lactation.employeeLactationPeriodId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({ employeeLactationPeriodNotes: 'notas lactancia nuevas qa' })
+    assertWriteForbidden(response, assert, 'datos de salud')
+    await extra!.lactation.refresh()
+    assert.equal(extra!.lactation.employeeLactationPeriodNotes, notesBefore)
+  })
+
+  test('CA-8: cambio de dedos sin biométrico responde 403', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['upload-fingers'])
+    const dataBefore = extra!.biometric.employeeBiometricData
+    const response = await client
+      .put(`/api/employees/${fixture!.employee.employeeId}/biometrics/fingers`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({ fingers: [1, 2] })
+    assertWriteForbidden(response, assert, 'datos biométricos')
+    await extra!.biometric.refresh()
+    assert.equal(extra!.biometric.employeeBiometricData, dataBefore)
   })
 })
