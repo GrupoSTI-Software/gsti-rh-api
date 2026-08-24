@@ -24,6 +24,14 @@ export default class UploadService {
     secretAccessKey: Env.get('AWS_SECRET_ACCESS_KEY'),
     endpoint: Env.get('AWS_ENDPOINT'),
     s3ForcePathStyle: true, // Necesario para espacios de DigitalOcean
+    // Sin estos límites el SDK v2 reintenta 3 veces esperando el timeout TCP
+    // del SO (~75 s por intento), resultando en cuelgues de 4-5 minutos cuando
+    // el endpoint no está accesible desde la red actual.
+    maxRetries: 0,
+    httpOptions: {
+      connectTimeout: 10_000, // 10 s para establecer conexión TCP
+      timeout: 120_000,       // 2 min máximo de transferencia (comprobante ≤ 10 MB)
+    },
   }
 
   // private bucketConfig: any = {
