@@ -192,6 +192,7 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assertWriteForbidden(response, assert, 'datos financieros')
     const reloaded = await reloadBank(bank.employeeBankId)
     assert.equal(reloaded.employeeBankAccountClabe, CLEAR_FIXED.clabe)
+    assert.equal(reloaded.employeeBankAccountCurrencyType, 'MXN')
   })
 
   test('CA-4: CLABE null más cambio de moneda no exige financiero', async ({
@@ -200,8 +201,8 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
   }) => {
     await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
     const bank = fixture!.bank
-    const currencyBefore = bank.employeeBankAccountCurrencyType
-    const newCurrency = currencyBefore === 'MXN' ? 'USD' : 'MXN'
+    const persisted = await reloadBank(bank.employeeBankId)
+    const newCurrency = persisted.employeeBankAccountCurrencyType === 'MXN' ? 'USD' : 'MXN'
     const response = await client
       .put(`/api/employee-banks/${bank.employeeBankId}`)
       .loginAs(actor!.user)
@@ -285,6 +286,7 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+    const before = await reloadBank(fixture!.bank.employeeBankId)
     const response = await client
       .put(`/api/employee-banks/${fixture!.bank.employeeBankId}`)
       .loginAs(actor!.user)
@@ -295,6 +297,9 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
         bankId: fixture!.bank.bankId,
       })
     assertWriteForbidden(response, assert, 'datos financieros')
+    const reloaded = await reloadBank(fixture!.bank.employeeBankId)
+    assert.equal(reloaded.employeeBankAccountClabe, CLEAR_FIXED.clabe)
+    assert.equal(reloaded.employeeBankAccountCurrencyType, before.employeeBankAccountCurrencyType)
   })
 
   test('CA-7: con interruptor ON el cambio de CLABE sin financiero sigue 403', async ({
@@ -305,6 +310,7 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     await employeesModule.save()
     try {
       await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+      const before = await reloadBank(fixture!.bank.employeeBankId)
       const response = await client
         .put(`/api/employee-banks/${fixture!.bank.employeeBankId}`)
         .loginAs(actor!.user)
@@ -315,6 +321,9 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
           bankId: fixture!.bank.bankId,
         })
       assertWriteForbidden(response, assert, 'datos financieros')
+      const reloaded = await reloadBank(fixture!.bank.employeeBankId)
+      assert.equal(reloaded.employeeBankAccountClabe, CLEAR_FIXED.clabe)
+      assert.equal(reloaded.employeeBankAccountCurrencyType, before.employeeBankAccountCurrencyType)
     } finally {
       employeesModule.systemModulePermissionEnforcementActive = false
       await employeesModule.save()
@@ -377,6 +386,7 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     )
     const snapshot = await snapshotAndClearEmployeesGrants(dg.roleId)
     try {
+      const before = await reloadBank(fixture!.bank.employeeBankId)
       const response = await putBankClabe(
         client,
         actor!,
@@ -386,6 +396,9 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
         CLABE_NUEVA
       )
       assertWriteForbidden(response, assert, 'datos financieros')
+      const reloaded = await reloadBank(fixture!.bank.employeeBankId)
+      assert.equal(reloaded.employeeBankAccountClabe, CLEAR_FIXED.clabe)
+      assert.equal(reloaded.employeeBankAccountCurrencyType, before.employeeBankAccountCurrencyType)
     } finally {
       await restoreEmployeesGrants(snapshot)
       await cleanupSystemActor(dg)
