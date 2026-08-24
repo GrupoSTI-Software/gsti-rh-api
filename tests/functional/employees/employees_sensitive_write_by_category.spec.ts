@@ -14,8 +14,11 @@ import {
   type TenantActor,
 } from './sensitive_read_by_category_support.js'
 import {
+  assertWriteForbidden,
+  MASK_ECHO,
   personUpdateBase,
   reloadPerson,
+  RFC_NUEVO,
   RFC_ORIGINAL,
 } from './sensitive_write_by_category_support.js'
 
@@ -72,5 +75,42 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert.equal(reloaded.personRfc, RFC_ORIGINAL)
     assert.equal(reloaded.personSecondLastname, 'ApellidoQa')
     assert.equal(reloaded.personMaritalStatus, 'married')
+  })
+
+  test('CA-1: eco de máscara en RFC es 400/422, nunca 403 de escritura', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write'])
+    const person = fixture!.person
+    const response = await client
+      .put(`/api/persons/${person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json(personUpdateBase(person, { personRfc: MASK_ECHO }))
+
+    assert.isTrue(response.status() === 400 || response.status() === 422)
+    assert.notEqual(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
+    const reloaded = await reloadPerson(person.personId)
+    assert.equal(reloaded.personRfc, RFC_ORIGINAL)
+  })
+
+  test('CA-2: RFC distinto sin identificación responde 403 y no guarda', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write'])
+    const person = fixture!.person
+    const response = await client
+      .put(`/api/persons/${person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json(personUpdateBase(person, { personRfc: RFC_NUEVO }))
+
+    assertWriteForbidden(response, assert, 'datos de identificación')
+    assert.notInclude(JSON.stringify(response.body()), RFC_NUEVO)
+    assert.notInclude(JSON.stringify(response.body()), RFC_ORIGINAL)
+    const reloaded = await reloadPerson(person.personId)
+    assert.equal(reloaded.personRfc, RFC_ORIGINAL)
   })
 })
