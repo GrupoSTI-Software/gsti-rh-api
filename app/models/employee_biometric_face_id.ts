@@ -7,6 +7,7 @@ import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
@@ -45,7 +46,8 @@ import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 export default class EmployeeBiometricFaceId extends compose(
   BaseModel,
   SoftDeletes,
-  withBusinessUnitScope()
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
 ) {
   @column({ isPrimary: true })
   declare employeeBiometricFaceIdId: number

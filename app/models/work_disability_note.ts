@@ -8,6 +8,7 @@ import User from './user.js'
 import WorkDisability from './work_disability.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 /**
  * @swagger
@@ -45,7 +46,8 @@ import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 export default class WorkDisabilityNote extends compose(
   BaseModel,
   SoftDeletes,
-  withBusinessUnitScope()
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
 ) {
   @column({ isPrimary: true })
   declare workDisabilityNoteId: number

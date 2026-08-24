@@ -7,6 +7,7 @@ import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
 import { blindIndex } from '#utils/blind_index'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import Employee from './employee.js'
 import User from './user.js'
 /**
@@ -73,7 +74,7 @@ import User from './user.js'
  *
  */
 
-export default class Person extends compose(BaseModel, SoftDeletes) {
+export default class Person extends compose(BaseModel, SoftDeletes, withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare personId: number
 

@@ -7,6 +7,7 @@ import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
@@ -35,7 +36,7 @@ import { sensitiveSerialize } from '#helpers/sensitive_serialize'
  *         employeeBiometricDeletedAt:
  *           type: string
  */
-export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
+export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeBiometricId: number
 

@@ -8,6 +8,7 @@ import Employee from '#models/employee'
 import TraumaticEventType from '#models/traumatic_event_type'
 import User from '#models/user'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 
 export type TraumaticEventReportOrigin = 'employee' | 'rh'
 
@@ -60,7 +61,7 @@ export type TraumaticEventReportOrigin = 'employee' | 'rh'
  *           format: date-time
  *           nullable: true
  */
-export default class TraumaticEventReport extends compose(BaseModel, SoftDeletes) {
+export default class TraumaticEventReport extends compose(BaseModel, SoftDeletes, withSensitiveWriteGuard()) {
   static table = 'traumatic_event_reports'
 
   @column({ isPrimary: true })
