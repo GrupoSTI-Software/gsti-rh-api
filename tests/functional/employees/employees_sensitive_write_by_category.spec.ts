@@ -233,4 +233,23 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert.equal(created.employeeBankAccountClabe, '012180001234567888')
     await created.delete()
   })
+
+  test('CA-6: GET foto con token distinto sin biométrico-write responde 200 y renueva', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-biometricos-read'])
+    const tokenNuevo = `face-token-ca6-${Date.now()}`
+    const response = await client
+      .get(
+        `/api/employees/${fixture!.employee.employeeId}/biometric-face-id-with-token/${tokenNuevo}`
+      )
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+
+    assert.notEqual(response.status(), 403)
+    assert.notEqual(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
+    await extra!.faceId.refresh()
+    assert.equal(extra!.faceId.employeeBiometricFaceIdToken, tokenNuevo)
+  })
 })
