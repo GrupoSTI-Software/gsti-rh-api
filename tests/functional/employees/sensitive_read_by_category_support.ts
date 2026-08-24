@@ -410,6 +410,16 @@ export async function cleanupSensitiveFixture(fixture: SensitiveFixture | null) 
   await EmployeeBank.query()
     .where('employee_bank_id', fixture.bank.employeeBankId)
     .delete()
+  // PUT persona con cumpleaños crea filas en employee_assist_calendars
+  // (PersonService.updateAssistCalendar). Sin este delete el FK impide borrar al empleado.
+  await db
+    .from('attendance_fault_hr_notification_logs')
+    .where('employee_id', fixture.employee.employeeId)
+    .delete()
+  await db
+    .from('employee_assist_calendars')
+    .where('employee_id', fixture.employee.employeeId)
+    .delete()
   await Employee.query().where('employee_id', fixture.employee.employeeId).delete()
   await db.from('positions').where('position_id', fixture.positionId).delete()
   await db.from('departments').where('department_id', fixture.departmentId).delete()
