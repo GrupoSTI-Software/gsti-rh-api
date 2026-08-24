@@ -407,9 +407,10 @@ export async function cleanupSensitiveFixture(fixture: SensitiveFixture | null) 
   await EmployeeMedicalCondition.query()
     .where('employee_medical_condition_id', fixture.medical.employeeMedicalConditionId)
     .delete()
-  await EmployeeBank.query()
-    .where('employee_bank_id', fixture.bank.employeeBankId)
-    .delete()
+  // POST /api/employee-banks crea filas extra; created.delete() es soft-delete
+  // (adonis-lucid-soft-deletes) y el FK employee_banks_employee_id_foreign
+  // sigue bloqueando el DELETE físico del empleado.
+  await db.from('employee_banks').where('employee_id', fixture.employee.employeeId).delete()
   // PUT persona con cumpleaños crea filas en employee_assist_calendars
   // (PersonService.updateAssistCalendar). Sin este delete el FK impide borrar al empleado.
   await db

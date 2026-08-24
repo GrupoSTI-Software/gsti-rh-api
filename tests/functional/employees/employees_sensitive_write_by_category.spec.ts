@@ -1,7 +1,9 @@
 import { test } from '@japa/runner'
+import EmployeeBank from '#models/employee_bank'
 import SystemModule from '#models/system_module'
 import {
   buHeader,
+  CLEAR_FIXED,
   cleanupActor,
   cleanupRemainingSensitiveFixture,
   cleanupSensitiveFixture,
@@ -15,9 +17,11 @@ import {
 } from './sensitive_read_by_category_support.js'
 import {
   assertWriteForbidden,
+  CLABE_NUEVA,
   CURP_NUEVA,
   MASK_ECHO,
   personUpdateBase,
+  reloadBank,
   reloadPerson,
   RFC_NUEVO,
   RFC_ORIGINAL,
@@ -140,5 +144,93 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     const reloaded = await reloadPerson(person.personId)
     assert.equal(reloaded.personPhone, phoneBefore)
     assert.equal(reloaded.personCurp, curpBefore)
+  })
+
+  test('CA-4: CLABE distinta sin financiero responde 403 y no cambia', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+    const bank = fixture!.bank
+    const response = await client
+      .put(`/api/employee-banks/${bank.employeeBankId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeBankAccountClabe: CLABE_NUEVA,
+        employeeBankAccountCurrencyType: 'USD',
+        bankId: bank.bankId,
+      })
+
+    assertWriteForbidden(response, assert, 'datos financieros')
+    const reloaded = await reloadBank(bank.employeeBankId)
+    assert.equal(reloaded.employeeBankAccountClabe, CLEAR_FIXED.clabe)
+  })
+
+  test('CA-4: CLABE null más cambio de moneda no exige financiero', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+    const bank = fixture!.bank
+    const currencyBefore = bank.employeeBankAccountCurrencyType
+    const newCurrency = currencyBefore === 'MXN' ? 'USD' : 'MXN'
+    const response = await client
+      .put(`/api/employee-banks/${bank.employeeBankId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeBankAccountClabe: null,
+        employeeBankAccountCurrencyType: newCurrency,
+        bankId: bank.bankId,
+      })
+
+    assert.equal(response.status(), 200)
+    const reloaded = await reloadBank(bank.employeeBankId)
+    assert.equal(reloaded.employeeBankAccountClabe, CLEAR_FIXED.clabe)
+    assert.equal(reloaded.employeeBankAccountCurrencyType, newCurrency)
+  })
+
+  test('CA-5: POST banco con CLABE sin financiero no crea fila', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write'])
+    const before = await EmployeeBank.query().where('employee_id', fixture!.employee.employeeId)
+    const response = await client
+      .post('/api/employee-banks')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeBankAccountClabe: CLABE_NUEVA,
+        employeeBankAccountCurrencyType: 'MXN',
+        employeeId: fixture!.employee.employeeId,
+        bankId: 1,
+      })
+
+    assertWriteForbidden(response, assert, 'datos financieros')
+    const after = await EmployeeBank.query().where('employee_id', fixture!.employee.employeeId)
+    assert.equal(after.length, before.length)
+  })
+
+  test('CA-5: POST banco con financiero crea la fila', async ({ client, assert }) => {
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write', 'sensitive-financiero-write'])
+    const response = await client
+      .post('/api/employee-banks')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json({
+        employeeBankAccountClabe: '012180001234567888',
+        employeeBankAccountCurrencyType: 'MXN',
+        employeeId: fixture!.employee.employeeId,
+        bankId: 1,
+      })
+
+    assert.equal(response.status(), 201)
+    const createdId = Number(response.body()?.data?.employeeBank?.employeeBankId)
+    assert.isAbove(createdId, 0)
+    const created = await reloadBank(createdId)
+    assert.equal(created.employeeBankAccountClabe, '012180001234567888')
+    await created.delete()
   })
 })
