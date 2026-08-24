@@ -130,27 +130,18 @@ export default class EmployeeBiometricFaceIdService {
       const existingRecord = await this.findByEmployeeId(employeeId)
 
       if (existingRecord) {
-        // Si existe un registro, eliminar la foto anterior del S3
-        if (existingRecord.employeeBiometricFaceIdPhotoUrl) {
-          const deleteResult = await uploadService.deleteFile(
-            existingRecord.employeeBiometricFaceIdPhotoUrl
-          )
+        // Guardar primero, borrar después: si `update` lanza por falta de permiso
+        // de categoría sensible, la foto anterior en S3 no debe perderse.
+        const oldPhotoUrl = existingRecord.employeeBiometricFaceIdPhotoUrl
+        const updated = await this.update(existingRecord, newPhotoUrl)
 
-          // Continuar aunque haya error al eliminar (excepto si es un error crítico)
-          if (deleteResult.status !== 200 && deleteResult.status !== 404) {
-            // Si hay un error crítico, retornar error
-            return {
-              status: deleteResult.status || 500,
-              type: 'error',
-              title: 'Error al reemplazar foto',
-              message: deleteResult.message || 'Error al eliminar la foto anterior',
-              data: null,
-            }
-          }
+        if (oldPhotoUrl) {
+          // Nota: si el borrado del objeto anterior en S3 falla aquí, el registro ya
+          // quedó actualizado correctamente; no se revierte el save por un fallo de
+          // limpieza de almacenamiento no crítico.
+          await uploadService.deleteFile(oldPhotoUrl)
         }
 
-        // Actualizar el registro con la nueva URL
-        const updated = await this.update(existingRecord, newPhotoUrl)
         return {
           status: 200,
           type: 'success',

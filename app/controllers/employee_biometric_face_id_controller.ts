@@ -206,11 +206,13 @@ export default class EmployeeBiometricFaceIdController {
 
       let result
       if (existingRecord) {
-        // Si ya existe, eliminar la foto anterior del S3 y actualizar
-        if (existingRecord.employeeBiometricFaceIdPhotoUrl) {
-          await uploadService.deleteFile(existingRecord.employeeBiometricFaceIdPhotoUrl)
-        }
+        // Guardar primero, borrar después: si el guardado falla por permiso de
+        // categoría sensible, la foto anterior en S3 no debe perderse.
+        const oldPhotoUrl = existingRecord.employeeBiometricFaceIdPhotoUrl
         result = await service.update(existingRecord, photoUrl)
+        if (oldPhotoUrl) {
+          await uploadService.deleteFile(oldPhotoUrl)
+        }
         response.status(200)
         return {
           type: 'success',
