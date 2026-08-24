@@ -1,6 +1,7 @@
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import UploadService from '#services/upload_service'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBiometricFaceIdService {
 
@@ -169,6 +170,7 @@ export default class EmployeeBiometricFaceIdService {
         }
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) throw error
       return {
         status: 500,
         type: 'error',
