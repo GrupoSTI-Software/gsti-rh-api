@@ -9,6 +9,7 @@ import BusinessUnit from './business_unit.js'
 import Position from './position.js'
 import User from './user.js'
 import PositionSalaryRangeAudit from './position_salary_range_audit.js'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -28,10 +29,10 @@ import PositionSalaryRangeAudit from './position_salary_range_audit.js'
  *            description: Puesto (FK a positions)
  *          minSalaryDaily:
  *            type: number
- *            description: Salario mínimo diario (cifrado en BD)
+ *            description: Salario mínimo diario (cifrado en BD). Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
  *          maxSalaryDaily:
  *            type: number
- *            description: Salario máximo diario (cifrado en BD)
+ *            description: Salario máximo diario (cifrado en BD). Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
  *          validFrom:
  *            type: string
  *            description: Inicio de vigencia
@@ -71,6 +72,7 @@ export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes,
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily'),
   })
   declare minSalaryDaily: number
 
@@ -86,6 +88,7 @@ export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes,
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRange', 'maxSalaryDaily'),
   })
   declare maxSalaryDaily: number
 

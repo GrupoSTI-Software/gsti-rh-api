@@ -6,6 +6,7 @@ import Employee from '#models/employee'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 import RetentionGuardService from '#services/retention_guard_service'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 
 export interface TraumaticEventReportCreatePayload {
   traumaticEventReportEmployeeId: number
@@ -68,8 +69,16 @@ function serializeReport(report: TraumaticEventReport) {
     traumaticEventReportElaboratedAt: toIsoDateTimeString(
       report.traumaticEventReportElaboratedAt
     ),
-    traumaticEventReportInvolvedPeople: report.traumaticEventReportInvolvedPeople,
-    traumaticEventReportDescription: report.traumaticEventReportDescription,
+    traumaticEventReportInvolvedPeople: maskSensitiveDtoValue(
+      'TraumaticEventReport',
+      'traumaticEventReportInvolvedPeople',
+      report.traumaticEventReportInvolvedPeople
+    ),
+    traumaticEventReportDescription: maskSensitiveDtoValue(
+      'TraumaticEventReport',
+      'traumaticEventReportDescription',
+      report.traumaticEventReportDescription
+    ),
     traumaticEventReportOrigin: report.traumaticEventReportOrigin,
     traumaticEventReportCapturedByUserId: report.traumaticEventReportCapturedByUserId,
     traumaticEventReportCreatedAt: toIsoDateTimeString(report.traumaticEventReportCreatedAt),

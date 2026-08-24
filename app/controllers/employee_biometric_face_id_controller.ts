@@ -577,7 +577,10 @@ export default class EmployeeBiometricFaceIdController {
    *     tags:
    *       - Employee Biometric Face ID
    *     summary: Get the biometric face photo for an employee
-   *     description: Retrieves the biometric face photo information for a specific employee
+   *     description: |
+   *       Retrieves the biometric face photo information for a specific employee.
+   *       Campos employeeBiometricFaceIdPhotoUrl y employeeBiometricFaceIdToken:
+   *       Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     parameters:
    *       - in: path
    *         name: employeeId

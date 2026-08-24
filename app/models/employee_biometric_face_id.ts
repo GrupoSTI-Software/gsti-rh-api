@@ -7,6 +7,7 @@ import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -26,10 +27,10 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
  *            description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *          employeeBiometricFaceIdPhotoUrl:
  *            type: string
- *            description: URL of the biometric face photo stored in S3
+ *            description: URL of the biometric face photo stored in S3. Puede llegar enmascarado según el permiso de lectura de su categoría.
  *          employeeBiometricFaceIdToken:
  *            type: string
- *            description: Token of the biometric face id
+ *            description: Token of the biometric face id. Puede llegar enmascarado según el permiso de lectura de su categoría.
  *          employeeBiometricFaceIdCreatedAt:
  *            type: string
  *            format: date-time
@@ -83,10 +84,13 @@ export default class EmployeeBiometricFaceId extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrl'),
   })
   declare employeeBiometricFaceIdPhotoUrl: string
 
-  @column()
+  @column({
+    serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdToken'),
+  })
   declare employeeBiometricFaceIdToken: string
 
   @column.dateTime({ autoCreate: true })

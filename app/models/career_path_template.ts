@@ -17,13 +17,12 @@ import BusinessUnit from './business_unit.js'
  *         careerPathTemplateId:
  *           type: number
  *           description: Career path template ID
- *         companyId:
+ *         businessUnitId:
  *           type: number
  *           description: >
  *             Unidad de negocio dueña (USRH1786595131484). La asigna el
  *             servidor desde la empresa activa de la sesión — nunca del
- *             payload. Columna física `company_id` (nombre heredado; no se
- *             renombra en esta historia, D-5).
+ *             payload.
  *         originPositionId:
  *           type: number
  *           description: Origin position ID
@@ -51,7 +50,7 @@ import BusinessUnit from './business_unit.js'
  *           description: Date and time when the career path template was soft-deleted
  *       example:
  *         careerPathTemplateId: 1
- *         companyId: 1
+ *         businessUnitId: 1
  *         originPositionId: 1
  *         targetPositionId: 2
  *         createdBy: 1
@@ -63,7 +62,7 @@ import BusinessUnit from './business_unit.js'
 export default class CareerPathTemplate extends compose(
   BaseModel,
   SoftDeletes,
-  withBusinessUnitScope('company_id')
+  withBusinessUnitScope()
 ) {
   @column({ isPrimary: true })
   declare careerPathTemplateId: number
@@ -71,27 +70,22 @@ export default class CareerPathTemplate extends compose(
   /**
    * Marca de pertenencia (USRH1786595131484, CAP-07-08-03).
    *
-   * La columna física se llama `company_id` desde el alta de la tabla
-   * (`1776881865800`) y ya es FK a `business_units.business_unit_id`.
-   * No se renombra aquí (D-5): es la única marca de tenant de esta entidad,
-   * no un alias legacy que conviva con otro `business_unit_id`. Quien audite
-   * buscando `business_unit_id` debe tratar `company_id` como equivalente.
    * Nunca se acepta del payload; el controlador la estampa desde
    * `ctx.businessUnitScope` y este hook es red de seguridad para un
    * `create()` fuera de request.
    */
   @column()
-  declare companyId: number
+  declare businessUnitId: number
 
   /**
-   * Red de seguridad: si `companyId` no viene (CLI, jobs), se resuelve
+   * Red de seguridad: si `businessUnitId` no viene (CLI, jobs), se resuelve
    * desde el puesto de origen. El camino principal de HTTP estampa desde
    * la unidad activa y no llega aquí.
    */
   @beforeCreate()
-  static async assignCompanyId(instance: CareerPathTemplate) {
-    if (instance.companyId) return
-    instance.companyId = await resolveParentBusinessUnitId(
+  static async assignBusinessUnitId(instance: CareerPathTemplate) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
       () => Position.query().where('positionId', instance.originPositionId).first(),
       'el puesto de origen'
     )
@@ -119,9 +113,9 @@ export default class CareerPathTemplate extends compose(
   declare deletedAt: DateTime | null
 
   @belongsTo(() => BusinessUnit, {
-    foreignKey: 'companyId',
+    foreignKey: 'businessUnitId',
   })
-  declare company: BelongsTo<typeof BusinessUnit>
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
 
   @belongsTo(() => Position, {
     foreignKey: 'originPositionId',
