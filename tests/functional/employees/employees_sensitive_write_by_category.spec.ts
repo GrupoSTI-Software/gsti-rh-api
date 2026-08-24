@@ -15,11 +15,13 @@ import {
 } from './sensitive_read_by_category_support.js'
 import {
   assertWriteForbidden,
+  CURP_NUEVA,
   MASK_ECHO,
   personUpdateBase,
   reloadPerson,
   RFC_NUEVO,
   RFC_ORIGINAL,
+  TELEFONO_NUEVO,
 } from './sensitive_write_by_category_support.js'
 
 test.group('Escritura sensible por categoría — HTTP', (group) => {
@@ -112,5 +114,31 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert.notInclude(JSON.stringify(response.body()), RFC_ORIGINAL)
     const reloaded = await reloadPerson(person.personId)
     assert.equal(reloaded.personRfc, RFC_ORIGINAL)
+  })
+
+  test('CA-3: teléfono nuevo más CURP nueva sin identificación no guarda el teléfono', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['tab-persona-write', 'sensitive-contacto-write'])
+    const person = fixture!.person
+    const phoneBefore = person.personPhone
+    const curpBefore = person.personCurp
+    const response = await client
+      .put(`/api/persons/${person.personId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .json(
+        personUpdateBase(person, {
+          personPhone: TELEFONO_NUEVO,
+          personCurp: CURP_NUEVA,
+        })
+      )
+
+    assertWriteForbidden(response, assert, 'datos de identificación')
+    assert.notInclude(JSON.stringify(response.body()), TELEFONO_NUEVO)
+    const reloaded = await reloadPerson(person.personId)
+    assert.equal(reloaded.personPhone, phoneBefore)
+    assert.equal(reloaded.personCurp, curpBefore)
   })
 })
