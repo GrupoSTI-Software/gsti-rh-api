@@ -134,6 +134,30 @@ test.group('assertSensitiveWriteAllowed', () => {
     })
   })
 
+  test('dos categorías denegadas: reporta la primera de SENSITIVE_WRITE_CATEGORY_ORDER, no la primera columna dirty', ({
+    assert,
+  }) => {
+    SensitiveAccessContext.run(store(), () => {
+      try {
+        assertSensitiveWriteAllowed(
+          person({
+            dirty: { personPhone: '5511111111', personCurp: 'AAAA800101HDFRRN09' },
+            original: { personPhone: '5500000000', personCurp: 'BBBB800101HDFRRN09' },
+          })
+        )
+        assert.fail('debía lanzar')
+      } catch (error) {
+        const denied = error as SensitiveDataWriteError
+        assert.equal(denied.errorCode, SENSITIVE_DATA_WRITE_ERROR_CODES.FORBIDDEN)
+        assert.equal(
+          denied.category,
+          'identificacion',
+          'personPhone (contacto) es la primera columna dirty, pero identificacion precede a contacto en SENSITIVE_WRITE_CATEGORY_ORDER'
+        )
+      }
+    })
+  })
+
   test('alta con CLABE sin permiso financiero lanza FORBIDDEN', ({ assert }) => {
     SensitiveAccessContext.run(store(), () => {
       try {
@@ -173,6 +197,24 @@ test.group('assertSensitiveWriteAllowed', () => {
           (error as SensitiveDataWriteError).errorCode,
           SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED
         )
+      }
+    })
+  })
+
+  test('unresolved tiene prioridad sobre denied aunque haya otra columna denegada', ({ assert }) => {
+    SensitiveAccessContext.run(store({ identificacion: 'unresolved' }), () => {
+      try {
+        assertSensitiveWriteAllowed(
+          person({
+            dirty: { personRfc: 'VARL850602AB3', personPhone: '5511111111' },
+            original: { personRfc: 'GOMC880315HRA', personPhone: '5500000000' },
+          })
+        )
+        assert.fail('debía lanzar')
+      } catch (error) {
+        const denied = error as SensitiveDataWriteError
+        assert.equal(denied.errorCode, SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED)
+        assert.isUndefined(denied.category)
       }
     })
   })
