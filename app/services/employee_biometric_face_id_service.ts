@@ -1,5 +1,6 @@
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import UploadService from '#services/upload_service'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 export default class EmployeeBiometricFaceIdService {
 
@@ -185,9 +186,14 @@ export default class EmployeeBiometricFaceIdService {
     biometricFaceId: EmployeeBiometricFaceId,
     token: string
   ): Promise<EmployeeBiometricFaceId> {
-    biometricFaceId.employeeBiometricFaceIdToken = token
-    await biometricFaceId.save()
-    return biometricFaceId
+    return SensitiveAccessContext.runUnguarded(
+      'renovación del token biométrico en consulta de foto de rostro',
+      async () => {
+        biometricFaceId.employeeBiometricFaceIdToken = token
+        await biometricFaceId.save()
+        return biometricFaceId
+      }
+    )
   }
 }
 
