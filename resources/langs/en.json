@@ -2580,5 +2580,14 @@
   "session_permission_tree_unresolved_title": "Session permissions unavailable",
   "session_permission_tree_unresolved_detail": "The session role could not be determined to build the permission list.",
   "system_setting_trade_name_taken_title": "Trade name already in use",
-  "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name."
+  "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name.",
+  "sensitive_data_write_forbidden_title": "Not allowed to modify sensitive data",
+  "sensitive_data_write_forbidden_detail": "You are not allowed to modify {category}. No data from the request was saved.",
+  "sensitive_data_write_unresolved_title": "Write permission could not be determined",
+  "sensitive_data_write_unresolved_detail": "It could not be determined whether you are allowed to modify sensitive data. No data from the request was saved.",
+  "sensitive_data_write_category_identificacion": "identification data",
+  "sensitive_data_write_category_contacto": "contact data",
+  "sensitive_data_write_category_financiero": "financial data",
+  "sensitive_data_write_category_salud": "health data",
+  "sensitive_data_write_category_biometrico": "biometric data"
 }

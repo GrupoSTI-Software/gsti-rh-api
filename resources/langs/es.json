@@ -2625,5 +2625,14 @@
   "session_permission_tree_unresolved_title": "Permisos de sesión no disponibles",
   "session_permission_tree_unresolved_detail": "No fue posible determinar el rol de la sesión para construir el listado de permisos.",
   "system_setting_trade_name_taken_title": "Nombre comercial en uso",
-  "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto."
+  "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto.",
+  "sensitive_data_write_forbidden_title": "Sin permiso para modificar datos sensibles",
+  "sensitive_data_write_forbidden_detail": "No tienes permiso para modificar {category}. Ningún dato de la petición se guardó.",
+  "sensitive_data_write_unresolved_title": "No se pudo determinar el permiso de escritura",
+  "sensitive_data_write_unresolved_detail": "No se pudo determinar si tienes permiso para modificar datos sensibles. Ningún dato de la petición se guardó.",
+  "sensitive_data_write_category_identificacion": "datos de identificación",
+  "sensitive_data_write_category_contacto": "datos de contacto",
+  "sensitive_data_write_category_financiero": "datos financieros",
+  "sensitive_data_write_category_salud": "datos de salud",
+  "sensitive_data_write_category_biometrico": "datos biométricos"
 }
