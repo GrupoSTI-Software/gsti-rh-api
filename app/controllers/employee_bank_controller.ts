@@ -143,6 +143,25 @@ export default class EmployeeBankController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para modificar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-modificar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.FORBIDDEN
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
@@ -348,6 +367,25 @@ export default class EmployeeBankController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para modificar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-modificar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.FORBIDDEN
    */
   async update(ctx: HttpContext) {
     const { request, response, i18n } = ctx

@@ -153,7 +153,17 @@ export default class EmployeeLactationPeriodsController {
    *       '201': { description: Creado }
    *       '400': { description: Validación VineJS o end <= start }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'create' }
+   *       '403':
+   *         description: Sin permiso 'create'. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Empleada inexistente o ajena a la empresa }
    *       '409':
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
@@ -235,7 +245,17 @@ export default class EmployeeLactationPeriodsController {
    *       '200': { description: Actualizado }
    *       '400': { description: Validación VineJS o coherencia de fechas }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update' }
+   *       '403':
+   *         description: Sin permiso 'update'. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Recurso ajeno o inexistente }
    *       '409':
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
@@ -655,7 +675,17 @@ export default class EmployeeLactationPeriodsController {
    *                       type: string
    *                       format: date-time
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   async runExpiringCheck(ctx: HttpContext) {
     const { response } = ctx
@@ -814,7 +844,17 @@ export default class EmployeeLactationPeriodsController {
    *                 lactationShiftExceptionId: { type: integer }
    *                 reason: { type: string }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Periodo o conflicto inexistente / ajeno a la empresa (key `lactation-conflict-not-found`) }
    */
   async revokeConflict(ctx: HttpContext) {
@@ -902,7 +942,17 @@ export default class EmployeeLactationPeriodsController {
    *                   description: Nuevo `employee_lactation_period_end_date` del periodo.
    *                 newLactationShiftExceptionId: { type: integer }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Periodo o conflicto inexistente / ajeno a la empresa (key `lactation-conflict-not-found`) }
    *       '422':
    *         description: |
