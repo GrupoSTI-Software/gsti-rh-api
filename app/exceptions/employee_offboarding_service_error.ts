@@ -9,6 +9,10 @@ export type EmployeeOffboardingErrorKey =
   | 'concepto-derivado-duplicado'
   | 'orden-invalido'
   | 'concepto-en-uso'
+  | 'colaborador-no-encontrado'
+  | 'expediente-no-encontrado'
+  | 'expediente-ya-abierto'
+  | 'error-interno'
   | 'sin-permiso'
   | 'datos-invalidos'
 

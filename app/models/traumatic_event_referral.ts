@@ -1,10 +1,12 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import TraumaticEventReport from '#models/traumatic_event_report'
 import User from '#models/user'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 export type TraumaticEventReferralInstitutionType =
   | 'imss'
@@ -25,6 +27,9 @@ export type TraumaticEventReferralInstitutionType =
  *         traumaticEventReportId:
  *           type: integer
  *           description: Reporte de evento traumático padre (FK).
+ *         businessUnitId:
+ *           type: integer
+ *           description: Unidad de negocio dueña (hereda del reporte padre, USRH1786595131490).
  *         traumaticEventReferralInstitutionType:
  *           type: string
  *           enum: [imss, company_doctor, private_clinic, other]
@@ -55,7 +60,11 @@ export type TraumaticEventReferralInstitutionType =
  *           format: date-time
  *           nullable: true
  */
-export default class TraumaticEventReferral extends compose(BaseModel, SoftDeletes) {
+export default class TraumaticEventReferral extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'traumatic_event_referrals'
 
   @column({ isPrimary: true })
@@ -63,6 +72,23 @@ export default class TraumaticEventReferral extends compose(BaseModel, SoftDelet
 
   @column()
   declare traumaticEventReportId: number
+
+  /** Marca de pertenencia propia (hereda del reporte, USRH1786595131490). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el reporte padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: TraumaticEventReferral) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () =>
+        TraumaticEventReport.query()
+          .where('traumaticEventReportId', instance.traumaticEventReportId)
+          .first(),
+      'el reporte de evento traumático'
+    )
+  }
 
   @column()
   declare traumaticEventReferralInstitutionType: TraumaticEventReferralInstitutionType

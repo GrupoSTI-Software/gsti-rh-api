@@ -182,8 +182,8 @@ export default class ReportJobsController {
           .first()
         const inScope =
           !!employee &&
-          (allowedBusinessUnitIds.length === 0 ||
-            allowedBusinessUnitIds.includes(employee.businessUnitId))
+          allowedBusinessUnitIds.length > 0 &&
+          allowedBusinessUnitIds.includes(employee.businessUnitId)
         if (!inScope) {
           response.status(400)
           const entity = t('employee')

@@ -5,6 +5,7 @@ import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
@@ -415,7 +416,7 @@ export default class NoticeService {
     const locale = this.i18n.locale || 'en'
     const updatePrefix = locale.startsWith('es') ? 'Actualización' : 'Update'
     const subjectPrefix = isUpdate ? `${updatePrefix}: ` : ''
-    const fromEmail = env.get('SMTP_USERNAME')
+    const fromEmail = resolveMailSender()
 
     // Branding del correo: preferir BU persistida en el aviso; fallback al header (legacy).
     const brandingBusinessUnitId = notice.businessUnitId ?? businessUnitId
@@ -548,7 +549,7 @@ export default class NoticeService {
         await mail.send((message) => {
           message
             .to(emailToSend)
-            .from(fromEmail ? fromEmail : '', tradeName)
+            .from(fromEmail, tradeName)
             .subject(emailSubject)
             .htmlView('emails/notice_mail', {
               noticeSubject: notice.noticeSubject,

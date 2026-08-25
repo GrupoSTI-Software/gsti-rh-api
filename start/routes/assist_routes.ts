@@ -9,6 +9,11 @@ const reportJobCreateLimit = limiter.define('report-job-create', (ctx) => {
   return limiter.allowRequests(10).every('10 minutes').usingKey(`report-job:${userId}`)
 })
 
+const assistStoreLimit = limiter.define('assist-store', (ctx) => {
+  const userId = ctx.auth.user?.userId ?? 'anon'
+  return limiter.allowRequests(20).every('5 minutes').usingKey(`assist-store:${userId}`)
+})
+
 router
   .group(() => {
     router.get('/get-flat-list', '#controllers/assists_controller.getAssistFlatList')
@@ -29,6 +34,7 @@ router
     router.post('/synchronize', '#controllers/assists_controller.synchronize')
     router.post('/employee-synchronize', '#controllers/assists_controller.employeeSynchronize')
     router.post('/', '#controllers/assists_controller.store')
+      .use(assistStoreLimit)
     router.put('/:assistId/inactivate', '#controllers/assists_controller.inactivate')
     router.get('/websocket-docs', '#controllers/assists_controller.websocketDocs')
     router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
