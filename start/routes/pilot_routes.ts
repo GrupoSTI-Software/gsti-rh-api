@@ -13,3 +13,4 @@ router
   .prefix('/api/pilots')
   .use(middleware.auth())
   .use(middleware.sensitiveAccess())
+  .use(middleware.sensitiveMaskEcho())

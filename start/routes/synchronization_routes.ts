@@ -25,3 +25,4 @@ router
   .prefix('/api/synchronization')
   .use(middleware.auth())
   .use(middleware.sensitiveAccess())
+  .use(middleware.sensitiveMaskEcho())

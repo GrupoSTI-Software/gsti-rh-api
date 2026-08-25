@@ -2634,5 +2634,7 @@
   "sensitive_data_write_category_contacto": "datos de contacto",
   "sensitive_data_write_category_financiero": "datos financieros",
   "sensitive_data_write_category_salud": "datos de salud",
-  "sensitive_data_write_category_biometrico": "datos biométricos"
+  "sensitive_data_write_category_biometrico": "datos biométricos",
+  "sensitive_data_write_import_forbidden_title": "El archivo contiene datos sensibles que no puedes modificar",
+  "sensitive_data_write_import_forbidden_detail": "El archivo incluye columnas de {category} y no tienes permiso para modificarlos. No se procesó ningún registro."
 }
