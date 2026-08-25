@@ -132,10 +132,10 @@ export default class TraumaticEventReportController {
    *                 description: Fecha de ocurrencia (no puede ser futura).
    *               traumaticEventReportInvolvedPeople:
    *                 type: string
-   *                 description: Personas involucradas en el evento.
+   *                 description: Personas involucradas en el evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               traumaticEventReportDescription:
    *                 type: string
-   *                 description: Descripción del evento.
+   *                 description: Descripción del evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     responses:
    *       '201': { description: Reporte creado con elaboratedAt, origin=rh y capturedByUserId asignados }
    *       '400':
@@ -214,10 +214,10 @@ export default class TraumaticEventReportController {
    *                 description: Fecha de ocurrencia (no puede ser futura).
    *               traumaticEventReportInvolvedPeople:
    *                 type: string
-   *                 description: Personas involucradas en el evento.
+   *                 description: Personas involucradas en el evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               traumaticEventReportDescription:
    *                 type: string
-   *                 description: Descripción del evento.
+   *                 description: Descripción del evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     responses:
    *       '201': { description: Reporte creado con origin=employee, elaboratedAt y capturedByUserId asignados por el servidor }
    *       '400':
@@ -347,8 +347,12 @@ export default class TraumaticEventReportController {
    *               traumaticEventReportOccurredAt:
    *                 type: string
    *                 format: date
-   *               traumaticEventReportInvolvedPeople: { type: string }
-   *               traumaticEventReportDescription: { type: string }
+   *               traumaticEventReportInvolvedPeople:
+   *                 type: string
+   *                 description: Personas involucradas en el evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
+   *               traumaticEventReportDescription:
+   *                 type: string
+   *                 description: Descripción del evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     responses:
    *       '200': { description: Reporte actualizado }
    *       '400': { description: Validación inválida }

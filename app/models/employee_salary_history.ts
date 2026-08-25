@@ -8,6 +8,7 @@ import Employee from './employee.js'
 import User from './user.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -27,7 +28,7 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
  *            description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *          salaryDaily:
  *            type: number
- *            description: Salario diario vigente en este período (cifrado en BD)
+ *            description: Salario diario vigente en este período (cifrado en BD). Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
  *          validFrom:
  *            type: string
  *            description: Inicio del período de vigencia
@@ -85,6 +86,7 @@ export default class EmployeeSalaryHistory extends compose(
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily'),
   })
   declare salaryDaily: number
 

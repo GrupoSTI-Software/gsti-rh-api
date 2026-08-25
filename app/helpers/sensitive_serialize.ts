@@ -33,3 +33,56 @@ export function sensitiveSerialize(
     return maskSensitiveValue(value, category)
   }
 }
+
+/**
+ * Fábrica de `serialize` para importes clasificados (USRH1787204602828).
+ * Sin permiso devuelve `null`: `maskLastFour` sobre un importe filtra magnitud.
+ */
+export function sensitiveSerializeNumeric(
+  model: string,
+  column: string
+): (value: number | null) => number | null {
+  const category = catalog.categoryOf(model, column)
+
+  return (value: number | null): number | null => {
+    if (value === null || value === undefined) {
+      return null
+    }
+
+    if (category === null) {
+      return null
+    }
+
+    if (SensitiveAccessContext.canRead(category)) {
+      return value
+    }
+
+    return null
+  }
+}
+
+/**
+ * Enmascara un valor leído de la propiedad del modelo (DTO que no pasa por Lucid `serialize`).
+ * Cadena vacía se deja igual: no hay dato que tapar.
+ */
+export function maskSensitiveDtoValue(
+  model: string,
+  column: string,
+  value: string | null | undefined
+): string | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+  if (value === '') {
+    return ''
+  }
+
+  const category = catalog.categoryOf(model, column)
+  if (category === null) {
+    return MASK_CHAR.repeat(5)
+  }
+  if (SensitiveAccessContext.canRead(category)) {
+    return value
+  }
+  return maskSensitiveValue(value, category)
+}

@@ -49,7 +49,7 @@ export default class EmployeeEmergencyContactController {
    *                 default: ''
    *               employeeEmergencyContactPhone:
    *                 type: string
-   *                 description: Employee emergency contact phone
+   *                 description: Employee emergency contact phone. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: false
    *                 default: ''
    *               employeeId:
@@ -244,7 +244,7 @@ export default class EmployeeEmergencyContactController {
    *                 default: ''
    *               employeeEmergencyContactPhone:
    *                 type: string
-   *                 description: Employee emergency contact phone
+   *                 description: Employee emergency contact phone. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: false
    *                 default: ''
    *     responses:

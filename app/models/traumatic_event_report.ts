@@ -7,6 +7,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from '#models/employee'
 import TraumaticEventType from '#models/traumatic_event_type'
 import User from '#models/user'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
@@ -115,6 +116,7 @@ export default class TraumaticEventReport extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('TraumaticEventReport', 'traumaticEventReportInvolvedPeople'),
   })
   declare traumaticEventReportInvolvedPeople: string
 
@@ -133,6 +135,7 @@ export default class TraumaticEventReport extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('TraumaticEventReport', 'traumaticEventReportDescription'),
   })
   declare traumaticEventReportDescription: string
 

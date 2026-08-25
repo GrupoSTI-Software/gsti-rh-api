@@ -12,6 +12,8 @@ export default class EmployeeBiometricController {
    *     tags:
    *       - EmployeeBiometrics
    *     summary: get employee biometric data
+   *     description: |
+   *       Campo employeeBiometricData: Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     parameters:
    *       - in: path
    *         name: employeeId
