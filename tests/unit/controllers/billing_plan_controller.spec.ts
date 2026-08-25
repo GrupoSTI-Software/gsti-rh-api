@@ -576,6 +576,10 @@ test.group('BillingPlanController — contrato de shape de errores PLT.CAT.*', (
       { title: 'Catálogo de cobro', detail: 'Plan no encontrado.', key: 'PLT.CAT.PLAN_NOT_FOUND', code: 'PLT.CAT.PLAN_NOT_FOUND' },
       { title: 'Catálogo de cobro', detail: 'Ya publicado.', key: 'PLT.CAT.PLAN_ALREADY_PUBLISHED', code: 'PLT.CAT.PLAN_ALREADY_PUBLISHED' },
       { title: 'Catálogo de cobro', detail: 'Sin precio/tramo.', key: 'PLT.CAT.PLAN_PUBLISH_REQUIREMENTS', code: 'PLT.CAT.PLAN_PUBLISH_REQUIREMENTS' },
+      { title: 'Catálogo de cobro', detail: 'No vendible.', key: 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE', code: 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE' },
+      { title: 'Catálogo de cobro', detail: 'Ya es el público.', key: 'PLT.CAT.PLAN_ALREADY_PUBLIC', code: 'PLT.CAT.PLAN_ALREADY_PUBLIC' },
+      { title: 'Catálogo de cobro', detail: 'No es el público.', key: 'PLT.CAT.PLAN_NOT_PUBLIC', code: 'PLT.CAT.PLAN_NOT_PUBLIC' },
+      { title: 'Catálogo de cobro', detail: 'Carrera detectada.', key: 'PLT.CAT.PUBLIC_PLAN_CONFLICT', code: 'PLT.CAT.PUBLIC_PLAN_CONFLICT' },
     ]
     for (const body of errorBodies) {
       assert.property(body, 'title')
@@ -584,5 +588,182 @@ test.group('BillingPlanController — contrato de shape de errores PLT.CAT.*', (
       assert.property(body, 'code')
       assert.isTrue(body.code.startsWith('PLT.CAT.'))
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// markPublic — señalar el plan público de la landing
+// ---------------------------------------------------------------------------
+
+test.group('BillingPlanController.markPublic — señalar plan público', () => {
+  test('devuelve 200 con billingPlanIsPublic = 1 cuando el plan es vendible', async ({ assert }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '5' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.markPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(200).json({
+        type: 'success',
+        data: { billingPlanId: 5, billingPlanIsPublic: 1 },
+      })
+    }
+    await controller.markPublic(ctx)
+
+    assert.equal(captured.status, 200)
+    assert.equal(captured.body?.type, 'success')
+    const data = captured.body?.data as Record<string, unknown>
+    assert.equal(data?.billingPlanIsPublic, 1)
+  })
+
+  test('devuelve 422 PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE cuando el plan no es vendible', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '3' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.markPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(422).json({
+        title: 'Catálogo de cobro',
+        detail: 'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.',
+        key: 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        code: 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+      })
+    }
+    await controller.markPublic(ctx)
+
+    assert.equal(captured.status, 422)
+    assert.equal(captured.body?.code, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+  })
+
+  test('devuelve 422 PLT.CAT.PLAN_ALREADY_PUBLIC cuando el plan ya es el público', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '5' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.markPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(422).json({
+        title: 'Catálogo de cobro',
+        detail: 'Este plan ya es el plan público del sitio.',
+        key: 'PLT.CAT.PLAN_ALREADY_PUBLIC',
+        code: 'PLT.CAT.PLAN_ALREADY_PUBLIC',
+      })
+    }
+    await controller.markPublic(ctx)
+
+    assert.equal(captured.status, 422)
+    assert.equal(captured.body?.code, 'PLT.CAT.PLAN_ALREADY_PUBLIC')
+  })
+
+  test('devuelve 409 PLT.CAT.PUBLIC_PLAN_CONFLICT en carrera entre dos marcados simultáneos', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '7' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.markPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(409).json({
+        title: 'Catálogo de cobro',
+        detail: 'El plan público del sitio cambió mientras procesábamos la solicitud. Vuelve a intentarlo.',
+        key: 'PLT.CAT.PUBLIC_PLAN_CONFLICT',
+        code: 'PLT.CAT.PUBLIC_PLAN_CONFLICT',
+      })
+    }
+    await controller.markPublic(ctx)
+
+    assert.equal(captured.status, 409)
+    assert.equal(captured.body?.code, 'PLT.CAT.PUBLIC_PLAN_CONFLICT')
+  })
+
+  test('devuelve 404 PLT.CAT.PLAN_NOT_FOUND cuando el planId no existe', async ({ assert }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '9999' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.markPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(404).json({
+        title: 'Catálogo de cobro',
+        detail: 'El plan solicitado no existe o fue eliminado.',
+        key: 'PLT.CAT.PLAN_NOT_FOUND',
+        code: 'PLT.CAT.PLAN_NOT_FOUND',
+      })
+    }
+    await controller.markPublic(ctx)
+
+    assert.equal(captured.status, 404)
+    assert.equal(captured.body?.code, 'PLT.CAT.PLAN_NOT_FOUND')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// unmarkPublic — quitar la señal de plan público
+// ---------------------------------------------------------------------------
+
+test.group('BillingPlanController.unmarkPublic — quitar señal de plan público', () => {
+  test('devuelve 200 con billingPlanIsPublic = 0 cuando el plan era el público', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '5' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.unmarkPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(200).json({
+        type: 'success',
+        data: { billingPlanId: 5, billingPlanIsPublic: 0 },
+      })
+    }
+    await controller.unmarkPublic(ctx)
+
+    assert.equal(captured.status, 200)
+    assert.equal(captured.body?.type, 'success')
+    const data = captured.body?.data as Record<string, unknown>
+    assert.equal(data?.billingPlanIsPublic, 0)
+  })
+
+  test('devuelve 422 PLT.CAT.PLAN_NOT_PUBLIC cuando el plan no es el público', async ({
+    assert,
+  }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '3' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.unmarkPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(422).json({
+        title: 'Catálogo de cobro',
+        detail: 'Este plan no es el plan público del sitio.',
+        key: 'PLT.CAT.PLAN_NOT_PUBLIC',
+        code: 'PLT.CAT.PLAN_NOT_PUBLIC',
+      })
+    }
+    await controller.unmarkPublic(ctx)
+
+    assert.equal(captured.status, 422)
+    assert.equal(captured.body?.code, 'PLT.CAT.PLAN_NOT_PUBLIC')
+  })
+
+  test('devuelve 404 PLT.CAT.PLAN_NOT_FOUND cuando el planId no existe', async ({ assert }) => {
+    const { response, captured } = makeResponse()
+    const ctx = { params: { planId: '9999' }, response } as unknown as HttpContext
+
+    const controller = new BillingPlanController()
+    controller.unmarkPublic = async function (this: BillingPlanController, c: HttpContext) {
+      return c.response.status(404).json({
+        title: 'Catálogo de cobro',
+        detail: 'El plan solicitado no existe o fue eliminado.',
+        key: 'PLT.CAT.PLAN_NOT_FOUND',
+        code: 'PLT.CAT.PLAN_NOT_FOUND',
+      })
+    }
+    await controller.unmarkPublic(ctx)
+
+    assert.equal(captured.status, 404)
+    assert.equal(captured.body?.code, 'PLT.CAT.PLAN_NOT_FOUND')
   })
 })

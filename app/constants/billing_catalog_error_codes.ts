@@ -41,6 +41,14 @@ export const BILLING_CATALOG_ERROR_CODES = {
   PLAN_ALREADY_DEACTIVATED: 'PLT.CAT.PLAN_ALREADY_DEACTIVATED',
   /** Intento de reactivar un plan retirado (0 → 1), por cualquier vía */
   PLAN_REACTIVATION_FORBIDDEN: 'PLT.CAT.PLAN_REACTIVATION_FORBIDDEN',
+  /** Intento de marcar como público un plan que no es vendible */
+  PLAN_PUBLIC_REQUIRES_SELLABLE: 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+  /** Intento de marcar como público el plan que ya lo es */
+  PLAN_ALREADY_PUBLIC: 'PLT.CAT.PLAN_ALREADY_PUBLIC',
+  /** Intento de desmarcar un plan que no es el público */
+  PLAN_NOT_PUBLIC: 'PLT.CAT.PLAN_NOT_PUBLIC',
+  /** Carrera: otro proceso tomó el slot de plan público (ER_DUP_ENTRY) */
+  PUBLIC_PLAN_CONFLICT: 'PLT.CAT.PUBLIC_PLAN_CONFLICT',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.CAT.SYS_UNHANDLED',
 } as const
