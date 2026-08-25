@@ -122,6 +122,25 @@ test.group('sensitiveSerializeNumeric', () => {
     assert.isNull(serialize(null))
   })
 
+  test('sin clasificación entrega null (fail-closed de importe)', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'employeeTeleworkPercentage')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.isNull(serialize(999))
+      }
+    )
+  })
+
   test('Employee.dailySalary sin permiso financiero entrega null (no enmascarado por partes)', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
