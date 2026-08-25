@@ -98,6 +98,7 @@ export const SENSITIVE_EXPORT_INVENTORY: readonly SensitiveExportDefinition[] = 
       { model: 'Person', column: 'personImssNss' },
       { model: 'Person', column: 'personEmail' },
       { model: 'Person', column: 'personPhone' },
+      { model: 'Employee', column: 'dailySalary' },
       { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone' },
     ],
     excluded: false,
