@@ -30,3 +30,4 @@ router
   })
   .prefix('/api/exception-requests')
   .use(middleware.auth())
+  .use(middleware.sensitiveAccess())
