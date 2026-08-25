@@ -1094,6 +1094,22 @@ git commit -m "fix: Cerrar gaps detectados por suite QA eco de máscara e import
 
 ---
 
+## Follow-up BO — E2E CA-5 bloqueado en UI
+
+| Capa | CA-5 (Excel con NSS, sin `sensitive-identificacion-write`) | Estado |
+|------|-------------------------------------------------------------|--------|
+| Unit U.3, U.4, U.7 | Mapa de cabeceras + `assertExcelSensitiveHeadersWritable` + helper 403 | ✅ |
+| Functional F.7 | `POST /api/employees/import-excel` directo → 403, cero filas | ✅ |
+| E2E Playwright `e2e/browser/test_excel_import.py` | Drawer BO tras subir `.xlsx` con NSS | ⚠️ **Pendiente ticket BO** |
+
+**Motivo:** el API rechaza correctamente (`EMP.SENS.WRITE.IMPORT_FORBIDDEN`), pero el `resultAdapter` del drawer en `gsti-rh-bo` (`createAdaptEmployeesImportResult`) no interpreta el 403 porque el body no trae `type: 'error'`. La UI muestra éxito vacío ("No row errors") en lugar del mensaje de forbidden.
+
+**Acción:** ver sección **Follow-up BO (siguiente ticket)** en `docs/superpowers/plans/2026-08-25-sensitive-mask-echo-excel-import.md` para archivos, fix sugerido y criterios de aceptación.
+
+**Al cerrar el ticket BO:** re-ejecutar `python e2e/browser/test_excel_import.py` (API `:3333` + BO `:3000`, seeder QA) y marcar CA-5 E2E como verde en el PR.
+
+---
+
 ## Self-Review
 
 | Requisito spec | Task |

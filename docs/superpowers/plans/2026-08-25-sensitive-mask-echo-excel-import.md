@@ -756,6 +756,51 @@ git commit -m "chore: Lint y documentación de descarte silencioso de máscara"
 
 ---
 
+## Follow-up BO (siguiente ticket)
+
+> **Estado API (orden 34):** cerrado. El 403 `EMP.SENS.WRITE.IMPORT_FORBIDDEN` en `POST /api/employees/import-excel` está implementado y cubierto por functional **F.7** (Japa HTTP directo al API).
+>
+> **Pendiente en `gsti-rh-bo`:** el drawer de importación Excel no refleja ese rechazo en UI. Registrar en el **siguiente ticket del BO** (misma historia USRH1787433076990 o ticket hijo de integración).
+
+### Síntoma observado (E2E Playwright, CA-5)
+
+Usuario `qa-file-import-blocked@gsti-tests.local` (tiene `import-employees`, **sin** `sensitive-identificacion-write`) sube un `.xlsx` con columna **NSS** desde **Colaboradores → Importar empleados**.
+
+- El API responde **403** con `{ title, detail, key, code: EMP.SENS.WRITE.IMPORT_FORBIDDEN }` (sin `type`).
+- El drawer del BO muestra **"Import result" / "No row errors"** (rama de éxito vacía), no el toast ni el `globalError` esperado.
+
+El E2E `e2e/browser/test_excel_import.py::test_import_excel_with_nss_is_forbidden` queda **bloqueado en la aserción de UI** hasta corregir el BO. La aserción HTTP (`expect_response` → status 403) debería pasar si el API está desplegado; el functional F.7 ya lo demuestra.
+
+### Causa raíz (integración BO)
+
+1. **`EmployeeService.importExcel`** (`resources/scripts/services/EmployeeService.ts`): captura el error de `$fetch` y **devuelve** `response` en lugar de propagar el 403; el flujo del importer sigue como si hubiera respuesta válida.
+2. **`createAdaptEmployeesImportResult`** (`components/employeesExcelImporterDrawer/domain/employee-importer.helpers.ts`): solo trata `globalError` cuando `body.type === 'error'`. El contrato del 403 `IMPORT_FORBIDDEN` del API **no incluye** `type` (solo `title`, `detail`, `key`, `code`), igual que los otros `respondSensitiveDataWriteDenial` de escritura por categoría. El adaptador cae en la rama de éxito con `data` vacío.
+
+**No es un gap del API:** `assertExcelSensitiveHeadersWritable` dispara antes de leer filas. El BO en modo tabular re-serializa con `buildCanonicalGrid`, que **sí** incluye la cabecera `NSS` en el archivo enviado al API.
+
+### Fix sugerido para el ticket BO
+
+| Archivo | Cambio |
+|---------|--------|
+| `components/employeesExcelImporterDrawer/domain/employee-importer.helpers.ts` | En `createAdaptEmployeesImportResult`, antes de la rama `success`: si `response.status === 403` y `body?.code === 'EMP.SENS.WRITE.IMPORT_FORBIDDEN'` (o, de forma general, `status >= 400` con `title`/`detail`), devolver `globalError: { title, detail }` y `rowErrors: []`. |
+| `resources/scripts/services/EmployeeService.ts` | Opcional: alinear con otros endpoints sensibles (no silenciar 403); o dejar el servicio como está si el adaptador ya lee `response.status`. |
+| `e2e` BO (si aplica) | Replicar CA-5 en el repo BO o consumir el E2E del API una vez corregido el adaptador. |
+
+### Criterios de aceptación BO
+
+1. Subir Excel con columna sensible (p. ej. NSS) sin permiso de escritura de la categoría → toast y pantalla de resultado muestran el mensaje de `IMPORT_FORBIDDEN` (ES/EN según locale), **cero filas procesadas**.
+2. No regresión: respuestas `type: 'success' \| 'warning'` y errores de cupo (`409`, `EMP.IMPORT.*`) siguen igual.
+3. Re-ejecutar `e2e/browser/test_excel_import.py` (API + BO en local) → CA-5 en verde.
+
+### Referencias
+
+- Contrato 403 API: `app/helpers/sensitive_data_write_api_error.ts` → rama `IMPORT_FORBIDDEN`
+- OpenAPI: `POST /api/employees/import-excel` → respuesta 403 documentada
+- Seeder QA (gitignored): `qa-file-import-blocked@gsti-tests.local` en `_tmp_do_not_commit_qa_seeder.ts`
+- E2E API: `e2e/browser/test_excel_import.py`
+
+---
+
 ## Self-Review
 
 | Requisito del spec | Task |
