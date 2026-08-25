@@ -1,10 +1,50 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
 import CareerPathCandidateService from '#services/career_path_candidate_service'
 import { CareerPathCandidateFilterSearchInterface } from 'app/interfaces/career_path_candidate_filter_search_interface.js'
 import CareerPathCandidate from '#models/career_path_candidate'
 import { createCareerPathCandidateValidator, updateCareerPathCandidateValidator } from '#validators/career_path_candidate'
 import { resolveRequestBusinessUnitId } from '../helpers/resolve_request_business_unit_id.js'
+
+/**
+ * Traduce un error inesperado a 500. Conserva el comportamiento legacy para
+ * `E_VALIDATION_ERROR` (message inocuo) pero deja de repetir `error.message`
+ * para cualquier otro error (R-7, USRH1786648600061): el `@beforeCreate` del
+ * historial de estatus lanza textos que contienen "no está en tu alcance".
+ * El detalle interno de esos casos solo va al logger. Espejo de
+ * `career_path_template_controller.ts:unexpectedErrorResponse`.
+ */
+function unexpectedErrorResponse(
+  error: unknown,
+  response: HttpContext['response'],
+  t: (key: string) => string
+) {
+  const isValidationError =
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'E_VALIDATION_ERROR'
+
+  if (isValidationError) {
+    const messages = (error as unknown as { messages: Array<{ message: string }> }).messages
+    response.status(500)
+    return {
+      type: 'error',
+      title: t('server_error'),
+      message: t('an_unexpected_error_has_occurred_on_the_server'),
+      error: messages[0].message,
+    }
+  }
+
+  logger.error({ err: error }, 'career_path_candidate: error inesperado')
+  response.status(500)
+  return {
+    type: 'error',
+    title: t('server_error'),
+    message: t('an_unexpected_error_has_occurred_on_the_server'),
+  }
+}
 
 export default class CareerPathCandidateController {
   /**
@@ -443,15 +483,7 @@ export default class CareerPathCandidateController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 
@@ -762,15 +794,7 @@ export default class CareerPathCandidateController {
         }
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
-      }
+      return unexpectedErrorResponse(error, response, t)
     }
   }
 
