@@ -6,6 +6,7 @@ import PageSync from '#models/assist_page_sync'
 import ResponseApiAssistsDto from '#dtos/response_api_assists_dto'
 import PaginationDto from '#dtos/pagination_api_dto'
 import Assist from '#models/assist'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import env from '#start/env'
 import logger from '@adonisjs/core/services/logger'
 import Employee from '#models/employee'
@@ -581,6 +582,7 @@ export default class SyncAssistsService {
         newAssist.assistPunchTimeUtc = DateTime.fromISO(item.punch_time.toString())
         newAssist.assistPunchTimeOrigin = DateTime.fromISO(item.punch_time_origin_real.toString())
         newAssist.assistSyncId = item.id
+        newAssist.assistOrigin = ASSIST_ORIGIN.SYNC
         await newAssist.save()
 
       }
@@ -608,6 +610,7 @@ export default class SyncAssistsService {
         newAssist.assistPunchTimeUtc = DateTime.fromISO(item.punch_time.toString())
         newAssist.assistPunchTimeOrigin = DateTime.fromISO(item.punch_time_origin_real.toString())
         newAssist.assistSyncId = item.id
+        newAssist.assistOrigin = ASSIST_ORIGIN.SYNC
         await newAssist.save()
 
         assists.push(newAssist)

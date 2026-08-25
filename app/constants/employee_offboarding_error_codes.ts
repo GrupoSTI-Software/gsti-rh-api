@@ -30,6 +30,18 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   FORBIDDEN: 'OFFB.CONCEPT.FORBIDDEN',
   /** Error no clasificado del dominio — 500. */
   SYS_UNHANDLED: 'OFFB.CONCEPT.UNEXPECTED',
+  /** Cuerpo o parámetros del expediente mal formados (USRH1786568279587) — 400. */
+  CASE_VAL_INPUT: 'OFFB.CASE.VAL_INPUT',
+  /** Colaborador inexistente o fuera del alcance (USRH1786568279587) — 404 uniforme. */
+  CASE_EMPLOYEE_NOT_FOUND: 'OFFB.CASE.EMPLOYEE_NOT_FOUND',
+  /** Colaborador sin expediente de salida abierto (USRH1786568279587) — 404. */
+  CASE_NOT_FOUND: 'OFFB.CASE.NOT_FOUND',
+  /** Ya existe un expediente abierto para el colaborador (regla 1, USRH1786568279587) — 409. */
+  CASE_ALREADY_OPEN: 'OFFB.CASE.ALREADY_OPEN',
+  /** Sin permiso sobre employee-offboardings en el slice del expediente — 403. */
+  CASE_FORBIDDEN: 'OFFB.CASE.FORBIDDEN',
+  /** Error no controlado del expediente — 500. */
+  CASE_UNEXPECTED: 'OFFB.CASE.UNEXPECTED',
 } as const
 
 export type EmployeeOffboardingErrorCode =

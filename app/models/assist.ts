@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import type { AssistCreateFrom } from '#constants/assist_origin'
 /**
  * @swagger
  * components:
@@ -51,6 +52,14 @@ import { compose } from '@adonisjs/core/helpers'
  *        assistType:
  *          type: string
  *          enum: [check, eatin, eatout]
+ *        assistOrigin:
+ *          type: string
+ *          nullable: true
+ *          description: Procedencia (self-service, admin-capture, sync). NULL = no determinado.
+ *        assistCreatedByUserId:
+ *          type: integer
+ *          nullable: true
+ *          description: Usuario captor en captura administrativa.
  *        assistUsed:
  *          type: integer
  *        assistCreatedAt:
@@ -108,6 +117,14 @@ export default class Assist extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare assistType: string
+
+  /** Procedencia del registro. NULL = origen no determinado (históricos). */
+  @column()
+  declare assistOrigin: AssistCreateFrom | null
+
+  /** Usuario que capturó el registro. NULL en autoservicio, sync e históricos. Sin FK. */
+  @column()
+  declare assistCreatedByUserId: number | null
 
   @column.dateTime({ autoCreate: true })
   declare assistPunchTime: DateTime

@@ -185,10 +185,9 @@ export default class TraumaticEventExamService {
     const report = await this.reportService.assertReportInScope(reportId, allowedBusinessUnitIds)
     const exam = await this.findExamOrFail(reportId, examId)
 
-    await report.load('employee')
     const guard = new RetentionGuardService()
     await guard.assertCanDelete(
-      report.employee.businessUnitId,
+      report.businessUnitId,
       'traumatic_event_exam',
       exam.traumaticEventExamCreatedAt
     )

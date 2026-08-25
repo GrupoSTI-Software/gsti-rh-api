@@ -37,7 +37,7 @@ export default class WorkDisabilityNoteController {
    *             properties:
    *               workDisabilityNoteDescription:
    *                 type: string
-   *                 description: Work disability note description
+   *                 description: Work disability note description. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: true
    *                 default: ''
    *               workDisabilityId:
@@ -331,8 +331,7 @@ export default class WorkDisabilityNoteController {
    *             properties:
    *               workDisabilityNoteDescription:
    *                 type: string
-   *                 description: Work disability note description
-   *                 required: true
+   *                 description: Work disability note description. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 default: ''
    *     responses:
    *       '200':

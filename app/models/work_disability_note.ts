@@ -8,6 +8,7 @@ import User from './user.js'
 import WorkDisability from './work_disability.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 /**
  * @swagger
  * components:
@@ -64,6 +65,7 @@ export default class WorkDisabilityNote extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('WorkDisabilityNote', 'workDisabilityNoteDescription'),
   })
   declare workDisabilityNoteDescription: string
 

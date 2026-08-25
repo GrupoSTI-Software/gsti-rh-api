@@ -1,7 +1,18 @@
 import db from '@adonisjs/lucid/services/db'
+import SatCfdiUse from '#models/sat_cfdi_use'
+import SatTaxRegime from '#models/sat_tax_regime'
+import TenantBillingProfile from '#models/tenant_billing_profile'
+import { computeBillingProfileCompleteness } from '../helpers/tenant_billing_profile_completeness.js'
+import type { BillingProfileMissingField } from '../helpers/tenant_billing_profile_completeness.js'
+import { isValidRfcSat } from '../shared/validators/rfc.validator.js'
 import { PLATFORM_TENANT_ERROR_CODES } from '../constants/platform_tenant_error_codes.js'
 import { PlatformTenantServiceError } from '../exceptions/platform_tenant_service_error.js'
+import { blindIndex } from '../utils/blind_index.js'
 import { toCalendarIsoDate } from '../utils/business_date.js'
+import { TenantContext } from '../utils/tenant_context.js'
+
+const PLATFORM_BILLING_PROFILE_UNSCOPE_REASON =
+  'consulta de perfil fiscal desde el landlord de plataforma (operador GSTI, sin tenant propio)'
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
@@ -30,7 +41,38 @@ export interface TenantListItem {
   subscription: TenantSubscriptionSnapshot | null
 }
 
-export interface TenantDetail extends TenantListItem {}
+/**
+ * Perfil fiscal del tenant tal como lo capturó el cliente (USRH1786737531069).
+ * `null` en `getTenantDetail` cuando nunca capturó datos fiscales.
+ */
+export interface TenantBillingProfileSnapshot {
+  /** RFC descifrado por el `consume` del modelo; `null` si falló el descifrado. */
+  rfc: string | null
+  /** Razón social fiscal (≠ `businessUnitLegalName` del listado). */
+  legalName: string | null
+  postalCode: string | null
+  /** Clave c_RegimenFiscal (3 caracteres). */
+  taxRegimeCode: string | null
+  /** Descripción del catálogo sembrado; `null` si la clave no está en el catálogo. */
+  taxRegimeLabel: string | null
+  /** Clave c_UsoCFDI (4 caracteres). */
+  cfdiUseCode: string | null
+  /** Descripción del catálogo sembrado; `null` si la clave no está en el catálogo. */
+  cfdiUseLabel: string | null
+  billingEmail: string | null
+  /** Derivado por el servicio de USRH1786737531066; se propaga tal cual al landlord. */
+  billingProfileComplete: boolean
+  missingFields: BillingProfileMissingField[]
+  /** ISO-8601 — `tenant_billing_profile_created_at`. */
+  capturedAt: string | null
+  /** ISO-8601 — `tenant_billing_profile_updated_at`. */
+  updatedAt: string | null
+}
+
+/** Detalle de tenant para el landlord; el listado no incluye `billingProfile`. */
+export interface TenantDetail extends TenantListItem {
+  billingProfile: TenantBillingProfileSnapshot | null
+}
 
 export interface ListTenantsFilters {
   search?: string
@@ -287,7 +329,80 @@ export default class PlatformTenantService {
       .then((r) => Number((r as { cnt: string | number } | null)?.cnt ?? 0))
 
     const merged = sub ? { ...row, ...(sub as Record<string, unknown>) } : row
-    return this.toListItem(merged, activeEmployees)
+    const billingProfile = await this.loadBillingProfileSnapshot(row.buId as number)
+
+    return this.toTenantDetail(merged, activeEmployees, billingProfile)
+  }
+
+  // ─── Perfil fiscal (USRH1786737531069) ─────────────────────────────────────
+
+  /**
+   * Carga el perfil fiscal vivo vía Lucid (RFC descifrado por `consume`) y resuelve
+   * etiquetas del catálogo SAT en consultas puntuales, fuera de `runUnscoped`.
+   */
+  private async loadBillingProfileSnapshot(
+    businessUnitId: number
+  ): Promise<TenantBillingProfileSnapshot | null> {
+    const profile = await TenantContext.runUnscoped(
+      () => TenantBillingProfile.query().where('businessUnitId', businessUnitId).first(),
+      PLATFORM_BILLING_PROFILE_UNSCOPE_REASON
+    )
+
+    if (!profile) {
+      return null
+    }
+
+    const labels = await this.resolveSatCatalogLabels(profile.taxRegimeCode, profile.cfdiUseCode)
+
+    return this.toBillingProfileSnapshot(profile, labels)
+  }
+
+  /** Resuelve descripciones legibles del catálogo sembrado (máx. 2 consultas por detalle). */
+  private async resolveSatCatalogLabels(
+    taxRegimeCode: string | null,
+    cfdiUseCode: string | null
+  ): Promise<{ taxRegimeLabel: string | null; cfdiUseLabel: string | null }> {
+    const [taxRegime, cfdiUse] = await Promise.all([
+      taxRegimeCode
+        ? SatTaxRegime.query().where('satTaxRegimeCode', taxRegimeCode).first()
+        : Promise.resolve(null),
+      cfdiUseCode
+        ? SatCfdiUse.query().where('satCfdiUseCode', cfdiUseCode).first()
+        : Promise.resolve(null),
+    ])
+
+    return {
+      taxRegimeLabel: taxRegime?.satTaxRegimeDescription ?? null,
+      cfdiUseLabel: cfdiUse?.satCfdiUseDescription ?? null,
+    }
+  }
+
+  private toBillingProfileSnapshot(
+    profile: TenantBillingProfile,
+    labels: { taxRegimeLabel: string | null; cfdiUseLabel: string | null }
+  ): TenantBillingProfileSnapshot {
+    const completeness = computeBillingProfileCompleteness({
+      rfc: profile.rfc,
+      legalName: profile.legalName,
+      postalCode: profile.postalCode,
+      taxRegimeCode: profile.taxRegimeCode,
+      cfdiUseCode: profile.cfdiUseCode,
+    })
+
+    return {
+      rfc: profile.rfc,
+      legalName: profile.legalName,
+      postalCode: profile.postalCode,
+      taxRegimeCode: profile.taxRegimeCode,
+      taxRegimeLabel: profile.taxRegimeCode ? labels.taxRegimeLabel : null,
+      cfdiUseCode: profile.cfdiUseCode,
+      cfdiUseLabel: profile.cfdiUseCode ? labels.cfdiUseLabel : null,
+      billingEmail: profile.billingEmail,
+      billingProfileComplete: completeness.complete,
+      missingFields: completeness.missingFields,
+      capturedAt: profile.createdAt.toISO(),
+      updatedAt: profile.updatedAt?.toISO() ?? null,
+    }
   }
 
   // ─── Helpers internos ────────────────────────────────────────────────────────
@@ -303,10 +418,23 @@ export default class PlatformTenantService {
 
     if (search) {
       const term = `%${search.toUpperCase()}%`
+      const matchesRfcSearch = isValidRfcSat(search)
+
       q.where((inner) => {
         inner
           .whereRaw('UPPER(bu.business_unit_name) LIKE ?', [term])
           .orWhereRaw('UPPER(bu.business_unit_legal_name) LIKE ?', [term])
+
+        if (matchesRfcSearch) {
+          inner.orWhereIn(
+            'bu.business_unit_id',
+            db
+              .from('tenant_billing_profiles')
+              .whereNull('tenant_billing_profile_deleted_at')
+              .where('tenant_billing_profile_rfc_hash', blindIndex(search))
+              .select('business_unit_id')
+          )
+        }
       })
     }
 
@@ -332,6 +460,17 @@ export default class PlatformTenantService {
   }
 
   // ─── Serialización ──────────────────────────────────────────────────────────
+
+  private toTenantDetail(
+    row: Record<string, unknown>,
+    activeEmployees: number,
+    billingProfile: TenantBillingProfileSnapshot | null
+  ): TenantDetail {
+    return {
+      ...this.toListItem(row, activeEmployees),
+      billingProfile,
+    }
+  }
 
   private toListItem(row: Record<string, unknown>, activeEmployees: number): TenantListItem {
     const hasSubscription = row.subscriptionStatus !== null && row.subscriptionStatus !== undefined

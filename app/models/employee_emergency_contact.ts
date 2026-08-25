@@ -7,6 +7,7 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 /**
  * @swagger
  * components:
@@ -76,6 +77,7 @@ export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDel
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeEmergencyContact', 'employeeEmergencyContactPhone'),
   })
   declare employeeEmergencyContactPhone: string
 

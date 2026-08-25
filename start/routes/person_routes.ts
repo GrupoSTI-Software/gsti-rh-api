@@ -17,6 +17,7 @@ router
   })
   .prefix('/api/persons')
   .use(middleware.auth())
+  .use(middleware.sensitiveAccess())
 router
   .group(() => {
     router.get('/:personId', '#controllers/person_controller.getEmployee')
