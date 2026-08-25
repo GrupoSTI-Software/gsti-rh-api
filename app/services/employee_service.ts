@@ -4859,6 +4859,20 @@ export default class EmployeeService {
   }
 
   /**
+   * Valor numérico sensible en plantilla de importación.
+   * Sin permiso de export completo se escribe el marcador `*****`.
+   */
+  private templateSensitiveNumericCellValue(
+    maskSensitive: boolean | undefined,
+    value: number | null | undefined
+  ): string | number {
+    if (maskSensitive) {
+      return SENSITIVE_EXPORT_PLACEHOLDER
+    }
+    return value ?? 0
+  }
+
+  /**
    * Indica si una celda del Excel trae un valor real para persistir.
    * Vacío o `*****` (marcador de export sin permiso) no actualizan datos existentes.
    */
@@ -5293,7 +5307,10 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
         worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
-        worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
+        worksheet.getCell(rowNum, 11).value = this.templateSensitiveNumericCellValue(
+          options?.maskSensitive,
+          emp.dailySalary
+        )
         worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
         worksheet.getCell(rowNum, 13).value = this.templateSensitiveCellValue(
           options?.maskSensitive,
