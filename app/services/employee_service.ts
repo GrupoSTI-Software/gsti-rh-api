@@ -811,7 +811,15 @@ export default class EmployeeService {
     options?: { changedBy?: number; salaryChangeReason?: string | null }
   ) {
     const salarioAnterior = currentEmployee.dailySalary
-    const salarioNuevo = employee.dailySalary || 0
+    // Eco destructivo (USRH1787433076994): propiedad ausente = conservar el
+    // salario actual; el controller solo la fija cuando el payload trajo un
+    // número finito. No copiar `|| 0` a ciegas: `0` explícito es real y `null`
+    // (eco del BO cuando el usuario no tiene lectura sensible) no lo es.
+    const dailySalaryProvided =
+      'dailySalary' in employee &&
+      typeof employee.dailySalary === 'number' &&
+      Number.isFinite(employee.dailySalary)
+    const salarioNuevo = dailySalaryProvided ? employee.dailySalary : currentEmployee.dailySalary
 
     currentEmployee.employeeFirstName = employee.employeeFirstName
     currentEmployee.employeeLastName = employee.employeeLastName
@@ -838,7 +846,9 @@ export default class EmployeeService {
       currentEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
     }
     currentEmployee.businessUnitId = employee.businessUnitId
-    currentEmployee.dailySalary = salarioNuevo
+    if (dailySalaryProvided) {
+      currentEmployee.dailySalary = employee.dailySalary
+    }
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
     // Modalidad y porcentaje se aplican via helper: valida contra el turno
     // activo y calcula el % de teletrabajo. Si el helper reporta un error de

@@ -1358,9 +1358,9 @@ export default class EmployeeController {
    *                 default: 1
    *               dailySalary:
    *                 type: number
-   *                 description: Daily salary
+   *                 nullable: true
+   *                 description: Salario diario. Ausente, `null` o no numérico = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió).
    *                 required: false
-   *                 default: 0
    *               payrollBusinessUnitId:
    *                 type: number
    *                 description: Payroll Business Unit id
@@ -1558,7 +1558,13 @@ export default class EmployeeController {
       const employeeTypeId = request.input('employeeTypeId')
       const employeeBusinessEmail = request.input('employeeBusinessEmail')
       const employeeTypeOfContract = request.input('employeeTypeOfContract')
-      const dailySalary = request.input('dailySalary') || 0
+      // Eco destructivo (USRH1787433076994): el BO reenvía el registro
+      // completo, incluyendo el `dailySalary: null` que recibió por no tener
+      // el permiso de lectura sensible. Ausente/null/no numérico = no tocar
+      // el salario; solo un número finito (incluyendo 0 explícito) se aplica.
+      const dailySalaryRaw = request.input('dailySalary')
+      const dailySalaryFinite =
+        typeof dailySalaryRaw === 'number' && Number.isFinite(dailySalaryRaw) ? dailySalaryRaw : null
       const salaryChangeReason: string | null = request.input('salaryChangeReason') ?? null
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
@@ -1583,7 +1589,6 @@ export default class EmployeeController {
         departmentId: departmentId,
         positionId: positionId,
         businessUnitId: request.input('businessUnitId'),
-        dailySalary: dailySalary,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeWorkSchedule: employeeWorkSchedule,
         employeeWorkScheduleHybridMode: employeeWorkScheduleHybridMode,
@@ -1732,6 +1737,14 @@ export default class EmployeeController {
           currentPositionId: currentEmployee.positionId,
         })
         employee.positionLevelConfigId = positionLevelConfigId
+      }
+
+      // Eco destructivo (USRH1787433076994): solo se fija `dailySalary` en el
+      // payload de salida cuando el request trajo un número finito. Ausente,
+      // `null` o no numérico deja la propiedad fuera de `employee`, de modo
+      // que `employeeService.update` conserve el valor actual.
+      if (dailySalaryFinite !== null) {
+        employee.dailySalary = dailySalaryFinite
       }
 
       const previousEmail = currentEmployee.employeeBusinessEmail
