@@ -3478,7 +3478,12 @@ export default class EmployeeService {
       } else if (header.includes('posición')) {
         data.position = value
       } else if (header.includes('salario diario')) {
-        data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
+        if (this.hasImportCellValue(rawValue ?? value)) {
+          const parsed = typeof rawValue === 'number' ? rawValue : Number.parseFloat(String(value))
+          if (Number.isFinite(parsed)) {
+            data.dailySalary = parsed
+          }
+        }
       } else if (header.includes('fecha de nacimiento')) {
         const cellText = cell.text ? cell.text.trim() : null
         if (rawValue instanceof Date) {
@@ -3732,7 +3737,13 @@ export default class EmployeeService {
       }
     }
 
-    existingEmployee.dailySalary = employeeData.dailySalary ?? existingEmployee.dailySalary
+    if (
+      employeeData.dailySalary !== undefined &&
+      employeeData.dailySalary !== null &&
+      Number.isFinite(employeeData.dailySalary)
+    ) {
+      existingEmployee.dailySalary = employeeData.dailySalary
+    }
 
     if (businessUnitId !== null) existingEmployee.businessUnitId = businessUnitId
     if (payrollBusinessUnitId !== null) existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
