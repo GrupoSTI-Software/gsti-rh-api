@@ -167,6 +167,19 @@ export default class BillingCatalogService {
    * Requisitos para publicar:
    *  - Al menos un precio con effective_from ≤ hoy.
    *  - Al menos un tramo activo.
+   *
+   * Cuando el plan es una copia (billingPlanParentId no nulo), la publicación
+   * ejecuta además el relevo del plan padre dentro de la misma transacción:
+   *  1. Desmarca y desactiva al padre en una sola sentencia.
+   *  2. Descarta en borrador las copias hermanas del mismo padre.
+   *  3. Publica el clon; si el padre era el plan público de la landing,
+   *     el clon hereda la marca en ese mismo paso.
+   *
+   * El orden desmarcar → marcar es obligatorio: el índice único
+   * `billing_plans_public_unique` se valida por sentencia y no al commit.
+   * Invertirlo produce `ER_DUP_ENTRY`, que se traduce a `409
+   * PLT.CAT.PUBLIC_PLAN_CONFLICT` en lugar de dejar pasar el mensaje crudo
+   * de MySQL. (USRH1787619255298 · USRH1787619255300)
    */
   async publishPlan(planId: number): Promise<BillingPlan> {
     const plan = await this.getPlan(planId)
@@ -211,32 +224,53 @@ export default class BillingCatalogService {
       )
     }
 
-    await db.transaction(async (trx) => {
-      // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
-      // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
-      // Además se descartan las demás copias en borrador del mismo padre, para
-      // garantizar una sola oferta viva por linaje aun con datos previos a las
-      // restricciones de clonePlan (copias sin linaje, copias hermanas antiguas).
-      if (plan.billingPlanParentId) {
-        await BillingPlan.query({ client: trx })
-          .where('billing_plan_id', plan.billingPlanParentId)
-          .update({ billing_plan_active: 0 })
+    try {
+      await db.transaction(async (trx) => {
+        // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
+        // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
+        // Además se descartan las demás copias en borrador del mismo padre, para
+        // garantizar una sola oferta viva por linaje aun con datos previos a las
+        // restricciones de clonePlan (copias sin linaje, copias hermanas antiguas).
+        if (plan.billingPlanParentId) {
+          // Leer el estado del padre dentro de la trx para detectar si era el
+          // plan público. Lectura previa explícita sobre el mismo cliente
+          // transaccional; el UPDATE que sigue toma el lock exclusivo de la fila.
+          const parent = await BillingPlan.query({ client: trx })
+            .where('billing_plan_id', plan.billingPlanParentId)
+            .first()
+          const parentWasPublic = parent?.billingPlanIsPublic === 1
 
-        const siblingDrafts = await BillingPlan.query({ client: trx })
-          .where('billing_plan_parent_id', plan.billingPlanParentId)
-          .whereNull('billing_plan_published_at')
-          .whereNot('billing_plan_id', planId)
+          // Paso 1 (USRH1787619255300): desmarcar y desactivar al padre en una
+          // sola sentencia. Este UPDATE precede siempre al save() del clon, lo
+          // que garantiza el orden desmarcar→marcar que exige el índice único.
+          await BillingPlan.query({ client: trx })
+            .where('billing_plan_id', plan.billingPlanParentId)
+            .update({ billing_plan_active: 0, billing_plan_is_public: 0 })
 
-        for (const sibling of siblingDrafts) {
-          sibling.useTransaction(trx)
-          await (sibling as unknown as { delete(): Promise<void> }).delete()
+          const siblingDrafts = await BillingPlan.query({ client: trx })
+            .where('billing_plan_parent_id', plan.billingPlanParentId)
+            .whereNull('billing_plan_published_at')
+            .whereNot('billing_plan_id', planId)
+
+          for (const sibling of siblingDrafts) {
+            sibling.useTransaction(trx)
+            await (sibling as unknown as { delete(): Promise<void> }).delete()
+          }
+
+          // Paso 2 (USRH1787619255300): si el padre era el plan público, la
+          // marca viaja al clon en el mismo save() que lo publica.
+          if (parentWasPublic) {
+            plan.billingPlanIsPublic = 1
+          }
         }
-      }
 
-      plan.billingPlanPublishedAt = DateTime.utc()
-      plan.useTransaction(trx)
-      await plan.save()
-    })
+        plan.billingPlanPublishedAt = DateTime.utc()
+        plan.useTransaction(trx)
+        await plan.save()
+      })
+    } catch (error) {
+      this.rethrowPublicPlanConflict(error)
+    }
 
     return plan
   }

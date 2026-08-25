@@ -219,6 +219,13 @@ export default class BillingPlanController {
    *     description: |
    *       Publica el plan y congela sus tramos. Requiere al menos un precio vigente y
    *       al menos un tramo configurado.
+   *
+   *       Cuando el plan es una copia, la publicación también desactiva al plan padre
+   *       y descarta las demás copias en borrador del mismo padre, todo en un solo
+   *       acto atómico. Si el plan padre era el plan público de la landing, la marca
+   *       pasa automáticamente al clon recién publicado: la página comercial pasa del
+   *       precio anterior al nuevo sin quedarse vacía en ningún momento.
+   *       (USRH1787619255300)
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -229,11 +236,15 @@ export default class BillingPlanController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Plan publicado
+   *         description: >
+   *           Plan publicado. Si heredó la marca de plan público, billingPlanIsPublic = 1.
    *       '409':
-   *         description: El plan ya está publicado
+   *         description: >
+   *           El plan ya está publicado (PLT.CAT.PLAN_ALREADY_PUBLISHED), o bien
+   *           otra operación concurrente marcó un plan como público justo durante
+   *           el traspaso de la marca (PLT.CAT.PUBLIC_PLAN_CONFLICT) — se puede reintentar.
    *       '422':
-   *         description: No cumple los requisitos para publicar
+   *         description: No cumple los requisitos para publicar (PLT.CAT.PLAN_PUBLISH_REQUIREMENTS)
    */
   async publish({ params, response }: HttpContext) {
     try {

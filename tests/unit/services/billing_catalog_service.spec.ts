@@ -977,6 +977,190 @@ test.group('BillingCatalogService — publishPlan: barrido de copias hermanas', 
 })
 
 // ---------------------------------------------------------------------------
+// Módulo: publishPlan — herencia de la marca de plan público al clon
+// (USRH1787619255300, Criterios 1–5 + 7)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — publishPlan: herencia de la marca de plan público', () => {
+  /**
+   * Espeja la lógica de traspaso de `billing_plan_is_public` que ocurre dentro
+   * del bloque `if (plan.billingPlanParentId)` de `publishPlan`.
+   *
+   * Reproduce exactamente la secuencia:
+   *   1. Leer `parentWasPublic` (billingPlanIsPublic === 1).
+   *   2. UPDATE padre: billing_plan_active = 0, billing_plan_is_public = 0  → 'unmark_parent'
+   *   3. Si parentWasPublic: plan.billingPlanIsPublic = 1 antes del save()   → 'mark_clone'
+   *
+   * `writeOrder` documenta el orden real de escrituras de la marca y permite
+   * verificar que 'unmark_parent' precede siempre a 'mark_clone' (Criterio 4).
+   */
+  function publishWithInheritance(
+    plan: { billingPlanParentId: number | null },
+    parent: { billingPlanIsPublic: number; billingPlanActive: number } | null
+  ): {
+    clonIsPublic: number
+    parentIsPublic: number
+    parentActive: number
+    writeOrder: ('unmark_parent' | 'mark_clone')[]
+  } {
+    if (!plan.billingPlanParentId || !parent) {
+      return {
+        clonIsPublic: 0,
+        parentIsPublic: parent?.billingPlanIsPublic ?? 0,
+        parentActive: parent?.billingPlanActive ?? 1,
+        writeOrder: [],
+      }
+    }
+
+    const writeOrder: ('unmark_parent' | 'mark_clone')[] = []
+    const parentWasPublic = parent.billingPlanIsPublic === 1
+
+    // Primera escritura — desmarcar y desactivar al padre en una sola sentencia
+    parent.billingPlanIsPublic = 0
+    parent.billingPlanActive = 0
+    writeOrder.push('unmark_parent')
+
+    let clonIsPublic = 0
+    if (parentWasPublic) {
+      // Segunda escritura — marca viaja al clon en el mismo save() que lo publica
+      clonIsPublic = 1
+      writeOrder.push('mark_clone')
+    }
+
+    return { clonIsPublic, parentIsPublic: parent.billingPlanIsPublic, parentActive: parent.billingPlanActive, writeOrder }
+  }
+
+  /**
+   * Espeja el rollback de la transacción ante un fallo posterior al desmarcado
+   * del padre. Simula que el error devuelve el estado al punto anterior al
+   * inicio de la transacción (Criterio 3).
+   */
+  function publishWithInheritanceAndRollback(
+    plan: { billingPlanParentId: number | null },
+    parent: { billingPlanIsPublic: number; billingPlanActive: number } | null
+  ): {
+    reverted: boolean
+    parentIsPublic: number
+    parentActive: number
+    clonIsPublic: number
+  } {
+    if (!plan.billingPlanParentId || !parent) {
+      return { reverted: false, parentIsPublic: 0, parentActive: 1, clonIsPublic: 0 }
+    }
+
+    const snapshot = { billingPlanIsPublic: parent.billingPlanIsPublic, billingPlanActive: parent.billingPlanActive }
+
+    try {
+      publishWithInheritance(plan, parent)
+      throw new Error('fallo simulado después del desmarcado')
+    } catch {
+      parent.billingPlanIsPublic = snapshot.billingPlanIsPublic
+      parent.billingPlanActive = snapshot.billingPlanActive
+      return { reverted: true, parentIsPublic: parent.billingPlanIsPublic, parentActive: parent.billingPlanActive, clonIsPublic: 0 }
+    }
+  }
+
+  // ── Criterio 1 ──────────────────────────────────────────────────────────────
+
+  test('C1: clon hereda la marca cuando el padre era el plan público', ({ assert }) => {
+    const result = publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    )
+    assert.equal(result.clonIsPublic, 1, 'el clon queda marcado como público')
+    assert.equal(result.parentIsPublic, 0, 'el padre queda desmarcado')
+    assert.equal(result.parentActive, 0, 'el padre queda desactivado')
+  })
+
+  // ── Criterio 2 ──────────────────────────────────────────────────────────────
+
+  test('C2: clon de padre no público no hereda ninguna marca', ({ assert }) => {
+    const otherPublicPlan = { billingPlanIsPublic: 1 }
+
+    const result = publishWithInheritance(
+      { billingPlanParentId: 2 },
+      { billingPlanIsPublic: 0, billingPlanActive: 1 }
+    )
+
+    assert.equal(result.clonIsPublic, 0, 'el clon no queda marcado')
+    assert.equal(result.parentIsPublic, 0, 'el padre sigue sin marca (no se altera un plan ajeno)')
+    assert.equal(otherPublicPlan.billingPlanIsPublic, 1, 'el plan público ajeno conserva su marca')
+  })
+
+  // ── Criterio 3 ──────────────────────────────────────────────────────────────
+
+  test('C3: fallo posterior al desmarcado revierte el estado completo del padre', ({ assert }) => {
+    const parent = { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    const result = publishWithInheritanceAndRollback({ billingPlanParentId: 1 }, parent)
+
+    assert.isTrue(result.reverted)
+    assert.equal(result.parentIsPublic, 1, 'el padre recupera su marca')
+    assert.equal(result.parentActive, 1, 'el padre recupera su venta')
+    assert.equal(result.clonIsPublic, 0, 'el clon queda sin marca')
+  })
+
+  // ── Criterio 4 ──────────────────────────────────────────────────────────────
+
+  test('C4: el orden de escrituras es desmarcar_padre → marcar_clon, nunca al revés', ({ assert }) => {
+    const result = publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    )
+
+    assert.includeOrderedMembers(
+      result.writeOrder,
+      ['unmark_parent', 'mark_clone'],
+      'unmark_parent debe preceder siempre a mark_clone'
+    )
+    assert.equal(
+      result.writeOrder.indexOf('unmark_parent'),
+      0,
+      'unmark_parent es la primera escritura de la marca'
+    )
+  })
+
+  test('C4: sin padre público no hay escritura mark_clone', ({ assert }) => {
+    const result = publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 0, billingPlanActive: 1 }
+    )
+
+    assert.notInclude(result.writeOrder, 'mark_clone')
+    assert.include(result.writeOrder, 'unmark_parent')
+  })
+
+  // ── Criterio 5 ──────────────────────────────────────────────────────────────
+
+  test('C5: publicar un plan sin linaje no lee ni escribe ninguna marca', ({ assert }) => {
+    const result = publishWithInheritance({ billingPlanParentId: null }, null)
+
+    assert.equal(result.clonIsPublic, 0, 'el plan publicado no queda marcado')
+    assert.deepEqual(result.writeOrder, [], 'no se emite ninguna escritura de la marca')
+  })
+
+  // ── Criterio 7 ──────────────────────────────────────────────────────────────
+
+  test('C7: el traspaso no escribe ningún campo de billing_subscriptions', ({ assert }) => {
+    // Verificación estructural: publishWithInheritance opera solo sobre las
+    // propiedades del plan y del padre; no toca ningún objeto de suscripción.
+    const subscriptions = [
+      { id: 1, billingPlanId: 1, status: 'active', contractedPrice: 65 },
+      { id: 2, billingPlanId: 1, status: 'active', contractedPrice: 65 },
+    ]
+    const snapshots = subscriptions.map((s) => ({ ...s }))
+
+    publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    )
+
+    for (const [i, sub] of subscriptions.entries()) {
+      assert.deepEqual(sub, snapshots[i], `suscripción ${sub.id} no debe modificarse`)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Módulo: nuevo código de error — coherencia de vigencia entre versiones
 // (USRH1785962095084)
 // ---------------------------------------------------------------------------

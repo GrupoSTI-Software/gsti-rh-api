@@ -13,7 +13,7 @@ import { middleware } from '../kernel.js'
  *   POST   /api/platform/billing/plans                    → crear (borrador)
  *   PATCH  /api/platform/billing/plans/:planId            → editar metadatos
  *   DELETE /api/platform/billing/plans/:planId            → soft-delete
- *   POST   /api/platform/billing/plans/:planId/publish    → publicar (irreversible; descarta hermanas del linaje)
+ *   POST   /api/platform/billing/plans/:planId/publish    → publicar (irreversible; descarta hermanas del linaje; hereda la marca de plan público del padre)
  *   POST   /api/platform/billing/plans/:planId/deactivate    → retirar del catálogo (irreversible, no toca suscripciones)
  *   POST   /api/platform/billing/plans/:planId/clone         → clonar como borrador
  *   GET    /api/platform/billing/plans/:planId/resolved-price → precio determinista
