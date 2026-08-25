@@ -10,7 +10,7 @@ import { CLEAR_FIXED } from './sensitive_read_by_category_support.js'
 
 export const MASK_ECHO_RFC = maskSensitiveValue('VARL850602AB3', 'identificacion')!
 export const MASK_ECHO_PHONE_SECONDARY = maskSensitiveValue(CLEAR_FIXED.phoneSecondary, 'contacto')!
-export const MASK_ECHO_EMAIL = maskSensitiveValue(CLEAR_FIXED.email, 'contacto')!
+export const MASK_ECHO_EMAIL = maskSensitiveValue('juan@empresa.com', 'contacto')!
 export const MASK_CORRUPT_A = '•••X1234ABCD'
 export const MASK_CORRUPT_B = 'VARL•50602AB3'
 export const MASK_EDITED_CARD = '••••••••••••••9999'
@@ -99,7 +99,8 @@ type BuildExcelOptions = {
 }
 
 export async function buildMinimalImportExcel(options: BuildExcelOptions) {
-  const headers = options.includeSensitiveColumns === false ? [...MINIMAL_HEADERS] : [...FULL_HEADERS]
+  const headers: string[] =
+    options.includeSensitiveColumns === false ? [...MINIMAL_HEADERS] : [...FULL_HEADERS]
   const workbook = new ExcelJS.Workbook()
   const sheet = workbook.addWorksheet('Empleados')
   sheet.addRow(headers)
