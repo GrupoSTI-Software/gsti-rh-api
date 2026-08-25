@@ -863,7 +863,8 @@ export default class EmployeeController {
    *                 default: 1
    *               dailySalary:
    *                 type: number
-   *                 description: Daily salary
+   *                 nullable: true
+   *                 description: Daily salary. Nullable in API responses for users without financial-data read permission (returns null). On creation, an absent value defaults to 0 (unchanged create-path behavior).
    *                 required: false
    *                 default: 0
    *               payrollBusinessUnitId:
