@@ -31,6 +31,7 @@ import type {
   EmployeeHybridMode,
   EmployeeWorkSchedule,
 } from '#constants/employee_work_schedule'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -92,7 +93,8 @@ import type {
  *            description: business id from the employee business unit
  *          dailySalary:
  *            type: number
- *            description: Daily salary
+ *            nullable: true
+ *            description: Salario diario vigente. Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
  *          payrollBusinessUnitId:
  *            type: number
  *            description: payroll business unit id
@@ -249,7 +251,9 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
   @column()
   declare businessUnitId: number
 
-  @column()
+  @column({
+    serialize: sensitiveSerializeNumeric('Employee', 'dailySalary'),
+  })
   declare dailySalary: number
 
   @column()
