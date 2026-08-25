@@ -5,7 +5,7 @@ import {
 } from '#constants/employee_excel_sensitive_headers'
 
 test.group('employee_excel_sensitive_headers', () => {
-  test('el mapa incluye las 6 cabeceras sensibles y no Salario diario', ({ assert }) => {
+  test('el mapa incluye las 7 cabeceras sensibles incluyendo Salario diario', ({ assert }) => {
     const headers = EMPLOYEE_EXCEL_SENSITIVE_HEADERS.map((e) => e.header)
     assert.includeMembers(headers, [
       'CURP',
@@ -14,8 +14,13 @@ test.group('employee_excel_sensitive_headers', () => {
       'Correo personal',
       'Teléfono Personal',
       'Teléfono contacto emergencia',
+      'Salario diario',
     ])
-    assert.notInclude(headers, 'Salario diario')
+  })
+
+  test('Salario diario activa financiero', ({ assert }) => {
+    const cats = findSensitiveCategoriesInExcelHeaders(['Salario diario', 'Nombre del empleado'])
+    assert.deepEqual(cats, ['financiero'])
   })
 
   test('archivo sin columnas sensibles devuelve arreglo vacío', ({ assert }) => {

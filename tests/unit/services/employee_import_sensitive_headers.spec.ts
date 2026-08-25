@@ -64,4 +64,19 @@ test.group('EmployeeService.assertExcelSensitiveHeadersWritable', () => {
       assert.doesNotThrow(() => svc.assertExcelSensitiveHeadersWritable(['NSS', 'CURP']))
     })
   })
+
+  test('lanza IMPORT_FORBIDDEN si Salario diario presente y sin escritura financiero', ({ assert }) => {
+    const svc = service() as unknown as ServiceWithAssert
+    SensitiveAccessContext.run(writeDeniedStore, () => {
+      try {
+        svc.assertExcelSensitiveHeadersWritable(['Salario diario', 'Nombre del empleado'])
+        assert.fail('debía lanzar SensitiveDataWriteError')
+      } catch (error) {
+        assert.instanceOf(error, SensitiveDataWriteError)
+        const e = error as SensitiveDataWriteError
+        assert.equal(e.errorCode, SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN)
+        assert.equal(e.category, 'financiero')
+      }
+    })
+  })
 })

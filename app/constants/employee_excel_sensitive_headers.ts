@@ -3,7 +3,6 @@ import type { LegalCategory } from '#constants/sensitive_fields'
 /**
  * Cabeceras del Excel de importación que escriben columnas del catálogo sensible.
  * Tabla ampliable de una línea — USRH1787433076994 añade Salario diario → financiero.
- * USRH1787433076990: sin Salario diario (no clasificado hoy).
  */
 export const EMPLOYEE_EXCEL_SENSITIVE_HEADERS = [
   { header: 'CURP', category: 'identificacion' as const },
@@ -12,6 +11,7 @@ export const EMPLOYEE_EXCEL_SENSITIVE_HEADERS = [
   { header: 'Correo personal', category: 'contacto' as const },
   { header: 'Teléfono Personal', category: 'contacto' as const },
   { header: 'Teléfono contacto emergencia', category: 'contacto' as const },
+  { header: 'Salario diario', category: 'financiero' as const },
 ] as const satisfies ReadonlyArray<{ header: string; category: LegalCategory }>
 
 function normalizeHeader(value: string): string {
