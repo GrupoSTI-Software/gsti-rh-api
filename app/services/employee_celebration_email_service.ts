@@ -15,6 +15,7 @@ import {
 } from '#services/helpers/employee_celebration_email_html'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { DateTime } from 'luxon'
 
 type CelebrationFlag = 'birthday' | 'anniversary'
@@ -138,7 +139,7 @@ export default class EmployeeCelebrationEmailService {
       return 'skipped_dev'
     }
     await mail.send((message) => {
-      message.to(recipient).subject(subject).html(html)
+      message.to(recipient).from(resolveMailSender()).subject(subject).html(html)
     })
     return 'sent'
   }

@@ -325,15 +325,19 @@ export default class ConceptsService {
   }
 
   /**
-   * Punto ÚNICO de verificación de uso (USRH1786568279584). Devuelve `false`
-   * siempre: la tabla `employee_offboarding_items` no existe todavía en este
-   * punto de la cadena; el método lo completa "Programar la baja y abrir el
-   * expediente de salida" (USRH1786568279587) consultando esa tabla y
-   * devolviendo `true` cuando el concepto ya se usó. NO mover fuera del
-   * servicio. Público porque la verificación local del CA-6 lo fuerza.
+   * Punto ÚNICO de verificación de uso (declarado por USRH1786568279584,
+   * completado por USRH1786568279587). Un concepto está en uso cuando existe
+   * al menos una fila viva de `employee_offboarding_items` con ese concepto,
+   * sin importar el estado del expediente (regla 13). NO mover fuera del
+   * servicio.
    */
-  async isInUse(_offboardingConceptId: number): Promise<boolean> {
-    return false
+  async isInUse(offboardingConceptId: number): Promise<boolean> {
+    const row = await db
+      .from('employee_offboarding_items')
+      .where('offboarding_concept_id', offboardingConceptId)
+      .whereNull('employee_offboarding_item_deleted_at')
+      .first()
+    return Boolean(row)
   }
 
   /**

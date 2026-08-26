@@ -507,6 +507,18 @@
   "aircraft": "Aircraft",
   "unknown_error": "Unknown error",
   "the_assist_was_inactivate_successfully": "The assist was inactivate successfully",
+  "assist_register_val_employee_id_title": "Invalid data",
+  "assist_register_val_employee_id_message": "The employee identifier is invalid.",
+  "assist_employee_terminated_title": "Terminated employee",
+  "assist_employee_terminated_message": "Attendance cannot be recorded for a terminated employee.",
+  "assist_write_forbidden_title": "Unauthorized to register attendance for another person",
+  "assist_write_forbidden_message": "You are not authorized to register attendance for another person.",
+  "assist_sync_forbidden_title": "Unauthorized to synchronize attendance",
+  "assist_sync_forbidden_message": "You are not authorized to synchronize attendance from the biometric device.",
+  "assist_tenant_unresolved_title": "Tenant unresolved",
+  "assist_tenant_unresolved_message": "The punch record has no tenant and there is no active business unit in scope.",
+  "assist_duplicate_natural_key_title": "Duplicate punch",
+  "assist_duplicate_natural_key_message": "A punch with the same tenant, employee code, time and terminal already exists.",
   "the_date_not_is_pay_thursday": "The date not is pay thursday",
   "assistance_report": "Assistance Report",
   "incident_summary": "Incident Summary",
@@ -827,6 +839,15 @@
   "employee_offboarding_concept_active_updated_message": "Concept status updated successfully",
   "employee_offboarding_in_use_title": "Concept in use",
   "employee_offboarding_in_use_message": "The concept was already used on a registered offboarding: deactivate it instead of deleting it",
+  "employee_offboarding_case_title": "Employee offboarding",
+  "employee_offboarding_case_opened_message": "The offboarding case was opened successfully",
+  "employee_offboarding_case_found_message": "Offboarding case found successfully",
+  "employee_offboarding_case_employee_not_found_title": "Employee not found",
+  "employee_offboarding_case_employee_not_found_message": "The employee does not exist or does not belong to your scope",
+  "employee_offboarding_case_not_found_title": "Case not found",
+  "employee_offboarding_case_not_found_message": "The employee does not have an open offboarding case",
+  "employee_offboarding_case_already_open_title": "Offboarding case already open",
+  "employee_offboarding_case_already_open_message": "The employee already has an open offboarding case",
   "employee_offboarding_forbidden_title": "No permission",
   "employee_offboarding_forbidden_message": "You do not have permission on the employee offboardings module",
   "employee_offboarding_unexpected_title": "Unexpected error",
@@ -1414,66 +1435,158 @@
         "description": "Questionnaire to identify psychosocial risk factors in workplaces (16 to 50 workers).",
         "applies_to": "Workplaces with between 16 and 50 workers.",
         "sections": {
-          "cat_i": { "title": "Work environment" },
-          "cat_ii": { "title": "Factors inherent to the activity" },
-          "cat_iii": { "title": "Work time organization" },
-          "cat_iv": { "title": "Leadership and work relationships" }
+          "cat_i": {
+            "title": "Work environment"
+          },
+          "cat_ii": {
+            "title": "Factors inherent to the activity"
+          },
+          "cat_iii": {
+            "title": "Work time organization"
+          },
+          "cat_iv": {
+            "title": "Leadership and work relationships"
+          }
         },
         "questions": {
-          "p01": { "text": "My work requires me to do a lot of physical effort" },
-          "p02": { "text": "I am worried about having an accident at my job" },
-          "p03": { "text": "I consider the activities I perform to be dangerous" },
+          "p01": {
+            "text": "My work requires me to do a lot of physical effort"
+          },
+          "p02": {
+            "text": "I am worried about having an accident at my job"
+          },
+          "p03": {
+            "text": "I consider the activities I perform to be dangerous"
+          },
           "p04": {
             "text": "Due to the amount of work I have, I must stay additional time after my shift"
           },
-          "p05": { "text": "Due to the amount of work I have, I must work without stopping" },
-          "p06": { "text": "I consider it necessary to maintain an accelerated work pace" },
-          "p07": { "text": "My work requires me to be very concentrated" },
-          "p08": { "text": "My work requires me to memorize a lot of information" },
-          "p09": { "text": "My work requires me to attend to several matters at the same time" },
-          "p10": { "text": "In my work I am responsible for things of great value" },
-          "p11": { "text": "I answer to my boss for the results of my entire work area" },
-          "p12": { "text": "In my work I am given contradictory orders" },
-          "p13": { "text": "I consider that in my work I am asked to do unnecessary things" },
-          "p14": { "text": "I work overtime more than three times a week" },
-          "p15": { "text": "My work requires me to work on rest days, holidays or weekends" },
+          "p05": {
+            "text": "Due to the amount of work I have, I must work without stopping"
+          },
+          "p06": {
+            "text": "I consider it necessary to maintain an accelerated work pace"
+          },
+          "p07": {
+            "text": "My work requires me to be very concentrated"
+          },
+          "p08": {
+            "text": "My work requires me to memorize a lot of information"
+          },
+          "p09": {
+            "text": "My work requires me to attend to several matters at the same time"
+          },
+          "p10": {
+            "text": "In my work I am responsible for things of great value"
+          },
+          "p11": {
+            "text": "I answer to my boss for the results of my entire work area"
+          },
+          "p12": {
+            "text": "In my work I am given contradictory orders"
+          },
+          "p13": {
+            "text": "I consider that in my work I am asked to do unnecessary things"
+          },
+          "p14": {
+            "text": "I work overtime more than three times a week"
+          },
+          "p15": {
+            "text": "My work requires me to work on rest days, holidays or weekends"
+          },
           "p16": {
             "text": "I consider that the time at work is too much and harms my family or personal activities"
           },
-          "p17": { "text": "I think about family or personal activities when I am at my work" },
-          "p18": { "text": "My work allows me to develop new skills" },
-          "p19": { "text": "In my work I can aspire to a better position" },
-          "p20": { "text": "During my workday I can take breaks when I need them" },
-          "p21": { "text": "I can decide the speed at which I perform my activities in my work" },
-          "p22": { "text": "I can change the order of the activities I perform in my work" },
-          "p23": { "text": "I am clearly informed of what my functions are" },
-          "p24": { "text": "The results I must obtain in my work are clearly explained to me" },
-          "p25": { "text": "I am informed of who I can resolve work problems or matters with" },
-          "p26": { "text": "I am allowed to attend training related to my work" },
-          "p27": { "text": "I receive useful training to do my work" },
-          "p28": { "text": "My boss takes my points of view and opinions into account" },
-          "p29": { "text": "My boss helps to solve the problems that arise at work" },
-          "p30": { "text": "I can trust my coworkers" },
-          "p31": { "text": "When we have to perform teamwork, colleagues collaborate" },
-          "p32": { "text": "My coworkers help me when I have difficulties" },
-          "p33": { "text": "In my work I can express myself freely without interruptions" },
-          "p34": { "text": "I receive constant criticism of my person and/or work" },
-          "p35": { "text": "I receive mockery, slander, defamation, humiliation or ridicule" },
+          "p17": {
+            "text": "I think about family or personal activities when I am at my work"
+          },
+          "p18": {
+            "text": "My work allows me to develop new skills"
+          },
+          "p19": {
+            "text": "In my work I can aspire to a better position"
+          },
+          "p20": {
+            "text": "During my workday I can take breaks when I need them"
+          },
+          "p21": {
+            "text": "I can decide the speed at which I perform my activities in my work"
+          },
+          "p22": {
+            "text": "I can change the order of the activities I perform in my work"
+          },
+          "p23": {
+            "text": "I am clearly informed of what my functions are"
+          },
+          "p24": {
+            "text": "The results I must obtain in my work are clearly explained to me"
+          },
+          "p25": {
+            "text": "I am informed of who I can resolve work problems or matters with"
+          },
+          "p26": {
+            "text": "I am allowed to attend training related to my work"
+          },
+          "p27": {
+            "text": "I receive useful training to do my work"
+          },
+          "p28": {
+            "text": "My boss takes my points of view and opinions into account"
+          },
+          "p29": {
+            "text": "My boss helps to solve the problems that arise at work"
+          },
+          "p30": {
+            "text": "I can trust my coworkers"
+          },
+          "p31": {
+            "text": "When we have to perform teamwork, colleagues collaborate"
+          },
+          "p32": {
+            "text": "My coworkers help me when I have difficulties"
+          },
+          "p33": {
+            "text": "In my work I can express myself freely without interruptions"
+          },
+          "p34": {
+            "text": "I receive constant criticism of my person and/or work"
+          },
+          "p35": {
+            "text": "I receive mockery, slander, defamation, humiliation or ridicule"
+          },
           "p36": {
             "text": "My presence is ignored or I am excluded from work meetings and decision-making"
           },
-          "p37": { "text": "Work situations are manipulated to make me look like a bad worker" },
-          "p38": { "text": "My work successes are ignored and attributed to other workers" },
+          "p37": {
+            "text": "Work situations are manipulated to make me look like a bad worker"
+          },
+          "p38": {
+            "text": "My work successes are ignored and attributed to other workers"
+          },
           "p39": {
             "text": "I am blocked or prevented from opportunities I have to obtain promotion or improvement in my work"
           },
-          "p40": { "text": "I have witnessed acts of violence in my workplace" },
-          "p41": { "text": "I attend to very angry customers or users" },
-          "p42": { "text": "My work requires me to attend to people very in need of help or sick" },
-          "p43": { "text": "To do my work I must demonstrate feelings different from my own" },
-          "p44": { "text": "They communicate work matters late" },
-          "p45": { "text": "They hinder the achievement of work results" },
-          "p46": { "text": "They ignore suggestions to improve their work" }
+          "p40": {
+            "text": "I have witnessed acts of violence in my workplace"
+          },
+          "p41": {
+            "text": "I attend to very angry customers or users"
+          },
+          "p42": {
+            "text": "My work requires me to attend to people very in need of help or sick"
+          },
+          "p43": {
+            "text": "To do my work I must demonstrate feelings different from my own"
+          },
+          "p44": {
+            "text": "They communicate work matters late"
+          },
+          "p45": {
+            "text": "They hinder the achievement of work results"
+          },
+          "p46": {
+            "text": "They ignore suggestions to improve their work"
+          }
         }
       },
       "guia_iii_nom035_2018": {
@@ -1481,103 +1594,239 @@
         "description": "Questionnaire to identify psychosocial risk factors and evaluate the organizational environment in workplaces (more than 50 workers).",
         "applies_to": "Workplaces with more than 50 workers.",
         "sections": {
-          "cat_i": { "title": "Work environment" },
-          "cat_ii": { "title": "Factors inherent to the activity" },
-          "cat_iii": { "title": "Work time organization" },
-          "cat_iv": { "title": "Leadership and work relationships" },
-          "cat_v": { "title": "Organizational environment" }
+          "cat_i": {
+            "title": "Work environment"
+          },
+          "cat_ii": {
+            "title": "Factors inherent to the activity"
+          },
+          "cat_iii": {
+            "title": "Work time organization"
+          },
+          "cat_iv": {
+            "title": "Leadership and work relationships"
+          },
+          "cat_v": {
+            "title": "Organizational environment"
+          }
         },
         "questions": {
           "p01": {
             "text": "The space where I work allows me to perform my activities safely and hygienically"
           },
-          "p02": { "text": "My work requires me to do a lot of physical effort" },
-          "p03": { "text": "I am worried about having an accident at my job" },
+          "p02": {
+            "text": "My work requires me to do a lot of physical effort"
+          },
+          "p03": {
+            "text": "I am worried about having an accident at my job"
+          },
           "p04": {
             "text": "I consider that occupational safety and health standards are applied in my work"
           },
-          "p05": { "text": "I consider the activities I perform to be dangerous" },
+          "p05": {
+            "text": "I consider the activities I perform to be dangerous"
+          },
           "p06": {
             "text": "Due to the amount of work I have, I must stay additional time after my shift"
           },
-          "p07": { "text": "Due to the amount of work I have, I must work without stopping" },
-          "p08": { "text": "I consider it necessary to maintain an accelerated work pace" },
-          "p09": { "text": "My work requires me to be very concentrated" },
-          "p10": { "text": "My work requires me to memorize a lot of information" },
-          "p11": { "text": "In my work I have to make difficult decisions very quickly" },
-          "p12": { "text": "My work requires me to attend to several matters at the same time" },
-          "p13": { "text": "In my work I am responsible for things of great value" },
-          "p14": { "text": "I answer to my boss for the results of my entire work area" },
-          "p15": { "text": "At work I am given contradictory orders" },
-          "p16": { "text": "I consider that in my work I am asked to do unnecessary things" },
-          "p17": { "text": "I work overtime more than three times a week" },
-          "p18": { "text": "My work requires me to work on rest days, holidays or weekends" },
+          "p07": {
+            "text": "Due to the amount of work I have, I must work without stopping"
+          },
+          "p08": {
+            "text": "I consider it necessary to maintain an accelerated work pace"
+          },
+          "p09": {
+            "text": "My work requires me to be very concentrated"
+          },
+          "p10": {
+            "text": "My work requires me to memorize a lot of information"
+          },
+          "p11": {
+            "text": "In my work I have to make difficult decisions very quickly"
+          },
+          "p12": {
+            "text": "My work requires me to attend to several matters at the same time"
+          },
+          "p13": {
+            "text": "In my work I am responsible for things of great value"
+          },
+          "p14": {
+            "text": "I answer to my boss for the results of my entire work area"
+          },
+          "p15": {
+            "text": "At work I am given contradictory orders"
+          },
+          "p16": {
+            "text": "I consider that in my work I am asked to do unnecessary things"
+          },
+          "p17": {
+            "text": "I work overtime more than three times a week"
+          },
+          "p18": {
+            "text": "My work requires me to work on rest days, holidays or weekends"
+          },
           "p19": {
             "text": "I consider that the time at work is too much and harms my family or personal activities"
           },
-          "p20": { "text": "I must attend to work matters when I am at home" },
-          "p21": { "text": "I think about family or personal activities when I am at my work" },
-          "p22": { "text": "I think my family responsibilities affect my work" },
-          "p23": { "text": "My work allows me to develop new skills" },
-          "p24": { "text": "In my work I can aspire to a better position" },
-          "p25": { "text": "During my workday I can take breaks when I need them" },
-          "p26": { "text": "I can decide how much work I perform during the workday" },
-          "p27": { "text": "I can decide the speed at which I perform my activities in my work" },
-          "p28": { "text": "I can change the order of the activities I perform in my work" },
-          "p29": { "text": "The changes that arise in my work hinder my labor" },
+          "p20": {
+            "text": "I must attend to work matters when I am at home"
+          },
+          "p21": {
+            "text": "I think about family or personal activities when I am at my work"
+          },
+          "p22": {
+            "text": "I think my family responsibilities affect my work"
+          },
+          "p23": {
+            "text": "My work allows me to develop new skills"
+          },
+          "p24": {
+            "text": "In my work I can aspire to a better position"
+          },
+          "p25": {
+            "text": "During my workday I can take breaks when I need them"
+          },
+          "p26": {
+            "text": "I can decide how much work I perform during the workday"
+          },
+          "p27": {
+            "text": "I can decide the speed at which I perform my activities in my work"
+          },
+          "p28": {
+            "text": "I can change the order of the activities I perform in my work"
+          },
+          "p29": {
+            "text": "The changes that arise in my work hinder my labor"
+          },
           "p30": {
             "text": "When changes arise in my work, my ideas or contributions are taken into account"
           },
-          "p31": { "text": "I am clearly informed of what my functions are" },
-          "p32": { "text": "The results I must obtain in my work are clearly explained to me" },
-          "p33": { "text": "The objectives of my work are clearly explained to me" },
-          "p34": { "text": "I am informed of who I can resolve work problems or matters with" },
-          "p35": { "text": "I am allowed to attend training related to my work" },
-          "p36": { "text": "I receive useful training to do my work" },
-          "p37": { "text": "My boss helps to organize work better" },
-          "p38": { "text": "My boss takes my points of view and opinions into account" },
-          "p39": { "text": "My boss communicates work-related information to me on time" },
-          "p40": { "text": "The guidance my boss gives me helps me perform my work better" },
-          "p41": { "text": "My boss helps to solve the problems that arise at work" },
-          "p42": { "text": "I can trust my coworkers" },
-          "p43": { "text": "Among colleagues we solve work problems in a respectful way" },
-          "p44": { "text": "In my work they make me feel part of the group" },
-          "p45": { "text": "When we have to perform teamwork, colleagues collaborate" },
-          "p46": { "text": "My coworkers help me when I have difficulties" },
-          "p47": { "text": "I am informed about what I do well in my work" },
+          "p31": {
+            "text": "I am clearly informed of what my functions are"
+          },
+          "p32": {
+            "text": "The results I must obtain in my work are clearly explained to me"
+          },
+          "p33": {
+            "text": "The objectives of my work are clearly explained to me"
+          },
+          "p34": {
+            "text": "I am informed of who I can resolve work problems or matters with"
+          },
+          "p35": {
+            "text": "I am allowed to attend training related to my work"
+          },
+          "p36": {
+            "text": "I receive useful training to do my work"
+          },
+          "p37": {
+            "text": "My boss helps to organize work better"
+          },
+          "p38": {
+            "text": "My boss takes my points of view and opinions into account"
+          },
+          "p39": {
+            "text": "My boss communicates work-related information to me on time"
+          },
+          "p40": {
+            "text": "The guidance my boss gives me helps me perform my work better"
+          },
+          "p41": {
+            "text": "My boss helps to solve the problems that arise at work"
+          },
+          "p42": {
+            "text": "I can trust my coworkers"
+          },
+          "p43": {
+            "text": "Among colleagues we solve work problems in a respectful way"
+          },
+          "p44": {
+            "text": "In my work they make me feel part of the group"
+          },
+          "p45": {
+            "text": "When we have to perform teamwork, colleagues collaborate"
+          },
+          "p46": {
+            "text": "My coworkers help me when I have difficulties"
+          },
+          "p47": {
+            "text": "I am informed about what I do well in my work"
+          },
           "p48": {
             "text": "The way my work is evaluated in my workplace helps me improve my performance"
           },
-          "p49": { "text": "In my workplace my salary is paid on time" },
-          "p50": { "text": "The pay I receive is what I deserve for the work I perform" },
+          "p49": {
+            "text": "In my workplace my salary is paid on time"
+          },
+          "p50": {
+            "text": "The pay I receive is what I deserve for the work I perform"
+          },
           "p51": {
             "text": "If I obtain the expected results in my work, I am rewarded or recognized"
           },
-          "p52": { "text": "People who do their work well can grow professionally" },
-          "p53": { "text": "I consider my work to be stable" },
-          "p54": { "text": "In my work there is continuous staff turnover" },
-          "p55": { "text": "I feel pride in working at this workplace" },
-          "p56": { "text": "I feel committed to my work" },
-          "p57": { "text": "In my work I can express myself freely without interruptions" },
-          "p58": { "text": "I receive constant criticism of my person and/or work" },
-          "p59": { "text": "I receive mockery, slander, defamation, humiliation or ridicule" },
+          "p52": {
+            "text": "People who do their work well can grow professionally"
+          },
+          "p53": {
+            "text": "I consider my work to be stable"
+          },
+          "p54": {
+            "text": "In my work there is continuous staff turnover"
+          },
+          "p55": {
+            "text": "I feel pride in working at this workplace"
+          },
+          "p56": {
+            "text": "I feel committed to my work"
+          },
+          "p57": {
+            "text": "In my work I can express myself freely without interruptions"
+          },
+          "p58": {
+            "text": "I receive constant criticism of my person and/or work"
+          },
+          "p59": {
+            "text": "I receive mockery, slander, defamation, humiliation or ridicule"
+          },
           "p60": {
             "text": "My presence is ignored or I am excluded from work meetings and decision-making"
           },
-          "p61": { "text": "Work situations are manipulated to make me look like a bad worker" },
-          "p62": { "text": "My work successes are ignored and attributed to other workers" },
+          "p61": {
+            "text": "Work situations are manipulated to make me look like a bad worker"
+          },
+          "p62": {
+            "text": "My work successes are ignored and attributed to other workers"
+          },
           "p63": {
             "text": "I am blocked or prevented from opportunities I have to obtain promotion or improvement in my work"
           },
-          "p64": { "text": "I have witnessed acts of violence in my workplace" },
-          "p65": { "text": "I attend to very angry customers or users" },
-          "p66": { "text": "My work requires me to attend to people very in need of help or sick" },
-          "p67": { "text": "To do my work I must demonstrate feelings different from my own" },
-          "p68": { "text": "My work requires me to attend to situations of violence" },
-          "p69": { "text": "They communicate work matters late" },
-          "p70": { "text": "They hinder the achievement of work results" },
-          "p71": { "text": "They cooperate little when needed" },
-          "p72": { "text": "They ignore suggestions to improve their work" }
+          "p64": {
+            "text": "I have witnessed acts of violence in my workplace"
+          },
+          "p65": {
+            "text": "I attend to very angry customers or users"
+          },
+          "p66": {
+            "text": "My work requires me to attend to people very in need of help or sick"
+          },
+          "p67": {
+            "text": "To do my work I must demonstrate feelings different from my own"
+          },
+          "p68": {
+            "text": "My work requires me to attend to situations of violence"
+          },
+          "p69": {
+            "text": "They communicate work matters late"
+          },
+          "p70": {
+            "text": "They hinder the achievement of work results"
+          },
+          "p71": {
+            "text": "They cooperate little when needed"
+          },
+          "p72": {
+            "text": "They ignore suggestions to improve their work"
+          }
         }
       }
     },
@@ -2591,5 +2840,22 @@
   "sensitive_data_write_category_salud": "health data",
   "sensitive_data_write_category_biometrico": "biometric data",
   "sensitive_data_write_import_forbidden_title": "The file contains sensitive data you cannot modify",
-  "sensitive_data_write_import_forbidden_detail": "The file includes {category} columns and you do not have permission to modify them. No records were processed."
+  "sensitive_data_write_import_forbidden_detail": "The file includes {category} columns and you do not have permission to modify them. No records were processed.",
+  "access_point_employee_title": "Employee access point",
+  "access_point_employee_assigned_message": "The access point was assigned to the employee",
+  "access_point_employee_removed_message": "The access point was removed from the employee",
+  "access_point_employee_val_input_title": "Invalid data",
+  "access_point_employee_val_input_message": "The access point and employee identifiers must be numeric",
+  "access_point_employee_forbidden_title": "No permission",
+  "access_point_employee_forbidden_message": "You do not have permission to modify the employee biometrics",
+  "access_point_employee_access_point_not_found_title": "Access point not found",
+  "access_point_employee_access_point_not_found_message": "The access point does not exist or is outside your scope",
+  "access_point_employee_employee_not_found_title": "Employee not found",
+  "access_point_employee_employee_not_found_message": "The employee does not exist or is outside your scope",
+  "access_point_employee_already_assigned_title": "Duplicate assignment",
+  "access_point_employee_already_assigned_message": "The employee is already assigned to that access point",
+  "access_point_employee_assignment_not_found_title": "Assignment not found",
+  "access_point_employee_assignment_not_found_message": "The employee is not assigned to that access point",
+  "access_point_employee_internal_title": "Unexpected error",
+  "access_point_employee_internal_message": "The access point operation could not be completed"
 }

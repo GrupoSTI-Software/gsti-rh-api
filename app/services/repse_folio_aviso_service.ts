@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import RepseRegistration from '#models/repse_registration'
 import SystemSetting from '#models/system_setting'
 import SystemSettingNotificationEmail from '#models/system_setting_notification_email'
@@ -128,7 +129,7 @@ export default class RepseFolioAvisoService {
       )
     }
 
-    const from = env.get('SMTP_FROM_ADDRESS', env.get('SMTP_USERNAME', 'no-reply@valanserh.local'))
+    const from = resolveMailSender()
     const isDevelopment = env.get('NODE_ENV') !== 'production'
 
     for (const [systemSettingId, rows] of grouped.entries()) {

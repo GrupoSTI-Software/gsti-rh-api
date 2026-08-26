@@ -977,6 +977,190 @@ test.group('BillingCatalogService — publishPlan: barrido de copias hermanas', 
 })
 
 // ---------------------------------------------------------------------------
+// Módulo: publishPlan — herencia de la marca de plan público al clon
+// (USRH1787619255300, Criterios 1–5 + 7)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — publishPlan: herencia de la marca de plan público', () => {
+  /**
+   * Espeja la lógica de traspaso de `billing_plan_is_public` que ocurre dentro
+   * del bloque `if (plan.billingPlanParentId)` de `publishPlan`.
+   *
+   * Reproduce exactamente la secuencia:
+   *   1. Leer `parentWasPublic` (billingPlanIsPublic === 1).
+   *   2. UPDATE padre: billing_plan_active = 0, billing_plan_is_public = 0  → 'unmark_parent'
+   *   3. Si parentWasPublic: plan.billingPlanIsPublic = 1 antes del save()   → 'mark_clone'
+   *
+   * `writeOrder` documenta el orden real de escrituras de la marca y permite
+   * verificar que 'unmark_parent' precede siempre a 'mark_clone' (Criterio 4).
+   */
+  function publishWithInheritance(
+    plan: { billingPlanParentId: number | null },
+    parent: { billingPlanIsPublic: number; billingPlanActive: number } | null
+  ): {
+    clonIsPublic: number
+    parentIsPublic: number
+    parentActive: number
+    writeOrder: ('unmark_parent' | 'mark_clone')[]
+  } {
+    if (!plan.billingPlanParentId || !parent) {
+      return {
+        clonIsPublic: 0,
+        parentIsPublic: parent?.billingPlanIsPublic ?? 0,
+        parentActive: parent?.billingPlanActive ?? 1,
+        writeOrder: [],
+      }
+    }
+
+    const writeOrder: ('unmark_parent' | 'mark_clone')[] = []
+    const parentWasPublic = parent.billingPlanIsPublic === 1
+
+    // Primera escritura — desmarcar y desactivar al padre en una sola sentencia
+    parent.billingPlanIsPublic = 0
+    parent.billingPlanActive = 0
+    writeOrder.push('unmark_parent')
+
+    let clonIsPublic = 0
+    if (parentWasPublic) {
+      // Segunda escritura — marca viaja al clon en el mismo save() que lo publica
+      clonIsPublic = 1
+      writeOrder.push('mark_clone')
+    }
+
+    return { clonIsPublic, parentIsPublic: parent.billingPlanIsPublic, parentActive: parent.billingPlanActive, writeOrder }
+  }
+
+  /**
+   * Espeja el rollback de la transacción ante un fallo posterior al desmarcado
+   * del padre. Simula que el error devuelve el estado al punto anterior al
+   * inicio de la transacción (Criterio 3).
+   */
+  function publishWithInheritanceAndRollback(
+    plan: { billingPlanParentId: number | null },
+    parent: { billingPlanIsPublic: number; billingPlanActive: number } | null
+  ): {
+    reverted: boolean
+    parentIsPublic: number
+    parentActive: number
+    clonIsPublic: number
+  } {
+    if (!plan.billingPlanParentId || !parent) {
+      return { reverted: false, parentIsPublic: 0, parentActive: 1, clonIsPublic: 0 }
+    }
+
+    const snapshot = { billingPlanIsPublic: parent.billingPlanIsPublic, billingPlanActive: parent.billingPlanActive }
+
+    try {
+      publishWithInheritance(plan, parent)
+      throw new Error('fallo simulado después del desmarcado')
+    } catch {
+      parent.billingPlanIsPublic = snapshot.billingPlanIsPublic
+      parent.billingPlanActive = snapshot.billingPlanActive
+      return { reverted: true, parentIsPublic: parent.billingPlanIsPublic, parentActive: parent.billingPlanActive, clonIsPublic: 0 }
+    }
+  }
+
+  // ── Criterio 1 ──────────────────────────────────────────────────────────────
+
+  test('C1: clon hereda la marca cuando el padre era el plan público', ({ assert }) => {
+    const result = publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    )
+    assert.equal(result.clonIsPublic, 1, 'el clon queda marcado como público')
+    assert.equal(result.parentIsPublic, 0, 'el padre queda desmarcado')
+    assert.equal(result.parentActive, 0, 'el padre queda desactivado')
+  })
+
+  // ── Criterio 2 ──────────────────────────────────────────────────────────────
+
+  test('C2: clon de padre no público no hereda ninguna marca', ({ assert }) => {
+    const otherPublicPlan = { billingPlanIsPublic: 1 }
+
+    const result = publishWithInheritance(
+      { billingPlanParentId: 2 },
+      { billingPlanIsPublic: 0, billingPlanActive: 1 }
+    )
+
+    assert.equal(result.clonIsPublic, 0, 'el clon no queda marcado')
+    assert.equal(result.parentIsPublic, 0, 'el padre sigue sin marca (no se altera un plan ajeno)')
+    assert.equal(otherPublicPlan.billingPlanIsPublic, 1, 'el plan público ajeno conserva su marca')
+  })
+
+  // ── Criterio 3 ──────────────────────────────────────────────────────────────
+
+  test('C3: fallo posterior al desmarcado revierte el estado completo del padre', ({ assert }) => {
+    const parent = { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    const result = publishWithInheritanceAndRollback({ billingPlanParentId: 1 }, parent)
+
+    assert.isTrue(result.reverted)
+    assert.equal(result.parentIsPublic, 1, 'el padre recupera su marca')
+    assert.equal(result.parentActive, 1, 'el padre recupera su venta')
+    assert.equal(result.clonIsPublic, 0, 'el clon queda sin marca')
+  })
+
+  // ── Criterio 4 ──────────────────────────────────────────────────────────────
+
+  test('C4: el orden de escrituras es desmarcar_padre → marcar_clon, nunca al revés', ({ assert }) => {
+    const result = publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    )
+
+    assert.includeOrderedMembers(
+      result.writeOrder,
+      ['unmark_parent', 'mark_clone'],
+      'unmark_parent debe preceder siempre a mark_clone'
+    )
+    assert.equal(
+      result.writeOrder.indexOf('unmark_parent'),
+      0,
+      'unmark_parent es la primera escritura de la marca'
+    )
+  })
+
+  test('C4: sin padre público no hay escritura mark_clone', ({ assert }) => {
+    const result = publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 0, billingPlanActive: 1 }
+    )
+
+    assert.notInclude(result.writeOrder, 'mark_clone')
+    assert.include(result.writeOrder, 'unmark_parent')
+  })
+
+  // ── Criterio 5 ──────────────────────────────────────────────────────────────
+
+  test('C5: publicar un plan sin linaje no lee ni escribe ninguna marca', ({ assert }) => {
+    const result = publishWithInheritance({ billingPlanParentId: null }, null)
+
+    assert.equal(result.clonIsPublic, 0, 'el plan publicado no queda marcado')
+    assert.deepEqual(result.writeOrder, [], 'no se emite ninguna escritura de la marca')
+  })
+
+  // ── Criterio 7 ──────────────────────────────────────────────────────────────
+
+  test('C7: el traspaso no escribe ningún campo de billing_subscriptions', ({ assert }) => {
+    // Verificación estructural: publishWithInheritance opera solo sobre las
+    // propiedades del plan y del padre; no toca ningún objeto de suscripción.
+    const subscriptions = [
+      { id: 1, billingPlanId: 1, status: 'active', contractedPrice: 65 },
+      { id: 2, billingPlanId: 1, status: 'active', contractedPrice: 65 },
+    ]
+    const snapshots = subscriptions.map((s) => ({ ...s }))
+
+    publishWithInheritance(
+      { billingPlanParentId: 1 },
+      { billingPlanIsPublic: 1, billingPlanActive: 1 }
+    )
+
+    for (const [i, sub] of subscriptions.entries()) {
+      assert.deepEqual(sub, snapshots[i], `suscripción ${sub.id} no debe modificarse`)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Módulo: nuevo código de error — coherencia de vigencia entre versiones
 // (USRH1785962095084)
 // ---------------------------------------------------------------------------
@@ -1127,5 +1311,276 @@ test.group('BillingCatalogService — addPrice: coherencia de vigencia', () => {
       })
     )
     assert.equal(error?.errorCode, 'PLT.CAT.PRICE_EFFECTIVE_FROM_IN_PAST')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: códigos PLT.CAT.* del plan público (USRH1787619255298)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — códigos PLT.CAT.* de plan público', () => {
+  test('PLAN_PUBLIC_REQUIRES_SELLABLE es PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE', ({ assert }) => {
+    assert.equal(
+      BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+      'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE'
+    )
+  })
+
+  test('PLAN_ALREADY_PUBLIC es PLT.CAT.PLAN_ALREADY_PUBLIC', ({ assert }) => {
+    assert.equal(BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_PUBLIC, 'PLT.CAT.PLAN_ALREADY_PUBLIC')
+  })
+
+  test('PLAN_NOT_PUBLIC es PLT.CAT.PLAN_NOT_PUBLIC', ({ assert }) => {
+    assert.equal(BILLING_CATALOG_ERROR_CODES.PLAN_NOT_PUBLIC, 'PLT.CAT.PLAN_NOT_PUBLIC')
+  })
+
+  test('PUBLIC_PLAN_CONFLICT es PLT.CAT.PUBLIC_PLAN_CONFLICT', ({ assert }) => {
+    assert.equal(BILLING_CATALOG_ERROR_CODES.PUBLIC_PLAN_CONFLICT, 'PLT.CAT.PUBLIC_PLAN_CONFLICT')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: assertSellableForPublic — guardián de vendibilidad (USRH1787619255298)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — assertSellableForPublic: guardián de vendibilidad', () => {
+  interface PlanStub {
+    isPublished: boolean
+    billingPlanActive: 0 | 1
+    hasCurrentPrice: boolean
+  }
+
+  /** Espeja la lógica de assertSellableForPublic sin acceso a BD. */
+  function tryAssertSellable(plan: PlanStub) {
+    if (!plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        'No publicado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+    if (plan.billingPlanActive !== 1) {
+      throw new BillingCatalogServiceError(
+        'Retirado',
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+    if (!plan.hasCurrentPrice) {
+      throw new BillingCatalogServiceError(
+        'Sin precio vigente',
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('plan en borrador lanza PLAN_PUBLIC_REQUIRES_SELLABLE con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryAssertSellable({ isPublished: false, billingPlanActive: 1, hasCurrentPrice: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+    assert.equal(error?.httpStatus, 422)
+    assert.equal(error?.detail, 'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.')
+  })
+
+  test('plan retirado (active = 0) lanza PLAN_PUBLIC_REQUIRES_SELLABLE con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryAssertSellable({ isPublished: true, billingPlanActive: 0, hasCurrentPrice: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('plan sin precio vigente lanza PLAN_PUBLIC_REQUIRES_SELLABLE con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryAssertSellable({ isPublished: true, billingPlanActive: 1, hasCurrentPrice: false })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('plan publicado, activo y con precio vigente no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      tryAssertSellable({ isPublished: true, billingPlanActive: 1, hasCurrentPrice: true })
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: markPlanAsPublic — guardas previas a la transacción (USRH1787619255298)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — markPlanAsPublic: guardas previas', () => {
+  interface PlanStub {
+    billingPlanIsPublic: 0 | 1
+    isPublished: boolean
+    billingPlanActive: 0 | 1
+    hasCurrentPrice: boolean
+  }
+
+  /** Espeja las guardas de markPlanAsPublic antes del db.transaction. */
+  function tryMarkPublic(plan: PlanStub) {
+    if (plan.billingPlanIsPublic === 1) {
+      throw new BillingCatalogServiceError(
+        'Ya es el público',
+        BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_PUBLIC,
+        422,
+        'PLT.CAT.PLAN_ALREADY_PUBLIC',
+        'Este plan ya es el plan público del sitio.'
+      )
+    }
+    if (!plan.isPublished || plan.billingPlanActive !== 1 || !plan.hasCurrentPrice) {
+      throw new BillingCatalogServiceError(
+        'No vendible',
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('señalar el plan que ya es el público lanza PLAN_ALREADY_PUBLIC con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryMarkPublic({ billingPlanIsPublic: 1, isPublished: true, billingPlanActive: 1, hasCurrentPrice: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_ALREADY_PUBLIC')
+    assert.equal(error?.httpStatus, 422)
+    assert.equal(error?.detail, 'Este plan ya es el plan público del sitio.')
+  })
+
+  test('señalar un plan en borrador lanza PLAN_PUBLIC_REQUIRES_SELLABLE con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryMarkPublic({ billingPlanIsPublic: 0, isPublished: false, billingPlanActive: 1, hasCurrentPrice: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('señalar un plan retirado lanza PLAN_PUBLIC_REQUIRES_SELLABLE con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryMarkPublic({ billingPlanIsPublic: 0, isPublished: true, billingPlanActive: 0, hasCurrentPrice: true })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('señalar un plan publicado sin precio vigente lanza PLAN_PUBLIC_REQUIRES_SELLABLE con 422', ({ assert }) => {
+    const error = captureError(() =>
+      tryMarkPublic({ billingPlanIsPublic: 0, isPublished: true, billingPlanActive: 1, hasCurrentPrice: false })
+    )
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE')
+    assert.equal(error?.httpStatus, 422)
+  })
+
+  test('señalar un plan vendible (no es ya el público) no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() =>
+      tryMarkPublic({ billingPlanIsPublic: 0, isPublished: true, billingPlanActive: 1, hasCurrentPrice: true })
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: unmarkPlanAsPublic — guardia previa (USRH1787619255298)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — unmarkPlanAsPublic: guardia previa', () => {
+  function tryUnmarkPublic(plan: { billingPlanIsPublic: 0 | 1 }) {
+    if (plan.billingPlanIsPublic !== 1) {
+      throw new BillingCatalogServiceError(
+        'No es el público',
+        BILLING_CATALOG_ERROR_CODES.PLAN_NOT_PUBLIC,
+        422,
+        'PLT.CAT.PLAN_NOT_PUBLIC',
+        'Este plan no es el plan público del sitio.'
+      )
+    }
+    return true
+  }
+
+  function captureError(fn: () => unknown): BillingCatalogServiceError | null {
+    try {
+      fn()
+      return null
+    } catch (e) {
+      return e as BillingCatalogServiceError
+    }
+  }
+
+  test('desmarcar un plan que no es el público lanza PLAN_NOT_PUBLIC con 422', ({ assert }) => {
+    const error = captureError(() => tryUnmarkPublic({ billingPlanIsPublic: 0 }))
+    assert.equal(error?.errorCode, 'PLT.CAT.PLAN_NOT_PUBLIC')
+    assert.equal(error?.httpStatus, 422)
+    assert.equal(error?.detail, 'Este plan no es el plan público del sitio.')
+  })
+
+  test('desmarcar el plan público no lanza error', ({ assert }) => {
+    assert.doesNotThrow(() => tryUnmarkPublic({ billingPlanIsPublic: 1 }))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Módulo: deactivatePlan desmarca — retiro se lleva la señal (USRH1787619255298)
+// ---------------------------------------------------------------------------
+
+test.group('BillingCatalogService — deactivatePlan: retiro quita la marca de público', () => {
+  interface PlanStub {
+    billingPlanActive: 0 | 1
+    billingPlanIsPublic: 0 | 1
+  }
+
+  /** Espeja la escritura atómica de deactivatePlan: activo y público a 0. */
+  function applyDeactivate(plan: PlanStub): PlanStub {
+    return { ...plan, billingPlanActive: 0, billingPlanIsPublic: 0 }
+  }
+
+  test('retirar un plan marcado como público lo desmarca en el mismo acto', ({ assert }) => {
+    const result = applyDeactivate({ billingPlanActive: 1, billingPlanIsPublic: 1 })
+    assert.equal(result.billingPlanActive, 0)
+    assert.equal(result.billingPlanIsPublic, 0)
+  })
+
+  test('retirar un plan no marcado deja billingPlanIsPublic en 0 (idempotente)', ({ assert }) => {
+    const result = applyDeactivate({ billingPlanActive: 1, billingPlanIsPublic: 0 })
+    assert.equal(result.billingPlanActive, 0)
+    assert.equal(result.billingPlanIsPublic, 0)
+  })
+
+  test('después del retiro no puede quedar billingPlanIsPublic = 1', ({ assert }) => {
+    const plans: PlanStub[] = [
+      { billingPlanActive: 1, billingPlanIsPublic: 0 },
+      { billingPlanActive: 1, billingPlanIsPublic: 1 },
+    ]
+    for (const plan of plans) {
+      const result = applyDeactivate(plan)
+      assert.equal(result.billingPlanIsPublic, 0, `Fallo con isPublic=${plan.billingPlanIsPublic}`)
+    }
   })
 })

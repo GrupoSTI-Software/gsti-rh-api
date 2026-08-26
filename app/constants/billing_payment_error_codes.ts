@@ -29,6 +29,13 @@ export const BILLING_PAYMENT_ERROR_CODES = {
   CHANGE_APPLY_FAILED: 'PLT.PAY.CHANGE_APPLY_FAILED',
   /** Importes congelados del cambio incompletos o inválidos (fail-closed) */
   CHANGE_INCONSISTENT_SNAPSHOT: 'PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT',
+  /**
+   * Se confirmó un monto compuesto (adeudo, o adeudo + periodo) pero el
+   * aumento pendiente que lo justificaba ya no está vivo al momento de
+   * asentar el pago (USRH1787077544537, decisión Wilvardo: rechazar y pedir
+   * reabrir, nunca degradar en silencio al monto del periodo).
+   */
+  PENDING_INCREASE_STALE: 'PLT.PAY.PENDING_INCREASE_STALE',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.PAY.SYS_UNHANDLED',
 } as const

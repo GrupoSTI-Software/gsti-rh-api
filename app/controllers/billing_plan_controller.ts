@@ -219,6 +219,13 @@ export default class BillingPlanController {
    *     description: |
    *       Publica el plan y congela sus tramos. Requiere al menos un precio vigente y
    *       al menos un tramo configurado.
+   *
+   *       Cuando el plan es una copia, la publicación también desactiva al plan padre
+   *       y descarta las demás copias en borrador del mismo padre, todo en un solo
+   *       acto atómico. Si el plan padre era el plan público de la landing, la marca
+   *       pasa automáticamente al clon recién publicado: la página comercial pasa del
+   *       precio anterior al nuevo sin quedarse vacía en ningún momento.
+   *       (USRH1787619255300)
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -229,11 +236,15 @@ export default class BillingPlanController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Plan publicado
+   *         description: >
+   *           Plan publicado. Si heredó la marca de plan público, billingPlanIsPublic = 1.
    *       '409':
-   *         description: El plan ya está publicado
+   *         description: >
+   *           El plan ya está publicado (PLT.CAT.PLAN_ALREADY_PUBLISHED), o bien
+   *           otra operación concurrente marcó un plan como público justo durante
+   *           el traspaso de la marca (PLT.CAT.PUBLIC_PLAN_CONFLICT) — se puede reintentar.
    *       '422':
-   *         description: No cumple los requisitos para publicar
+   *         description: No cumple los requisitos para publicar (PLT.CAT.PLAN_PUBLISH_REQUIREMENTS)
    */
   async publish({ params, response }: HttpContext) {
     try {
@@ -279,6 +290,85 @@ export default class BillingPlanController {
   async deactivate({ params, response }: HttpContext) {
     try {
       const plan = await this.service.deactivatePlan(Number(params.planId))
+      return response.status(200).json({ type: 'success', data: plan })
+    } catch (error) {
+      const { status, ...body } = resolveBillingCatalogApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/plans/{planId}/mark-public:
+   *   post:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Señalar un plan como el público de la landing
+   *     description: |
+   *       Marca el plan indicado como el plan que se publica en la landing comercial.
+   *       Si otro plan estaba marcado, se le quita la señal en el mismo acto atómico.
+   *       Solo se puede señalar un plan vendible: publicado, vigente y con precio activo.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: planId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Plan señalado como público (billingPlanIsPublic = 1)
+   *       '404':
+   *         description: Plan no encontrado
+   *       '422':
+   *         description: >
+   *           El plan no es vendible (PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE)
+   *           o ya es el plan público (PLT.CAT.PLAN_ALREADY_PUBLIC)
+   *       '409':
+   *         description: >
+   *           Carrera detectada — el plan público cambió mientras se procesaba
+   *           la solicitud (PLT.CAT.PUBLIC_PLAN_CONFLICT)
+   */
+  async markPublic({ params, response }: HttpContext) {
+    try {
+      const plan = await this.service.markPlanAsPublic(Number(params.planId))
+      return response.status(200).json({ type: 'success', data: plan })
+    } catch (error) {
+      const { status, ...body } = resolveBillingCatalogApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/plans/{planId}/unmark-public:
+   *   post:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Quitar la señal de plan público de la landing
+   *     description: |
+   *       Elimina la marca de plan público del plan indicado. El catálogo queda
+   *       sin plan público; el sistema no promueve otro automáticamente.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: planId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Señal eliminada (billingPlanIsPublic = 0)
+   *       '404':
+   *         description: Plan no encontrado
+   *       '422':
+   *         description: El plan no es el plan público (PLT.CAT.PLAN_NOT_PUBLIC)
+   */
+  async unmarkPublic({ params, response }: HttpContext) {
+    try {
+      const plan = await this.service.unmarkPlanAsPublic(Number(params.planId))
       return response.status(200).json({ type: 'success', data: plan })
     } catch (error) {
       const { status, ...body } = resolveBillingCatalogApiError(error)

@@ -2,6 +2,7 @@ import mail from '@adonisjs/mail/services/main'
 import logger from '@adonisjs/core/services/logger'
 import type { HttpContext } from '@adonisjs/core/http'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import BusinessUnit from '#models/business_unit'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
 import type BillingSubscription from '#models/billing_subscription'
@@ -126,14 +127,7 @@ export default class BillingInternalNotificationService {
         return
       }
 
-      const from = this.resolveSenderEmail()
-      if (!from) {
-        logger.error(
-          { billingSubscriptionId: subscription.billingSubscriptionId },
-          'BillingInternalNotificationService: SMTP_USERNAME no configurado; aviso omitido.'
-        )
-        return
-      }
+      const from = resolveMailSender()
 
       await mail.send(
         new SelfServiceSubscriptionCreatedMail({
@@ -192,17 +186,7 @@ export default class BillingInternalNotificationService {
         return
       }
 
-      const from = this.resolveSenderEmail()
-      if (!from) {
-        logger.error(
-          {
-            billingSubscriptionChangeId: change.billingSubscriptionChangeId,
-            event,
-          },
-          'BillingInternalNotificationService: SMTP_USERNAME no configurado; aviso de cambio de suscripción omitido.'
-        )
-        return
-      }
+      const from = resolveMailSender()
 
       const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
         billingSubscriptionChangeId: change.billingSubscriptionChangeId,
@@ -372,14 +356,6 @@ export default class BillingInternalNotificationService {
     return out
   }
 
-  private resolveSenderEmail(): string | null {
-    const sender = env.get('SMTP_USERNAME')
-    if (typeof sender !== 'string' || sender.trim().length === 0) {
-      return null
-    }
-    return sender.trim()
-  }
-
   private buildFailureLogPayload(
     params: NotifySelfServiceSubscriptionCreatedParams
   ): FailureLogPayload {
@@ -427,17 +403,7 @@ export default class BillingInternalNotificationService {
         return
       }
 
-      const from = this.resolveSenderEmail()
-      if (!from) {
-        logger.error(
-          {
-            billingSubscriptionId: subscription.billingSubscriptionId,
-            billingSubscriptionChangeId: change.billingSubscriptionChangeId,
-          },
-          'BillingInternalNotificationService: SMTP_USERNAME no configurado; aviso de cambio no aplicable omitido.'
-        )
-        return
-      }
+      const from = resolveMailSender()
 
       await mail.send(
         new SubscriptionChangeNotApplicableMail({

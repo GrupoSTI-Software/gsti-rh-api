@@ -285,7 +285,9 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     }
   })
 
-  test('sin SMTP_USERNAME omite el envío sin lanzar', async ({ assert }) => {
+  test('sin SMTP_USERNAME envía con el remitente institucional de respaldo (no-reply@valanserh.local)', async ({
+    assert,
+  }) => {
     const fake = mail.fake()
 
     try {
@@ -293,6 +295,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
         {
           BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A,
           SMTP_USERNAME: '',
+          SMTP_FROM_ADDRESS: '',
         },
         async () => {
           const service = new BillingInternalNotificationService()
@@ -306,7 +309,16 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
         }
       )
 
-      fake.mails.assertNoneSent()
+      fake.mails.assertSentCount(SelfServiceSubscriptionCreatedMail, 1)
+      fake.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
+        const json = message.toJSON() as { message: { from: { address: string } } }
+        assert.equal(
+          json.message.from.address,
+          'no-reply@valanserh.local',
+          'El remitente debe ser la dirección institucional de respaldo'
+        )
+        return true
+      })
     } finally {
       mail.restore()
     }
