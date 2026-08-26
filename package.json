@@ -76,6 +76,7 @@
     "@adonisjs/lucid": "^20.6.0",
     "@adonisjs/mail": "^9.2.1",
     "@adonisjs/session": "^7.4.0",
+    "@adonisjs/static": "^2.0.1",
     "@napi-rs/canvas": "^0.1.65",
     "@simplewebauthn/server": "^13.2.2",
     "@types/pdfkit": "^0.17.5",
