@@ -11,7 +11,8 @@ export interface DeviceModelRecord {
   name: string
   slug: string
   /** URL relativa de la foto de referencia. Resuelta como `/devices/<slug>.svg`.
-   *  Si Wilvardo no ha subido la foto real del modelo, se devuelve `/devices/default.svg`. */
+   *  Mientras no exista el archivo real del modelo, el frontend puede mostrar
+   *  `/devices/default.svg` como imagen neutra de reemplazo. */
   photoUrl: string
   status: PlatformDeviceModelStatus
   active: boolean
@@ -63,10 +64,9 @@ export default class PlatformDeviceModelService {
 
   /**
    * Resuelve la URL de la foto de referencia del modelo.
-   * La foto vive en `public/devices/<slug>.svg`; si aún no existe se
-   * devuelve el placeholder `default.svg` para que el frontend nunca reciba
-   * una URL rota. Wilvardo reemplazará los archivos una vez que tenga
-   * configurada su parte.
+   * La foto vive en `public/devices/<slug>.svg`. Mientras el archivo real
+   * del modelo no esté disponible, el frontend debe mostrar el placeholder
+   * `default.svg` para evitar imágenes rotas.
    */
   private resolvePhotoUrl(slug: string): string {
     return `/devices/${slug}.svg`
