@@ -10,7 +10,10 @@ import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_se
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
-import { EMPLOYEE_OFFBOARDING_ITEM_STATUS } from '../offboardings/offboardings.constants.js'
+import {
+  EMPLOYEE_OFFBOARDING_ITEM_STATUS,
+  EMPLOYEE_OFFBOARDING_STATUS,
+} from '../offboardings/offboardings.constants.js'
 import {
   buildUserNamesMap,
   resolveSupplyDiagnostics,
@@ -215,7 +218,12 @@ export default class ItemsService {
     return await this.buildOperationDto(offboarding, item, businessUnitScope, operation)
   }
 
-  /** Expediente por su BU snapshoteado + pendiente bloqueado; 404 uniforme. */
+  /**
+   * Expediente por su BU snapshoteado + pendiente bloqueado; 404 uniforme.
+   * Solo lo usan las TRES escrituras del slice, así que aquí vive la guarda
+   * de expediente cerrado (regla 8 de USRH1786568279596): 409 sin persistir
+   * nada. Las lecturas van por el slice `offboardings/` y no pasan por aquí.
+   */
   private async resolveContext(
     employeeOffboardingId: number,
     employeeOffboardingItemId: number,
@@ -229,6 +237,10 @@ export default class ItemsService {
     )
     if (!offboarding) {
       throw this.itemNotFoundError()
+    }
+
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
+      throw this.caseClosedError()
     }
 
     const item = await this.repository.findItemForUpdate(
@@ -420,6 +432,9 @@ export default class ItemsService {
       suppliesById,
       userNamesById: buildUserNamesMap(users),
       evidenceCountsByItemId,
+      // R3 de USRH1786568279596: un cerrado no reporta vencidos; las
+      // escrituras de este slice solo alcanzan expedientes abiertos (guarda)
+      caseIsOpen: offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.OPEN,
     })
 
     const diagnostics = operation
@@ -479,6 +494,16 @@ export default class ItemsService {
       httpStatus: 422,
       title: this.t('employee_offboarding_item_amount_not_allowed_title'),
       detail: this.t('employee_offboarding_item_amount_not_allowed_message'),
+    })
+  }
+
+  private caseClosedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cerrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CLOSED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_closed_read_only_title'),
+      detail: this.t('employee_offboarding_case_closed_read_only_message'),
     })
   }
 }

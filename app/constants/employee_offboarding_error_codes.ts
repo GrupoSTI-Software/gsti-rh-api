@@ -42,6 +42,12 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   CASE_FORBIDDEN: 'OFFB.CASE.FORBIDDEN',
   /** Error no controlado del expediente — 500. */
   CASE_UNEXPECTED: 'OFFB.CASE.UNEXPECTED',
+  /** Cerrar un expediente ya cerrado (USRH1786568279596) — 409. */
+  CASE_ALREADY_CLOSED: 'OFFB.CASE.ALREADY_CLOSED',
+  /** Reabrir un expediente que sigue abierto (USRH1786568279596) — 409. */
+  CASE_NOT_CLOSED: 'OFFB.CASE.NOT_CLOSED',
+  /** Escritura sobre pendientes o comprobantes de un expediente cerrado (regla 8, USRH1786568279596) — 409. */
+  CASE_CLOSED_READ_ONLY: 'OFFB.CASE.CLOSED_READ_ONLY',
   /** Pendiente o expediente inexistente o fuera del alcance (USRH1786568279590) — 404 uniforme. */
   ITEM_NOT_FOUND: 'OFFB.ITEM.NOT_FOUND',
   /** Completar un pendiente ya cumplido (regla 3, USRH1786568279590) — 409. */

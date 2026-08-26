@@ -6,6 +6,7 @@ import UploadService from '#services/upload_service'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
+import { EMPLOYEE_OFFBOARDING_STATUS } from '../offboardings/offboardings.constants.js'
 import {
   EVIDENCE_ALLOWED_EXTENSIONS,
   EVIDENCE_ALLOWED_MIME_TYPES,
@@ -85,7 +86,7 @@ export default class EvidencesService {
     employeeOffboardingItemId: number,
     businessUnitScope: number[]
   ): Promise<EmployeeOffboardingItemEvidenceDto[]> {
-    const item = await this.resolveItem(
+    const { item } = await this.resolveItem(
       employeeOffboardingId,
       employeeOffboardingItemId,
       businessUnitScope
@@ -107,11 +108,12 @@ export default class EvidencesService {
     files: any[],
     businessUnitScope: number[]
   ): Promise<EmployeeOffboardingItemEvidenceDto[]> {
-    const item = await this.resolveItem(
+    const { offboarding, item } = await this.resolveItem(
       employeeOffboardingId,
       employeeOffboardingItemId,
       businessUnitScope
     )
+    this.assertCaseWritable(offboarding)
 
     this.assertBatchValid(files)
 
@@ -139,7 +141,7 @@ export default class EvidencesService {
     employeeOffboardingItemEvidenceId: number,
     businessUnitScope: number[]
   ): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
-    const evidence = await this.resolveEvidence(
+    const { evidence } = await this.resolveEvidence(
       employeeOffboardingId,
       employeeOffboardingItemId,
       employeeOffboardingItemEvidenceId,
@@ -173,12 +175,13 @@ export default class EvidencesService {
     employeeOffboardingItemEvidenceId: number,
     businessUnitScope: number[]
   ): Promise<void> {
-    const evidence = await this.resolveEvidence(
+    const { offboarding, evidence } = await this.resolveEvidence(
       employeeOffboardingId,
       employeeOffboardingItemId,
       employeeOffboardingItemEvidenceId,
       businessUnitScope
     )
+    this.assertCaseWritable(offboarding)
     await this.repository.softDeleteEvidence(evidence)
   }
 
@@ -186,6 +189,8 @@ export default class EvidencesService {
    * Aislamiento en tres saltos (§9.3, D-8): expediente por su BU
    * snapshoteado, pendiente acotado por el expediente. 404 uniforme
    * `pendiente-no-encontrado` en ambos saltos; nada toca `employees`.
+   * Devuelve también el expediente: las ESCRITURAS le aplican la guarda de
+   * cerrado (regla 8 de USRH1786568279596); las lecturas lo ignoran.
    */
   private async resolveItem(
     employeeOffboardingId: number,
@@ -207,7 +212,25 @@ export default class EvidencesService {
     if (!item) {
       throw this.itemNotFoundError()
     }
-    return item
+    return { offboarding, item }
+  }
+
+  /**
+   * Regla 8 (USRH1786568279596): un expediente cerrado no admite subir ni
+   * quitar comprobantes — 409 sin persistir nada. Consultarlo y descargar
+   * sus comprobantes sigue permitido, por eso la guarda NO vive en
+   * `resolveItem`.
+   */
+  private assertCaseWritable(offboarding: { employeeOffboardingStatus: string }): void {
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
+      throw new EmployeeOffboardingServiceError({
+        key: 'expediente-cerrado',
+        errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CLOSED_READ_ONLY,
+        httpStatus: 409,
+        title: this.t('employee_offboarding_case_closed_read_only_title'),
+        detail: this.t('employee_offboarding_case_closed_read_only_message'),
+      })
+    }
   }
 
   /** Tercer salto: la evidencia acotada por el pendiente (404 uniforme). */
@@ -217,7 +240,7 @@ export default class EvidencesService {
     employeeOffboardingItemEvidenceId: number,
     businessUnitScope: number[]
   ) {
-    const item = await this.resolveItem(
+    const { offboarding, item } = await this.resolveItem(
       employeeOffboardingId,
       employeeOffboardingItemId,
       businessUnitScope
@@ -236,7 +259,7 @@ export default class EvidencesService {
         detail: this.t('employee_offboarding_evidence_not_found_message'),
       })
     }
-    return evidence
+    return { offboarding, evidence }
   }
 
   /**
