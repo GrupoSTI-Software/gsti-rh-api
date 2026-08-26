@@ -8,6 +8,10 @@ import {
 import { HttpContext } from '@adonisjs/core/http'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeEmergencyContactController {
   /**
@@ -49,7 +53,7 @@ export default class EmployeeEmergencyContactController {
    *                 default: ''
    *               employeeEmergencyContactPhone:
    *                 type: string
-   *                 description: Employee emergency contact phone
+   *                 description: Employee emergency contact phone. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: false
    *                 default: ''
    *               employeeId:
@@ -137,8 +141,20 @@ export default class EmployeeEmergencyContactController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeEmergencyContactFirstname = request.input('employeeEmergencyContactFirstname')
       const employeeEmergencyContactLastname = request.input('employeeEmergencyContactLastname')
@@ -186,6 +202,7 @@ export default class EmployeeEmergencyContactController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -244,7 +261,7 @@ export default class EmployeeEmergencyContactController {
    *                 default: ''
    *               employeeEmergencyContactPhone:
    *                 type: string
-   *                 description: Employee emergency contact phone
+   *                 description: Employee emergency contact phone. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: false
    *                 default: ''
    *     responses:
@@ -327,8 +344,20 @@ export default class EmployeeEmergencyContactController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeEmergencyContactId = request.param('employeeEmergencyContactId')
       const employeeEmergencyContactFirstname = request.input('employeeEmergencyContactFirstname')
@@ -390,6 +419,7 @@ export default class EmployeeEmergencyContactController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

@@ -111,6 +111,7 @@ async function createAssistFixture(employeeId: number, label: string): Promise<A
   assist.assistPrecision = 0
   assist.assistUploadTime = punchTime
   assist.assistEmpId = employeeId
+  assist.businessUnitId = employee.businessUnitId
   assist.assistTerminalId = null
   assist.assistSyncId = nextSyncId
   assist.assistActive = 1

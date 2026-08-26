@@ -35,6 +35,9 @@ export default class BillingPlan extends compose(BaseModel, SoftDeletes) {
   @column()
   declare billingPlanActive: number
 
+  @column()
+  declare billingPlanIsPublic: number
+
   @column.dateTime()
   declare billingPlanPublishedAt: DateTime | null
 

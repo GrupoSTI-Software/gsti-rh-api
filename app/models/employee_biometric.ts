@@ -7,6 +7,8 @@ import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -26,7 +28,7 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
  *           description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *         employeeBiometricData:
  *           type: string
- *           description: Biometric data in format "Finger:1, Finger:2, Face"
+ *           description: Biometric data in format "Finger:1, Finger:2, Face". Puede llegar enmascarado según el permiso de lectura de su categoría.
  *         employeeBiometricCreatedAt:
  *           type: string
  *         employeeBiometricUpdatedAt:
@@ -34,7 +36,7 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
  *         employeeBiometricDeletedAt:
  *           type: string
  */
-export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
+export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeBiometricId: number
 
@@ -71,6 +73,7 @@ export default class EmployeeBiometric extends compose(BaseModel, SoftDeletes, w
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeBiometric', 'employeeBiometricData'),
   })
   declare employeeBiometricData: string
 

@@ -4,6 +4,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import encryption from '@adonisjs/core/services/encryption'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
@@ -47,7 +48,7 @@ import MedicalConditionTypePropertyValue from './medical_condition_type_property
  *           format: date-time
  *           nullable: true
  */
-export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
+export default class EmployeeMedicalCondition extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeMedicalConditionId: number
 

@@ -25,6 +25,10 @@ import { resolveEmployeeLactationPeriodApiError } from '../helpers/employee_lact
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import PiiExportService from '#services/pii_export_service'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 /**
  * Esta funcionalidad NO tiene módulo propio en `system_modules`: vive
@@ -136,6 +140,7 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *                 description: Notas del periodo. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               employeeChildrenId:
    *                 type: integer
    *                 nullable: true
@@ -148,7 +153,17 @@ export default class EmployeeLactationPeriodsController {
    *       '201': { description: Creado }
    *       '400': { description: Validación VineJS o end <= start }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'create' }
+   *       '403':
+   *         description: Sin permiso 'create'. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Empleada inexistente o ajena a la empresa }
    *       '409':
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
@@ -179,6 +194,7 @@ export default class EmployeeLactationPeriodsController {
         201
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -215,6 +231,7 @@ export default class EmployeeLactationPeriodsController {
    *                 type: string
    *                 nullable: true
    *                 maxLength: 500
+   *                 description: Notas del periodo. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               employeeChildrenId:
    *                 type: integer
    *                 nullable: true
@@ -228,7 +245,17 @@ export default class EmployeeLactationPeriodsController {
    *       '200': { description: Actualizado }
    *       '400': { description: Validación VineJS o coherencia de fechas }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update' }
+   *       '403':
+   *         description: Sin permiso 'update'. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Recurso ajeno o inexistente }
    *       '409':
    *         description: Traslape contra otro periodo activo (key `lactation-period-overlap`)
@@ -260,6 +287,7 @@ export default class EmployeeLactationPeriodsController {
         'Periodo de lactancia actualizado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -806,7 +834,17 @@ export default class EmployeeLactationPeriodsController {
    *                 lactationShiftExceptionId: { type: integer }
    *                 reason: { type: string }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Periodo o conflicto inexistente / ajeno a la empresa (key `lactation-conflict-not-found`) }
    */
   async revokeConflict(ctx: HttpContext) {
@@ -827,6 +865,7 @@ export default class EmployeeLactationPeriodsController {
         'Día de lactancia revocado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 500)
     }
   }
@@ -893,7 +932,17 @@ export default class EmployeeLactationPeriodsController {
    *                   description: Nuevo `employee_lactation_period_end_date` del periodo.
    *                 newLactationShiftExceptionId: { type: integer }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Periodo o conflicto inexistente / ajeno a la empresa (key `lactation-conflict-not-found`) }
    *       '422':
    *         description: |
@@ -919,6 +968,7 @@ export default class EmployeeLactationPeriodsController {
         'Día de lactancia reasignado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 500)
     }
   }
@@ -1105,7 +1155,17 @@ export default class EmployeeLactationPeriodsController {
    *                       message: { type: string }
    *       '400': { description: Validación inválida del body }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'update-information' en el módulo employees }
+   *       '403':
+   *         description: Sin permiso 'update-information' en el módulo employees. Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Periodo inexistente o ajeno a la empresa }
    *       '422':
    *         description: |
@@ -1134,6 +1194,7 @@ export default class EmployeeLactationPeriodsController {
         'Reasignación bulk procesada'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 500)
     }
   }

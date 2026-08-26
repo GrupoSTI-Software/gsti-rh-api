@@ -3,9 +3,14 @@ import type { NextFn } from '@adonisjs/core/types/http'
 import PermissionGateService from '#services/permission_gate_service'
 import type { PermissionGateDecision } from '#services/permission_gate_service'
 import { EMPLOYEES_SENSITIVE_READ_PERMISSIONS } from '#constants/employees_read_permission_declarations'
+import { EMPLOYEES_SENSITIVE_WRITE_PERMISSIONS } from '#constants/employees_write_permission_declarations'
 import { LEGAL_CATEGORIES } from '#constants/sensitive_fields'
 import type { LegalCategory } from '#constants/sensitive_fields'
-import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import {
+  SensitiveAccessContext,
+  type SensitiveAccessStore,
+  type SensitiveWriteDecision,
+} from '#utils/sensitive_access_context'
 
 export function isSensitiveReadAllowed(decision: PermissionGateDecision): boolean {
   return decision.reason === 'granted' || decision.reason === 'bypass'
@@ -28,6 +33,29 @@ export async function resolveSensitiveReadDecisions(
   return decisions
 }
 
+export function classifySensitiveWriteDecision(
+  decision: PermissionGateDecision
+): SensitiveWriteDecision {
+  if (decision.reason === 'granted' || decision.reason === 'bypass') return 'allowed'
+  if (decision.reason === 'unresolved') return 'unresolved'
+  return 'denied'
+}
+
+export async function resolveSensitiveWriteDecisions(
+  ctx: HttpContext
+): Promise<Record<LegalCategory, SensitiveWriteDecision>> {
+  const service = ctx.permissionGate ?? (ctx.permissionGate = new PermissionGateService())
+  const decisions = {} as Record<LegalCategory, SensitiveWriteDecision>
+  for (const category of LEGAL_CATEGORIES) {
+    const decision = await service.evaluateEnforced(
+      ctx.auth.user,
+      EMPLOYEES_SENSITIVE_WRITE_PERMISSIONS[category]
+    )
+    decisions[category] = classifySensitiveWriteDecision(decision)
+  }
+  return decisions
+}
+
 /**
  * Reabre el ALS cuando Adonis JSON-encodea el cuerpo.
  *
@@ -36,10 +64,7 @@ export async function resolveSensitiveReadDecisions(
  * devolvió y el `run` exterior se cerró. Sin este reingreso, `canRead`
  * es false para todos (incluido owner).
  */
-function reenterSensitiveReadOnResponse(
-  ctx: HttpContext,
-  decisions: Record<LegalCategory, boolean>
-): void {
+function reenterSensitiveReadOnResponse(ctx: HttpContext, store: SensitiveAccessStore): void {
   const response = ctx.response
   if (!response) {
     return
@@ -47,18 +72,18 @@ function reenterSensitiveReadOnResponse(
 
   const originalSend = response.send.bind(response)
   response.send = ((body: unknown, generateEtag?: boolean) =>
-    SensitiveAccessContext.run(decisions, () => originalSend(body, generateEtag))) as typeof response.send
+    SensitiveAccessContext.run(store, () => originalSend(body, generateEtag))) as typeof response.send
 
   if (typeof response.json === 'function') {
     const originalJson = response.json.bind(response)
     response.json = ((body: unknown, generateEtag?: boolean) =>
-      SensitiveAccessContext.run(decisions, () => originalJson(body, generateEtag))) as typeof response.json
+      SensitiveAccessContext.run(store, () => originalJson(body, generateEtag))) as typeof response.json
   }
 
   if (typeof response.jsonp === 'function') {
     const originalJsonp = response.jsonp.bind(response)
     response.jsonp = ((body: unknown, callbackName?: string, generateEtag?: boolean) =>
-      SensitiveAccessContext.run(decisions, () =>
+      SensitiveAccessContext.run(store, () =>
         originalJsonp(body, callbackName, generateEtag)
       )) as typeof response.jsonp
   }
@@ -66,7 +91,7 @@ function reenterSensitiveReadOnResponse(
   if (typeof response.finish === 'function') {
     const originalFinish = response.finish.bind(response)
     response.finish = (() =>
-      SensitiveAccessContext.run(decisions, () => originalFinish())) as typeof response.finish
+      SensitiveAccessContext.run(store, () => originalFinish())) as typeof response.finish
   }
 }
 
@@ -74,7 +99,9 @@ export async function runWithSensitiveReadDecisions(
   ctx: HttpContext,
   next: NextFn
 ): Promise<unknown> {
-  const decisions = await resolveSensitiveReadDecisions(ctx)
-  reenterSensitiveReadOnResponse(ctx, decisions)
-  return SensitiveAccessContext.run(decisions, () => next())
+  const read = await resolveSensitiveReadDecisions(ctx)
+  const write = await resolveSensitiveWriteDecisions(ctx)
+  const store: SensitiveAccessStore = { read, write }
+  reenterSensitiveReadOnResponse(ctx, store)
+  return SensitiveAccessContext.run(store, () => next())
 }

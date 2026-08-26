@@ -1,30 +1,72 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import logger from '@adonisjs/core/services/logger'
 import type { LegalCategory } from '#constants/sensitive_fields'
 
-type SensitiveReadStore = Record<LegalCategory, boolean>
+export type SensitiveWriteDecision = 'allowed' | 'denied' | 'unresolved'
 
-const storage = new AsyncLocalStorage<SensitiveReadStore>()
+export type SensitiveAccessStore = {
+  read: Record<LegalCategory, boolean>
+  write: Record<LegalCategory, SensitiveWriteDecision>
+  unguarded?: boolean
+}
+
+const storage = new AsyncLocalStorage<SensitiveAccessStore>()
+
+const emptyRead: Record<LegalCategory, boolean> = {
+  identificacion: false,
+  contacto: false,
+  financiero: false,
+  salud: false,
+  biometrico: false,
+}
+
+const emptyWrite: Record<LegalCategory, SensitiveWriteDecision> = {
+  identificacion: 'denied',
+  contacto: 'denied',
+  financiero: 'denied',
+  salud: 'denied',
+  biometrico: 'denied',
+}
 
 /**
- * Contexto request-scoped de lectura sensible (USRH1787204602825).
+ * Contexto request-scoped de acceso sensible (lectura: USRH1787204602825;
+ * escritura: USRH1787204602831).
  *
- * Las cinco decisiones se resuelven una vez en middleware (async) y se leen
- * de forma síncrona desde el `serialize` de Lucid, igual que `TenantContext.getScope()`.
- *
- * Fail-closed: sin store activo, `canRead` devuelve `false`. En crons, comandos
- * y jobs el dato sale tapado — a diferencia del mixin de tenant, que sin
- * contexto es fail-open. Aquí el fail-open sería una fuga.
+ * Lectura fail-closed: sin store, `canRead` es false.
+ * Escritura: el mixin no exige si `!isActive()` (fail-open fuera de HTTP).
+ * Con store activo, `canWrite` solo es true si la decisión es `allowed`.
  */
 export const SensitiveAccessContext = {
   canRead(category: LegalCategory): boolean {
-    return storage.getStore()?.[category] ?? false
+    return storage.getStore()?.read[category] ?? false
+  },
+
+  canWrite(category: LegalCategory): boolean {
+    return storage.getStore()?.write[category] === 'allowed'
+  },
+
+  writeDecision(category: LegalCategory): SensitiveWriteDecision {
+    return storage.getStore()?.write[category] ?? 'denied'
   },
 
   isActive(): boolean {
     return storage.getStore() !== undefined
   },
 
-  run<T>(decisions: Record<LegalCategory, boolean>, fn: () => T): T {
-    return storage.run(decisions, fn)
+  isUnguarded(): boolean {
+    return storage.getStore()?.unguarded === true
+  },
+
+  run<T>(store: SensitiveAccessStore, fn: () => T): T {
+    return storage.run(store, fn)
+  },
+
+  runUnguarded<T>(reason: string, fn: () => T): T {
+    logger.warn({ reason }, 'SensitiveAccessContext.runUnguarded: exigencia de escritura sensible omitida')
+    const current = storage.getStore()
+    const next: SensitiveAccessStore = current
+      ? { ...current, read: { ...current.read }, write: { ...current.write }, unguarded: true }
+      : { read: { ...emptyRead }, write: { ...emptyWrite }, unguarded: true }
+    return storage.run(next, fn)
   },
 }

@@ -1,5 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { SENSITIVE_DATA_READ_ERROR_CODES } from '#constants/sensitive_data_read_error_codes'
 import PiiRevealService from '#services/pii_reveal_service'
+import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
 
 /**
  * Controlador de reveal de datos personales sensibles.
@@ -79,7 +81,10 @@ export default class PiiRevealController {
    *                 data:
    *                   type: object
    *       '422':
-   *         description: Invalid parameters
+   *         description: |
+   *           Parámetros inválidos (envelope legado `{type,title,message,data}`)
+   *           o el par no es revelable / no está clasificado (envelope `{title,detail,key,code}`:
+   *           `EMP.SENS.READ.NOT_REVEALABLE` / `EMP.SENS.READ.NOT_CLASSIFIED`).
    *         content:
    *           application/json:
    *             schema:
@@ -128,6 +133,28 @@ export default class PiiRevealController {
           title: i18n.formatMessage('pii_reveal_title'),
           message: i18n.formatMessage('pii_reveal_invalid_params'),
           data: { recordId: 'El parámetro recordId debe ser un entero positivo.' },
+        }
+      }
+
+      const catalog = new SensitiveFieldsCatalogService()
+      const eligibility = catalog.revealEligibility(model, column)
+      if (eligibility === 'not_classified') {
+        response.status(422)
+        return {
+          title: 'El campo solicitado no es un dato sensible',
+          detail: 'El campo indicado no está clasificado en el catálogo de datos sensibles.',
+          key: 'el-campo-solicitado-no-es-un-dato-sensible',
+          code: SENSITIVE_DATA_READ_ERROR_CODES.NOT_CLASSIFIED,
+        }
+      }
+      if (eligibility === 'not_revealable') {
+        response.status(422)
+        return {
+          title: 'El dato no se puede revelar por esta vía',
+          detail:
+            'Este dato sensible se consulta con el permiso de su categoría; no está disponible en el revelado individual.',
+          key: 'el-dato-no-se-puede-revelar-por-esta-via',
+          code: SENSITIVE_DATA_READ_ERROR_CODES.NOT_REVEALABLE,
         }
       }
 

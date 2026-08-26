@@ -66,6 +66,10 @@ import { isEmployeeTerminationRecordChanged } from '#helpers/employee_terminatio
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 import EmployeeQuotaService from '#services/employee_quota_service'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -7112,6 +7116,27 @@ export default class EmployeeController {
    *                   key: cabeceras-invalidas
    *                   code: EMP.IMPORT.VAL_HEADERS
    *                   data: null
+   *       403:
+   *         description: |
+   *           El archivo incluye columnas de datos sensibles sin permiso de escritura de la categoría.
+   *           No se procesa ningún renglón. En otras rutas de escritura, un valor con forma de máscara
+   *           del sistema se trata como no enviado cuando el usuario no tiene lectura de la categoría.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: El archivo contiene datos sensibles que no puedes modificar
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: el-archivo-contiene-datos-sensibles-que-no-puedes-modificar
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
    *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
@@ -7196,8 +7221,20 @@ export default class EmployeeController {
    *                   example: EMP.IMPORT.SERVER
    *                 data:
    *                   nullable: true
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async importFromExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async importFromExcel(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const file = request.file('file')
 
@@ -7274,6 +7311,7 @@ export default class EmployeeController {
         data: result,
       }
     } catch (error: unknown) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error instanceof EmployeeQuotaError) {
         const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
         response.status(resolved.status)

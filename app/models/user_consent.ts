@@ -5,6 +5,7 @@ import encryption from '@adonisjs/core/services/encryption'
 import User from '#models/user'
 import LegalDocument from '#models/legal_document'
 import Employee from '#models/employee'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /** Canal por el que se otorgó el consentimiento (USRH1784146205513). */
 export type UserConsentChannel = 'digital' | 'physical'
@@ -66,6 +67,7 @@ export default class UserConsent extends BaseModel {
         return null
       }
     },
+    serialize: sensitiveSerialize('UserConsent', 'userConsentIp'),
   })
   declare userConsentIp: string | null
 
@@ -84,6 +86,7 @@ export default class UserConsent extends BaseModel {
         return null
       }
     },
+    serialize: sensitiveSerialize('UserConsent', 'userConsentUserAgent'),
   })
   declare userConsentUserAgent: string | null
 

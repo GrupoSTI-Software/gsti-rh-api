@@ -9,6 +9,7 @@ import BusinessUnit from '#models/business_unit'
 import BranchOffice from '#models/branch_office'
 import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -76,6 +77,7 @@ export default class EmpresaContratante extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('EmpresaContratante', 'rfc'),
   })
   declare rfc: string | null
 

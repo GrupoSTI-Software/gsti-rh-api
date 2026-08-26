@@ -4,9 +4,11 @@ import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 /**
  * @swagger
  * components:
@@ -44,7 +46,7 @@ import Employee from './employee.js'
  *
  */
 
-export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
+export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeEmergencyContactId: number
 
@@ -76,6 +78,7 @@ export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDel
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeEmergencyContact', 'employeeEmergencyContactPhone'),
   })
   declare employeeEmergencyContactPhone: string
 

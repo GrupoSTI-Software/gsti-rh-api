@@ -57,6 +57,12 @@ import {
   employeeImportQuotaExceededError,
   employeeImportQuotaNoPlanError,
 } from '../helpers/employee_quota_api_error.js'
+import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
+import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
+import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
+import { SENSITIVE_WRITE_CATEGORY_ORDER } from '#mixins/with_sensitive_write_guard'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
@@ -2710,6 +2716,7 @@ export default class EmployeeService {
       }
 
       const { headers, headerRowNumber } = this.validateExcelHeaders(worksheet)
+      this.assertExcelSensitiveHeadersWritable(headers)
 
       // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
       const departments = await Department.query()
@@ -2769,6 +2776,7 @@ export default class EmployeeService {
         existingEmployees.map((emp) => [emp.employeeId, emp])
       )
 
+      return await SensitiveAccessContext.runUnguarded('importación masiva', async () => {
       // Índice O(1) por ID para `findExistingEmployeeForImport`
       let totalRows = 0
       let processed = 0
@@ -2950,6 +2958,46 @@ export default class EmployeeService {
               rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
               continue
             }
+
+            // Crear nuevo empleado: verificar CURP duplicado antes de crear
+          //   if (this.hasImportCellValue(employeeData.curp)) {
+          //     const curpExists = await this.personWithCurpExists(employeeData.curp)
+          //     if (curpExists) {
+          //       skipped++
+          //       rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
+          //       continue
+          //     }
+          //   }
+
+          //   let employeeCode = employeeData.employeeNumber
+          //   if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+          //     employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+          //   }
+          //   existingEmployeeCodes.push(employeeCode)
+
+          //   const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+          //   const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+          //   const person = await this.createPerson(employeeData)
+          //   const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+          //   if (employeeData.employeeWorkScheduleHybridAttempt) {
+          //     // El empleado nuevo queda con Onsite (default de `createEmployee`).
+          //     // Se avisa a RH para que ajuste la modalidad desde el sistema.
+          //     warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+          //   }
+          //   await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+          //   await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
+
+          //   createdEmployees.push(newEmployee)
+          //   created++
+          //   processed++
+          // } catch (error: any) {
+          //   // Una denegación por dato sensible no es un error de fila: aborta
+          //   // toda la importación con un 403 (Important 2, revisión final de
+          //   // sensitive-write-by-category). No se registra como fila fallida.
+          //   if (isSensitiveDataWriteError(error)) throw error
+          //   skipped++
+          //   rowErrors.push({ row: rowNumber, message: error.message })
           }
 
           let employeeCode = employeeData.employeeNumber
@@ -3012,6 +3060,7 @@ export default class EmployeeService {
         rowErrors,
         warnings,
       })
+      })
 
     } catch (error: any) {
       // Errores de validación (cabeceras inválidas o tope de filas) se
@@ -3021,6 +3070,9 @@ export default class EmployeeService {
         throw error
       }
       if (error instanceof EmployeeQuotaError) {
+        throw error
+      }
+      if (isSensitiveDataWriteError(error)) {
         throw error
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
@@ -3178,6 +3230,21 @@ export default class EmployeeService {
       ; (error as any).isRowLimitError = true
       ; (error as any).statusCode = 400
     return error
+  }
+
+  /**
+   * Rechazo previo de importación: cabeceras sensibles sin permiso de escritura (USRH1787433076990).
+   */
+  private assertExcelSensitiveHeadersWritable(headers: string[]): void {
+    const categoriesPresent = findSensitiveCategoriesInExcelHeaders(headers)
+    if (categoriesPresent.length === 0) return
+
+    const denied = categoriesPresent.filter((category) => !SensitiveAccessContext.canWrite(category))
+    if (denied.length === 0) return
+
+    const category =
+      SENSITIVE_WRITE_CATEGORY_ORDER.find((item) => denied.includes(item)) ?? denied[0]
+    throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN, category)
   }
 
   /**

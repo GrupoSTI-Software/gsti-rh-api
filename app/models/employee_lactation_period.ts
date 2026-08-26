@@ -8,6 +8,8 @@ import Employee from '#models/employee'
 import EmployeeChildren from '#models/employee_children'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * Tipo de aplicación del horario de lactancia.
@@ -100,7 +102,8 @@ export type EmployeeLactationPeriodReductionApplication = 'start' | 'end' | 'spl
 export default class EmployeeLactationPeriod extends compose(
   BaseModel,
   SoftDeletes,
-  withBusinessUnitScope()
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
 ) {
   static table = 'employee_lactation_periods'
 
@@ -151,6 +154,7 @@ export default class EmployeeLactationPeriod extends compose(
         return null
       }
     },
+    serialize: sensitiveSerialize('EmployeeLactationPeriod', 'employeeLactationPeriodNotes'),
   })
   declare employeeLactationPeriodNotes: string | null
 

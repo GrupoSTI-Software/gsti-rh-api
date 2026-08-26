@@ -8,7 +8,7 @@ import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
-import env from '../../start/env.js'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Role from '#models/role'
 import { SYSTEM_ROLE_SLUGS } from '#constants/system_roles'
 import BusinessUnit from '#models/business_unit'
@@ -418,16 +418,14 @@ export default class UserService {
       host_data: hostData,
       backgroundImageLogo,
     }
-    const userEmail = env.get('SMTP_USERNAME')
-    if (userEmail) {
-      await mail.send((message) => {
-        message
-          .to(newUser.userEmail)
-          .from(userEmail, tradeName)
-          .subject('New password')
-          .htmlView('emails/new_password', emailData)
-      })
-    }
+    const userEmail = resolveMailSender()
+    await mail.send((message) => {
+      message
+        .to(newUser.userEmail)
+        .from(userEmail, tradeName)
+        .subject('New password')
+        .htmlView('emails/new_password', emailData)
+    })
   }
 
   private getUrlInfo(url: string) {

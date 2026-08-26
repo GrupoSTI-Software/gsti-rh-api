@@ -208,6 +208,8 @@ router
   .prefix('/api/employees')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())
+  .use(middleware.sensitiveMaskEcho())
 
 // Ruta pública para servir imágenes de forma segura (sin autenticación)
 router.get('/api/proxy-image', '#controllers/employee_controller.proxyImage')

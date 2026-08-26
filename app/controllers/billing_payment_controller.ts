@@ -107,11 +107,19 @@ export default class BillingPaymentController {
    *       Registra un pago manual sobre una suscripción no cancelada. El monto del
    *       flujo normal lo gobierna el servidor desde el trato congelado
    *       (`contracted_total`) y no es editable; `allowCustomAmount: true` habilita
-   *       un importe distinto explícito. De forma atómica: sube el comprobante
-   *       privado, inserta el pago y aplica la prelación de cobro (USRH1785962095095
-   *       v2): primero el adeudo prorrateado de un aumento `pending_payment` si existe
-   *       (USRH1786107870856), después N periodos completos con el saldo restante,
-   *       y el sobrante queda a favor de la suscripción.
+   *       un importe distinto explícito. Cuando la suscripción tiene un aumento
+   *       `pending_payment` vivo (USRH1786107870856), el flujo normal (sin
+   *       `allowCustomAmount`) acepta además, sin declarar importe distinto,
+   *       exactamente dos cifras más — ambas calculadas por el sistema, nunca libres
+   *       (USRH1787077544537): el adeudo prorrateado solo, o el adeudo + un periodo
+   *       completo al precio nuevo. Si ese aumento deja de estar vigente entre que se
+   *       mostró la pantalla y se confirma el pago, el registro se rechaza con
+   *       `PLT.PAY.PENDING_INCREASE_STALE` (nunca se degrada en silencio al monto del
+   *       periodo); el cliente debe refrescar el detalle y reintentar.
+   *       De forma atómica: sube el comprobante privado, inserta el pago y aplica la
+   *       prelación de cobro (USRH1785962095095 v2): primero el adeudo prorrateado de
+   *       un aumento `pending_payment` si existe, después N periodos completos con el
+   *       saldo restante, y el sobrante queda a favor de la suscripción.
    *       `appliedChange` es null si no había cambio vivo; trae el registro cuando
    *       quedó `applied` o `not_applicable`.
    *     operationId: registerBillingPayment
@@ -136,7 +144,12 @@ export default class BillingPaymentController {
    *               amountCents:
    *                 type: integer
    *                 minimum: 100
-   *                 description: Obligatorio solo con allowCustomAmount=true. Ignorado (salvo verificación de igualdad) en flujo normal.
+   *                 description: >
+   *                   Obligatorio solo con allowCustomAmount=true. En flujo normal, si
+   *                   se envía, debe coincidir exactamente con una de las cifras que el
+   *                   servidor calcula: el monto del periodo, o — solo si hay un
+   *                   aumento pending_payment vivo — el adeudo prorrateado solo, o el
+   *                   adeudo + un periodo completo al precio nuevo.
    *               allowCustomAmount:
    *                 type: boolean
    *                 default: false
@@ -275,6 +288,7 @@ export default class BillingPaymentController {
    *                     - PLT.PAY.AMOUNT_INVALID
    *                     - PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE
    *                     - PLT.PAY.PERIODS_OUT_OF_RANGE
+   *                     - PLT.PAY.PENDING_INCREASE_STALE
    *                     - PLT.PAY.RECEIPT_INVALID
    *                     - PLT.PAY.VAL_INPUT
    *       '500':
@@ -306,6 +320,13 @@ export default class BillingPaymentController {
    *   de la suscripción (`contracted_total`); no es editable por el cliente.\
    *   `allowCustomAmount: true` habilita la captura explícita de un importe\
    *   distinto (parcial o mayor), validado con las cotas del servidor.\
+   *   Cuando hay un aumento `pending_payment` vivo (USRH1786107870856), el flujo\
+   *   normal acepta además, sin `allowCustomAmount`, exactamente dos cifras más\
+   *   que el propio sistema calcula (USRH1787077544537): el adeudo prorrateado\
+   *   solo, o el adeudo + un periodo completo al precio nuevo. Si ese aumento\
+   *   dejó de estar vigente al confirmar, se rechaza con\
+   *   `PLT.PAY.PENDING_INCREASE_STALE` — nunca se degrada en silencio al monto\
+   *   del periodo; el cliente debe refrescar el detalle y reintentar.\
    *   De forma atómica: sube el comprobante privado, inserta el pago y aplica\
    *   la prelación de cobro (USRH1785962095095 v2): primero cubre el adeudo\
    *   prorrateado de un aumento `pending_payment` si existe (USRH1786107870856),\
@@ -323,7 +344,7 @@ export default class BillingPaymentController {
    * @requestBody {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["method", "paidAt", "receipt"], "properties": {"amountCents": {"type": "integer", "minimum": 100, "description": "Obligatorio solo con allowCustomAmount=true. En flujo normal, si se envía, debe coincidir con el monto gobernado del periodo."}, "allowCustomAmount": {"type": "boolean", "default": false, "description": "Declara de forma explícita el registro por importe distinto."}, "method": {"type": "string", "enum": ["transfer", "cash", "other"]}, "reference": {"type": "string", "maxLength": 191}, "paidAt": {"type": "string", "format": "date-time"}, "receipt": {"type": "string", "format": "binary"}}}}}}
    * @responseBody 201 - {"type": "success", "data": {"billingPaymentId": 12, "billingSubscriptionId": 7, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "hasReceipt": true, "isCustomAmount": true, "periodAmountCents": 927800, "periodsCovered": 3, "creditAppliedCents": 2783400, "debtAppliedCents": 0, "creditBalanceAfterCents": 216600, "subscription": {"billingSubscriptionId": 7, "status": "active", "currentPeriodStart": "2026-08-05", "currentPeriodEnd": "2026-11-05", "creditBalanceCents": 216600}, "appliedChange": null}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_NOT_FOUND"}
-   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_NOT_ALLOWED|PLT.PAY.AMOUNT_REQUIRED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE|PLT.PAY.PERIODS_OUT_OF_RANGE|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_NOT_ALLOWED|PLT.PAY.AMOUNT_REQUIRED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE|PLT.PAY.PERIODS_OUT_OF_RANGE|PLT.PAY.PENDING_INCREASE_STALE|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
    * @responseBody 500 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.CHANGE_APPLY_FAILED|PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT|PLT.PAY.RECEIPT_UPLOAD_FAILED|PLT.PAY.SYS_UNHANDLED"}
    */
   async store({ params, request, response }: HttpContext) {

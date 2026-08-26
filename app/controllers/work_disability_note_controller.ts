@@ -6,6 +6,10 @@ import {
   updateWorkDisabilityNoteValidator,
 } from '#validators/work_disability_note'
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 /** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
 function workDisabilityNoteNotFoundResponse(response: HttpContext['response']) {
@@ -37,7 +41,7 @@ export default class WorkDisabilityNoteController {
    *             properties:
    *               workDisabilityNoteDescription:
    *                 type: string
-   *                 description: Work disability note description
+   *                 description: Work disability note description. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 required: true
    *                 default: ''
    *               workDisabilityId:
@@ -125,8 +129,20 @@ export default class WorkDisabilityNoteController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async store({ request, response, auth }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, auth } = ctx
     try {
       const userId = auth.user?.userId
       const workDisabilityNoteDescription = request.input('workDisabilityNoteDescription')
@@ -159,6 +175,7 @@ export default class WorkDisabilityNoteController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -331,8 +348,7 @@ export default class WorkDisabilityNoteController {
    *             properties:
    *               workDisabilityNoteDescription:
    *                 type: string
-   *                 description: Work disability note description
-   *                 required: true
+   *                 description: Work disability note description. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *                 default: ''
    *     responses:
    *       '200':
@@ -414,8 +430,20 @@ export default class WorkDisabilityNoteController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const workDisabilityNoteId = request.param('workDisabilityNoteId')
       if (!workDisabilityNoteId) {
@@ -455,6 +483,7 @@ export default class WorkDisabilityNoteController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
