@@ -162,18 +162,21 @@ export default class DemoWipeService {
         const employeeCode = demoEmployee ? String(demoEmployee.employeeCode ?? '') : ''
 
         const trackedAssistIds = ids.get('assist') ?? []
-        counts.assists += await this.hardDeleteCount(
-          Assist.query({ client: trx })
-            .where((query) => {
-              query.whereIn('assist_id', trackedAssistIds.length > 0 ? trackedAssistIds : [0])
-              if (employeeCode) {
-                // Backstop por pertenencia: cubre checadas reales hechas desde
-                // la app durante el tour (no llevan el alias simulado).
-                query.orWhere('assist_emp_code', employeeCode)
-              }
-            })
-            .delete()
-        )
+        if (demoEmployee?.businessUnitId) {
+          counts.assists += await this.hardDeleteCount(
+            Assist.query({ client: trx })
+              .where('business_unit_id', demoEmployee.businessUnitId)
+              .where((query) => {
+                query.whereIn('assist_id', trackedAssistIds.length > 0 ? trackedAssistIds : [0])
+                if (employeeCode) {
+                  // Backstop por pertenencia: cubre checadas reales hechas desde
+                  // la app durante el tour (no llevan el alias simulado).
+                  query.orWhere('assist_emp_code', employeeCode)
+                }
+              })
+              .delete()
+          )
+        }
 
         counts.employeeAssistCalendar += await this.hardDeleteCount(
           EmployeeAssistCalendar.query({ client: trx })

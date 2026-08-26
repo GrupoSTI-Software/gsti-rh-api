@@ -128,7 +128,6 @@ test.group('Deuda — catálogo de tipos y requisitos por puesto sin gate Emplea
   test('rutas del catálogo de tipos de documento no declaran permissionGate', async ({ assert }) => {
     for (const rel of [
       'start/routes/proceeding_file_type_routes.ts',
-      'start/routes/proceeding_file_type_property_routes.ts',
       'start/routes/proceeding_file_type_email_routes.ts',
       'start/routes/position_certification_requirement_routes.ts',
     ]) {
@@ -138,3 +137,53 @@ test.group('Deuda — catálogo de tipos y requisitos por puesto sin gate Emplea
     }
   })
 })
+
+test.group(
+  'proceeding_file_type_property_routes — PermissionGate del catálogo compartido (USRH1786648597850)',
+  () => {
+    test('store, storeMultiple y delete declaran permissionGate; el resto no', async ({
+      assert,
+    }) => {
+      const content = await readFile(
+        join(process.cwd(), 'start/routes/proceeding_file_type_property_routes.ts'),
+        'utf8'
+      )
+      assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+      assert.include(
+        compact(content),
+        'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeProceedingFileTypeProperty)'
+      )
+      assert.include(
+        compact(content),
+        'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeMultipleProceedingFileTypeProperties)'
+      )
+      assert.include(
+        compact(content),
+        'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteProceedingFileTypeProperty)'
+      )
+      const matches =
+        compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+        []
+      assert.equal(matches.length, 3)
+
+      const indexLine = content.split('\n').find((l) => l.includes('.index'))
+      const byTypeLine = content
+        .split('\n')
+        .find((l) => l.includes('getByProceedingFileTypeId'))
+      assert.notInclude(indexLine ?? '', 'permissionGate')
+      assert.notInclude(byTypeLine ?? '', 'permissionGate')
+    })
+
+    test('el grupo monta businessScope() después de auth()', async ({ assert }) => {
+      const content = await readFile(
+        join(process.cwd(), 'start/routes/proceeding_file_type_property_routes.ts'),
+        'utf8'
+      )
+      const authIdx = content.indexOf('middleware.auth()')
+      const scopeIdx = content.indexOf('middleware.businessScope()')
+      assert.isTrue(authIdx >= 0)
+      assert.isTrue(scopeIdx >= 0)
+      assert.isTrue(authIdx < scopeIdx)
+    })
+  }
+)

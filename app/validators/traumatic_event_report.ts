@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { noMaskCharRule } from './no_mask_char_rule.js'
 
 /**
  * Listado paginado con filtros opcionales.
@@ -24,8 +25,8 @@ export const createTraumaticEventReportValidator = vine.compile(
     traumaticEventReportEmployeeId: vine.number().positive(),
     traumaticEventTypeId: vine.number().positive(),
     traumaticEventReportOccurredAt: vine.date({ formats: ['YYYY-MM-DD'] }),
-    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1),
-    traumaticEventReportDescription: vine.string().trim().minLength(1),
+    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1).use(noMaskCharRule()),
+    traumaticEventReportDescription: vine.string().trim().minLength(1).use(noMaskCharRule()),
   })
 )
 
@@ -39,8 +40,8 @@ export const createEmployeeTraumaticEventReportValidator = vine.compile(
   vine.object({
     traumaticEventTypeId: vine.number().positive(),
     traumaticEventReportOccurredAt: vine.date({ formats: ['YYYY-MM-DD'] }),
-    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1),
-    traumaticEventReportDescription: vine.string().trim().minLength(1),
+    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1).use(noMaskCharRule()),
+    traumaticEventReportDescription: vine.string().trim().minLength(1).use(noMaskCharRule()),
   })
 )
 
@@ -70,7 +71,7 @@ export const updateTraumaticEventReportValidator = vine.compile(
     traumaticEventReportOccurredAt: vine
       .date({ formats: ['YYYY-MM-DD'] })
       .optional(),
-    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1).optional(),
-    traumaticEventReportDescription: vine.string().trim().minLength(1).optional(),
+    traumaticEventReportInvolvedPeople: vine.string().trim().minLength(1).use(noMaskCharRule()).optional(),
+    traumaticEventReportDescription: vine.string().trim().minLength(1).use(noMaskCharRule()).optional(),
   })
 )

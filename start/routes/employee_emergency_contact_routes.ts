@@ -41,3 +41,4 @@ router
   .prefix('/api/employee-emergency-contacts')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())

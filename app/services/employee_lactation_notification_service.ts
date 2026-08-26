@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
-import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import SystemSetting from '#models/system_setting'
 import SystemSettingNotificationEmail from '#models/system_setting_notification_email'
@@ -176,7 +176,7 @@ export default class EmployeeLactationNotificationService {
       )
     }
 
-    const from = env.get('SMTP_FROM_ADDRESS', env.get('SMTP_USERNAME', 'no-reply@valanserh.local'))
+    const from = resolveMailSender()
 
     for (const [systemSettingId, rows] of grouped.entries()) {
       const setting = settings.find((s) => s.systemSettingId === systemSettingId)!

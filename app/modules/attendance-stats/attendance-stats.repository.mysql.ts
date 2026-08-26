@@ -255,7 +255,7 @@ emp_day AS (
   -- utc_offset: horas a sumar a la hora local México para obtener el valor que
   -- guarda assists.assist_punch_time_utc. El biométrico registra hora local CON
   -- horario de verano: +5 en verano (DST, abr-oct) y +6 el resto del año.
-  SELECT e.employee_id, e.employee_code, bu.business_unit_slug, dr.d AS day,
+  SELECT e.employee_id, e.employee_code, e.business_unit_id, bu.business_unit_slug, dr.d AS day,
     (CASE WHEN dr.d BETWEEN ? AND ? THEN 5 ELSE 6 END) AS utc_offset
   FROM employees e
   CROSS JOIN date_range dr
@@ -298,7 +298,7 @@ shift_for_day AS (
   -- (ej: emp con rotación re-asignada — la fila vieja queda soft-deleted).
   -- Desempate por created_at DESC: si dos turnos comparten apply_since, gana el
   -- creado más recientemente (matchea getEmployeeShifts, que ordena por createdAt).
-  SELECT ed.employee_id, ed.day, ed.employee_code, ed.business_unit_slug, ed.utc_offset,
+  SELECT ed.employee_id, ed.day, ed.employee_code, ed.business_unit_id, ed.business_unit_slug, ed.utc_offset,
     (SELECT es2.employee_shift_id FROM employee_shifts es2
       WHERE es2.employee_id = ed.employee_id
         AND es2.employe_shifts_deleted_at IS NULL
@@ -314,7 +314,7 @@ sfd_full AS (
   -- el check-out de un turno nocturno cae al día siguiente pero pertenece a este
   -- shift_day). apply_since + shift_calculate_flag se usan para resolver turnos
   -- rotativos (24x48, 12x36, etc.) en el cálculo de is_rest_day.
-  SELECT sfd.employee_id, sfd.day, sfd.employee_code, sfd.business_unit_slug, s.shift_id,
+  SELECT sfd.employee_id, sfd.day, sfd.employee_code, sfd.business_unit_id, sfd.business_unit_slug, s.shift_id,
     sfd.utc_offset,
     s.shift_time_start, s.shift_active_hours, s.shift_rest_days,
     s.shift_calculate_flag,
@@ -361,12 +361,17 @@ punches_for_shift AS (
   -- re-evaluarla por cada fila de assists. Sin el hint, MySQL fusiona sfd_full
   -- en este join y resuelve turno/cambio-de-turno millones de veces (la consulta
   -- pasaba de ~5s a ~25s+). Materializada, los lookups corren ~4k veces.
+  -- USRH1786566437097: correlacionar checadas por (empresa, código), no solo
+  -- por código — evita mezclar punches de otra empresa con el mismo employee_code.
+  -- Deuda conocida (2026-08-13): solo filtra assist_active = 1; no excluye
+  -- assist_deleted_at — cambiarlo alteraría KPIs ya reportados (fuera de alcance).
   SELECT /*+ NO_MERGE(sfd) */ sfd.employee_id, sfd.day,
     MIN(a.assist_punch_time_utc) AS first_punch_utc,
     MAX(a.assist_punch_time_utc) AS last_punch_utc,
     COUNT(*) AS punch_count
   FROM sfd_full sfd
   INNER JOIN assists a ON a.assist_emp_code = sfd.employee_code
+    AND a.business_unit_id = sfd.business_unit_id
     AND a.assist_active = 1
     AND a.assist_punch_time_utc >= (CASE
       WHEN (TIME_TO_SEC(sfd.shift_time_start) + sfd.shift_active_hours * 3600) > 86400

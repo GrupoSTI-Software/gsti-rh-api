@@ -3,6 +3,10 @@ import EmployeeBiometricFaceIdService from '#services/employee_biometric_face_id
 import { HttpContext } from '@adonisjs/core/http'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBiometricFaceIdController {
   /**
@@ -117,12 +121,24 @@ export default class EmployeeBiometricFaceIdController {
    *                   type: string
    *                 error:
    *                   type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   @inject()
   async uploadPhoto(
-    { request, response }: HttpContext,
+    ctx: HttpContext,
     uploadService: UploadService
   ) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -190,11 +206,13 @@ export default class EmployeeBiometricFaceIdController {
 
       let result
       if (existingRecord) {
-        // Si ya existe, eliminar la foto anterior del S3 y actualizar
-        if (existingRecord.employeeBiometricFaceIdPhotoUrl) {
-          await uploadService.deleteFile(existingRecord.employeeBiometricFaceIdPhotoUrl)
-        }
+        // Guardar primero, borrar después: si el guardado falla por permiso de
+        // categoría sensible, la foto anterior en S3 no debe perderse.
+        const oldPhotoUrl = existingRecord.employeeBiometricFaceIdPhotoUrl
         result = await service.update(existingRecord, photoUrl)
+        if (oldPhotoUrl) {
+          await uploadService.deleteFile(oldPhotoUrl)
+        }
         response.status(200)
         return {
           type: 'success',
@@ -214,6 +232,7 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
         type: 'error',
@@ -329,12 +348,24 @@ export default class EmployeeBiometricFaceIdController {
    *                   type: string
    *                 error:
    *                   type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   @inject()
   async replacePhoto(
-    { request, response }: HttpContext,
+    ctx: HttpContext,
     uploadService: UploadService
   ) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -408,6 +439,7 @@ export default class EmployeeBiometricFaceIdController {
         data: result.data,
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
         type: 'error',
@@ -577,7 +609,10 @@ export default class EmployeeBiometricFaceIdController {
    *     tags:
    *       - Employee Biometric Face ID
    *     summary: Get the biometric face photo for an employee
-   *     description: Retrieves the biometric face photo information for a specific employee
+   *     description: |
+   *       Retrieves the biometric face photo information for a specific employee.
+   *       Campos employeeBiometricFaceIdPhotoUrl y employeeBiometricFaceIdToken:
+   *       Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     parameters:
    *       - in: path
    *         name: employeeId
@@ -812,9 +847,21 @@ export default class EmployeeBiometricFaceIdController {
    *                   type: string
    *                 error:
    *                   type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   @inject()
-  async getPhotoToken({ request, response }: HttpContext, uploadService: UploadService) {
+  async getPhotoToken(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
       const token = request.param('token')
@@ -896,6 +943,7 @@ export default class EmployeeBiometricFaceIdController {
         },
       }
     } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
         type: 'error',

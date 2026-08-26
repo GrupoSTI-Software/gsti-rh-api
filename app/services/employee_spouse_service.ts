@@ -21,7 +21,9 @@ export default class EmployeeSpouseService {
     currentEmployeeSpouse.employeeSpouseSecondLastname = employeeSpouse.employeeSpouseSecondLastname
     currentEmployeeSpouse.employeeSpouseOcupation = employeeSpouse.employeeSpouseOcupation
     currentEmployeeSpouse.employeeSpouseBirthday = employeeSpouse.employeeSpouseBirthday
-    currentEmployeeSpouse.employeeSpousePhone = employeeSpouse.employeeSpousePhone
+    if (employeeSpouse.employeeSpousePhone !== undefined && employeeSpouse.employeeSpousePhone !== null) {
+      currentEmployeeSpouse.employeeSpousePhone = employeeSpouse.employeeSpousePhone
+    }
     await currentEmployeeSpouse.save()
     return currentEmployeeSpouse
   }

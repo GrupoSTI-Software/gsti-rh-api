@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import {
   isEmployeeTerminationRecordChanged,
   normalizeEmployeeTerminatedDate,
+  normalizeToken,
 } from '#helpers/employee_termination_record'
 
 const base = {
@@ -84,5 +85,18 @@ test.group('isEmployeeTerminationRecordChanged', () => {
         { ...base, employeeTerminatedDate: '2024-01-15T00:00:00.000Z' }
       )
     )
+  })
+})
+
+test.group('normalizeToken', () => {
+  test('null, undefined y vacío se normalizan a null', ({ assert }) => {
+    assert.isNull(normalizeToken(null))
+    assert.isNull(normalizeToken(undefined))
+    assert.isNull(normalizeToken(''))
+  })
+
+  test('valores no vacíos se convierten a string', ({ assert }) => {
+    assert.equal(normalizeToken('abc'), 'abc')
+    assert.equal(normalizeToken(123), '123')
   })
 })

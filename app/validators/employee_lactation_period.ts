@@ -1,11 +1,12 @@
 import vine from '@vinejs/vine'
+import { noMaskCharRule } from './no_mask_char_rule.js'
 import { LACTATION_COMPLIANCE_STATUS_VALUES } from '#constants/employee_lactation_compliance_status'
 
 const LACTATION_PERIOD_TYPE_VALUES = ['two_rest_periods', 'reduced_hour'] as const
 
 const LACTATION_REDUCTION_APPLICATION_VALUES = ['start', 'end', 'split'] as const
 
-const lactationPeriodNotesField = vine.string().trim().maxLength(500).nullable()
+const lactationPeriodNotesField = vine.string().trim().maxLength(500).use(noMaskCharRule()).nullable()
 
 const lactationPeriodTypeField = vine.enum(LACTATION_PERIOD_TYPE_VALUES)
 

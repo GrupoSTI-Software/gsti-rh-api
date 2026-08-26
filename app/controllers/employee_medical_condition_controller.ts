@@ -8,6 +8,10 @@ import {
 } from '#validators/employee_medical_condition'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeMedicalConditionController {
   /**
@@ -135,9 +139,21 @@ export default class EmployeeMedicalConditionController {
    *         description: The parameters entered are invalid or essential data is missing to process the request
    *       default:
    *         description: Unexpected error
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   @inject()
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeMedicalConditionService = new EmployeeMedicalConditionService()
       let inputs = request.all()
@@ -175,6 +191,7 @@ export default class EmployeeMedicalConditionController {
         data: { employeeMedicalCondition: newEmployeeMedicalCondition },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         response.status(422)
         return {
@@ -261,9 +278,21 @@ export default class EmployeeMedicalConditionController {
    *         description: The parameters entered are invalid or essential data is missing to process the request
    *       default:
    *         description: Unexpected error
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   @inject()
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeMedicalConditionService = new EmployeeMedicalConditionService()
       let inputs = request.all()
@@ -332,6 +361,7 @@ export default class EmployeeMedicalConditionController {
         data: { employeeMedicalCondition: updateEmployeeMedicalCondition },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         response.status(422)
         return {

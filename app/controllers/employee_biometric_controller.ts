@@ -1,6 +1,10 @@
 import { HttpContext } from '@adonisjs/core/http'
 import EmployeeBiometricService from '#services/employee_biometric_service'
 import { createEmployeeBiometricValidator, updateEmployeeBiometricValidator } from '#validators/employee_biometric'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBiometricController {
   /**
@@ -12,6 +16,8 @@ export default class EmployeeBiometricController {
    *     tags:
    *       - EmployeeBiometrics
    *     summary: get employee biometric data
+   *     description: |
+   *       Campo employeeBiometricData: Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     parameters:
    *       - in: path
    *         name: employeeId
@@ -232,8 +238,20 @@ export default class EmployeeBiometricController {
    *         description: Resource created successfully
    *       default:
    *         description: Unexpected error
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -278,6 +296,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -325,8 +344,20 @@ export default class EmployeeBiometricController {
    *         description: Resource updated successfully
    *       default:
    *         description: Unexpected error
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async updateFingers({ request, response, i18n }: HttpContext) {
+  async updateFingers(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -368,6 +399,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -413,8 +445,20 @@ export default class EmployeeBiometricController {
    *         description: Resource updated successfully
    *       default:
    *         description: Unexpected error
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async updateFaceStatus({ request, response, i18n }: HttpContext) {
+  async updateFaceStatus(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -456,6 +500,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -505,8 +550,20 @@ export default class EmployeeBiometricController {
    *         description: Resource updated successfully
    *       default:
    *         description: Unexpected error
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = Number(request.param('employeeId'))
@@ -554,6 +611,7 @@ export default class EmployeeBiometricController {
         },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

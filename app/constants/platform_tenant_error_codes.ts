@@ -9,6 +9,8 @@ export const PLATFORM_TENANT_ERROR_CODES = {
   NOT_FOUND: 'PLT.TEN.NOT_FOUND',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.TEN.SYS_UNHANDLED',
+  /** Empresa encontrada pero no modificable (estado no permite la operación) */
+  UPDATE_FORBIDDEN: 'PLT.TEN.UPDATE_FORBIDDEN',
 } as const
 
 export type PlatformTenantErrorCode =

@@ -1,0 +1,223 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { test } from '@japa/runner'
+import {
+  sensitiveSerialize,
+  sensitiveSerializeNumeric,
+  maskSensitiveDtoValue,
+} from '#helpers/sensitive_serialize'
+import { SensitiveAccessContext, type SensitiveWriteDecision } from '#utils/sensitive_access_context'
+import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
+import type { LegalCategory } from '#constants/sensitive_fields'
+
+const allDenied: Record<LegalCategory, boolean> = {
+  identificacion: false,
+  contacto: false,
+  financiero: false,
+  salud: false,
+  biometrico: false,
+}
+
+const deniedWrite: Record<LegalCategory, SensitiveWriteDecision> = {
+  identificacion: 'denied',
+  contacto: 'denied',
+  financiero: 'denied',
+  salud: 'denied',
+  biometrico: 'denied',
+}
+
+test.group('sensitiveSerialize', () => {
+  test('sin contexto activo enmascara igual que hoy', ({ assert }) => {
+    const serialize = sensitiveSerialize('Person', 'personCurp')
+    assert.equal(serialize('ABCD123456MDFABC01'), '••••••••••••••BC01')
+    assert.equal(serialize('ABCD123456MDFABC01'), maskSensitiveValue('ABCD123456MDFABC01', 'identificacion'))
+  })
+
+  test('con permiso de la categoría entrega el valor en claro', ({ assert }) => {
+    const serialize = sensitiveSerialize('Person', 'personEmail')
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, contacto: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize('juan@empresa.com'), 'juan@empresa.com')
+      }
+    )
+  })
+
+  test('sin permiso de la categoría enmascara; otra categoría en claro no abre esta', ({
+    assert,
+  }) => {
+    const serializeClabe = sensitiveSerialize('EmployeeBank', 'employeeBankAccountClabe')
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, contacto: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serializeClabe('012345678901234567'), '••••••••••••••4567')
+      }
+    )
+  })
+
+  test('salud sin permiso entrega cinco MASK_CHAR', ({ assert }) => {
+    const serialize = sensitiveSerialize(
+      'EmployeeMedicalCondition',
+      'employeeMedicalConditionDiagnosis'
+    )
+    assert.equal(serialize('gripe'), MASK_CHAR.repeat(5))
+  })
+
+  test('par no clasificado se tapa siempre, incluso con bypass de otra categoría', ({
+    assert,
+  }) => {
+    const serialize = sensitiveSerialize('Person', 'personFirstname')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize('Ana'), MASK_CHAR.repeat(5))
+      }
+    )
+  })
+
+  test('null permanece null', ({ assert }) => {
+    const serialize = sensitiveSerialize('Person', 'personRfc')
+    assert.isNull(serialize(null))
+  })
+})
+
+test.group('sensitiveSerializeNumeric', () => {
+  test('sin permiso entrega null, nunca máscara parcial', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily')
+    assert.isNull(serialize(1250.75))
+    assert.notEqual(serialize(1250.75), '•••0.75')
+  })
+
+  test('con permiso de financiero entrega el number', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily')
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, financiero: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize(1250.75), 1250.75)
+        assert.equal(typeof serialize(1250.75), 'number')
+      }
+    )
+  })
+
+  test('null permanece null', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('PositionSalaryRange', 'maxSalaryDaily')
+    assert.isNull(serialize(null))
+  })
+
+  test('sin clasificación entrega null (fail-closed de importe)', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'employeeTeleworkPercentage')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.isNull(serialize(999))
+      }
+    )
+  })
+
+  test('Employee.dailySalary sin permiso financiero entrega null (no enmascarado por partes)', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: false,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.isNull(serialize(850.5))
+      }
+    )
+  })
+
+  test('Employee.dailySalary con permiso financiero entrega el importe', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize(850.5), 850.5)
+        assert.equal(typeof serialize(850.5), 'number')
+      }
+    )
+  })
+})
+
+test.group('maskSensitiveDtoValue', () => {
+  test('biométrico sin permiso entrega cinco MASK_CHAR', ({ assert }) => {
+    assert.equal(
+      maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', 'Finger:1, Face'),
+      MASK_CHAR.repeat(5)
+    )
+  })
+
+  test('biométrico con permiso entrega el valor en claro', ({ assert }) => {
+    SensitiveAccessContext.run(
+      {
+        read: { ...allDenied, biometrico: true },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(
+          maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', 'Finger:1, Face'),
+          'Finger:1, Face'
+        )
+      }
+    )
+  })
+
+  test('cadena vacía permanece vacía (sin enrolamiento)', ({ assert }) => {
+    assert.equal(maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', ''), '')
+  })
+
+  test('RFC de empresa contratante sin permiso aplica maskLastFour', ({ assert }) => {
+    assert.equal(
+      maskSensitiveDtoValue('EmpresaContratante', 'rfc', 'VACW850312J95'),
+      '•••••••••2J95'
+    )
+  })
+
+  test('la categoría sale del catálogo, no de un literal en el caller', ({ assert }) => {
+    const source = readFileSync(join(process.cwd(), 'app/helpers/sensitive_serialize.ts'), 'utf-8')
+    assert.notMatch(source, /canRead\('biometrico'\)/)
+    assert.notMatch(source, /canRead\('identificacion'\)/)
+  })
+})

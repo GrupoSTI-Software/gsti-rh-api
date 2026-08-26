@@ -2,6 +2,10 @@ import EmployeeBank from '#models/employee_bank'
 import EmployeeBankService from '#services/employee_bank_service'
 import { createEmployeeBankValidator, updateEmployeeBankValidator } from '#validators/employee_bank'
 import { HttpContext } from '@adonisjs/core/http'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBankController {
   /**
@@ -139,8 +143,28 @@ export default class EmployeeBankController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para modificar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-modificar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.FORBIDDEN
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       await request.validateUsing(createEmployeeBankValidator)
@@ -193,6 +217,7 @@ export default class EmployeeBankController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -342,8 +367,28 @@ export default class EmployeeBankController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para modificar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-modificar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.FORBIDDEN
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeBankService = new EmployeeBankService(i18n)
@@ -411,6 +456,7 @@ export default class EmployeeBankController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
