@@ -15,6 +15,7 @@ import ShiftExceptionService, {
 } from './shift_exception_service.js'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 
 const MAX_LACTATION_RANGE_MONTHS = 24
 
@@ -136,7 +137,11 @@ function serializeLactationPeriod(period: EmployeeLactationPeriod) {
     employeeLactationPeriodType: period.employeeLactationPeriodType,
     employeeLactationPeriodReductionApplication:
       period.employeeLactationPeriodReductionApplication,
-    employeeLactationPeriodNotes: period.employeeLactationPeriodNotes ?? null,
+    employeeLactationPeriodNotes: maskSensitiveDtoValue(
+      'EmployeeLactationPeriod',
+      'employeeLactationPeriodNotes',
+      period.employeeLactationPeriodNotes
+    ),
     /**
      * Se expone siempre (aun en `null`) para que el cliente pueda
      * distinguir "sin vínculo" vs "campo nunca consultado". El selector

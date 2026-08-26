@@ -21,6 +21,7 @@ import { LogStore } from '#models/MongoDB/log_store'
 import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import { AssistIncidentPayrollExcelRowInterface } from '../interfaces/assist_incident_payroll_excel_row_interface.js'
@@ -3394,6 +3395,8 @@ export default class AssistsService {
     newAssist.assistTerminalId = assist.assistTerminalId
     newAssist.assistSyncId = assist.assistSyncId
     newAssist.assistType = assist.assistType
+    newAssist.assistOrigin = assist.assistOrigin
+    newAssist.assistCreatedByUserId = assist.assistCreatedByUserId
     newAssist.assistPunchTime = assist.assistPunchTime
     newAssist.assistPunchTimeUtc = assist.assistPunchTimeUtc
     newAssist.assistPunchTimeOrigin = assist.assistPunchTimeOrigin
@@ -3450,6 +3453,7 @@ export default class AssistsService {
     newAssist.assistTerminalAlias = deviceAlias
     newAssist.assistAreaAlias = ''
     newAssist.assistSyncId = 0
+    newAssist.businessUnitId = employee.businessUnitId
 
     await newAssist.save()
 
@@ -5070,52 +5074,6 @@ export default class AssistsService {
   }
 
   /**
-   * Elimina todas las asistencias existentes
-   *
-   * Esta función:
-   * 1. Elimina todas las asistencias
-   *
-   * @returns Objeto con el resultado de la operación
-   */
-  async deleteAllAssists() {
-    try {
-      // Contar registros antes de eliminar
-      const totalAssists = await Assist.query()
-        .count('* as total')
-
-      const counts = {
-        assists: Number(totalAssists[0].$extras.total),
-      }
-
-      // 1. Eliminar todas las asistencias
-      await Assist.query()
-        .delete()
-
-      return {
-        status: 200,
-        type: 'success',
-        title: 'Assists deleted successfully',
-        message: 'All assists have been deleted successfully',
-        data: {
-          deleted: {
-            assists: counts.assists,
-          },
-        },
-      }
-    } catch (error: any) {
-      console.error('Error al eliminar todas las asistencias:', error)
-      return {
-        status: 500,
-        type: 'error',
-        title: 'Error to delete assists',
-        message: 'An error occurred while trying to delete all assists',
-        error: error.message,
-        data: null,
-      }
-    }
-  }
-
-  /**
    * Crea las asistencias demo de 2 meses atras a partir de hoy hacia atras
    *
    * Distribución de porcentajes:
@@ -5546,7 +5504,7 @@ export default class AssistsService {
       }
 
       let tradeName = 'BO'
-      const userEmail = env.get('SMTP_USERNAME')
+      const userEmail = resolveMailSender()
       let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
       if (systemSettingActive) {
         if ( systemSettingActive.systemSettingLogo) {
@@ -5644,11 +5602,7 @@ export default class AssistsService {
 
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
     let tradeName = 'BO'
-    const userEmail = env.get('SMTP_USERNAME')
-    if (!userEmail) {
-      console.error('Error to send email attendance lock: SMTP_USERNAME not found')
-      return
-    }
+    const userEmail = resolveMailSender()
     let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
     if (systemSettingActive) {
       if ( systemSettingActive.systemSettingLogo) {

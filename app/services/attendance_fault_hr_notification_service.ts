@@ -9,6 +9,7 @@ import {
 import AssistsService from '#services/assist_service'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Database from '@adonisjs/lucid/services/db'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
@@ -659,7 +660,7 @@ export default class AttendanceFaultHrNotificationService {
 
     try {
        await mail.send((message) => {
-         message.subject(subject).htmlView('emails/attendance_fault_hr_batch', emailData)
+         message.subject(subject).from(resolveMailSender()).htmlView('emails/attendance_fault_hr_batch', emailData)
          // Un solo correo para todo RH: mismo cuerpo con la tabla completa de faltas
          message.to(recipients[0])
          if (recipients.length > 1) {

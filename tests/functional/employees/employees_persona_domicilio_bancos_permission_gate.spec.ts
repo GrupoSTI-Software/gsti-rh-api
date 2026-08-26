@@ -303,7 +303,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate soft-rollout', (group) =
     employeesModule.systemModulePermissionEnforcementActive = false
     await employeesModule.save()
     actor = await createActor('employees-persona-domicilio-bancos')
-    await grantOnly(actor.role.roleId, [])
+    await grantOnly(actor.role.roleId, ['sensitive-financiero-write', 'sensitive-contacto-write'])
     fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'soft-rollout')
   })
 
@@ -381,6 +381,44 @@ test.group('Persona/Domicilio/Bancos — PermissionGate soft-rollout', (group) =
 
     assert.notEqual(response.status(), 403)
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  })
+
+  // Important 5 (revisión final de sensitive-write-by-category): con la
+  // exigencia del módulo apagada (soft-rollout), un actor SIN ningún permiso
+  // (ni de módulo, ni de categoría sensible) sigue siendo denegado al escribir
+  // un dato sensible. Fija la decisión de diseño de que `evaluateEnforced` del
+  // guard de escritura sensible nunca respeta el interruptor de soft-rollout
+  // del módulo — a diferencia del `PermissionGate` ordinario, que sí lo respeta.
+  test('con exigencia apagada, POST /api/employee-banks sin ningún permiso responde EMP.SENS.WRITE.FORBIDDEN', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [])
+    try {
+      const response = await client
+        .post('/api/employee-banks')
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+        .json({
+          employeeBankAccountClabe: '012180001234567999',
+          employeeBankAccountCurrencyType: 'MXN',
+          employeeId: fixture!.employee.employeeId,
+          bankId: 1,
+        })
+
+      response.assertStatus(403)
+      assert.equal(response.body()?.key, 'sin-permiso-para-modificar-datos-sensibles')
+      assert.equal(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
+
+      const created = await db
+        .from('employee_banks')
+        .where('employee_id', fixture!.employee.employeeId)
+        .where('employee_bank_account_clabe', '012180001234567999')
+        .first()
+      assert.isNull(created)
+    } finally {
+      await grantOnly(actor!.role.roleId, ['sensitive-financiero-write', 'sensitive-contacto-write'])
+    }
   })
 })
 
@@ -483,7 +521,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
   })
 
   test('nómina permite bancos y niega contactos de emergencia', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, ['tab-bancos-write', 'tab-bancos-delete'])
+    await grantOnly(actor!.role.roleId, ['tab-bancos-write', 'tab-bancos-delete', 'sensitive-financiero-write'])
 
     const bankResponse = await client
       .post('/api/employee-banks')

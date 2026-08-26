@@ -145,7 +145,7 @@ export default class TraumaticEventRegistryReportService {
       return this.emptyPagination(page, limit)
     }
 
-    const query = this.buildBaseQuery(filters, allowedBusinessUnitIds)
+    const query = this.buildBaseQuery(filters)
     const paginator = await query
       .orderBy('traumatic_event_report_occurred_at', 'desc')
       .orderBy('traumatic_event_report_id', 'desc')
@@ -177,7 +177,7 @@ export default class TraumaticEventRegistryReportService {
 
     if (allowedBusinessUnitIds.length === 0) return []
 
-    const query = this.buildBaseQuery(filters, allowedBusinessUnitIds)
+    const query = this.buildBaseQuery(filters)
     const reports = await query
       .orderBy('traumatic_event_report_occurred_at', 'desc')
       .orderBy('traumatic_event_report_id', 'desc')
@@ -212,11 +212,14 @@ export default class TraumaticEventRegistryReportService {
   // Query helpers
   // ---------------------------------------------------------------------------
 
-  private buildBaseQuery(filters: RegistryReportFilters, allowedBusinessUnitIds: number[]) {
+  private buildBaseQuery(filters: RegistryReportFilters) {
     const query = TraumaticEventReport.query()
       .whereNull('traumatic_event_reports.traumatic_event_report_deleted_at')
       .whereHas('employee', (eq) => {
-        eq.whereNull('employee_deleted_at').whereIn('business_unit_id', allowedBusinessUnitIds)
+        // Fuente única de empresa: columna propia + mixin. Aquí solo se
+        // ocultan reportes de empleados dados de baja (R-7). Los llamadores
+        // ya cortan con alcance vacío (R-5).
+        eq.whereNull('employee_deleted_at')
       })
       .preload('employee', (eq) => eq.preload('person'))
       .preload('traumaticEventType')

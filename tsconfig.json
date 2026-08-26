@@ -11,5 +11,6 @@
       "#mixins/*": ["./app/mixins/*"],
       "#modules/*": ["./app/modules/*"]
     }
-  }
+  },
+  "exclude": ["database/seeders/_tmp_do_not_commit_qa_seeder.ts"]
 }

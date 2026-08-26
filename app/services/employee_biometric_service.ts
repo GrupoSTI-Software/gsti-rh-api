@@ -1,6 +1,7 @@
 import EmployeeBiometric from '#models/employee_biometric'
 import Employee from '#models/employee'
 import { I18n } from '@adonisjs/i18n'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 
 export default class EmployeeBiometricService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -298,7 +299,9 @@ export default class EmployeeBiometricService {
       fingers: existingData.fingers,
       face: existingData.face,
       status: finalStatus,
-      biometricData: employeeBiometric.employeeBiometricData,
+      biometricData: maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData',
+        employeeBiometric.employeeBiometricData
+      ),
     }
   }
 
@@ -336,7 +339,9 @@ export default class EmployeeBiometricService {
       status: employeeBiometric.employeeBiometricStatus || 'pending',
       fingers: parsed.fingers,
       face: parsed.face,
-      biometricData: employeeBiometric.employeeBiometricData, // Formato: "Finger:0, Finger:6, Face"
+      biometricData: maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData',
+        employeeBiometric.employeeBiometricData
+      ),
     }
   }
 }

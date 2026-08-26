@@ -77,3 +77,14 @@ function maskEmail(value: string): string {
   const firstChar = value.length > 0 ? value[0] : MASK_CHAR
   return `${firstChar}${MASK_CHAR.repeat(3)}@${domain}`
 }
+
+/** Formas que `maskSensitiveValue` puede producir — reconocimiento sin BD (USRH1787433076990). */
+export const MASK_ECHO_PATTERNS: readonly RegExp[] = [
+  /^•+$/, // salud / biométrico y valores len ≤ 4
+  /^•+[^•]{4}$/, // identificación, financiero, teléfonos
+  /^[^•]•{3}@[^•]+$/, // correo contacto
+]
+
+export function isMaskEcho(value: unknown): boolean {
+  return typeof value === 'string' && MASK_ECHO_PATTERNS.some((pattern) => pattern.test(value))
+}

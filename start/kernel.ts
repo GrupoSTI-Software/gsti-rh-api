@@ -54,6 +54,10 @@ export const middleware = router.named({
   platformAdmin: () => import('#middleware/platform_admin_middleware'),
   /** Pieza única declarativa de control de acceso (USRH1785766406721). Fail-closed. */
   permissionGate: () => import('#middleware/permission_gate_middleware'),
+  /** Decisiones de lectura sensible por categoría (USRH1787204602825). Fail-closed. */
+  sensitiveAccess: () => import('#middleware/sensitive_access_context_middleware'),
+  /** Neutraliza reenvío de datos enmascarados (USRH1787433076990). Requiere ALS abierto. */
+  sensitiveMaskEcho: () => import('#middleware/sensitive_mask_echo_middleware'),
   /** Resuelve `:userId` en scope de empresa + force-logout anti-IDOR (USRH1786736057519). */
   userResourceScope: () => import('#middleware/user_resource_scope_middleware'),
   ...(env.get('APP_MODE') === 'demo'

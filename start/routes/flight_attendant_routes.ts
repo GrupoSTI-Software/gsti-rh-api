@@ -15,3 +15,5 @@ router
   })
   .prefix('/api/flight-attendants')
   .use(middleware.auth())
+  .use(middleware.sensitiveAccess())
+  .use(middleware.sensitiveMaskEcho())

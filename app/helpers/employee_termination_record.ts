@@ -16,7 +16,7 @@ export function normalizeEmployeeTerminatedDate(value: unknown): string | null {
   return `${String(value).replace('"', '').split(/[T\s]/)[0]} 00:000:00`
 }
 
-function normalizeToken(value: unknown): string | null {
+export function normalizeToken(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
   return String(value)
 }

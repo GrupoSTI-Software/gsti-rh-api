@@ -98,4 +98,26 @@ export default class SensitiveFieldsCatalogService {
   isMaskedInApi(model: string, column: string): boolean {
     return SENSITIVE_FIELDS.some((f) => f.model === model && f.column === column && f.maskedInApi === true)
   }
+
+  /**
+   * Categoría legal del par modelo/columna, o `null` si no está clasificado.
+   * Fuente única: nadie más debe guardar su propia copia de la categoría.
+   */
+  categoryOf(model: string, column: string): LegalCategory | null {
+    return SENSITIVE_FIELDS.find((f) => f.model === model && f.column === column)?.legalCategory ?? null
+  }
+
+  /**
+   * Elegibilidad del par para el revelado individual.
+   * Distingue "clasificada pero no revelable" de "ni siquiera está en el catálogo".
+   */
+  revealEligibility(model: string, column: string): 'revealable' | 'not_revealable' | 'not_classified' {
+    if (!this.isClassified(model, column)) {
+      return 'not_classified'
+    }
+    if (!this.isMaskedInApi(model, column)) {
+      return 'not_revealable'
+    }
+    return 'revealable'
+  }
 }
