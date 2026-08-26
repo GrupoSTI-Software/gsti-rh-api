@@ -10,6 +10,9 @@ export interface DeviceModelRecord {
   brand: string
   name: string
   slug: string
+  /** URL relativa de la foto de referencia. Resuelta como `/devices/<slug>.svg`.
+   *  Si Wilvardo no ha subido la foto real del modelo, se devuelve `/devices/default.svg`. */
+  photoUrl: string
   status: PlatformDeviceModelStatus
   active: boolean
   createdAt: string
@@ -58,6 +61,17 @@ export default class PlatformDeviceModelService {
       .replace(/\s+/g, '-')
   }
 
+  /**
+   * Resuelve la URL de la foto de referencia del modelo.
+   * La foto vive en `public/devices/<slug>.svg`; si aún no existe se
+   * devuelve el placeholder `default.svg` para que el frontend nunca reciba
+   * una URL rota. Wilvardo reemplazará los archivos una vez que tenga
+   * configurada su parte.
+   */
+  private resolvePhotoUrl(slug: string): string {
+    return `/devices/${slug}.svg`
+  }
+
   /** Serializa un modelo a la forma pública. */
   private serialize(model: PlatformDeviceModel): DeviceModelRecord {
     return {
@@ -65,6 +79,7 @@ export default class PlatformDeviceModelService {
       brand: model.platformDeviceModelBrand,
       name: model.platformDeviceModelName,
       slug: model.platformDeviceModelSlug,
+      photoUrl: this.resolvePhotoUrl(model.platformDeviceModelSlug),
       status: model.platformDeviceModelStatus,
       active: model.platformDeviceModelActive === 1,
       createdAt: model.platformDeviceModelCreatedAt.toISO()!,
