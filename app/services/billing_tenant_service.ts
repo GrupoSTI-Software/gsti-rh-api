@@ -292,6 +292,48 @@ export default class BillingTenantService {
     }
   }
 
+  /**
+   * Plan público de la landing (USRH1787619255299).
+   *
+   * Devuelve el plan marcado como público **solo si sigue siendo vendible hoy**
+   * (publicado, activo, no eliminado y con precio vigente). La marca por sí
+   * sola no garantiza vendibilidad — `deletePlan` no la quita, por lo que la
+   * revalidación se hace en cada lectura.
+   *
+   * Devuelve `null` cuando no hay plan marcado **o** el marcado ya no es
+   * vendible; ambos casos son indistinguibles a propósito (regla 4 de la HU).
+   * Nunca devuelve un arreglo.
+   */
+  async getPublicPlan(referenceDate?: string): Promise<PublicPlanListItem | null> {
+    const refDate = referenceDate ?? toBusinessDateString()
+
+    const plan = await BillingPlan.query()
+      .where('billing_plan_is_public', 1)
+      .whereNotNull('billing_plan_published_at')
+      .where('billing_plan_active', 1)
+      .whereNull('billing_plan_deleted_at')
+      .preload('prices', (query) => {
+        query.orderBy('billing_plan_price_effective_from', 'asc')
+      })
+      .preload('volumeTiers', (query) => {
+        query
+          .whereNull('billing_volume_tier_deleted_at')
+          .orderBy('billing_volume_tier_min_employees', 'asc')
+      })
+      .first()
+
+    if (!plan) {
+      return null
+    }
+
+    const currentPrice = this.pickCurrentPrice(plan.prices, refDate)
+    if (!currentPrice) {
+      return null
+    }
+
+    return this.toPublicPlanListItem(plan, currentPrice)
+  }
+
   /** Catálogo público: solo planes vendibles con precio vigente (regla 1). */
   async listPublicPlans(referenceDate?: string): Promise<PublicPlanListItem[]> {
     const refDate = referenceDate ?? toBusinessDateString()

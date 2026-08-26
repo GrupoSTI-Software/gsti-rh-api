@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { noMaskCharRule } from './no_mask_char_rule.js'
 
 export const createEmployeeEmergencyContactValidator = vine.compile(
   vine.object({
@@ -16,7 +17,7 @@ export const createEmployeeEmergencyContactValidator = vine.compile(
       .minLength(0)
       .maxLength(150)
       .optional(),
-    employeeEmergencyContactPhone: vine.string().trim().minLength(0).maxLength(45).optional(),
+    employeeEmergencyContactPhone: vine.string().trim().minLength(0).maxLength(45).use(noMaskCharRule()).optional(),
     employeeId: vine.number(),
   })
 )
@@ -37,6 +38,6 @@ export const updateEmployeeEmergencyContactValidator = vine.compile(
       .minLength(0)
       .maxLength(150)
       .optional(),
-    employeeEmergencyContactPhone: vine.string().trim().minLength(0).maxLength(45).optional(),
+    employeeEmergencyContactPhone: vine.string().trim().minLength(0).maxLength(45).use(noMaskCharRule()).optional(),
   })
 )

@@ -90,6 +90,11 @@ export default defineConfig({
         name: 'functional',
         timeout: 30000,
       },
+      {
+        files: ['tests/e2e/**/*.spec(.ts|.js)'],
+        name: 'e2e',
+        timeout: 30000,
+      },
     ],
     forceExit: false,
   },

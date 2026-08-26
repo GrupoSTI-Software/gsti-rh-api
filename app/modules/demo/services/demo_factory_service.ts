@@ -1023,6 +1023,7 @@ export default class DemoFactoryService {
         if (!punchIn) return
 
         await AssistFactory.merge({
+          businessUnitId: employee.businessUnitId,
           assistEmpId: employee.employeeId,
           assistEmpCode: String(employee.employeeCode),
           assistPunchTime: punchIn,
@@ -1034,6 +1035,7 @@ export default class DemoFactoryService {
 
         const punchOut = punchIn.plus({ hours: shiftActiveHours })
         await AssistFactory.merge({
+          businessUnitId: employee.businessUnitId,
           assistEmpId: employee.employeeId,
           assistEmpCode: String(employee.employeeCode),
           assistPunchTime: punchOut,

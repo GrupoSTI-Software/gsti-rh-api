@@ -5,7 +5,8 @@ import {
   isSensitiveExportPlaceholder,
   SENSITIVE_EXPORT_PLACEHOLDER,
 } from '#constants/sensitive_export_placeholder'
-import { EMPLOYEE_IMPORT_UPLOAD } from '#constants/employee_import_error_codes'
+import { EMPLOYEE_IMPORT_UPLOAD, EMPLOYEE_IMPORT_ERROR_CODES } from '#constants/employee_import_error_codes'
+import { resolveEmployeeImportApiError } from '#helpers/employee_import_api_error'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -56,6 +57,12 @@ import {
   employeeImportQuotaExceededError,
   employeeImportQuotaNoPlanError,
 } from '../helpers/employee_quota_api_error.js'
+import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
+import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
+import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
+import { SENSITIVE_WRITE_CATEGORY_ORDER } from '#mixins/with_sensitive_write_guard'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
@@ -63,6 +70,8 @@ import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
 import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
+import logger from '@adonisjs/core/services/logger'
+import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import EmployeeAddress from '#models/employee_address'
 import EmployeeSpouse from '#models/employee_spouse'
@@ -281,28 +290,28 @@ export default class EmployeeService {
       throw error
     }
 
-   /*  await newEmployee.load('employeeType')
-    if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
-      const user = {
-        userEmail: newPerson.personEmail,
-        userPassword: '',
-        userActive: 1,
-        roleId: roleId,
-        personId: personId,
-      } as User
-      const userService = new UserService()
-      const data = await request.validateUsing(createUserValidator)
-      const exist = await userService.verifyInfoExist(user)
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
-        }
-      }
-    } */
+    /*  await newEmployee.load('employeeType')
+     if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
+       const user = {
+         userEmail: newPerson.personEmail,
+         userPassword: '',
+         userActive: 1,
+         roleId: roleId,
+         personId: personId,
+       } as User
+       const userService = new UserService()
+       const data = await request.validateUsing(createUserValidator)
+       const exist = await userService.verifyInfoExist(user)
+       if (exist.status !== 200) {
+         response.status(exist.status)
+         return {
+           type: exist.type,
+           title: exist.title,
+           message: exist.message,
+           data: { ...data },
+         }
+       }
+     } */
   }
 
   async syncUpdate(
@@ -361,7 +370,7 @@ export default class EmployeeService {
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
 
-    
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
@@ -376,7 +385,7 @@ export default class EmployeeService {
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(filters.employeeWorkSchedule, (query) => {
@@ -782,7 +791,7 @@ export default class EmployeeService {
         }
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+        console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', (error as Error).message)
       }
 
       await newEmployee.load('businessUnit')
@@ -803,7 +812,15 @@ export default class EmployeeService {
     options?: { changedBy?: number; salaryChangeReason?: string | null }
   ) {
     const salarioAnterior = currentEmployee.dailySalary
-    const salarioNuevo = employee.dailySalary || 0
+    // Eco destructivo (USRH1787433076994): propiedad ausente = conservar el
+    // salario actual; el controller solo la fija cuando el payload trajo un
+    // número finito. No copiar `|| 0` a ciegas: `0` explícito es real y `null`
+    // (eco del BO cuando el usuario no tiene lectura sensible) no lo es.
+    const dailySalaryProvided =
+      'dailySalary' in employee &&
+      typeof employee.dailySalary === 'number' &&
+      Number.isFinite(employee.dailySalary)
+    const salarioNuevo = dailySalaryProvided ? employee.dailySalary : currentEmployee.dailySalary
 
     currentEmployee.employeeFirstName = employee.employeeFirstName
     currentEmployee.employeeLastName = employee.employeeLastName
@@ -830,7 +847,9 @@ export default class EmployeeService {
       currentEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
     }
     currentEmployee.businessUnitId = employee.businessUnitId
-    currentEmployee.dailySalary = salarioNuevo
+    if (dailySalaryProvided) {
+      currentEmployee.dailySalary = employee.dailySalary
+    }
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
     // Modalidad y porcentaje se aplican via helper: valida contra el turno
     // activo y calcula el % de teletrabajo. Si el helper reporta un error de
@@ -1000,6 +1019,21 @@ export default class EmployeeService {
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
+
+    // Expediente de salida (USRH1786568279587): apertura automática NO
+    // bloqueante e idempotente — la baja NUNCA falla por el expediente
+    // (regla 8). Cubre a los 3 llamadores (empleado, piloto, sobrecargo);
+    // la fecha reutiliza `terminationDate` ya resuelta arriba (§7 D5).
+    try {
+      const offboardingsService = new OffboardingsService(this.i18n)
+      await offboardingsService.openAutomatically(currentEmployee, terminationDate)
+    } catch (error) {
+      logger.error(
+        { err: error, employeeId: currentEmployee.employeeId },
+        'EmployeeService.delete: fallo al abrir el expediente de salida; la baja se completó igual'
+      )
+    }
+
     return currentEmployee
   }
 
@@ -1663,9 +1697,9 @@ export default class EmployeeService {
           const shiftExceptionIds = shiftExceptions.map((se: ShiftException) => se.shiftExceptionId)
           const signatures = shiftExceptionIds.length > 0
             ? await VacationAuthorizationSignature.query()
-                .whereNull('vacation_authorization_signature_deleted_at')
-                .whereIn('shift_exception_id', shiftExceptionIds)
-                .orderBy('vacation_authorization_signature_created_at', 'desc')
+              .whereNull('vacation_authorization_signature_deleted_at')
+              .whereIn('shift_exception_id', shiftExceptionIds)
+              .orderBy('vacation_authorization_signature_created_at', 'desc')
             : []
 
           // Map shift exceptions to include employeeSignature
@@ -1799,7 +1833,7 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .orderBy('shift_exceptions_date', 'asc')
 
-      const signatures = await VacationAuthorizationSignature.query()
+    const signatures = await VacationAuthorizationSignature.query()
       .whereNull('vacation_authorization_signature_deleted_at')
       .whereIn('shift_exception_id', vacations.map((vacation: ShiftException) => vacation.shiftExceptionId))
       .orderBy('vacation_authorization_signature_created_at', 'asc')
@@ -2026,7 +2060,7 @@ export default class EmployeeService {
       if (response.status === 200) {
         return true
       }
-    } catch (error) {}
+    } catch (error) { }
     return false
   }
 
@@ -2080,7 +2114,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2132,7 +2166,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2171,11 +2205,11 @@ export default class EmployeeService {
 
   async getVacations(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
-    .whereNull('exception_type_deleted_at')
+      .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
       .first()
     if (!shiftExceptionVacation) {
-     return []
+      return []
     }
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
@@ -2189,7 +2223,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2234,11 +2268,11 @@ export default class EmployeeService {
 
   async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
-    .whereNull('exception_type_deleted_at')
+      .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
       .first()
     if (!shiftExceptionVacation) {
-     return []
+      return []
     }
     const dateStart = filters.dateStart
     const dateEnd = filters.dateEnd
@@ -2255,7 +2289,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2692,6 +2726,7 @@ export default class EmployeeService {
       }
 
       const { headers, headerRowNumber } = this.validateExcelHeaders(worksheet)
+      this.assertExcelSensitiveHeadersWritable(headers)
 
       // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
       const departments = await Department.query()
@@ -2751,6 +2786,7 @@ export default class EmployeeService {
         existingEmployees.map((emp) => [emp.employeeId, emp])
       )
 
+      return await SensitiveAccessContext.runUnguarded('importación masiva', async () => {
       // Índice O(1) por ID para `findExistingEmployeeForImport`
       let totalRows = 0
       let processed = 0
@@ -2793,8 +2829,8 @@ export default class EmployeeService {
           if (!header || typeof header !== 'string') return false
           const headerLower = header.toLowerCase().trim()
           return headerLower === requiredLower ||
-                 headerLower.includes(requiredLower.substring(0, 10)) ||
-                 requiredLower.includes(headerLower.substring(0, 10))
+            headerLower.includes(requiredLower.substring(0, 10)) ||
+            requiredLower.includes(headerLower.substring(0, 10))
         })
         if (!found) {
           missingRequiredHeaders.push(requiredHeader)
@@ -2910,79 +2946,119 @@ export default class EmployeeService {
       const createdEmployees: Employee[] = []
 
       for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
-          try {
-            if (isUpdate) {
-              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
-              if (existingEmployee) {
-                await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-                if (employeeData.employeeWorkScheduleHybridAttempt) {
-                  warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
-                }
-                updated++
-                processed++
+        try {
+          if (isUpdate) {
+            const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
+            if (existingEmployee) {
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+              if (employeeData.employeeWorkScheduleHybridAttempt) {
+                warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
               }
+              updated++
+              processed++
+            }
+            continue
+          }
+
+          // Crear nuevo empleado: verificar CURP duplicado antes de crear
+          if (this.hasImportCellValue(employeeData.curp)) {
+            const curpExists = await this.personWithCurpExists(employeeData.curp)
+            if (curpExists) {
+              skipped++
+              rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
               continue
             }
 
             // Crear nuevo empleado: verificar CURP duplicado antes de crear
-            if (this.hasImportCellValue(employeeData.curp)) {
-              const curpExists = await this.personWithCurpExists(employeeData.curp)
-              if (curpExists) {
-                skipped++
-                rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
-                continue
-              }
-            }
+          //   if (this.hasImportCellValue(employeeData.curp)) {
+          //     const curpExists = await this.personWithCurpExists(employeeData.curp)
+          //     if (curpExists) {
+          //       skipped++
+          //       rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
+          //       continue
+          //     }
+          //   }
 
-            let employeeCode = employeeData.employeeNumber
-            if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-              employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
-            }
-            existingEmployeeCodes.push(employeeCode)
+          //   let employeeCode = employeeData.employeeNumber
+          //   if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+          //     employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
+          //   }
+          //   existingEmployeeCodes.push(employeeCode)
 
-            const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-            const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+          //   const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+          //   const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-            const person = await this.createPerson(employeeData)
-            const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
-            if (employeeData.employeeWorkScheduleHybridAttempt) {
-              // El empleado nuevo queda con Onsite (default de `createEmployee`).
-              // Se avisa a RH para que ajuste la modalidad desde el sistema.
-              warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
-            }
-            await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
-            await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
+          //   const person = await this.createPerson(employeeData)
+          //   const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+          //   if (employeeData.employeeWorkScheduleHybridAttempt) {
+          //     // El empleado nuevo queda con Onsite (default de `createEmployee`).
+          //     // Se avisa a RH para que ajuste la modalidad desde el sistema.
+          //     warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+          //   }
+          //   await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+          //   await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
 
-            createdEmployees.push(newEmployee)
-            created++
-            processed++
-          } catch (error: any) {
-            skipped++
-            rowErrors.push({ row: rowNumber, message: error.message })
+          //   createdEmployees.push(newEmployee)
+          //   created++
+          //   processed++
+          // } catch (error: any) {
+          //   // Una denegación por dato sensible no es un error de fila: aborta
+          //   // toda la importación con un 403 (Important 2, revisión final de
+          //   // sensitive-write-by-category). No se registra como fila fallida.
+          //   if (isSensitiveDataWriteError(error)) throw error
+          //   skipped++
+          //   rowErrors.push({ row: rowNumber, message: error.message })
           }
-        }
 
-        // Sincronizar con dispositivos ZKTeco: se corre DESPUÉS del loop de
-        // creación (no dentro), en lotes de concurrencia acotada — antes era
-        // un `await` secuencial por fila con hasta 10s de timeout cada uno,
-        // lo que en un archivo de miles de altas podía tomar horas dentro de
-        // una sola petición HTTP. Una falla de sincronización individual no
-        // aborta el import (mismo comportamiento de antes, ver `syncEmployeeToZkDevice`).
-        if (createdEmployees.length > 0) {
-          await this.syncCreatedEmployeesToZkDevices(createdEmployees)
-        }
-
-        // Enviar empleados creados a la API de biométricos
-        if (createdEmployees.length > 0) {
-          try {
-            const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
-            if (!biometricResult.success) {
-              warnings.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
-            }
-          } catch (error: any) {
-            warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
+          let employeeCode = employeeData.employeeNumber
+          if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+            employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
           }
+          existingEmployeeCodes.push(employeeCode)
+
+          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+          const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+          const person = await this.createPerson(employeeData)
+          const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+          if (employeeData.employeeWorkScheduleHybridAttempt) {
+            // El empleado nuevo queda con Onsite (default de `createEmployee`).
+            // Se avisa a RH para que ajuste la modalidad desde el sistema.
+            warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+          }
+          await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+          await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
+
+          createdEmployees.push(newEmployee)
+          created++
+          processed++
+        } catch (error: any) {
+          skipped++
+          rowErrors.push({ row: rowNumber, message: error.message })
         }
+      }
+
+      // Sincronizar con dispositivos ZKTeco: se corre DESPUÉS del loop de
+      // creación (no dentro), en lotes de concurrencia acotada — antes era
+      // un `await` secuencial por fila con hasta 10s de timeout cada uno,
+      // lo que en un archivo de miles de altas podía tomar horas dentro de
+      // una sola petición HTTP. Una falla de sincronización individual no
+      // aborta el import (mismo comportamiento de antes, ver `syncEmployeeToZkDevice`).
+      if (createdEmployees.length > 0) {
+        await this.syncCreatedEmployeesToZkDevices(createdEmployees)
+      }
+
+      // Enviar empleados creados a la API de biométricos
+      if (createdEmployees.length > 0) {
+        try {
+          const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
+          if (!biometricResult.success) {
+            warnings.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
+          }
+        } catch (error: any) {
+          warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
+        }
+      }
 
       return this.finalizeEmployeeImportResult({
         totalRows,
@@ -2994,6 +3070,7 @@ export default class EmployeeService {
         rowErrors,
         warnings,
       })
+      })
 
     } catch (error: any) {
       // Errores de validación (cabeceras inválidas o tope de filas) se
@@ -3003,6 +3080,9 @@ export default class EmployeeService {
         throw error
       }
       if (error instanceof EmployeeQuotaError) {
+        throw error
+      }
+      if (isSensitiveDataWriteError(error)) {
         throw error
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
@@ -3141,8 +3221,8 @@ export default class EmployeeService {
    */
   private createHeaderValidationError(message: string): Error {
     const error = new Error(message)
-    ;(error as any).isHeaderValidationError = true
-    ;(error as any).statusCode = 400
+      ; (error as any).isHeaderValidationError = true
+      ; (error as any).statusCode = 400
     return error
   }
 
@@ -3157,9 +3237,24 @@ export default class EmployeeService {
     const error = new Error(
       `El archivo tiene ${rowCount} filas de datos, por encima del máximo permitido (${EMPLOYEE_IMPORT_UPLOAD.maxDataRows}). Divide el archivo en lotes más pequeños.`
     )
-    ;(error as any).isRowLimitError = true
-    ;(error as any).statusCode = 400
+      ; (error as any).isRowLimitError = true
+      ; (error as any).statusCode = 400
     return error
+  }
+
+  /**
+   * Rechazo previo de importación: cabeceras sensibles sin permiso de escritura (USRH1787433076990).
+   */
+  private assertExcelSensitiveHeadersWritable(headers: string[]): void {
+    const categoriesPresent = findSensitiveCategoriesInExcelHeaders(headers)
+    if (categoriesPresent.length === 0) return
+
+    const denied = categoriesPresent.filter((category) => !SensitiveAccessContext.canWrite(category))
+    if (denied.length === 0) return
+
+    const category =
+      SENSITIVE_WRITE_CATEGORY_ORDER.find((item) => denied.includes(item)) ?? denied[0]
+    throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN, category)
   }
 
   /**
@@ -3347,8 +3442,8 @@ export default class EmployeeService {
         const headerLower = header.toLowerCase().trim()
         const expectedLower = expected.toLowerCase().trim()
         return headerLower === expectedLower ||
-               headerLower.includes(expectedLower.substring(0, 10)) ||
-               expectedLower.includes(headerLower.substring(0, 10))
+          headerLower.includes(expectedLower.substring(0, 10)) ||
+          expectedLower.includes(headerLower.substring(0, 10))
       })
     })
 
@@ -3365,8 +3460,8 @@ export default class EmployeeService {
         if (!header || typeof header !== 'string') return false
         const headerLower = header.toLowerCase().trim()
         return headerLower === requiredLower ||
-               headerLower.includes(requiredLower.substring(0, 10)) ||
-               requiredLower.includes(headerLower.substring(0, 10))
+          headerLower.includes(requiredLower.substring(0, 10)) ||
+          requiredLower.includes(headerLower.substring(0, 10))
       })
       if (found) {
         foundRequiredHeaders.push(requiredHeader)
@@ -3435,7 +3530,12 @@ export default class EmployeeService {
       } else if (header.includes('posición')) {
         data.position = value
       } else if (header.includes('salario diario')) {
-        data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
+        if (this.hasImportCellValue(rawValue ?? value)) {
+          const parsed = typeof rawValue === 'number' ? rawValue : Number.parseFloat(String(value))
+          if (Number.isFinite(parsed)) {
+            data.dailySalary = parsed
+          }
+        }
       } else if (header.includes('fecha de nacimiento')) {
         const cellText = cell.text ? cell.text.trim() : null
         if (rawValue instanceof Date) {
@@ -3689,7 +3789,13 @@ export default class EmployeeService {
       }
     }
 
-    existingEmployee.dailySalary = employeeData.dailySalary ?? existingEmployee.dailySalary
+    if (
+      employeeData.dailySalary !== undefined &&
+      employeeData.dailySalary !== null &&
+      Number.isFinite(employeeData.dailySalary)
+    ) {
+      existingEmployee.dailySalary = employeeData.dailySalary
+    }
 
     if (businessUnitId !== null) existingEmployee.businessUnitId = businessUnitId
     if (payrollBusinessUnitId !== null) existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
@@ -4816,6 +4922,20 @@ export default class EmployeeService {
   }
 
   /**
+   * Valor numérico sensible en plantilla de importación.
+   * Sin permiso de export completo se escribe el marcador `*****`.
+   */
+  private templateSensitiveNumericCellValue(
+    maskSensitive: boolean | undefined,
+    value: number | null | undefined
+  ): string | number {
+    if (maskSensitive) {
+      return SENSITIVE_EXPORT_PLACEHOLDER
+    }
+    return value ?? 0
+  }
+
+  /**
    * Indica si una celda del Excel trae un valor real para persistir.
    * Vacío o `*****` (marcador de export sin permiso) no actualizan datos existentes.
    */
@@ -5250,7 +5370,10 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
         worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
-        worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
+        worksheet.getCell(rowNum, 11).value = this.templateSensitiveNumericCellValue(
+          options?.maskSensitive,
+          emp.dailySalary
+        )
         worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
         worksheet.getCell(rowNum, 13).value = this.templateSensitiveCellValue(
           options?.maskSensitive,
@@ -5335,499 +5458,404 @@ export default class EmployeeService {
  * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (vacío = sin filtro). Aplica a plantilla y modo reporte.
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
-async generateShiftAssignmentTemplate(
-  startDate: string,
-  endDate: string,
-  employeeIds?: number[],
-  isReport?: boolean,
-  businessUnitId?: number,
-  payrollBusinessUnitId?: number,
-  branchNameIds?: number[],
-  allowedBusinessUnitIds: number[] = []
-): Promise<Buffer> {
+  async generateShiftAssignmentTemplate(
+    startDate: string,
+    endDate: string,
+    employeeIds?: number[],
+    isReport?: boolean,
+    businessUnitId?: number,
+    payrollBusinessUnitId?: number,
+    branchNameIds?: number[],
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Buffer> {
 
-  const workbook = new ExcelJS.Workbook()
-  const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
 
-  // Obtener el color de la unidad de negocio activa
-  const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+    // Obtener el color de la unidad de negocio activa
+    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
 
-  // Obtener logo y agregarlo
-  const logoUrl = await this.getLogo()
-  await this.addImageLogo(workbook, worksheet, logoUrl)
+    // Obtener logo y agregarlo
+    const logoUrl = await this.getLogo()
+    await this.addImageLogo(workbook, worksheet, logoUrl)
 
-  // Convertir fechas a DateTime
-  const startDateTime = DateTime.fromISO(startDate)
-  const endDateTime = DateTime.fromISO(endDate)
+    // Convertir fechas a DateTime
+    const startDateTime = DateTime.fromISO(startDate)
+    const endDateTime = DateTime.fromISO(endDate)
 
-  if (!startDateTime.isValid || !endDateTime.isValid) {
-    throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
-  }
+    if (!startDateTime.isValid || !endDateTime.isValid) {
+      throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
+    }
 
-  if (startDateTime > endDateTime) {
-    throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
-  }
+    if (startDateTime > endDateTime) {
+      throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
+    }
 
-  // Generar array de fechas
-  const dates: DateTime[] = []
-  let currentDate = startDateTime
-  while (currentDate <= endDateTime) {
-    dates.push(currentDate)
-    currentDate = currentDate.plus({ days: 1 })
-  }
+    // Generar array de fechas
+    const dates: DateTime[] = []
+    let currentDate = startDateTime
+    while (currentDate <= endDateTime) {
+      dates.push(currentDate)
+      currentDate = currentDate.plus({ days: 1 })
+    }
 
-  // OBTENER DÍAS FESTIVOS DE LA BASE DE DATOS
-  const holidayDates = new Set<string>()
-  try {
-    // Obtener slugs de las unidades permitidas para la query FIND_IN_SET
-    const allowedUnits = allowedBusinessUnitIds.length > 0
-      ? await BusinessUnit.query().where('business_unit_active', 1).whereIn('business_unit_id', allowedBusinessUnitIds).select('business_unit_slug')
-      : await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
-    const businessList = allowedUnits.map((u) => u.businessUnitSlug).filter(Boolean)
+    // OBTENER DÍAS FESTIVOS DE LA BASE DE DATOS
+    const holidayDates = new Set<string>()
+    try {
+      // Obtener slugs de las unidades permitidas para la query FIND_IN_SET
+      const allowedUnits = allowedBusinessUnitIds.length > 0
+        ? await BusinessUnit.query().where('business_unit_active', 1).whereIn('business_unit_id', allowedBusinessUnitIds).select('business_unit_slug')
+        : await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+      const businessList = allowedUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
-    // Consultar todos los días festivos que coincidan con las unidades de negocio
-    // No filtramos por fecha aquí porque necesitamos procesar festivos recurrentes
-    let holidaysQuery = Holiday.query().whereNull('holiday_deleted_at')
+      // Consultar todos los días festivos que coincidan con las unidades de negocio
+      // No filtramos por fecha aquí porque necesitamos procesar festivos recurrentes
+      let holidaysQuery = Holiday.query().whereNull('holiday_deleted_at')
 
-    if (businessList.length > 0) {
-      holidaysQuery = holidaysQuery.andWhere((query) => {
-        query.andWhere((subQuery) => {
-          businessList.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+      if (businessList.length > 0) {
+        holidaysQuery = holidaysQuery.andWhere((query) => {
+          query.andWhere((subQuery) => {
+            businessList.forEach((business) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+            })
           })
         })
+      }
+
+      const holidays = await holidaysQuery
+
+      const startYear = startDateTime.year
+      const endYear = endDateTime.year
+
+      // Procesar cada festivo según su frecuencia
+      // SOLO incluir días festivos que son descanso oficial (feriados)
+      holidays.forEach((holiday) => {
+        // Verificar si es descanso oficial (manejar tanto boolean como number)
+        const holidayAny = holiday as any
+        const isOfficialRestDay =
+          holiday.holidayIsOfficialRestDay === true ||
+          holidayAny.holidayIsOfficialRestDay === 1 ||
+          holidayAny.holiday_is_official_rest_day === true ||
+          holidayAny.holiday_is_official_rest_day === 1
+
+        // Solo procesar si es descanso oficial
+        if (!isOfficialRestDay) {
+          return
+        }
+
+        // Manejar tanto string como Date dependiendo de cómo Lucid devuelva el dato
+        let baseHolidayDate: DateTime
+        const holidayDateValue = holiday.holidayDate as any
+        if (holidayDateValue instanceof Date) {
+          baseHolidayDate = DateTime.fromJSDate(holidayDateValue)
+        } else if (typeof holidayDateValue === 'string') {
+          baseHolidayDate = DateTime.fromISO(holidayDateValue)
+        } else {
+          console.warn(`Tipo de fecha no soportado para festivo: ${holiday.holidayName}`)
+          return
+        }
+
+        if (!baseHolidayDate.isValid) {
+          console.warn(`Fecha inválida para festivo: ${holiday.holidayName}`)
+          return
+        }
+
+        // Si holidayFrequency es 0, es un festivo específico (solo esa fecha exacta)
+        if (holiday.holidayFrequency === 0) {
+          // Solo agregar si la fecha está dentro del rango
+          if (baseHolidayDate >= startDateTime && baseHolidayDate <= endDateTime) {
+            holidayDates.add(baseHolidayDate.toFormat('yyyy-MM-dd'))
+          }
+        } else {
+          // Si holidayFrequency >= 1, es un festivo recurrente
+          // Aplicar para todos los años en el rango basándose en el mes y día
+          for (let year = startYear; year <= endYear; year++) {
+            const recurringDate = DateTime.fromObject({
+              year: year,
+              month: baseHolidayDate.month,
+              day: baseHolidayDate.day
+            })
+
+            if (recurringDate >= startDateTime && recurringDate <= endDateTime) {
+              holidayDates.add(recurringDate.toFormat('yyyy-MM-dd'))
+            }
+          }
+        }
+      })
+    } catch (error) {
+      console.warn('Error obteniendo días festivos de la base de datos:', error)
+    }
+
+    const businessUnitsList = allowedBusinessUnitIds
+
+    // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
+    // si no, se restringe al scope del usuario
+    let employeesQuery = Employee.query().whereNull('deletedAt')
+
+    if (businessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
+    } else {
+      employeesQuery = employeesQuery.whereIn('businessUnitId', businessUnitsList)
+    }
+    if (payrollBusinessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('payrollBusinessUnitId', payrollBusinessUnitId)
+    }
+
+    // Filtrar por IDs de empleados si se proporcionan
+    if (employeeIds && employeeIds.length > 0) {
+      employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+    }
+
+    if (branchNameIds && branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', branchNameIds)
       })
     }
 
-    const holidays = await holidaysQuery
+    const employees = await employeesQuery
+      .preload('position', (query) => {
+        query.whereNull('position_deleted_at')
+        query.where('position_active', 1)
+      })
+      .preload('department', (query) => {
+        query.whereNull('department_deleted_at')
+      })
+      .orderBy('employeeFirstName')
+      .orderBy('employeeLastName')
 
-    const startYear = startDateTime.year
-    const endYear = endDateTime.year
+    // Obtener turnos activos con sus unidades de negocio
+    const shifts = await Shift.query()
+      .whereNull('shift_deleted_at')
+      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits', 'shiftColor')
+      .orderBy('shiftName')
 
-    // Procesar cada festivo según su frecuencia
-    // SOLO incluir días festivos que son descanso oficial (feriados)
-    holidays.forEach((holiday) => {
-      // Verificar si es descanso oficial (manejar tanto boolean como number)
-      const holidayAny = holiday as any
-      const isOfficialRestDay =
-        holiday.holidayIsOfficialRestDay === true ||
-        holidayAny.holidayIsOfficialRestDay === 1 ||
-        holidayAny.holiday_is_official_rest_day === true ||
-        holidayAny.holiday_is_official_rest_day === 1
+    // Crear mapa de shiftId -> color para uso en modo reporte
+    const shiftColorMap = new Map<number, string>()
+    shifts.forEach((shift) => {
+      const color = this.hexToArgb(shift.shiftColor)
+      shiftColorMap.set(shift.shiftId, color)
+    })
 
-      // Solo procesar si es descanso oficial
-      if (!isOfficialRestDay) {
-        return
-      }
+    // Obtener tipos de excepciones masivas
+    const massiveExceptionTypes = await ExceptionType.query()
+      .whereNull('exception_type_deleted_at')
+      .where('exceptionTypeCanMasive', true)
+      .where('exceptionTypeActive', 1)
+      .orderBy('exceptionTypeTypeName')
 
-      // Manejar tanto string como Date dependiendo de cómo Lucid devuelva el dato
-      let baseHolidayDate: DateTime
-      const holidayDateValue = holiday.holidayDate as any
-      if (holidayDateValue instanceof Date) {
-        baseHolidayDate = DateTime.fromJSDate(holidayDateValue)
-      } else if (typeof holidayDateValue === 'string') {
-        baseHolidayDate = DateTime.fromISO(holidayDateValue)
-      } else {
-        console.warn(`Tipo de fecha no soportado para festivo: ${holiday.holidayName}`)
-        return
-      }
+    // ==============================
+    //   HOJA OCULTA PARA DROPDOWNS
+    // ==============================
+    const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
 
-      if (!baseHolidayDate.isValid) {
-        console.warn(`Fecha inválida para festivo: ${holiday.holidayName}`)
-        return
-      }
+    // Estructura de la hoja oculta:
+    // Columna A: Valor a mostrar en dropdown (alias si existe, sino nombre formateado)
+    // Columna B: Shift ID
+    // Columna C: Business Units (IDs separados por comas)
+    // Columna D: Nombre formateado completo (para búsqueda durante importación)
 
-      // Si holidayFrequency es 0, es un festivo específico (solo esa fecha exacta)
-      if (holiday.holidayFrequency === 0) {
-        // Solo agregar si la fecha está dentro del rango
-        if (baseHolidayDate >= startDateTime && baseHolidayDate <= endDateTime) {
-          holidayDates.add(baseHolidayDate.toFormat('yyyy-MM-dd'))
-        }
-      } else {
-        // Si holidayFrequency >= 1, es un festivo recurrente
-        // Aplicar para todos los años en el rango basándose en el mes y día
-        for (let year = startYear; year <= endYear; year++) {
-          const recurringDate = DateTime.fromObject({
-            year: year,
-            month: baseHolidayDate.month,
-            day: baseHolidayDate.day
-          })
+    // Turnos → Columnas A, B, C, D
+    let shiftRow = 1
+    shifts.forEach((shift) => {
+      // Generar nombre formateado con horario
+      let formattedName = shift.shiftName
+      if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
+        try {
+          const startTime = String(shift.shiftTimeStart).trim()
+          const timeParts = startTime.split(':')
+          if (timeParts.length >= 2) {
+            const hours = Number.parseInt(timeParts[0], 10)
+            const minutes = Number.parseInt(timeParts[1], 10)
 
-          if (recurringDate >= startDateTime && recurringDate <= endDateTime) {
-            holidayDates.add(recurringDate.toFormat('yyyy-MM-dd'))
+            if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+              const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+              const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+              const endTime = shiftEndTime.toFormat('HH:mm')
+              const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+              formattedName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+            }
           }
+        } catch (error) {
+          console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
         }
       }
+
+      // Valor a mostrar en dropdown: alias si existe, sino nombre formateado
+      const displayValue = shift.shiftAlias && shift.shiftAlias.trim() !== ''
+        ? shift.shiftAlias.trim()
+        : formattedName
+
+      listSheet.getCell(shiftRow, 1).value = displayValue // Valor para dropdown
+      listSheet.getCell(shiftRow, 2).value = shift.shiftId // Shift ID
+      listSheet.getCell(shiftRow, 3).value = shift.shiftBusinessUnits || '' // Business Units
+      listSheet.getCell(shiftRow, 4).value = formattedName // Nombre formateado completo
+      shiftRow++
     })
-  } catch (error) {
-    console.warn('Error obteniendo días festivos de la base de datos:', error)
-  }
 
-  const businessUnitsList = allowedBusinessUnitIds
-
-  // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
-  // si no, se restringe al scope del usuario
-  let employeesQuery = Employee.query().whereNull('deletedAt')
-
-  if (businessUnitId !== undefined) {
-    employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
-  } else {
-    employeesQuery = employeesQuery.whereIn('businessUnitId', businessUnitsList)
-  }
-  if (payrollBusinessUnitId !== undefined) {
-    employeesQuery = employeesQuery.where('payrollBusinessUnitId', payrollBusinessUnitId)
-  }
-
-  // Filtrar por IDs de empleados si se proporcionan
-  if (employeeIds && employeeIds.length > 0) {
-    employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
-  }
-
-  if (branchNameIds && branchNameIds.length > 0) {
-    employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
-      sub.whereIn('branchOfficeId', branchNameIds)
-    })
-  }
-
-  const employees = await employeesQuery
-    .preload('position', (query) => {
-      query.whereNull('position_deleted_at')
-      query.where('position_active', 1)
-    })
-    .preload('department', (query) => {
-      query.whereNull('department_deleted_at')
-    })
-    .orderBy('employeeFirstName')
-    .orderBy('employeeLastName')
-
-  // Obtener turnos activos con sus unidades de negocio
-  const shifts = await Shift.query()
-    .whereNull('shift_deleted_at')
-    .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits', 'shiftColor')
-    .orderBy('shiftName')
-
-  // Crear mapa de shiftId -> color para uso en modo reporte
-  const shiftColorMap = new Map<number, string>()
-  shifts.forEach((shift) => {
-    const color = this.hexToArgb(shift.shiftColor)
-    shiftColorMap.set(shift.shiftId, color)
-  })
-
-  // Obtener tipos de excepciones masivas
-  const massiveExceptionTypes = await ExceptionType.query()
-    .whereNull('exception_type_deleted_at')
-    .where('exceptionTypeCanMasive', true)
-    .where('exceptionTypeActive', 1)
-    .orderBy('exceptionTypeTypeName')
-
-  // ==============================
-  //   HOJA OCULTA PARA DROPDOWNS
-  // ==============================
-  const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
-
-  // Estructura de la hoja oculta:
-  // Columna A: Valor a mostrar en dropdown (alias si existe, sino nombre formateado)
-  // Columna B: Shift ID
-  // Columna C: Business Units (IDs separados por comas)
-  // Columna D: Nombre formateado completo (para búsqueda durante importación)
-
-  // Turnos → Columnas A, B, C, D
-  let shiftRow = 1
-  shifts.forEach((shift) => {
-    // Generar nombre formateado con horario
-    let formattedName = shift.shiftName
-    if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
-      try {
-        const startTime = String(shift.shiftTimeStart).trim()
-        const timeParts = startTime.split(':')
-        if (timeParts.length >= 2) {
-          const hours = Number.parseInt(timeParts[0], 10)
-          const minutes = Number.parseInt(timeParts[1], 10)
-
-          if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-            const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-            const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
-            const endTime = shiftEndTime.toFormat('HH:mm')
-            const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-            formattedName = `${formattedStartTime} to ${endTime} - Rest (NA)`
-          }
-        }
-      } catch (error) {
-        console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
-      }
-    }
-
-    // Valor a mostrar en dropdown: alias si existe, sino nombre formateado
-    const displayValue = shift.shiftAlias && shift.shiftAlias.trim() !== ''
-      ? shift.shiftAlias.trim()
-      : formattedName
-
-    listSheet.getCell(shiftRow, 1).value = displayValue // Valor para dropdown
-    listSheet.getCell(shiftRow, 2).value = shift.shiftId // Shift ID
-    listSheet.getCell(shiftRow, 3).value = shift.shiftBusinessUnits || '' // Business Units
-    listSheet.getCell(shiftRow, 4).value = formattedName // Nombre formateado completo
-    shiftRow++
-  })
-
-  // Agregar opciones adicionales
-  listSheet.getCell(shiftRow, 1).value = 'vacaciones'
-  listSheet.getCell(shiftRow, 2).value = 'SPECIAL_VACATION'
-  listSheet.getCell(shiftRow, 3).value = ''
-  listSheet.getCell(shiftRow, 4).value = 'vacaciones'
-  shiftRow++
-
-  listSheet.getCell(shiftRow, 1).value = 'Día festivo'
-  listSheet.getCell(shiftRow, 2).value = 'SPECIAL_HOLIDAY'
-  listSheet.getCell(shiftRow, 3).value = ''
-  listSheet.getCell(shiftRow, 4).value = 'Día festivo'
-  shiftRow++
-
-  // Agregar tipos de excepciones masivas
-  massiveExceptionTypes.forEach((exceptionType) => {
-    listSheet.getCell(shiftRow, 1).value = exceptionType.exceptionTypeTypeName
-    listSheet.getCell(shiftRow, 2).value = `EXCEPTION_${exceptionType.exceptionTypeId}`
+    // Agregar opciones adicionales
+    listSheet.getCell(shiftRow, 1).value = 'vacaciones'
+    listSheet.getCell(shiftRow, 2).value = 'SPECIAL_VACATION'
     listSheet.getCell(shiftRow, 3).value = ''
-    listSheet.getCell(shiftRow, 4).value = exceptionType.exceptionTypeTypeName
+    listSheet.getCell(shiftRow, 4).value = 'vacaciones'
     shiftRow++
-  })
-  const totalShiftOptions = shiftRow - 1
 
-  // Rangos para validación
-  const shiftRange = `Listas!$A$1:$A$${totalShiftOptions}`
+    listSheet.getCell(shiftRow, 1).value = 'Día festivo'
+    listSheet.getCell(shiftRow, 2).value = 'SPECIAL_HOLIDAY'
+    listSheet.getCell(shiftRow, 3).value = ''
+    listSheet.getCell(shiftRow, 4).value = 'Día festivo'
+    shiftRow++
 
-  // ==============================
-  //       TÍTULO Y ENCABEZADOS
-  // ==============================
-  // Fila del título (después del logo)
-  worksheet.getRow(1).height = 60
-  const titleRow = worksheet.addRow([''])
-  titleRow.height = 30
-  worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
-  titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
-  titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+    // Agregar tipos de excepciones masivas
+    massiveExceptionTypes.forEach((exceptionType) => {
+      listSheet.getCell(shiftRow, 1).value = exceptionType.exceptionTypeTypeName
+      listSheet.getCell(shiftRow, 2).value = `EXCEPTION_${exceptionType.exceptionTypeId}`
+      listSheet.getCell(shiftRow, 3).value = ''
+      listSheet.getCell(shiftRow, 4).value = exceptionType.exceptionTypeTypeName
+      shiftRow++
+    })
+    const totalShiftOptions = shiftRow - 1
 
-  // Primera fila de encabezados (fechas)
-  const headerRow1 = ['ID Empleado (BD)', 'Código de Empleado', 'Empleado', 'Posición']
-  dates.forEach((date) => {
-    const dateStr = date.toFormat('dd/MM/yyyy')
-    headerRow1.push(dateStr)
-  })
-  const row1 = worksheet.addRow(headerRow1)
-  row1.height = 30
+    // Rangos para validación
+    const shiftRange = `Listas!$A$1:$A$${totalShiftOptions}`
 
-  // Segunda fila de encabezados (días de la semana)
-  const headerRow2 = ['', '', '', '']
-  dates.forEach((date) => {
-    const dayName = date.toFormat('cccc', { locale: 'es' })
-    headerRow2.push(dayName)
-  })
-  const row2 = worksheet.addRow(headerRow2)
-  row2.height = 30
+    // ==============================
+    //       TÍTULO Y ENCABEZADOS
+    // ==============================
+    // Fila del título (después del logo)
+    worksheet.getRow(1).height = 60
+    const titleRow = worksheet.addRow([''])
+    titleRow.height = 30
+    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
 
-  const headerColor = activeBusinessUnitColor
-  const headerTextColor = this.getTextColorForBackground(headerColor)
-  const subHeaderColor = 'FF4472C4'
-  const subHeaderTextColor = 'FFFFFFFF'
+    // Primera fila de encabezados (fechas)
+    const headerRow1 = ['ID Empleado (BD)', 'Código de Empleado', 'Empleado', 'Posición']
+    dates.forEach((date) => {
+      const dateStr = date.toFormat('dd/MM/yyyy')
+      headerRow1.push(dateStr)
+    })
+    const row1 = worksheet.addRow(headerRow1)
+    row1.height = 30
 
-  // Aplicar formato a la primera fila de encabezados
-  row1.eachCell((cell) => {
-    cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: headerColor }
-    }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF000000' } },
-      left: { style: 'thin', color: { argb: 'FF000000' } },
-      bottom: { style: 'thin', color: { argb: 'FF000000' } },
-      right: { style: 'thin', color: { argb: 'FF000000' } }
-    }
-  })
+    // Segunda fila de encabezados (días de la semana)
+    const headerRow2 = ['', '', '', '']
+    dates.forEach((date) => {
+      const dayName = date.toFormat('cccc', { locale: 'es' })
+      headerRow2.push(dayName)
+    })
+    const row2 = worksheet.addRow(headerRow2)
+    row2.height = 30
 
-  // Aplicar formato a la segunda fila de encabezados
-  row2.eachCell((cell, colNum) => {
-    if (colNum > 4) {
-      cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: subHeaderColor }
-      }
-    } else {
+    const headerColor = activeBusinessUnitColor
+    const headerTextColor = this.getTextColorForBackground(headerColor)
+    const subHeaderColor = 'FF4472C4'
+    const subHeaderTextColor = 'FFFFFFFF'
+
+    // Aplicar formato a la primera fila de encabezados
+    row1.eachCell((cell) => {
+      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: headerColor }
       }
-      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // Aplicar formato a la segunda fila de encabezados
+    row2.eachCell((cell, colNum) => {
+      if (colNum > 4) {
+        cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: subHeaderColor }
+        }
+      } else {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: headerColor }
+        }
+        cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // ==============================
+    //     ANCHO DE COLUMNAS
+    // ==============================
+    worksheet.getColumn(1).width = 0 // ID Empleado (BD) - OCULTA
+    worksheet.getColumn(2).width = 20 // Código de Empleado
+    worksheet.getColumn(3).width = 35 // Empleado
+    worksheet.getColumn(4).width = 30 // Posición
+    worksheet.getColumn(4).alignment = { wrapText: true }
+
+    // Aplicar ancho estándar a todas las columnas de fechas
+    for (let col = 5; col <= 4 + dates.length; col++) {
+      worksheet.getColumn(col).width = 20
     }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF000000' } },
-      left: { style: 'thin', color: { argb: 'FF000000' } },
-      bottom: { style: 'thin', color: { argb: 'FF000000' } },
-      right: { style: 'thin', color: { argb: 'FF000000' } }
-    }
-  })
 
-  // ==============================
-  //     ANCHO DE COLUMNAS
-  // ==============================
-  worksheet.getColumn(1).width = 0 // ID Empleado (BD) - OCULTA
-  worksheet.getColumn(2).width = 20 // Código de Empleado
-  worksheet.getColumn(3).width = 35 // Empleado
-  worksheet.getColumn(4).width = 30 // Posición
-  worksheet.getColumn(4).alignment = { wrapText: true }
+    // ==============================
+    //   CARGAR EMPLEADOS Y TURNOS
+    // ==============================
+    const startDataRow = 5 // Después de los encabezados
 
-  // Aplicar ancho estándar a todas las columnas de fechas
-  for (let col = 5; col <= 4 + dates.length; col++) {
-    worksheet.getColumn(col).width = 20
-  }
+    // Si es modo reporte, cargar calendarios de asistencia
+    let employeeCalendarsMap = new Map<number, Map<string, { shiftId: number | null; shiftName: string | null; isVacation: boolean; isHoliday: boolean; exceptionType?: string }>>()
 
-  // ==============================
-  //   CARGAR EMPLEADOS Y TURNOS
-  // ==============================
-  const startDataRow = 5 // Después de los encabezados
+    if (isReport) {
+      const employeeIdsList = employees.map(emp => emp.employeeId)
+      if (employeeIdsList.length > 0) {
+        // Cargar calendarios de asistencia (datos explícitos guardados)
+        const calendars = await EmployeeAssistCalendar.query()
+          .whereIn('employeeId', employeeIdsList)
+          .whereBetween('day', [startDate, endDate])
+          .whereNull('deletedAt')
+          .preload('dateShift')
 
-  // Si es modo reporte, cargar calendarios de asistencia
-  let employeeCalendarsMap = new Map<number, Map<string, { shiftId: number | null; shiftName: string | null; isVacation: boolean; isHoliday: boolean; exceptionType?: string }>>()
+        calendars.forEach((calendar) => {
+          const empId = calendar.employeeId
+          const day = calendar.day
 
-  if (isReport) {
-    const employeeIdsList = employees.map(emp => emp.employeeId)
-    if (employeeIdsList.length > 0) {
-      // Cargar calendarios de asistencia (datos explícitos guardados)
-      const calendars = await EmployeeAssistCalendar.query()
-        .whereIn('employeeId', employeeIdsList)
-        .whereBetween('day', [startDate, endDate])
-        .whereNull('deletedAt')
-        .preload('dateShift')
-
-      calendars.forEach((calendar) => {
-        const empId = calendar.employeeId
-        const day = calendar.day
-
-        if (!employeeCalendarsMap.has(empId)) {
-          employeeCalendarsMap.set(empId, new Map())
-        }
-
-        const dayMap = employeeCalendarsMap.get(empId)!
-        let shiftName: string | null = null
-        let shiftId: number | null = calendar.shiftId
-
-        if (calendar.isVacationDate) {
-          shiftName = 'vacaciones'
-        } else if (calendar.isHoliday) {
-          shiftName = 'Día festivo'
-        } else if (calendar.dateShift) {
-          // Usar alias si existe, sino usar nombre formateado
-          let formattedDisplayName = calendar.dateShift.shiftName
-          if (calendar.dateShift.shiftTimeStart && calendar.dateShift.shiftActiveHours && typeof calendar.dateShift.shiftActiveHours === 'number') {
-            try {
-              const startTime = String(calendar.dateShift.shiftTimeStart).trim()
-              const timeParts = startTime.split(':')
-              if (timeParts.length >= 2) {
-                const hours = Number.parseInt(timeParts[0], 10)
-                const minutes = Number.parseInt(timeParts[1], 10)
-                if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                  const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-                  const shiftEndTime = shiftStartTime.plus({ hours: calendar.dateShift.shiftActiveHours })
-                  const endTime = shiftEndTime.toFormat('HH:mm')
-                  const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-                  formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
-                }
-              }
-            } catch (error) {
-              // Usar el nombre del turno por defecto
-            }
-          }
-          // Priorizar alias si existe
-          shiftName = (calendar.dateShift.shiftAlias && calendar.dateShift.shiftAlias.trim() !== '')
-            ? calendar.dateShift.shiftAlias.trim()
-            : formattedDisplayName
-        }
-
-        dayMap.set(day, {
-          shiftId,
-          shiftName,
-          isVacation: calendar.isVacationDate || false,
-          isHoliday: calendar.isHoliday || false
-        })
-      })
-
-      // Cargar turnos asignados desde EmployeeShift (basados en applySince)
-      // Obtener todos los turnos asignados que puedan aplicarse en el rango de fechas
-      const employeeShifts = await EmployeeShift.query()
-        .whereIn('employeeId', employeeIdsList)
-        .whereNull('deletedAt')
-        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [endDate])
-        .preload('shift')
-        .orderBy('employe_shifts_apply_since', 'desc')
-
-      // Organizar turnos por empleado para acceso rápido
-      const employeeShiftsMap = new Map<number, EmployeeShift[]>()
-      employeeShifts.forEach((empShift) => {
-        if (!employeeShiftsMap.has(empShift.employeeId)) {
-          employeeShiftsMap.set(empShift.employeeId, [])
-        }
-        employeeShiftsMap.get(empShift.employeeId)!.push(empShift)
-      })
-
-      // Para cada fecha y cada empleado, determinar el turno activo basado en applySince
-      dates.forEach((date) => {
-        const dateStr = date.toFormat('yyyy-MM-dd')
-        const dateDateTime = date.startOf('day')
-
-        employeeIdsList.forEach((empId) => {
-          // Si ya hay un registro en el calendario para esta fecha, no sobrescribir
-          const employeeCalendar = employeeCalendarsMap.get(empId)
-          if (employeeCalendar && employeeCalendar.has(dateStr)) {
-            return
+          if (!employeeCalendarsMap.has(empId)) {
+            employeeCalendarsMap.set(empId, new Map())
           }
 
-          // Buscar el turno asignado más reciente que sea <= a esta fecha
-          const assignedShifts = employeeShiftsMap.get(empId) || []
-          let activeShift: EmployeeShift | null = null
+          const dayMap = employeeCalendarsMap.get(empId)!
+          let shiftName: string | null = null
+          let shiftId: number | null = calendar.shiftId
 
-          for (const shift of assignedShifts) {
-            let shiftApplySince: DateTime
-            const applySinceValue = shift.employeShiftsApplySince
-            if (applySinceValue instanceof Date) {
-              shiftApplySince = DateTime.fromJSDate(applySinceValue).startOf('day')
-            } else if (typeof applySinceValue === 'string') {
-              shiftApplySince = DateTime.fromISO(applySinceValue).startOf('day')
-            } else {
-              continue
-            }
-
-            if (shiftApplySince.isValid && shiftApplySince <= dateDateTime) {
-              activeShift = shift
-              break // Ya está ordenado desc, el primero que cumpla es el más reciente
-            }
-          }
-
-          // Si encontramos un turno activo, agregarlo al calendario
-          if (activeShift && activeShift.shift) {
-            if (!employeeCalendarsMap.has(empId)) {
-              employeeCalendarsMap.set(empId, new Map())
-            }
-
-            const dayMap = employeeCalendarsMap.get(empId)!
-            let formattedDisplayName = activeShift.shift.shiftName
-            const shiftId: number | null = activeShift.shiftId
-
-            // Formatear el nombre del turno con horario si está disponible
-            if (activeShift.shift.shiftTimeStart && activeShift.shift.shiftActiveHours && typeof activeShift.shift.shiftActiveHours === 'number') {
+          if (calendar.isVacationDate) {
+            shiftName = 'vacaciones'
+          } else if (calendar.isHoliday) {
+            shiftName = 'Día festivo'
+          } else if (calendar.dateShift) {
+            // Usar alias si existe, sino usar nombre formateado
+            let formattedDisplayName = calendar.dateShift.shiftName
+            if (calendar.dateShift.shiftTimeStart && calendar.dateShift.shiftActiveHours && typeof calendar.dateShift.shiftActiveHours === 'number') {
               try {
-                const startTime = String(activeShift.shift.shiftTimeStart).trim()
+                const startTime = String(calendar.dateShift.shiftTimeStart).trim()
                 const timeParts = startTime.split(':')
                 if (timeParts.length >= 2) {
                   const hours = Number.parseInt(timeParts[0], 10)
                   const minutes = Number.parseInt(timeParts[1], 10)
                   if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
                     const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-                    const shiftEndTime = shiftStartTime.plus({ hours: activeShift.shift.shiftActiveHours })
+                    const shiftEndTime = shiftStartTime.plus({ hours: calendar.dateShift.shiftActiveHours })
                     const endTime = shiftEndTime.toFormat('HH:mm')
                     const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
                     formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
@@ -5838,649 +5866,803 @@ async generateShiftAssignmentTemplate(
               }
             }
             // Priorizar alias si existe
-            const shiftName: string | null = (activeShift.shift.shiftAlias && activeShift.shift.shiftAlias.trim() !== '')
-              ? activeShift.shift.shiftAlias.trim()
+            shiftName = (calendar.dateShift.shiftAlias && calendar.dateShift.shiftAlias.trim() !== '')
+              ? calendar.dateShift.shiftAlias.trim()
               : formattedDisplayName
+          }
 
-            // Solo agregar si no existe ya un registro para esta fecha
-            if (!dayMap.has(dateStr)) {
-              dayMap.set(dateStr, {
-                shiftId,
-                shiftName,
-                isVacation: false,
-                isHoliday: false
-              })
+          dayMap.set(day, {
+            shiftId,
+            shiftName,
+            isVacation: calendar.isVacationDate || false,
+            isHoliday: calendar.isHoliday || false
+          })
+        })
+
+        // Cargar turnos asignados desde EmployeeShift (basados en applySince)
+        // Obtener todos los turnos asignados que puedan aplicarse en el rango de fechas
+        const employeeShifts = await EmployeeShift.query()
+          .whereIn('employeeId', employeeIdsList)
+          .whereNull('deletedAt')
+          .whereRaw('DATE(employe_shifts_apply_since) <= ?', [endDate])
+          .preload('shift')
+          .orderBy('employe_shifts_apply_since', 'desc')
+
+        // Organizar turnos por empleado para acceso rápido
+        const employeeShiftsMap = new Map<number, EmployeeShift[]>()
+        employeeShifts.forEach((empShift) => {
+          if (!employeeShiftsMap.has(empShift.employeeId)) {
+            employeeShiftsMap.set(empShift.employeeId, [])
+          }
+          employeeShiftsMap.get(empShift.employeeId)!.push(empShift)
+        })
+
+        // Para cada fecha y cada empleado, determinar el turno activo basado en applySince
+        dates.forEach((date) => {
+          const dateStr = date.toFormat('yyyy-MM-dd')
+          const dateDateTime = date.startOf('day')
+
+          employeeIdsList.forEach((empId) => {
+            // Si ya hay un registro en el calendario para esta fecha, no sobrescribir
+            const employeeCalendar = employeeCalendarsMap.get(empId)
+            if (employeeCalendar && employeeCalendar.has(dateStr)) {
+              return
+            }
+
+            // Buscar el turno asignado más reciente que sea <= a esta fecha
+            const assignedShifts = employeeShiftsMap.get(empId) || []
+            let activeShift: EmployeeShift | null = null
+
+            for (const shift of assignedShifts) {
+              let shiftApplySince: DateTime
+              const applySinceValue = shift.employeShiftsApplySince
+              if (applySinceValue instanceof Date) {
+                shiftApplySince = DateTime.fromJSDate(applySinceValue).startOf('day')
+              } else if (typeof applySinceValue === 'string') {
+                shiftApplySince = DateTime.fromISO(applySinceValue).startOf('day')
+              } else {
+                continue
+              }
+
+              if (shiftApplySince.isValid && shiftApplySince <= dateDateTime) {
+                activeShift = shift
+                break // Ya está ordenado desc, el primero que cumpla es el más reciente
+              }
+            }
+
+            // Si encontramos un turno activo, agregarlo al calendario
+            if (activeShift && activeShift.shift) {
+              if (!employeeCalendarsMap.has(empId)) {
+                employeeCalendarsMap.set(empId, new Map())
+              }
+
+              const dayMap = employeeCalendarsMap.get(empId)!
+              let formattedDisplayName = activeShift.shift.shiftName
+              const shiftId: number | null = activeShift.shiftId
+
+              // Formatear el nombre del turno con horario si está disponible
+              if (activeShift.shift.shiftTimeStart && activeShift.shift.shiftActiveHours && typeof activeShift.shift.shiftActiveHours === 'number') {
+                try {
+                  const startTime = String(activeShift.shift.shiftTimeStart).trim()
+                  const timeParts = startTime.split(':')
+                  if (timeParts.length >= 2) {
+                    const hours = Number.parseInt(timeParts[0], 10)
+                    const minutes = Number.parseInt(timeParts[1], 10)
+                    if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                      const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                      const shiftEndTime = shiftStartTime.plus({ hours: activeShift.shift.shiftActiveHours })
+                      const endTime = shiftEndTime.toFormat('HH:mm')
+                      const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+                      formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                    }
+                  }
+                } catch (error) {
+                  // Usar el nombre del turno por defecto
+                }
+              }
+              // Priorizar alias si existe
+              const shiftName: string | null = (activeShift.shift.shiftAlias && activeShift.shift.shiftAlias.trim() !== '')
+                ? activeShift.shift.shiftAlias.trim()
+                : formattedDisplayName
+
+              // Solo agregar si no existe ya un registro para esta fecha
+              if (!dayMap.has(dateStr)) {
+                dayMap.set(dateStr, {
+                  shiftId,
+                  shiftName,
+                  isVacation: false,
+                  isHoliday: false
+                })
+              }
+            }
+          })
+        })
+      }
+    }
+
+    // Función para obtener color del turno
+    // En modo reporte usa shiftColor, en modo template genera color dinámico
+    const getShiftColor = (shiftId: number | null): string => {
+      if (!shiftId) return 'FFFFFFFF'
+      // En modo reporte, usar el color del turno de la base de datos
+      if (isReport && shiftColorMap.has(shiftId)) {
+        return shiftColorMap.get(shiftId) || 'FFFFFFFF'
+      }
+      // En modo template o si no hay color definido, generar color dinámico
+      const hue = (shiftId * 137.508) % 360
+      const saturation = 50 + (shiftId % 30)
+      const lightness = 75 + (shiftId % 15)
+
+      const h = hue / 360
+      const s = saturation / 100
+      const l = lightness / 100
+
+      const c = (1 - Math.abs(2 * l - 1)) * s
+      const x = c * (1 - Math.abs((h * 6) % 2 - 1))
+      const m = l - c / 2
+
+      let r = 0
+      let g = 0
+      let b = 0
+      if (h < 1 / 6) {
+        r = c
+        g = x
+        b = 0
+      } else if (h < 2 / 6) {
+        r = x
+        g = c
+        b = 0
+      } else if (h < 3 / 6) {
+        r = 0
+        g = c
+        b = x
+      } else if (h < 4 / 6) {
+        r = 0
+        g = x
+        b = c
+      } else if (h < 5 / 6) {
+        r = x
+        g = 0
+        b = c
+      } else {
+        r = c
+        g = 0
+        b = x
+      }
+
+      const R = Math.round((r + m) * 255)
+      const G = Math.round((g + m) * 255)
+      const B = Math.round((b + m) * 255)
+
+      return `FF${R.toString(16).padStart(2, '0')}${G.toString(16).padStart(2, '0')}${B.toString(16).padStart(2, '0')}`.toUpperCase()
+    }
+
+    employees.forEach((employee, index) => {
+      const row = startDataRow + index
+      worksheet.getRow(row).height = 45
+      const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
+      const positionName = employee.position?.positionName || 'Sin posición'
+
+
+      // ID Empleado (BD) - Columna A (oculta)
+      worksheet.getCell(row, 1).value = employee.employeeId
+      worksheet.getCell(row, 1).protection = { locked: true }
+
+      // Código de Empleado - Columna B
+      worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
+      worksheet.getCell(row, 2).protection = { locked: true }
+
+      // Empleado - Columna C
+      worksheet.getCell(row, 3).value = fullName
+      worksheet.getCell(row, 3).protection = { locked: true }
+
+      // Posición - Columna D
+      worksheet.getCell(row, 4).value = positionName
+      worksheet.getCell(row, 4).protection = { locked: true }
+
+      // Aplicar formato a las primeras 4 columnas
+      for (let col = 1; col <= 4; col++) {
+        worksheet.getCell(row, col).alignment = {
+          vertical: 'middle',
+          horizontal: col === 4 ? 'left' : 'center',
+          wrapText: true
+        }
+        worksheet.getCell(row, col).border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+      }
+
+      // Obtener calendario del empleado si es modo reporte
+      const employeeCalendar = isReport ? employeeCalendarsMap.get(employee.employeeId) : null
+
+      // Columnas de fechas (desde columna E)
+      dates.forEach((date, dateIndex) => {
+        const colNumber = 5 + dateIndex
+        const dateStr = date.toFormat('yyyy-MM-dd')
+        const isHoliday = holidayDates.has(dateStr)
+
+        // Aplicar formato de celda
+        worksheet.getCell(row, colNumber).alignment = {
+          vertical: 'middle',
+          horizontal: 'center',
+          wrapText: true
+        }
+        worksheet.getCell(row, colNumber).border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+
+        if (isReport) {
+          // MODO REPORTE: Mostrar turnos asignados con colores
+          const dayData = employeeCalendar?.get(dateStr)
+          let cellValue = ''
+          let cellColor = 'FFFFFFFF'
+
+          // Solo mostrar "Día festivo" si es descanso oficial (feriado)
+          // isHoliday solo es true para descansos oficiales después del filtro
+          if (isHoliday || dayData?.isHoliday) {
+            cellValue = 'Día festivo'
+            cellColor = 'FFE0E0E0' // Gris claro para días festivos
+          } else if (dayData?.isVacation) {
+            cellValue = 'vacaciones'
+            cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
+          } else if (dayData?.shiftName) {
+            // Si hay turno asignado, mostrarlo (incluso si es un día festivo que NO es descanso oficial)
+            cellValue = dayData.shiftName
+            cellColor = getShiftColor(dayData.shiftId)
+          }
+
+          worksheet.getCell(row, colNumber).value = cellValue
+          worksheet.getCell(row, colNumber).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: cellColor }
+          }
+          worksheet.getCell(row, colNumber).protection = { locked: true }
+        } else {
+          // MODO TEMPLATE: Comportamiento normal (editable)
+          if (isHoliday) {
+            // Si es día festivo, solo poner "Día festivo" y proteger la celda
+            worksheet.getCell(row, colNumber).value = 'Día festivo'
+            worksheet.getCell(row, colNumber).protection = { locked: true }
+          } else {
+            // Si NO es día festivo, agregar dropdown para turnos (editable)
+            worksheet.getCell(row, colNumber).dataValidation = {
+              type: 'list',
+              allowBlank: true,
+              formulae: [shiftRange],
+              errorStyle: 'warning',
+              showErrorMessage: true,
+              errorTitle: 'Valor inválido',
+              error: 'Seleccione un turno válido o deje vacío'
+            }
+            worksheet.getCell(row, colNumber).protection = { locked: false }
+          }
+        }
+      })
+    })
+
+    // ==============================
+    //     OCULTAR COLUMNA ID
+    // ==============================
+    worksheet.getColumn(1).hidden = true
+
+    // ==============================
+    //     PROTEGER HOJA
+    // ==============================
+    // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
+    if (isReport) {
+      await worksheet.protect('', {
+        selectLockedCells: true,
+        selectUnlockedCells: false,
+        formatCells: false,
+        formatColumns: false,
+        formatRows: false,
+        insertColumns: false,
+        insertRows: false,
+        deleteColumns: false,
+        deleteRows: false,
+        sort: false,
+        autoFilter: false,
+        pivotTables: false
+      })
+    } else {
+      await worksheet.protect('', {
+        selectLockedCells: true,
+        selectUnlockedCells: true,
+        formatCells: false,
+        formatColumns: false,
+        formatRows: false,
+        insertColumns: false,
+        insertRows: false,
+        deleteColumns: false,
+        deleteRows: false,
+        sort: false,
+        autoFilter: false,
+        pivotTables: false
+      })
+    }
+
+    // ==============================
+    //     CONGELAR ENCABEZADOS
+    // ==============================
+    worksheet.views = [
+      { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
+    ]
+
+    // ==============================
+    //       GENERAR ARCHIVO
+    // ==============================
+    const buffer = await workbook.xlsx.writeBuffer()
+    return Buffer.from(buffer)
+  }
+
+  /**
+   * Importar asignaciones de turnos desde archivo Excel
+   * Lee el Excel generado por generateShiftAssignmentTemplate y guarda las asignaciones
+   * @param file - Archivo Excel subido
+   * @param rawHeaders - Headers de la request para logs
+   * @param userId - ID del usuario para logs
+   * @param allowedBusinessUnitIds - Alcance de empresa ya resuelto por el controller (fail-closed si vacío)
+   * @returns Promise con resultados de la importación
+   */
+  async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number, allowedBusinessUnitIds: number[] = []) {
+    const workbook = new ExcelJS.Workbook()
+
+    try {
+      // Leer el archivo Excel
+      await workbook.xlsx.readFile(file.tmpPath)
+      const worksheet = workbook.getWorksheet(1)
+
+      if (!worksheet) {
+        throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
+      }
+
+      // Obtener todas las filas
+      const rows: Array<{ row: any; rowNumber: number }> = []
+      worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
+        rows.push({ row, rowNumber })
+      })
+
+      // Las primeras 4 filas son encabezados
+      const startDataRow = 5
+
+      // Obtener encabezados de fechas (fila 3)
+      const dateHeaders: Array<{ date: DateTime; colNumber: number }> = []
+      const headerRow = worksheet.getRow(3)
+
+      if (headerRow) {
+        headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+          // Las primeras 4 columnas son: ID (BD), Código, Empleado, Posición
+          if (colNumber > 4) {
+            const cellValue = cell.value
+            if (cellValue && typeof cellValue === 'string') {
+              try {
+                const date = DateTime.fromFormat(cellValue, 'dd/MM/yyyy')
+                if (date.isValid) {
+                  dateHeaders.push({ date, colNumber })
+                }
+              } catch (error) {
+                console.warn(`Error parseando fecha en columna ${colNumber}: ${cellValue}`)
+              }
             }
           }
         })
-      })
-    }
-  }
-
-  // Función para obtener color del turno
-  // En modo reporte usa shiftColor, en modo template genera color dinámico
-  const getShiftColor = (shiftId: number | null): string => {
-    if (!shiftId) return 'FFFFFFFF'
-    // En modo reporte, usar el color del turno de la base de datos
-    if (isReport && shiftColorMap.has(shiftId)) {
-      return shiftColorMap.get(shiftId) || 'FFFFFFFF'
-    }
-    // En modo template o si no hay color definido, generar color dinámico
-    const hue = (shiftId * 137.508) % 360
-    const saturation = 50 + (shiftId % 30)
-    const lightness = 75 + (shiftId % 15)
-
-    const h = hue / 360
-    const s = saturation / 100
-    const l = lightness / 100
-
-    const c = (1 - Math.abs(2 * l - 1)) * s
-    const x = c * (1 - Math.abs((h * 6) % 2 - 1))
-    const m = l - c / 2
-
-    let r = 0
-    let g = 0
-    let b = 0
-    if (h < 1/6) {
-      r = c
-      g = x
-      b = 0
-    } else if (h < 2/6) {
-      r = x
-      g = c
-      b = 0
-    } else if (h < 3/6) {
-      r = 0
-      g = c
-      b = x
-    } else if (h < 4/6) {
-      r = 0
-      g = x
-      b = c
-    } else if (h < 5/6) {
-      r = x
-      g = 0
-      b = c
-    } else {
-      r = c
-      g = 0
-      b = x
-    }
-
-    const R = Math.round((r + m) * 255)
-    const G = Math.round((g + m) * 255)
-    const B = Math.round((b + m) * 255)
-
-    return `FF${R.toString(16).padStart(2, '0')}${G.toString(16).padStart(2, '0')}${B.toString(16).padStart(2, '0')}`.toUpperCase()
-  }
-
-  employees.forEach((employee, index) => {
-    const row = startDataRow + index
-    worksheet.getRow(row).height = 45
-    const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
-    const positionName = employee.position?.positionName || 'Sin posición'
-
-
-    // ID Empleado (BD) - Columna A (oculta)
-    worksheet.getCell(row, 1).value = employee.employeeId
-    worksheet.getCell(row, 1).protection = { locked: true }
-
-    // Código de Empleado - Columna B
-    worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
-    worksheet.getCell(row, 2).protection = { locked: true }
-
-    // Empleado - Columna C
-    worksheet.getCell(row, 3).value = fullName
-    worksheet.getCell(row, 3).protection = { locked: true }
-
-    // Posición - Columna D
-    worksheet.getCell(row, 4).value = positionName
-    worksheet.getCell(row, 4).protection = { locked: true }
-
-    // Aplicar formato a las primeras 4 columnas
-    for (let col = 1; col <= 4; col++) {
-      worksheet.getCell(row, col).alignment = {
-        vertical: 'middle',
-        horizontal: col === 4 ? 'left' : 'center',
-        wrapText: true
-      }
-      worksheet.getCell(row, col).border = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'thin', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
-      }
-    }
-
-    // Obtener calendario del empleado si es modo reporte
-    const employeeCalendar = isReport ? employeeCalendarsMap.get(employee.employeeId) : null
-
-    // Columnas de fechas (desde columna E)
-    dates.forEach((date, dateIndex) => {
-      const colNumber = 5 + dateIndex
-      const dateStr = date.toFormat('yyyy-MM-dd')
-      const isHoliday = holidayDates.has(dateStr)
-
-      // Aplicar formato de celda
-      worksheet.getCell(row, colNumber).alignment = {
-        vertical: 'middle',
-        horizontal: 'center',
-        wrapText: true
-      }
-      worksheet.getCell(row, colNumber).border = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'thin', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
       }
 
-      if (isReport) {
-        // MODO REPORTE: Mostrar turnos asignados con colores
-        const dayData = employeeCalendar?.get(dateStr)
-        let cellValue = ''
-        let cellColor = 'FFFFFFFF'
+      // Obtener todos los turnos para mapear nombres/alias a IDs
+      const shifts = await Shift.query()
+        .whereNull('shift_deleted_at')
+        .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits')
 
-        // Solo mostrar "Día festivo" si es descanso oficial (feriado)
-        // isHoliday solo es true para descansos oficiales después del filtro
-        if (isHoliday || dayData?.isHoliday) {
-          cellValue = 'Día festivo'
-          cellColor = 'FFE0E0E0' // Gris claro para días festivos
-        } else if (dayData?.isVacation) {
-          cellValue = 'vacaciones'
-          cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
-        } else if (dayData?.shiftName) {
-          // Si hay turno asignado, mostrarlo (incluso si es un día festivo que NO es descanso oficial)
-          cellValue = dayData.shiftName
-          cellColor = getShiftColor(dayData.shiftId)
+      // Mapa: clave = valor normalizado, valor = objeto con shiftId y businessUnits
+      const shiftMap = new Map<string, Array<{ shiftId: number; businessUnits: string | null }>>()
+
+      shifts.forEach((shift) => {
+        const shiftNameLower = shift.shiftName.toLowerCase().trim()
+
+        // Agregar nombre del turno
+        if (!shiftMap.has(shiftNameLower)) {
+          shiftMap.set(shiftNameLower, [])
         }
-
-        worksheet.getCell(row, colNumber).value = cellValue
-        worksheet.getCell(row, colNumber).fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: cellColor }
-        }
-        worksheet.getCell(row, colNumber).protection = { locked: true }
-      } else {
-        // MODO TEMPLATE: Comportamiento normal (editable)
-        if (isHoliday) {
-          // Si es día festivo, solo poner "Día festivo" y proteger la celda
-          worksheet.getCell(row, colNumber).value = 'Día festivo'
-          worksheet.getCell(row, colNumber).protection = { locked: true }
-        } else {
-          // Si NO es día festivo, agregar dropdown para turnos (editable)
-          worksheet.getCell(row, colNumber).dataValidation = {
-            type: 'list',
-            allowBlank: true,
-            formulae: [shiftRange],
-            errorStyle: 'warning',
-            showErrorMessage: true,
-            errorTitle: 'Valor inválido',
-            error: 'Seleccione un turno válido o deje vacío'
-          }
-          worksheet.getCell(row, colNumber).protection = { locked: false }
-        }
-      }
-    })
-  })
-
-  // ==============================
-  //     OCULTAR COLUMNA ID
-  // ==============================
-  worksheet.getColumn(1).hidden = true
-
-  // ==============================
-  //     PROTEGER HOJA
-  // ==============================
-  // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
-  if (isReport) {
-    await worksheet.protect('', {
-      selectLockedCells: true,
-      selectUnlockedCells: false,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-      pivotTables: false
-    })
-  } else {
-    await worksheet.protect('', {
-      selectLockedCells: true,
-      selectUnlockedCells: true,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-      pivotTables: false
-    })
-  }
-
-  // ==============================
-  //     CONGELAR ENCABEZADOS
-  // ==============================
-  worksheet.views = [
-    { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
-  ]
-
-  // ==============================
-  //       GENERAR ARCHIVO
-  // ==============================
-  const buffer = await workbook.xlsx.writeBuffer()
-  return Buffer.from(buffer)
-}
-
-/**
- * Importar asignaciones de turnos desde archivo Excel
- * Lee el Excel generado por generateShiftAssignmentTemplate y guarda las asignaciones
- * @param file - Archivo Excel subido
- * @param rawHeaders - Headers de la request para logs
- * @param userId - ID del usuario para logs
- * @returns Promise con resultados de la importación
- */
-async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number) {
-  const workbook = new ExcelJS.Workbook()
-
-  try {
-    // Leer el archivo Excel
-    await workbook.xlsx.readFile(file.tmpPath)
-    const worksheet = workbook.getWorksheet(1)
-
-    if (!worksheet) {
-      throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
-    }
-
-    // Obtener todas las filas
-    const rows: Array<{ row: any; rowNumber: number }> = []
-    worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
-      rows.push({ row, rowNumber })
-    })
-
-    // Las primeras 4 filas son encabezados
-    const startDataRow = 5
-
-    // Obtener encabezados de fechas (fila 3)
-    const dateHeaders: Array<{ date: DateTime; colNumber: number }> = []
-    const headerRow = worksheet.getRow(3)
-
-    if (headerRow) {
-      headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-        // Las primeras 4 columnas son: ID (BD), Código, Empleado, Posición
-        if (colNumber > 4) {
-          const cellValue = cell.value
-          if (cellValue && typeof cellValue === 'string') {
-            try {
-              const date = DateTime.fromFormat(cellValue, 'dd/MM/yyyy')
-              if (date.isValid) {
-                dateHeaders.push({ date, colNumber })
-              }
-            } catch (error) {
-              console.warn(`Error parseando fecha en columna ${colNumber}: ${cellValue}`)
-            }
-          }
-        }
-      })
-    }
-
-    // Obtener todos los turnos para mapear nombres/alias a IDs
-    const shifts = await Shift.query()
-      .whereNull('shift_deleted_at')
-      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits')
-
-    // Mapa: clave = valor normalizado, valor = objeto con shiftId y businessUnits
-    const shiftMap = new Map<string, Array<{ shiftId: number; businessUnits: string | null }>>()
-
-    shifts.forEach((shift) => {
-      const shiftNameLower = shift.shiftName.toLowerCase().trim()
-
-      // Agregar nombre del turno
-      if (!shiftMap.has(shiftNameLower)) {
-        shiftMap.set(shiftNameLower, [])
-      }
-      shiftMap.get(shiftNameLower)!.push({
-        shiftId: shift.shiftId,
-        businessUnits: shift.shiftBusinessUnits
-      })
-
-      // Si tiene alias, agregarlo también
-      if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
-        const aliasLower = shift.shiftAlias.toLowerCase().trim()
-        if (!shiftMap.has(aliasLower)) {
-          shiftMap.set(aliasLower, [])
-        }
-        shiftMap.get(aliasLower)!.push({
+        shiftMap.get(shiftNameLower)!.push({
           shiftId: shift.shiftId,
           businessUnits: shift.shiftBusinessUnits
         })
-      }
 
-      // Agregar nombres formateados con horarios
-      if (shift.shiftTimeStart && shift.shiftActiveHours) {
-        try {
-          const startTime = String(shift.shiftTimeStart).trim()
-          const timeParts = startTime.split(':')
-          if (timeParts.length >= 2) {
-            const hours = Number.parseInt(timeParts[0], 10)
-            const minutes = Number.parseInt(timeParts[1], 10)
-            if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
-              const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-              const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
-              const endTime = shiftEndTime.toFormat('HH:mm')
-              const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-
-              const formattedName1 = `${formattedStartTime} to ${endTime} - Rest (NA)`
-              const formattedName2 = `${formattedStartTime} to ${endTime}`
-              const formattedName3 = `${formattedStartTime}-${endTime}`
-
-              const formattedNames = [formattedName1, formattedName2, formattedName3]
-              formattedNames.forEach((formattedName) => {
-                const formattedLower = formattedName.toLowerCase()
-                if (!shiftMap.has(formattedLower)) {
-                  shiftMap.set(formattedLower, [])
-                }
-                shiftMap.get(formattedLower)!.push({
-                  shiftId: shift.shiftId,
-                  businessUnits: shift.shiftBusinessUnits
-                })
-              })
-            }
+        // Si tiene alias, agregarlo también
+        if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
+          const aliasLower = shift.shiftAlias.toLowerCase().trim()
+          if (!shiftMap.has(aliasLower)) {
+            shiftMap.set(aliasLower, [])
           }
-        } catch (error) {
-          // Ignorar errores
-        }
-      }
-    })
-
-    const specialOptions = ['vacaciones', 'día festivo', 'dia festivo']
-
-    // Obtener todos los tipos de excepciones para mapeo
-    const exceptionTypes = await ExceptionType.query()
-      .whereNull('exception_type_deleted_at')
-      .select('exceptionTypeId', 'exceptionTypeSlug', 'exceptionTypeTypeName', 'exceptionTypeCanMasive')
-
-    const exceptionTypeMap = new Map<string, number>()
-    exceptionTypes.forEach((exceptionType) => {
-      exceptionTypeMap.set(exceptionType.exceptionTypeSlug, exceptionType.exceptionTypeId)
-    })
-
-    // Mapa de nombres de excepciones masivas a sus IDs
-    const massiveExceptionTypeMap = new Map<string, number>()
-    exceptionTypes.forEach((exceptionType) => {
-      if (exceptionType.exceptionTypeCanMasive) {
-        const typeName = exceptionType.exceptionTypeTypeName?.toLowerCase().trim()
-        if (typeName) {
-          massiveExceptionTypeMap.set(typeName, exceptionType.exceptionTypeId)
-        }
-      }
-    })
-
-    const specialOptionToSlug: Record<string, string> = {
-      'vacaciones': 'vacation',
-      'día festivo': 'absence-from-work',
-      'dia festivo': 'absence-from-work'
-    }
-
-    const results = {
-      totalRows: 0,
-      processed: 0,
-      created: 0,
-      skipped: 0,
-      errors: [] as string[]
-    }
-
-    // Procesar cada fila de datos
-    for (const { row, rowNumber } of rows) {
-      if (rowNumber < startDataRow) continue
-
-      results.totalRows++
-
-      // Obtener ID del empleado de la primera columna (columna A - oculta)
-      const employeeIdCell = row.getCell(1)
-      const employeeId = employeeIdCell.value
-
-      // Si no hay ID de empleado, saltar
-      if (!employeeId || employeeId === '' || employeeId === null || employeeId === undefined) {
-        results.skipped++
-        continue
-      }
-
-      // Verificar que el empleado existe
-      const employee = await Employee.find(employeeId)
-      if (!employee) {
-        results.skipped++
-        results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeId} no encontrado`)
-        continue
-      }
-
-      // Procesar cada fecha/columna
-      let processedAny = false
-      for (const { date, colNumber } of dateHeaders) {
-        const shiftCell = row.getCell(colNumber)
-        let shiftValue = shiftCell.value
-
-        // Si es una fórmula, obtener el valor calculado
-        if (shiftCell.type === ExcelJS.ValueType.Formula) {
-          shiftValue = shiftCell.result
+          shiftMap.get(aliasLower)!.push({
+            shiftId: shift.shiftId,
+            businessUnits: shift.shiftBusinessUnits
+          })
         }
 
-        // Si la celda está vacía, ignorarla (SOLO PROCESAR CELDAS CON VALOR)
-        if (!shiftValue || shiftValue === '' || shiftValue === null || shiftValue === undefined) {
-          continue
-        }
-
-        const shiftName = String(shiftValue).trim()
-        const shiftNameLower = shiftName.toLowerCase()
-
-        let shiftId: number | null = null
-        let isSpecialOption = false
-        let exceptionTypeSlug: string | null = null
-        let isMassiveException = false
-        let massiveExceptionTypeId: number | null = null
-
-        // Verificar si es una excepción masiva
-        massiveExceptionTypeId = massiveExceptionTypeMap.get(shiftNameLower) || null
-        if (massiveExceptionTypeId) {
-          isMassiveException = true
-        }
-
-        // Verificar si es una opción especial
-        if (specialOptions.includes(shiftNameLower)) {
-          isSpecialOption = true
-          exceptionTypeSlug = specialOptionToSlug[shiftNameLower] || null
-        }
-
-        // Si es una excepción masiva, crear excepción
-        if (isMassiveException && massiveExceptionTypeId) {
-          const dateStr = date.toFormat('yyyy-MM-dd')
-          const shiftExceptionService = new ShiftExceptionService(this.i18n)
-
+        // Agregar nombres formateados con horarios
+        if (shift.shiftTimeStart && shift.shiftActiveHours) {
           try {
-            const shiftException = {
-              employeeId: employeeId,
-              exceptionTypeId: massiveExceptionTypeId,
-              shiftExceptionsDate: dateStr,
-              shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
-              shiftExceptionEnjoymentOfSalary: 0,
-              shiftExceptionCheckInTime: null,
-              shiftExceptionCheckOutTime: null,
-              shiftExceptionTimeByTime: null,
-              vacationSettingId: null,
-              workDisabilityPeriodId: null,
-            } as ShiftException
+            const startTime = String(shift.shiftTimeStart).trim()
+            const timeParts = startTime.split(':')
+            if (timeParts.length >= 2) {
+              const hours = Number.parseInt(timeParts[0], 10)
+              const minutes = Number.parseInt(timeParts[1], 10)
+              if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
+                const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+                const endTime = shiftEndTime.toFormat('HH:mm')
+                const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 
-            const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+                const formattedName1 = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                const formattedName2 = `${formattedStartTime} to ${endTime}`
+                const formattedName3 = `${formattedStartTime}-${endTime}`
 
-            if (verifyInfo.status !== 200) {
-              const existingException = await ShiftException.query()
-                .whereNull('shift_exceptions_deleted_at')
-                .where('employeeId', employeeId)
-                .where('shiftExceptionsDate', dateStr)
-                .where('exceptionTypeId', massiveExceptionTypeId)
-                .first()
-
-              if (!existingException) {
-                results.errors.push(
-                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
-                )
-                continue
+                const formattedNames = [formattedName1, formattedName2, formattedName3]
+                formattedNames.forEach((formattedName) => {
+                  const formattedLower = formattedName.toLowerCase()
+                  if (!shiftMap.has(formattedLower)) {
+                    shiftMap.set(formattedLower, [])
+                  }
+                  shiftMap.get(formattedLower)!.push({
+                    shiftId: shift.shiftId,
+                    businessUnits: shift.shiftBusinessUnits
+                  })
+                })
               }
-            } else {
-              await shiftExceptionService.create(shiftException)
             }
-
-            processedAny = true
-            results.created++
-          } catch (error: any) {
-            results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
-            )
+          } catch (error) {
+            // Ignorar errores
           }
+        }
+      })
+
+      const specialOptions = ['vacaciones', 'día festivo', 'dia festivo']
+
+      // Obtener todos los tipos de excepciones para mapeo
+      const exceptionTypes = await ExceptionType.query()
+        .whereNull('exception_type_deleted_at')
+        .select('exceptionTypeId', 'exceptionTypeSlug', 'exceptionTypeTypeName', 'exceptionTypeCanMasive')
+
+      const exceptionTypeMap = new Map<string, number>()
+      exceptionTypes.forEach((exceptionType) => {
+        exceptionTypeMap.set(exceptionType.exceptionTypeSlug, exceptionType.exceptionTypeId)
+      })
+
+      // Mapa de nombres de excepciones masivas a sus IDs
+      const massiveExceptionTypeMap = new Map<string, number>()
+      exceptionTypes.forEach((exceptionType) => {
+        if (exceptionType.exceptionTypeCanMasive) {
+          const typeName = exceptionType.exceptionTypeTypeName?.toLowerCase().trim()
+          if (typeName) {
+            massiveExceptionTypeMap.set(typeName, exceptionType.exceptionTypeId)
+          }
+        }
+      })
+
+      const specialOptionToSlug: Record<string, string> = {
+        'vacaciones': 'vacation',
+        'día festivo': 'absence-from-work',
+        'dia festivo': 'absence-from-work'
+      }
+
+      const results = {
+        totalRows: 0,
+        processed: 0,
+        created: 0,
+        skipped: 0,
+        errors: [] as string[]
+      }
+
+      // Procesar cada fila de datos
+      for (const { row, rowNumber } of rows) {
+        if (rowNumber < startDataRow) continue
+
+        results.totalRows++
+
+        // Obtener ID del empleado de la primera columna (columna A - oculta)
+        const employeeIdCell = row.getCell(1)
+        const employeeId = employeeIdCell.value
+
+        // Si no hay ID de empleado, saltar
+        if (!employeeId || employeeId === '' || employeeId === null || employeeId === undefined) {
+          results.skipped++
           continue
         }
 
-        // Si es una opción especial, crear excepción
-        if (isSpecialOption && exceptionTypeSlug) {
-          const exceptionTypeId = exceptionTypeMap.get(exceptionTypeSlug)
+        // Verificar que el empleado existe DENTRO del alcance de empresa del usuario.
+        // Filtro explícito además del mixin (defensa en profundidad, USRH1786595131487).
+        // whereIn con arreglo vacío produce `1 = 0`: fail-closed sin branch de longitud.
+        const numericEmployeeId = Number(employeeId)
+        const employee = Number.isInteger(numericEmployeeId) && numericEmployeeId > 0
+          ? await Employee.query()
+            .whereIn('businessUnitId', allowedBusinessUnitIds)
+            .where('employeeId', numericEmployeeId)
+            .first()
+          : null
 
-          if (!exceptionTypeId) {
-            results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Tipo de excepción "${exceptionTypeSlug}" no encontrado`
-            )
+        if (!employee) {
+          results.skipped++
+          results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeId} no encontrado`)
+          continue
+        }
+
+        // Procesar cada fecha/columna
+        let processedAny = false
+        for (const { date, colNumber } of dateHeaders) {
+          const shiftCell = row.getCell(colNumber)
+          let shiftValue = shiftCell.value
+
+          // Si es una fórmula, obtener el valor calculado
+          if (shiftCell.type === ExcelJS.ValueType.Formula) {
+            shiftValue = shiftCell.result
+          }
+
+          // Si la celda está vacía, ignorarla (SOLO PROCESAR CELDAS CON VALOR)
+          if (!shiftValue || shiftValue === '' || shiftValue === null || shiftValue === undefined) {
             continue
           }
 
-          const dateStr = date.toFormat('yyyy-MM-dd')
-          const shiftExceptionService = new ShiftExceptionService(this.i18n)
+          const shiftName = String(shiftValue).trim()
+          const shiftNameLower = shiftName.toLowerCase()
 
-          try {
-            let vacationSettingId: number | null = null
+          let shiftId: number | null = null
+          let isSpecialOption = false
+          let exceptionTypeSlug: string | null = null
+          let isMassiveException = false
+          let massiveExceptionTypeId: number | null = null
 
-            if (exceptionTypeSlug === 'vacation') {
-              const availableVacation = await this.getAvailableVacationSetting(
-                employee,
-                date
-              )
-
-              if (!availableVacation) {
-                results.errors.push(
-                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: No hay vacaciones disponibles para el empleado`
-                )
-                continue
-              }
-
-              vacationSettingId = availableVacation.vacationSettingId
-            }
-
-            const shiftException = {
-              employeeId: employeeId,
-              exceptionTypeId: exceptionTypeId,
-              shiftExceptionsDate: dateStr,
-              shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
-              shiftExceptionEnjoymentOfSalary: exceptionTypeSlug === 'vacation' ? 1 : 0,
-              shiftExceptionCheckInTime: null,
-              shiftExceptionCheckOutTime: null,
-              shiftExceptionTimeByTime: null,
-              vacationSettingId: vacationSettingId,
-              workDisabilityPeriodId: null,
-            } as ShiftException
-
-            const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
-
-            if (verifyInfo.status !== 200) {
-              const existingException = await ShiftException.query()
-                .whereNull('shift_exceptions_deleted_at')
-                .where('employeeId', employeeId)
-                .where('shiftExceptionsDate', dateStr)
-                .where('exceptionTypeId', exceptionTypeId)
-                .first()
-
-              if (!existingException) {
-                results.errors.push(
-                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
-                )
-                continue
-              }
-            } else {
-              await shiftExceptionService.create(shiftException)
-            }
-
-            processedAny = true
-            results.created++
-          } catch (error: any) {
-            results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
-            )
+          // Verificar si es una excepción masiva
+          massiveExceptionTypeId = massiveExceptionTypeMap.get(shiftNameLower) || null
+          if (massiveExceptionTypeId) {
+            isMassiveException = true
           }
-          continue
-        }
 
-        // Buscar el turno considerando alias y unidad de negocio del empleado
-        const normalizedShiftName = shiftNameLower.replace(/\s+/g, ' ').trim()
-        const employeeBusinessUnitId = employee.businessUnitId
-
-        // Función auxiliar para verificar si el businessUnitId está en shiftBusinessUnits
-        const isBusinessUnitMatch = (businessUnitsStr: string | null, targetBusinessUnitId: number): boolean => {
-          if (!businessUnitsStr || businessUnitsStr.trim() === '') return false
-          const businessUnitsList = businessUnitsStr.split(',').map(bu => bu.trim())
-          return businessUnitsList.includes(String(targetBusinessUnitId))
-        }
-
-        // Buscar primero por coincidencia exacta
-        const exactMatches = shiftMap.get(normalizedShiftName)
-        if (exactMatches && exactMatches.length > 0) {
-          // Si hay coincidencia exacta, buscar la que coincida con la unidad de negocio
-          const matchingShift = exactMatches.find(s =>
-            isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-          )
-          if (matchingShift) {
-            shiftId = matchingShift.shiftId
-          } else if (exactMatches.length === 1) {
-            // Si solo hay uno y no hay filtro de unidad de negocio, usarlo
-            shiftId = exactMatches[0].shiftId
+          // Verificar si es una opción especial
+          if (specialOptions.includes(shiftNameLower)) {
+            isSpecialOption = true
+            exceptionTypeSlug = specialOptionToSlug[shiftNameLower] || null
           }
-        }
 
-        // Si no se encontró, buscar por coincidencia parcial
-        if (!shiftId) {
-          for (const [mapKey, shiftsList] of shiftMap.entries()) {
-            const normalizedMapKey = mapKey.replace(/\s+/g, ' ').trim()
+          // Si es una excepción masiva, crear excepción
+          if (isMassiveException && massiveExceptionTypeId) {
+            const dateStr = date.toFormat('yyyy-MM-dd')
+            const shiftExceptionService = new ShiftExceptionService(this.i18n)
 
-            // Coincidencia exacta normalizada
-            if (normalizedMapKey === normalizedShiftName) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
+            try {
+              const shiftException = {
+                employeeId: employee.employeeId,
+                exceptionTypeId: massiveExceptionTypeId,
+                shiftExceptionsDate: dateStr,
+                shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
+                shiftExceptionEnjoymentOfSalary: 0,
+                shiftExceptionCheckInTime: null,
+                shiftExceptionCheckOutTime: null,
+                shiftExceptionTimeByTime: null,
+                vacationSettingId: null,
+                workDisabilityPeriodId: null,
+              } as ShiftException
+
+              const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+
+              if (verifyInfo.status !== 200) {
+                const existingException = await ShiftException.query()
+                  .whereNull('shift_exceptions_deleted_at')
+                  .where('employeeId', employeeId)
+                  .where('shiftExceptionsDate', dateStr)
+                  .where('exceptionTypeId', massiveExceptionTypeId)
+                  .first()
+
+                if (!existingException) {
+                  results.errors.push(
+                    `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+                  )
+                  continue
+                }
+              } else {
+                await shiftExceptionService.create(shiftException)
               }
+
+              processedAny = true
+              results.created++
+            } catch (error: any) {
+              logger.error({ err: error, rowNumber }, 'Error al crear excepción de turno en importación masiva')
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción`
+              )
+            }
+            continue
+          }
+
+          // Si es una opción especial, crear excepción
+          if (isSpecialOption && exceptionTypeSlug) {
+            const exceptionTypeId = exceptionTypeMap.get(exceptionTypeSlug)
+
+            if (!exceptionTypeId) {
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Tipo de excepción "${exceptionTypeSlug}" no encontrado`
+              )
               continue
             }
 
-            // Coincidencia por patrón de tiempo
-            const timePattern = /(\d{1,2}):(\d{2})\s*(?:to|-)\s*(\d{1,2}):(\d{2})/i
-            const matchExcel = normalizedShiftName.match(timePattern)
-            const matchMap = normalizedMapKey.match(timePattern)
+            const dateStr = date.toFormat('yyyy-MM-dd')
+            const shiftExceptionService = new ShiftExceptionService(this.i18n)
 
-            if (matchExcel && matchMap) {
-              const excelStart = `${matchExcel[1].padStart(2, '0')}:${matchExcel[2]}`
-              const excelEnd = `${matchExcel[3].padStart(2, '0')}:${matchExcel[4]}`
-              const mapStart = `${matchMap[1].padStart(2, '0')}:${matchMap[2]}`
-              const mapEnd = `${matchMap[3].padStart(2, '0')}:${matchMap[4]}`
+            try {
+              let vacationSettingId: number | null = null
 
-              if (excelStart === mapStart && excelEnd === mapEnd) {
+              if (exceptionTypeSlug === 'vacation') {
+                const availableVacation = await this.getAvailableVacationSetting(
+                  employee,
+                  date
+                )
+
+                if (!availableVacation) {
+                  results.errors.push(
+                    `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: No hay vacaciones disponibles para el empleado`
+                  )
+                  continue
+                }
+
+                vacationSettingId = availableVacation.vacationSettingId
+              }
+
+              const shiftException = {
+                employeeId: employee.employeeId,
+                exceptionTypeId: exceptionTypeId,
+                shiftExceptionsDate: dateStr,
+                shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
+                shiftExceptionEnjoymentOfSalary: exceptionTypeSlug === 'vacation' ? 1 : 0,
+                shiftExceptionCheckInTime: null,
+                shiftExceptionCheckOutTime: null,
+                shiftExceptionTimeByTime: null,
+                vacationSettingId: vacationSettingId,
+                workDisabilityPeriodId: null,
+              } as ShiftException
+
+              const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+
+              if (verifyInfo.status !== 200) {
+                const existingException = await ShiftException.query()
+                  .whereNull('shift_exceptions_deleted_at')
+                  .where('employeeId', employeeId)
+                  .where('shiftExceptionsDate', dateStr)
+                  .where('exceptionTypeId', exceptionTypeId)
+                  .first()
+
+                if (!existingException) {
+                  results.errors.push(
+                    `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+                  )
+                  continue
+                }
+              } else {
+                await shiftExceptionService.create(shiftException)
+              }
+
+              processedAny = true
+              results.created++
+            } catch (error: any) {
+              logger.error({ err: error, rowNumber }, 'Error al crear excepción de turno en importación masiva')
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción`
+              )
+            }
+            continue
+          }
+
+          // Buscar el turno considerando alias y unidad de negocio del empleado
+          const normalizedShiftName = shiftNameLower.replace(/\s+/g, ' ').trim()
+          const employeeBusinessUnitId = employee.businessUnitId
+
+          // Función auxiliar para verificar si el businessUnitId está en shiftBusinessUnits
+          const isBusinessUnitMatch = (businessUnitsStr: string | null, targetBusinessUnitId: number): boolean => {
+            if (!businessUnitsStr || businessUnitsStr.trim() === '') return false
+            const businessUnitsList = businessUnitsStr.split(',').map(bu => bu.trim())
+            return businessUnitsList.includes(String(targetBusinessUnitId))
+          }
+
+          // Buscar primero por coincidencia exacta
+          const exactMatches = shiftMap.get(normalizedShiftName)
+          if (exactMatches && exactMatches.length > 0) {
+            // Si hay coincidencia exacta, buscar la que coincida con la unidad de negocio
+            const matchingShift = exactMatches.find(s =>
+              isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+            )
+            if (matchingShift) {
+              shiftId = matchingShift.shiftId
+            } else if (exactMatches.length === 1) {
+              // Si solo hay uno y no hay filtro de unidad de negocio, usarlo
+              shiftId = exactMatches[0].shiftId
+            }
+          }
+
+          // Si no se encontró, buscar por coincidencia parcial
+          if (!shiftId) {
+            for (const [mapKey, shiftsList] of shiftMap.entries()) {
+              const normalizedMapKey = mapKey.replace(/\s+/g, ' ').trim()
+
+              // Coincidencia exacta normalizada
+              if (normalizedMapKey === normalizedShiftName) {
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+                continue
+              }
+
+              // Coincidencia por patrón de tiempo
+              const timePattern = /(\d{1,2}):(\d{2})\s*(?:to|-)\s*(\d{1,2}):(\d{2})/i
+              const matchExcel = normalizedShiftName.match(timePattern)
+              const matchMap = normalizedMapKey.match(timePattern)
+
+              if (matchExcel && matchMap) {
+                const excelStart = `${matchExcel[1].padStart(2, '0')}:${matchExcel[2]}`
+                const excelEnd = `${matchExcel[3].padStart(2, '0')}:${matchExcel[4]}`
+                const mapStart = `${matchMap[1].padStart(2, '0')}:${matchMap[2]}`
+                const mapEnd = `${matchMap[3].padStart(2, '0')}:${matchMap[4]}`
+
+                if (excelStart === mapStart && excelEnd === mapEnd) {
+                  const matchingShift = shiftsList.find(s =>
+                    isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                  )
+                  if (matchingShift) {
+                    shiftId = matchingShift.shiftId
+                    break
+                  } else if (shiftsList.length === 1) {
+                    shiftId = shiftsList[0].shiftId
+                    break
+                  }
+                }
+              }
+
+              // Coincidencia por inclusión
+              if (normalizedMapKey.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedMapKey)) {
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+              }
+
+              // Coincidencia por limpieza de caracteres especiales
+              const nameClean = normalizedMapKey.replace(/[-\s()]/g, '').toLowerCase()
+              const shiftNameClean = normalizedShiftName.replace(/[-\s()]/g, '').toLowerCase()
+              if (nameClean === shiftNameClean && nameClean.length > 0) {
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+              }
+
+              // Coincidencia por primera parte del nombre (antes de "to" o "-")
+              const nameOnly = normalizedMapKey.split(/\s*(?:to|-)\s*/)[0].trim()
+              const shiftNameOnly = normalizedShiftName.split(/\s*(?:to|-)\s*/)[0].trim()
+              if (nameOnly && shiftNameOnly && nameOnly === shiftNameOnly) {
                 const matchingShift = shiftsList.find(s =>
                   isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
                 )
@@ -6493,134 +6675,95 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
                 }
               }
             }
-
-            // Coincidencia por inclusión
-            if (normalizedMapKey.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedMapKey)) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
-              }
-            }
-
-            // Coincidencia por limpieza de caracteres especiales
-            const nameClean = normalizedMapKey.replace(/[-\s()]/g, '').toLowerCase()
-            const shiftNameClean = normalizedShiftName.replace(/[-\s()]/g, '').toLowerCase()
-            if (nameClean === shiftNameClean && nameClean.length > 0) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
-              }
-            }
-
-            // Coincidencia por primera parte del nombre (antes de "to" o "-")
-            const nameOnly = normalizedMapKey.split(/\s*(?:to|-)\s*/)[0].trim()
-            const shiftNameOnly = normalizedShiftName.split(/\s*(?:to|-)\s*/)[0].trim()
-            if (nameOnly && shiftNameOnly && nameOnly === shiftNameOnly) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
-              }
-            }
           }
-        }
 
-        if (!shiftId) {
-          results.errors.push(
-            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Turno "${shiftName}" no encontrado para la unidad de negocio del empleado`
-          )
-          continue
-        }
-
-        const employeeShiftService = new EmployeeShiftService(this.i18n)
-        const dateStr = `${date.toFormat('yyyy-MM-dd')} 00:00:00`
-
-        try {
-          const employeeShift = {
-            employeeId: employeeId,
-            shiftId: shiftId,
-            employeShiftsApplySince: employeeShiftService.getDateAndTime(dateStr),
-          } as EmployeeShift
-
-          const verifyInfo = await employeeShiftService.verifyInfo(employeeShift)
-
-          if (verifyInfo.status !== 200) {
+          if (!shiftId) {
             results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Turno "${shiftName}" no encontrado para la unidad de negocio del empleado`
             )
             continue
           }
 
-          await employeeShiftService.deleteEmployeeShifts(employeeShift)
-          const newEmployeeShift = await EmployeeShift.create(employeeShift)
+          const employeeShiftService = new EmployeeShiftService(this.i18n)
+          const dateStr = `${date.toFormat('yyyy-MM-dd')} 00:00:00`
 
-          // Guardar log en MongoDB si se proporcionan headers y userId
-          if (rawHeaders && userId) {
-            try {
-              const logEmployeeShift =
-                employeeShiftService.createActionLog(rawHeaders, 'store')
-              logEmployeeShift.user_id = userId
-              logEmployeeShift.record_current =
-                JSON.parse(JSON.stringify(newEmployeeShift))
-              await employeeShiftService.saveActionOnLog(logEmployeeShift)
-            } catch (logError) {
-              // Si falla el log, no interrumpir la importación
-              console.warn('Error guardando log de importación:', logError)
+          try {
+            const employeeShift = {
+              employeeId: employee.employeeId,
+              shiftId: shiftId,
+              employeShiftsApplySince: employeeShiftService.getDateAndTime(dateStr),
+            } as EmployeeShift
+
+            const verifyInfo = await employeeShiftService.verifyInfo(employeeShift)
+
+            if (verifyInfo.status !== 200) {
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+              )
+              continue
             }
+
+            await employeeShiftService.deleteEmployeeShifts(employeeShift)
+            const newEmployeeShift = await EmployeeShift.create(employeeShift)
+
+            // Guardar log en MongoDB si se proporcionan headers y userId
+            if (rawHeaders && userId) {
+              try {
+                const logEmployeeShift =
+                  employeeShiftService.createActionLog(rawHeaders, 'store')
+                logEmployeeShift.user_id = userId
+                logEmployeeShift.record_current =
+                  JSON.parse(JSON.stringify(newEmployeeShift))
+                await employeeShiftService.saveActionOnLog(logEmployeeShift)
+              } catch (logError) {
+                // Si falla el log, no interrumpir la importación
+                console.warn('Error guardando log de importación:', logError)
+              }
+            }
+
+            const dateObj = date.toJSDate()
+            await employeeShiftService.updateAssistCalendar(employee.employeeId, dateObj)
+
+            processedAny = true
+            results.created++
+          } catch (error: any) {
+            logger.error({ err: error, rowNumber }, 'Error al asignar turno en importación masiva')
+            results.errors.push(
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al asignar turno`
+            )
           }
+        }
 
-          const dateObj = date.toJSDate()
-          await employeeShiftService.updateAssistCalendar(employeeId, dateObj)
-
-          processedAny = true
-          results.created++
-        } catch (error: any) {
-          results.errors.push(
-            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al asignar turno - ${error.message}`
-          )
+        if (processedAny) {
+          results.processed++
         }
       }
 
-      if (processedAny) {
-        results.processed++
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Importación completada',
+        message: 'Las asignaciones de turnos se importaron correctamente',
+        data: results
+      }
+    } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al procesar el archivo Excel de asignaciones de turnos')
+      const resolved = resolveEmployeeImportApiError(error, 500, this.i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+        key: 'error-importacion-turnos',
+      })
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error al importar',
+        message: 'Ocurrió un error al procesar el archivo Excel',
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
+        data: null
       }
     }
-
-    return {
-      status: 200,
-      type: 'success',
-      title: 'Importación completada',
-      message: 'Las asignaciones de turnos se importaron correctamente',
-      data: results
-    }
-  } catch (error: any) {
-    return {
-      status: 500,
-      type: 'error',
-      title: 'Error al importar',
-      message: 'Ocurrió un error al procesar el archivo Excel',
-      error: error.message,
-      data: null
-    }
   }
-}
 
   /**
    * Genera un reporte de asistencia en Excel agrupado por departamento.
@@ -7228,10 +7371,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
               // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
               const isSpecialDay = assist.isRestDay ||
-                                   assist.isVacationDate ||
-                                   assist.isWorkDisabilityDate ||
-                                   assist.isHoliday ||
-                                   (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+                assist.isVacationDate ||
+                assist.isWorkDisabilityDate ||
+                assist.isHoliday ||
+                (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
 
               if (isSpecialDay) {
                 cellColor = 'FFFFFFFF'
@@ -7301,7 +7444,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // ==============================
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
- }
+  }
 
   /**
    * Elimina definitivamente todos los empleados y sus registros relacionados en otras tablas
@@ -8132,7 +8275,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
-    
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
@@ -8149,7 +8292,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(filters.employeeWorkSchedule, (query) => {

@@ -44,7 +44,38 @@ export default class PermissionGateService {
       if (!enforced) {
         return { allowed: true, reason: 'module-not-enforced' }
       }
+    } catch (error) {
+      logger.error(
+        { err: error, module: options.module, action: options.action },
+        'PermissionGateService: no se pudo determinar el permiso; se niega la operación'
+      )
+      return { allowed: false, reason: 'unresolved' }
+    }
 
+    return this.resolveByIdentity(user, options)
+  }
+
+  /**
+   * Igual que `evaluate`, pero SIN consultar la exigencia del módulo: la decisión
+   * se resuelve siempre por identidad -> bypass -> concesiones reales.
+   *
+   * La consumen las cuatro rebanadas de datos sensibles (USRH1787204602825/28/19/29).
+   * Ahí `module-not-enforced` no puede OTORGAR —abriría las columnas clasificadas
+   * a cualquier autenticado— ni NEGAR a secas —cerraría también a `root` y `owner`,
+   * que son la única salida del tenant—. Por eso no participa.
+   */
+  async evaluateEnforced(
+    user: User | null | undefined,
+    options: PermissionGateOptions
+  ): Promise<PermissionGateDecision> {
+    return this.resolveByIdentity(user, options)
+  }
+
+  private async resolveByIdentity(
+    user: User | null | undefined,
+    options: PermissionGateOptions
+  ): Promise<PermissionGateDecision> {
+    try {
       if (!user) {
         return { allowed: false, reason: 'unresolved' }
       }

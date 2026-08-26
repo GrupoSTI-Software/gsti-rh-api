@@ -4,9 +4,10 @@ import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import Bank from './bank.js'
 import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
@@ -59,7 +60,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *
  */
 
-export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
+export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeBankId: number
 
@@ -79,7 +80,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'financiero'),
+    serialize: sensitiveSerialize('EmployeeBank', 'employeeBankAccountClabe'),
   })
   declare employeeBankAccountClabe: string
 
@@ -100,7 +101,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'financiero'),
+    serialize: sensitiveSerialize('EmployeeBank', 'employeeBankAccountNumber'),
   })
   declare employeeBankAccountNumber: string
 
@@ -121,7 +122,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
         return null
       }
     },
-    serialize: (value: string | null) => maskSensitiveValue(value, 'financiero'),
+    serialize: sensitiveSerialize('EmployeeBank', 'employeeBankAccountCardNumber'),
   })
   declare employeeBankAccountCardNumber: string
 

@@ -30,6 +30,27 @@ void downloadSlug
 const importVacationsSlug: EmployeeActionSlug = 'import-vacations'
 void importVacationsSlug
 
+const sensitiveIdentificacionRead: EmployeeActionSlug = 'sensitive-identificacion-read'
+void sensitiveIdentificacionRead
+const sensitiveContactoRead: EmployeeActionSlug = 'sensitive-contacto-read'
+void sensitiveContactoRead
+const sensitiveFinancieroRead: EmployeeActionSlug = 'sensitive-financiero-read'
+void sensitiveFinancieroRead
+const sensitiveSaludRead: EmployeeActionSlug = 'sensitive-salud-read'
+void sensitiveSaludRead
+const sensitiveBiometricoRead: EmployeeActionSlug = 'sensitive-biometrico-read'
+void sensitiveBiometricoRead
+const sensitiveIdentificacionWrite: EmployeeActionSlug = 'sensitive-identificacion-write'
+void sensitiveIdentificacionWrite
+const sensitiveContactoWrite: EmployeeActionSlug = 'sensitive-contacto-write'
+void sensitiveContactoWrite
+const sensitiveFinancieroWrite: EmployeeActionSlug = 'sensitive-financiero-write'
+void sensitiveFinancieroWrite
+const sensitiveSaludWrite: EmployeeActionSlug = 'sensitive-salud-write'
+void sensitiveSaludWrite
+const sensitiveBiometricoWrite: EmployeeActionSlug = 'sensitive-biometrico-write'
+void sensitiveBiometricoWrite
+
 // @ts-expect-error — slug inventado: no existe en el catálogo, debe fallar.
 const madeUpSlug: EmployeeActionSlug = 'totally-made-up-slug-xyz'
 void madeUpSlug

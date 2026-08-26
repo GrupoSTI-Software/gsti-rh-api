@@ -18,6 +18,10 @@ import { resolveTraumaticEventReportApiError } from '../helpers/traumatic_event_
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
 import PiiExportService from '#services/pii_export_service'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 const MODULE_SLUG = 'traumatic-event-reports'
 
@@ -132,10 +136,10 @@ export default class TraumaticEventReportController {
    *                 description: Fecha de ocurrencia (no puede ser futura).
    *               traumaticEventReportInvolvedPeople:
    *                 type: string
-   *                 description: Personas involucradas en el evento.
+   *                 description: Personas involucradas en el evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               traumaticEventReportDescription:
    *                 type: string
-   *                 description: Descripción del evento.
+   *                 description: Descripción del evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     responses:
    *       '201': { description: Reporte creado con elaboratedAt, origin=rh y capturedByUserId asignados }
    *       '400':
@@ -144,7 +148,19 @@ export default class TraumaticEventReportController {
    *           - `fecha-ocurrencia-futura` (fecha futura)
    *           - `tipo-evento-invalido` (tipo inexistente o inactivo)
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso create en el módulo }
+   *       '403':
+   *         description: |
+   *           Sin permiso create en el módulo.
+   *           Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Empleado fuera del scope del usuario }
    */
   async store(ctx: HttpContext) {
@@ -175,6 +191,7 @@ export default class TraumaticEventReportController {
         201
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -214,10 +231,10 @@ export default class TraumaticEventReportController {
    *                 description: Fecha de ocurrencia (no puede ser futura).
    *               traumaticEventReportInvolvedPeople:
    *                 type: string
-   *                 description: Personas involucradas en el evento.
+   *                 description: Personas involucradas en el evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *               traumaticEventReportDescription:
    *                 type: string
-   *                 description: Descripción del evento.
+   *                 description: Descripción del evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     responses:
    *       '201': { description: Reporte creado con origin=employee, elaboratedAt y capturedByUserId asignados por el servidor }
    *       '400':
@@ -227,6 +244,17 @@ export default class TraumaticEventReportController {
    *           - `tipo-evento-invalido` (tipo inexistente o inactivo)
    *           - `empleado-no-asociado` (el usuario autenticado no tiene empleado)
    *       '401': { description: Sin autenticación (guard auth) }
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
   async storeFromEmployee(ctx: HttpContext) {
     const { request, response } = ctx
@@ -273,6 +301,7 @@ export default class TraumaticEventReportController {
         201
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }
@@ -347,13 +376,29 @@ export default class TraumaticEventReportController {
    *               traumaticEventReportOccurredAt:
    *                 type: string
    *                 format: date
-   *               traumaticEventReportInvolvedPeople: { type: string }
-   *               traumaticEventReportDescription: { type: string }
+   *               traumaticEventReportInvolvedPeople:
+   *                 type: string
+   *                 description: Personas involucradas en el evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
+   *               traumaticEventReportDescription:
+   *                 type: string
+   *                 description: Descripción del evento. Puede llegar enmascarado según el permiso de lectura de su categoría.
    *     responses:
    *       '200': { description: Reporte actualizado }
    *       '400': { description: Validación inválida }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso update en el módulo }
+   *       '403':
+   *         description: |
+   *           Sin permiso update en el módulo.
+   *           Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '404': { description: Reporte inexistente o fuera del scope }
    */
   async update(ctx: HttpContext) {
@@ -384,6 +429,7 @@ export default class TraumaticEventReportController {
         'Reporte de evento traumático actualizado correctamente'
       )
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       return this.respondError(error, response, 400)
     }
   }

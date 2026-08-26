@@ -32,6 +32,7 @@ router
     router
       .get('/plans/:planId/price', '#controllers/billing_tenant_controller.publicPlanPrice')
       .where('planId', router.matchers.number())
+    router.get('/public-plan', '#controllers/billing_tenant_controller.publicPlan')
   })
   .prefix('/api/signup')
   .use(signupCatalogRateLimit)

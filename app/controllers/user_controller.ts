@@ -5,7 +5,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import ApiToken from '../models/api_token.js'
 import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
-import env from '../../start/env.js'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import UserService from '#services/user_service'
 import { createUserValidator, updateUserValidator } from '#validators/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
@@ -32,6 +32,14 @@ import {
   generateProvisionalPassword,
 } from '#helpers/user_invitation_credentials'
 import { USER_INVITATION_LOGIN_ERRORS, USER_INVITATION_RESEND_ERRORS } from '#constants/user_invitation_error_codes'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
+import { normalizeToken } from '#helpers/employee_termination_record'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -55,6 +63,27 @@ async function dispatchUserInvitationEmail(user: User): Promise<void> {
     language: 'es',
     canAccessBackoffice,
   })
+}
+
+/**
+ * Verifica el permiso de categoría `contacto` ANTES de crear/actualizar el `User`,
+ * para no dejar un `User` huérfano si `Person.personEmail` cambiaría y el actor
+ * no tiene `sensitive-contacto-write` (hallazgo Important 1, revisión final de
+ * sensitive-write-by-category).
+ */
+function assertContactoEmailWriteAllowed(
+  currentEmail: string | null | undefined,
+  newEmail: string | null | undefined
+): void {
+  if (!SensitiveAccessContext.isActive() || SensitiveAccessContext.isUnguarded()) return
+  if (normalizeToken(currentEmail) === normalizeToken(newEmail)) return
+
+  const decision = SensitiveAccessContext.writeDecision('contacto')
+  if (decision === 'allowed') return
+  if (decision === 'unresolved') {
+    throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED)
+  }
+  throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.FORBIDDEN, 'contacto')
 }
 
 export default class UserController {
@@ -906,8 +935,6 @@ export default class UserController {
       user.pinCodeExpiresAt = DateTime.utc().plus({ minutes: PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES })
       await user.save()
 
-      const smtpUsername = env.get('SMTP_USERNAME')
-
       if (isApp) {
         // USRH1783712837584: este endpoint corre sin usuario autenticado
         // (recuperación de contraseña, previo al login) — no hay empresa en
@@ -919,23 +946,22 @@ export default class UserController {
         const backgroundImageLogo =
           'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
-        if (smtpUsername) {
-          const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
-          await mail.send((message) => {
-            message
-              .to(user.userEmail)
-              .from(smtpUsername, tradeName)
-              .subject(emailSubject)
-              .htmlView('emails/request_password', {
-                user,
-                token: user.userToken,
-                host_data: hostData,
-                backgroundImageLogo,
-                isApp: true,
-                pinCode: user.pinCode,
-              })
-          })
-        }
+        const smtpUsername = resolveMailSender()
+        const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
+        await mail.send((message) => {
+          message
+            .to(user.userEmail)
+            .from(smtpUsername, tradeName)
+            .subject(emailSubject)
+            .htmlView('emails/request_password', {
+              user,
+              token: user.userToken,
+              host_data: hostData,
+              backgroundImageLogo,
+              isApp: true,
+              pinCode: user.pinCode,
+            })
+        })
       } else {
         const resetUrl = `${hostData.host_uri.replace(/\/$/, '')}/new-password/${user.userToken}`
         const authMailService = new AuthMailService()
@@ -1548,8 +1574,20 @@ export default class UserController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       const userEmail = request.input('userEmail')
       const userActive = request.input('userActive')
@@ -1588,16 +1626,25 @@ export default class UserController {
           data: { ...data },
         }
       }
+      let personForEmailSync: Person | null = null
+      if (userEmailType === 'personal') {
+        personForEmailSync = await Person.query()
+          .where('person_id', personId)
+          .whereNull('person_deleted_at')
+          .first()
+        if (personForEmailSync) {
+          // Verificar el permiso de `contacto` ANTES de crear el `User`: evita dejar
+          // un `User` huérfano si el correo de la persona no puede actualizarse.
+          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
+        }
+      }
+
       const newUser = await userService.create(user, businessUnitIds)
       if (newUser) {
         if (newUser.userEmailType === 'personal') {
-          const person = await Person.query()
-            .where('person_id', personId)
-            .whereNull('person_deleted_at')
-            .first()
-          if (person) {
-            person.personEmail = newUser.userEmail
-            await person.save()
+          if (personForEmailSync) {
+            personForEmailSync.personEmail = newUser.userEmail
+            await personForEmailSync.save()
           }
         } else {
           const employee = await Employee.query()
@@ -1630,6 +1677,7 @@ export default class UserController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1909,8 +1957,20 @@ export default class UserController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async update({ auth, request, response, i18n, scopedUser }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { auth, request, response, i18n, scopedUser } = ctx
     try {
       const currentUser = scopedUser!
       const userId = currentUser.userId
@@ -1941,16 +2001,25 @@ export default class UserController {
           data: { ...data },
         }
       }
+      let personForEmailSync: Person | null = null
+      if (userEmailType === 'personal') {
+        personForEmailSync = await Person.query()
+          .where('person_id', personId)
+          .whereNull('person_deleted_at')
+          .first()
+        if (personForEmailSync) {
+          // Verificar el permiso de `contacto` ANTES de actualizar el `User`: evita
+          // dejar el `User` ya actualizado sin poder sincronizar el correo de la persona.
+          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
+        }
+      }
+
       const updateUser = await userService.update(currentUser, user)
       if (updateUser) {
         if (updateUser.userEmailType === 'personal') {
-          const person = await Person.query()
-            .where('person_id', personId)
-            .whereNull('person_deleted_at')
-            .first()
-          if (person) {
-            person.personEmail = updateUser.userEmail
-            await person.save()
+          if (personForEmailSync) {
+            personForEmailSync.personEmail = updateUser.userEmail
+            await personForEmailSync.save()
           }
         } else {
           const employee = await Employee.query()
@@ -1980,6 +2049,7 @@ export default class UserController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

@@ -52,7 +52,7 @@ import EmployeePositionLevelService from '#services/employee_position_level_serv
 import { EmployeePositionLevelError } from '../exceptions/employee_position_level_error.js'
 import { resolveEmployeePositionLevelApiError } from '../helpers/employee_position_level_api_error.js'
 import { respondEmployeeImportValFileError } from '../helpers/employee_import_request_errors.js'
-import { EMPLOYEE_IMPORT_UPLOAD } from '../constants/employee_import_error_codes.js'
+import { EMPLOYEE_IMPORT_UPLOAD, EMPLOYEE_IMPORT_ERROR_CODES } from '../constants/employee_import_error_codes.js'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
 import { SENSITIVE_EXPORT_INVENTORY } from '#constants/sensitive_export_inventory'
 import {
@@ -66,6 +66,10 @@ import { isEmployeeTerminationRecordChanged } from '#helpers/employee_terminatio
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 import EmployeeQuotaService from '#services/employee_quota_service'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -859,7 +863,8 @@ export default class EmployeeController {
    *                 default: 1
    *               dailySalary:
    *                 type: number
-   *                 description: Daily salary
+   *                 nullable: true
+   *                 description: Daily salary. Nullable in API responses for users without financial-data read permission (returns null). On creation, an absent value defaults to 0 (unchanged create-path behavior).
    *                 required: false
    *                 default: 0
    *               payrollBusinessUnitId:
@@ -1354,9 +1359,9 @@ export default class EmployeeController {
    *                 default: 1
    *               dailySalary:
    *                 type: number
-   *                 description: Daily salary
+   *                 nullable: true
+   *                 description: Salario diario. Ausente, `null` o no numérico = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió).
    *                 required: false
-   *                 default: 0
    *               payrollBusinessUnitId:
    *                 type: number
    *                 description: Payroll Business Unit id
@@ -1554,7 +1559,13 @@ export default class EmployeeController {
       const employeeTypeId = request.input('employeeTypeId')
       const employeeBusinessEmail = request.input('employeeBusinessEmail')
       const employeeTypeOfContract = request.input('employeeTypeOfContract')
-      const dailySalary = request.input('dailySalary') || 0
+      // Eco destructivo (USRH1787433076994): el BO reenvía el registro
+      // completo, incluyendo el `dailySalary: null` que recibió por no tener
+      // el permiso de lectura sensible. Ausente/null/no numérico = no tocar
+      // el salario; solo un número finito (incluyendo 0 explícito) se aplica.
+      const dailySalaryRaw = request.input('dailySalary')
+      const dailySalaryFinite =
+        typeof dailySalaryRaw === 'number' && Number.isFinite(dailySalaryRaw) ? dailySalaryRaw : null
       const salaryChangeReason: string | null = request.input('salaryChangeReason') ?? null
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
@@ -1579,7 +1590,6 @@ export default class EmployeeController {
         departmentId: departmentId,
         positionId: positionId,
         businessUnitId: request.input('businessUnitId'),
-        dailySalary: dailySalary,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeWorkSchedule: employeeWorkSchedule,
         employeeWorkScheduleHybridMode: employeeWorkScheduleHybridMode,
@@ -1728,6 +1738,14 @@ export default class EmployeeController {
           currentPositionId: currentEmployee.positionId,
         })
         employee.positionLevelConfigId = positionLevelConfigId
+      }
+
+      // Eco destructivo (USRH1787433076994): solo se fija `dailySalary` en el
+      // payload de salida cuando el request trajo un número finito. Ausente,
+      // `null` o no numérico deja la propiedad fuera de `employee`, de modo
+      // que `employeeService.update` conserve el valor actual.
+      if (dailySalaryFinite !== null) {
+        employee.dailySalary = dailySalaryFinite
       }
 
       const previousEmail = currentEmployee.employeeBusinessEmail
@@ -7112,6 +7130,27 @@ export default class EmployeeController {
    *                   key: cabeceras-invalidas
    *                   code: EMP.IMPORT.VAL_HEADERS
    *                   data: null
+   *       403:
+   *         description: |
+   *           El archivo incluye columnas de datos sensibles sin permiso de escritura de la categoría.
+   *           No se procesa ningún renglón. En otras rutas de escritura, un valor con forma de máscara
+   *           del sistema se trata como no enviado cuando el usuario no tiene lectura de la categoría.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: El archivo contiene datos sensibles que no puedes modificar
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: el-archivo-contiene-datos-sensibles-que-no-puedes-modificar
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
    *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
@@ -7196,8 +7235,20 @@ export default class EmployeeController {
    *                   example: EMP.IMPORT.SERVER
    *                 data:
    *                   nullable: true
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Sin permiso para modificar datos sensibles }
+   *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
+   *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
+   *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    */
-  async importFromExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async importFromExcel(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const file = request.file('file')
 
@@ -7274,6 +7325,7 @@ export default class EmployeeController {
         data: result,
       }
     } catch (error: unknown) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error instanceof EmployeeQuotaError) {
         const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
         response.status(resolved.status)
@@ -7570,9 +7622,14 @@ export default class EmployeeController {
    *                 message:
    *                   type: string
    *                   example: Ocurrió un error inesperado al generar la plantilla
-   *                 error:
+   *                 detail:
    *                   type: string
-   *                   example: Error details
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion-turnos
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER_SHIFTS
    */
   async getShiftAssignmentTemplate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -7691,12 +7748,19 @@ export default class EmployeeController {
       response.status(200)
       return response.send(buffer)
     } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al generar la plantilla de asignación de turnos')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+        key: 'error-importacion-turnos',
+      })
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al generar la plantilla',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }
@@ -8141,7 +8205,7 @@ export default class EmployeeController {
    *                   example: Validation error
    *                 message:
    *                   type: string
-   *                   example: Excel file is required
+   *                   example: El archivo debe ser un Excel válido (.xlsx o .xls).
    *       500:
    *         description: Error interno del servidor
    *         content:
@@ -8158,10 +8222,16 @@ export default class EmployeeController {
    *                 message:
    *                   type: string
    *                   example: Ocurrió un error al procesar el archivo Excel
-   *                 error:
+   *                 detail:
    *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: error-importacion-turnos
+   *                 code:
+   *                   type: string
+   *                   example: EMP.IMPORT.SERVER_SHIFTS
    */
-  async importShiftAssignments({ auth, request, response, i18n }: HttpContext) {
+  async importShiftAssignments({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
 
@@ -8198,11 +8268,12 @@ export default class EmployeeController {
           const workbook = new ExcelJSLib.Workbook()
           await workbook.xlsx.readFile(file.tmpPath || '')
         } catch (excelError: any) {
+          logger.warn({ err: excelError }, 'ExcelJS no pudo leer el archivo de importación de turnos')
           response.status(400)
           return {
             type: 'error',
             title: 'Validation error',
-            message: `El archivo debe ser un Excel válido (.xlsx o .xls). Error: ${excelError.message}`,
+            message: 'El archivo debe ser un Excel válido (.xlsx o .xls).',
           }
         }
       }
@@ -8213,18 +8284,26 @@ export default class EmployeeController {
       const result = await employeeService.importShiftAssignmentsFromExcel(
         file,
         rawHeaders,
-        userId
+        userId,
+        businessUnitScope
       )
 
       response.status(result.status)
       return result
     } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al importar asignaciones de turnos')
+      const resolved = resolveEmployeeImportApiError(error, 500, i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+        key: 'error-importacion-turnos',
+      })
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'Ocurrió un error inesperado al importar las asignaciones',
-        error: error.message,
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
       }
     }
   }

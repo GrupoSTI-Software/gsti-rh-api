@@ -1,4 +1,6 @@
 import type { PermissionGateOptions } from '#constants/permission_gate'
+import type { EmployeeActionSlug } from '#constants/employees_permission_catalog'
+import type { LegalCategory } from '#constants/sensitive_fields'
 
 const employeesStandard = (
   action: string | readonly string[]
@@ -7,6 +9,9 @@ const employeesStandard = (
   action,
   bypass: 'standard',
 })
+
+const employeesSensitiveRead = (action: EmployeeActionSlug): PermissionGateOptions =>
+  employeesStandard(action)
 
 /**
  * Mapa de declaraciones de permiso de lectura del expediente (USRH1785766406733) y del listado (USRH1785766406734).
@@ -146,4 +151,17 @@ export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_READ_PERMISSION: Permission
 
 export const EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION: PermissionGateOptions =
   employeesStandard('read-terminated-employees')
+
+/**
+ * Permisos de lectura por categoría legal (USRH1787204602825).
+ * Consumidos por `resolveSensitiveReadDecisions`; no se montan en rutas.
+ * Un slug inventado no compila: `employeesSensitiveRead` exige `EmployeeActionSlug`.
+ */
+export const EMPLOYEES_SENSITIVE_READ_PERMISSIONS: Record<LegalCategory, PermissionGateOptions> = {
+  identificacion: employeesSensitiveRead('sensitive-identificacion-read'),
+  contacto: employeesSensitiveRead('sensitive-contacto-read'),
+  financiero: employeesSensitiveRead('sensitive-financiero-read'),
+  salud: employeesSensitiveRead('sensitive-salud-read'),
+  biometrico: employeesSensitiveRead('sensitive-biometrico-read'),
+}
 

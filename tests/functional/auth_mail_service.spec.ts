@@ -19,42 +19,24 @@ import WelcomeMail from '#mails/welcome_mail'
  * envíos sin tocar el SMTP real, aprovechando el patrón `BaseMail` idiomático
  * de Adonis 6.
  *
- * El escenario "SMTP no configurado" no se cubre aquí porque manipular
- * `env.get` en runtime es frágil; ese camino está cubierto por el control de
- * flujo defensivo del servicio (`resolveSenderEmail()` + try/catch).
+ * El remitente se resuelve mediante `resolveMailSender()` (USRH1787178944072):
+ * siempre devuelve un valor no vacío, por lo que el envío ya no depende de que
+ * `SMTP_USERNAME` esté configurado; los correos se despachan en todo entorno.
  */
 
 const TEST_RECIPIENT = 'demo@gsti.mx'
-const TEST_SMTP_SENDER = 'smtp-tests@gsti.local'
-
-async function withSmtpConfigured(executor: () => Promise<void>) {
-  const originalSmtp = process.env.SMTP_USERNAME
-  process.env.SMTP_USERNAME = TEST_SMTP_SENDER
-
-  try {
-    await executor()
-  } finally {
-    if (originalSmtp === undefined) {
-      delete process.env.SMTP_USERNAME
-    } else {
-      process.env.SMTP_USERNAME = originalSmtp
-    }
-  }
-}
 
 test.group('AuthMailService - sendSignupOtp', () => {
   test('despacha SignupOtpMail con el OTP en el HTML y en el asunto (es)', async ({ assert }) => {
     const fake = mail.fake()
     try {
-      await withSmtpConfigured(async () => {
-        const service = new AuthMailService()
+      const service = new AuthMailService()
 
-        await service.sendSignupOtp({
-          to: TEST_RECIPIENT,
-          firstName: 'Diara',
-          pinCode: '482917',
-          language: 'es',
-        })
+      await service.sendSignupOtp({
+        to: TEST_RECIPIENT,
+        firstName: 'Diara',
+        pinCode: '482917',
+        language: 'es',
       })
 
       fake.mails.assertSent(SignupOtpMail, ({ message }) => {
@@ -72,21 +54,19 @@ test.group('AuthMailService - sendSignupOtp', () => {
   test('genera asuntos distintos por idioma (en vs es)', async ({ assert }) => {
     const fake = mail.fake()
     try {
-      await withSmtpConfigured(async () => {
-        const service = new AuthMailService()
+      const service = new AuthMailService()
 
-        await service.sendSignupOtp({
-          to: TEST_RECIPIENT,
-          firstName: 'Diara',
-          pinCode: '100200',
-          language: 'es',
-        })
-        await service.sendSignupOtp({
-          to: TEST_RECIPIENT,
-          firstName: 'Diara',
-          pinCode: '100200',
-          language: 'en',
-        })
+      await service.sendSignupOtp({
+        to: TEST_RECIPIENT,
+        firstName: 'Diara',
+        pinCode: '100200',
+        language: 'es',
+      })
+      await service.sendSignupOtp({
+        to: TEST_RECIPIENT,
+        firstName: 'Diara',
+        pinCode: '100200',
+        language: 'en',
       })
 
       fake.mails.assertSentCount(SignupOtpMail, 2)
@@ -108,16 +88,14 @@ test.group('AuthMailService - sendSignupOtp', () => {
   test('resuelve sin lanzar incluso si el servicio recibe inputs vacíos', async ({ assert }) => {
     const fake = mail.fake()
     try {
-      await withSmtpConfigured(async () => {
-        const service = new AuthMailService()
+      const service = new AuthMailService()
 
-        await assert.doesNotReject(async () => {
-          await service.sendSignupOtp({
-            to: TEST_RECIPIENT,
-            firstName: '',
-            pinCode: '',
-            language: 'es',
-          })
+      await assert.doesNotReject(async () => {
+        await service.sendSignupOtp({
+          to: TEST_RECIPIENT,
+          firstName: '',
+          pinCode: '',
+          language: 'es',
         })
       })
 
@@ -134,15 +112,13 @@ test.group('AuthMailService - sendWelcome', () => {
   test('despacha WelcomeMail con business unit y CTA en el HTML (en)', async ({ assert }) => {
     const fake = mail.fake()
     try {
-      await withSmtpConfigured(async () => {
-        const service = new AuthMailService()
+      const service = new AuthMailService()
 
-        await service.sendWelcome({
-          to: TEST_RECIPIENT,
-          firstName: 'Diara',
-          businessUnitName: 'Onest',
-          language: 'en',
-        })
+      await service.sendWelcome({
+        to: TEST_RECIPIENT,
+        firstName: 'Diara',
+        businessUnitName: 'Onest',
+        language: 'en',
       })
 
       fake.mails.assertSent(WelcomeMail, ({ message }) => {
@@ -160,15 +136,13 @@ test.group('AuthMailService - sendWelcome', () => {
   test('aplica el idioma indicado al asunto y al CTA (es)', async ({ assert }) => {
     const fake = mail.fake()
     try {
-      await withSmtpConfigured(async () => {
-        const service = new AuthMailService()
+      const service = new AuthMailService()
 
-        await service.sendWelcome({
-          to: TEST_RECIPIENT,
-          firstName: 'Diara',
-          businessUnitName: 'Onest',
-          language: 'es',
-        })
+      await service.sendWelcome({
+        to: TEST_RECIPIENT,
+        firstName: 'Diara',
+        businessUnitName: 'Onest',
+        language: 'es',
       })
 
       fake.mails.assertSent(WelcomeMail, ({ message }) => {

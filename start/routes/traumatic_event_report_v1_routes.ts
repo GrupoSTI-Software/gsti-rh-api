@@ -18,3 +18,4 @@ router
   .prefix('/api/v1')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())
