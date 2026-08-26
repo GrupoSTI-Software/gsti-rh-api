@@ -21,3 +21,5 @@ router
   .prefix('/api/employee-banks')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())
+  .use(middleware.sensitiveMaskEcho())

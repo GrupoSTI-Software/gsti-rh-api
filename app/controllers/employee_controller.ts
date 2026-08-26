@@ -7116,6 +7116,27 @@ export default class EmployeeController {
    *                   key: cabeceras-invalidas
    *                   code: EMP.IMPORT.VAL_HEADERS
    *                   data: null
+   *       403:
+   *         description: |
+   *           El archivo incluye columnas de datos sensibles sin permiso de escritura de la categoría.
+   *           No se procesa ningún renglón. En otras rutas de escritura, un valor con forma de máscara
+   *           del sistema se trata como no enviado cuando el usuario no tiene lectura de la categoría.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: El archivo contiene datos sensibles que no puedes modificar
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: el-archivo-contiene-datos-sensibles-que-no-puedes-modificar
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
    *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.

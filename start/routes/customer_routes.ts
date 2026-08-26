@@ -16,3 +16,4 @@ router
   .prefix('/api/customers')
   .use(middleware.auth())
   .use(middleware.sensitiveAccess())
+  .use(middleware.sensitiveMaskEcho())
