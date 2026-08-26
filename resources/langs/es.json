@@ -2842,6 +2842,8 @@
   "sensitive_data_write_category_financiero": "datos financieros",
   "sensitive_data_write_category_salud": "datos de salud",
   "sensitive_data_write_category_biometrico": "datos biométricos",
+  "sensitive_data_write_import_forbidden_title": "El archivo contiene datos sensibles que no puedes modificar",
+  "sensitive_data_write_import_forbidden_detail": "El archivo incluye columnas de {category} y no tienes permiso para modificarlos. No se procesó ningún registro.",
   "access_point_employee_title": "Punto de acceso del colaborador",
   "access_point_employee_assigned_message": "El punto de acceso fue asignado al colaborador",
   "access_point_employee_removed_message": "El punto de acceso fue retirado del colaborador",

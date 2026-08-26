@@ -110,7 +110,7 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     assert.equal(reloaded.personMaritalStatus, 'married')
   })
 
-  test('CA-1: eco de máscara en RFC es 400/422, nunca 403 de escritura', async ({
+  test('CA-1 (orden 34): eco de máscara en RFC pasa sin error y no sobrescribe', async ({
     client,
     assert,
   }) => {
@@ -122,7 +122,7 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
       .json(personUpdateBase(person, { personRfc: MASK_ECHO }))
 
-    assert.isTrue(response.status() === 400 || response.status() === 422)
+    assert.equal(response.status(), 201)
     assert.notEqual(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
     const reloaded = await reloadPerson(person.personId)
     assert.equal(reloaded.personRfc, RFC_ORIGINAL)

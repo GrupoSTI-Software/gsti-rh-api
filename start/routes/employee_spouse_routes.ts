@@ -21,3 +21,4 @@ router
   .prefix('/api/employee-spouses')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())
