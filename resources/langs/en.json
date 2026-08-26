@@ -1237,8 +1237,14 @@
       "greeting": "Hi, {firstName}",
       "intro": "You requested to access {tradeName} via magic link. Click the button below to sign in without a password:",
       "cta": "Access the system",
-      "validity": "This link is valid for {minutes} minutes and can only be used once. If it expires, request a new one from the sign-in screen.",
+      "info_title": "What is a magic link?",
+      "info_body": "It is a way to sign in without typing a password. The link carries a unique key generated only for you at the moment of your request: when you open it, {tradeName} recognizes that key and opens your session in the browser where you clicked.",
+      "info_bullet_single_use": "It works only once and expires within a few minutes.",
+      "info_bullet_no_password": "It never asks for or transmits your password.",
+      "info_bullet_no_data_request": "We will never ask you for details by email. This message only contains your access link.",
+      "validity": "This link is valid for <strong>{minutes} minutes</strong> and can only be used once. If it expires, request a new one from the sign-in screen.",
       "ignore_notice": "If you did not request this access, please ignore this email. Your account remains secure.",
+      "fallback_url_label": "If the button does not open, copy and paste this URL into your browser:",
       "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
     },
     "user_invitation": {
@@ -1252,17 +1258,31 @@
       "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
       "app_notice": "Download the employee app on your mobile device. Sign in with the email you were registered with and the password you choose via the link.",
       "backoffice_notice": "You can also access the web backoffice from your browser with the same email and the password you choose via the link.",
-      "footer": "© {tradeName} · Automated message, please do not reply to this address."
+      "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
+    },
+    "password_changed": {
+      "subject": "Your {tradeName} password was updated",
+      "preheader": "Your account password was changed successfully. If it wasn't you, act right away.",
+      "title": "Password updated",
+      "greeting_lead": "Hi,",
+      "intro": "Your account password was changed successfully. You can sign in with it now; the previous password stopped working and any reset link you requested is no longer valid.",
+      "cta": "Sign in",
+      "cta_caption": "This will take you to the {tradeName} sign-in page.",
+      "alert_title": "Wasn't you?",
+      "alert_body": "If you did not make this change, someone else may have accessed your account. Reset your password immediately from the sign-in screen and notify your administrator, or write to us at {supportLink}.",
+      "security_notice": "To protect your account, do not forward this message to anyone and do not share your password. {tradeName} will never ask you for it by email or phone.",
+      "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
+      "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
     },
     "password_recovery": {
       "subject": "Reset your password on {tradeName}",
       "preheader": "We received a request to reset your password. Use the link and verification code.",
-      "greeting": "Hi, {firstName}",
+      "greeting_lead": "Hi,",
       "intro": "We received a request to reset your account password. Open the link, then enter the verification code on the page to create a new password.",
       "cta": "Reset password",
       "cta_caption": "This will take you to a secure page where you must verify the code first.",
       "code_label": "Verification code",
-      "validity": "The link and code expire in {minutes} minutes. Do not share them with anyone.",
+      "validity": "The link and code expire in <strong>{minutes} minutes</strong>. Do not share them with anyone.",
       "ignore_notice": "If you did not request this change, please ignore this email. Your current password remains active and your account is protected.",
       "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
       "footer": "© {tradeName} · Automated message, please do not reply to this address."
