@@ -54,3 +54,4 @@ router
   .prefix('/api/users')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())

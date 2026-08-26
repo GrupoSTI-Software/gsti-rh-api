@@ -21,6 +21,10 @@ function makeCtx(locale: 'es' | 'en' = 'es'): HttpContext {
       sensitive_data_write_category_financiero: 'datos financieros',
       sensitive_data_write_category_salud: 'datos de salud',
       sensitive_data_write_category_biometrico: 'datos biométricos',
+      sensitive_data_write_import_forbidden_title:
+        'El archivo contiene datos sensibles que no puedes modificar',
+      sensitive_data_write_import_forbidden_detail:
+        'El archivo incluye columnas de {category} y no tienes permiso para modificarlos. No se procesó ningún registro.',
     },
     en: {
       sensitive_data_write_forbidden_title: 'Not allowed to modify sensitive data',
@@ -100,5 +104,21 @@ test.group('respondSensitiveDataWriteDenial', () => {
     assert.equal(body.title, 'No se pudo determinar el permiso de escritura')
     assert.notInclude(body.detail.toLowerCase(), 'identificacion')
     assert.notInclude(body.detail.toLowerCase(), 'clabe')
+  })
+
+  test('IMPORT_FORBIDDEN nombra categoría y no incluye valores del archivo', ({ assert }) => {
+    const ctx = makeCtx('es')
+    const error = new SensitiveDataWriteError(
+      SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN,
+      'identificacion'
+    )
+    const body = respondSensitiveDataWriteDenial(ctx, error)
+    assert.equal((ctx.response as { statusCode?: number }).statusCode, 403)
+    assert.equal(body.code, 'EMP.SENS.WRITE.IMPORT_FORBIDDEN')
+    assert.equal(body.key, 'el-archivo-contiene-datos-sensibles-que-no-puedes-modificar')
+    assert.include(body.detail, 'datos de identificación')
+    assert.include(body.detail, 'No se procesó ningún registro')
+    assert.notInclude(JSON.stringify(body), 'NSS')
+    assert.notInclude(JSON.stringify(body), '••••')
   })
 })

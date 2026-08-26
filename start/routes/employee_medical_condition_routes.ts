@@ -34,3 +34,5 @@ router
   .prefix('/api/employee-medical-conditions')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())
+  .use(middleware.sensitiveMaskEcho())
