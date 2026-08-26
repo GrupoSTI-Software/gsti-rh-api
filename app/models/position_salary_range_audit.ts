@@ -8,6 +8,7 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
 import encryption from '@adonisjs/core/services/encryption'
 import User from './user.js'
 import PositionSalaryRange from './position_salary_range.js'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
 
@@ -94,6 +95,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'oldMinSalaryDaily'),
   })
   declare oldMinSalaryDaily: number | null
 
@@ -111,6 +113,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'oldMaxSalaryDaily'),
   })
   declare oldMaxSalaryDaily: number | null
 
@@ -128,6 +131,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'newMinSalaryDaily'),
   })
   declare newMinSalaryDaily: number | null
 
@@ -145,6 +149,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'newMaxSalaryDaily'),
   })
   declare newMaxSalaryDaily: number | null
 
