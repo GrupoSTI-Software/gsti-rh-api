@@ -1,5 +1,6 @@
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
@@ -56,7 +57,7 @@ export default class TeleworkPolicyNotificationService {
     }
 
     const branding = await this.resolveBrandingForBusinessUnit(policy.businessUnitId)
-    const from = env.get('SMTP_FROM_ADDRESS', env.get('SMTP_USERNAME', 'no-reply@valanserh.local'))
+    const from = resolveMailSender()
     const isDevelopment = env.get('NODE_ENV') !== 'production'
     const subject = this.buildSubject(type, policy.teleworkPolicyVersion, branding.tradeName)
 

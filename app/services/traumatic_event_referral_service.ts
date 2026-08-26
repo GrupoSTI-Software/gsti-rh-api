@@ -196,10 +196,9 @@ export default class TraumaticEventReferralService {
     const report = await this.reportService.assertReportInScope(reportId, allowedBusinessUnitIds)
     const referral = await this.findReferralOrFail(reportId, referralId)
 
-    await report.load('employee')
     const guard = new RetentionGuardService()
     await guard.assertCanDelete(
-      report.employee.businessUnitId,
+      report.businessUnitId,
       'traumatic_event_referral',
       referral.traumaticEventReferralCreatedAt
     )
