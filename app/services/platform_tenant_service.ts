@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import BusinessUnit from '#models/business_unit'
 import { PLATFORM_TENANT_ERROR_CODES } from '../constants/platform_tenant_error_codes.js'
 import { PlatformTenantServiceError } from '../exceptions/platform_tenant_service_error.js'
 import { toCalendarIsoDate } from '../utils/business_date.js'
@@ -26,6 +27,7 @@ export interface TenantListItem {
   businessUnitName: string
   businessUnitLegalName: string
   businessUnitActive: number
+  hasBiometrics: boolean
   activeEmployees: number
   subscription: TenantSubscriptionSnapshot | null
 }
@@ -177,6 +179,7 @@ export default class PlatformTenantService {
           'bu.business_unit_name as businessUnitName',
           'bu.business_unit_legal_name as businessUnitLegalName',
           'bu.business_unit_active as businessUnitActive',
+          'bu.business_unit_has_biometrics as hasBiometrics',
         ])
         .orderBy('bu.business_unit_name', 'asc')
     }
@@ -227,6 +230,7 @@ export default class PlatformTenantService {
         'bu.business_unit_name as businessUnitName',
         'bu.business_unit_legal_name as businessUnitLegalName',
         'bu.business_unit_active as businessUnitActive',
+        'bu.business_unit_has_biometrics as hasBiometrics',
       ])
       .first()
 
@@ -333,6 +337,44 @@ export default class PlatformTenantService {
 
   // ─── Serialización ──────────────────────────────────────────────────────────
 
+  /**
+   * Enciende o apaga la marca de biométricos en sitio de una empresa.
+   * Solo afecta la visibilidad del apartado de dispositivos en el panel
+   * de GSTI; no altera ningún otro dato ni la operación del cliente.
+   *
+   * @param publicId - UUID público de la empresa (businessUnitPublicId).
+   * @param enabled - `true` para encender, `false` para apagar.
+   * @returns El campo actualizado serializado.
+   * @throws PlatformTenantServiceError 404 si la empresa no existe.
+   */
+  async setTenantBiometrics(
+    publicId: string,
+    enabled: boolean
+  ): Promise<{ businessUnitPublicId: string; hasBiometrics: boolean }> {
+    const bu = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .where('business_unit_public_id', publicId)
+      .first()
+
+    if (!bu) {
+      throw new PlatformTenantServiceError(
+        `Empresa ${publicId} no encontrada`,
+        PLATFORM_TENANT_ERROR_CODES.NOT_FOUND,
+        404,
+        'tenant-no-encontrado',
+        'La empresa solicitada no existe o no está disponible.'
+      )
+    }
+
+    bu.businessUnitHasBiometrics = enabled ? 1 : 0
+    await bu.save()
+
+    return {
+      businessUnitPublicId: bu.businessUnitPublicId,
+      hasBiometrics: bu.businessUnitHasBiometrics === 1,
+    }
+  }
+
   private toListItem(row: Record<string, unknown>, activeEmployees: number): TenantListItem {
     const hasSubscription = row.subscriptionStatus !== null && row.subscriptionStatus !== undefined
 
@@ -341,6 +383,7 @@ export default class PlatformTenantService {
       businessUnitName: row.businessUnitName as string,
       businessUnitLegalName: row.businessUnitLegalName as string,
       businessUnitActive: Number(row.businessUnitActive ?? 0),
+      hasBiometrics: Boolean(Number(row.hasBiometrics ?? 0)),
       activeEmployees,
       subscription: hasSubscription
         ? {
