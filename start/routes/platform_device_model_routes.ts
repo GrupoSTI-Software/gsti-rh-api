@@ -6,14 +6,18 @@ import { middleware } from '../kernel.js'
  * Espeja el patrón de `platform_system_module_routes.ts`.
  *
  * Todas protegidas por `auth` + `platformAdmin` — globales, sin scope de tenant.
- * Prefijo: /api/platform/device-models
+ * Prefijo: /api/platform/devices/models  (§11 del spec USRH1787189981870)
  *
- *   GET    /api/platform/device-models                        → index (listar)
- *   GET    /api/platform/device-models/:deviceModelId         → show (detalle)
- *   POST   /api/platform/device-models                        → store (crear)
- *   PATCH  /api/platform/device-models/:deviceModelId         → update (editar brand/name)
- *   PUT    /api/platform/device-models/:deviceModelId/status  → changeStatus
- *   DELETE /api/platform/device-models/:deviceModelId         → destroy (baja lógica)
+ *   GET    /api/platform/devices/models                        → index
+ *   GET    /api/platform/devices/models/:deviceModelId         → show
+ *   POST   /api/platform/devices/models                        → store
+ *   PATCH  /api/platform/devices/models/:deviceModelId         → update
+ *   PUT    /api/platform/devices/models/:deviceModelId/status  → changeStatus
+ *   DELETE /api/platform/devices/models/:deviceModelId         → destroy
+ *
+ * Convivencia de prefijos (C-3 del conjunto): todos los segmentos bajo
+ * /api/platform/devices son literales (/models, /units), sin riesgo de
+ * captura cruzada independientemente del orden de imports.
  *
  * Ref: USRH1787189981870.
  */
@@ -29,5 +33,5 @@ router
     )
     router.delete('/:deviceModelId', '#controllers/platform_device_model_controller.destroy')
   })
-  .prefix('/api/platform/device-models')
+  .prefix('/api/platform/devices/models')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
