@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import ProceedingFile from '#models/proceeding_file'
 import { DateTime } from 'luxon'
 import { ProceedingFileExpiredFilterInterface } from '../interfaces/proceeding_file_expired_filter_interface.js'
@@ -300,7 +301,7 @@ export default class ProceedingFileService {
       await this.setProceedingFileToEmail(filtersToSetEmail)
     }
 
-    const userEmail = env.get('SMTP_USERNAME')
+    const userEmail = resolveMailSender()
 
     if (userEmail) {
       let tradeName = 'BO'

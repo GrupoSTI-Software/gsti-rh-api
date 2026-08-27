@@ -8,7 +8,7 @@ import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
-import env from '../../start/env.js'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Role from '#models/role'
 import { SYSTEM_ROLE_SLUGS } from '#constants/system_roles'
 import BusinessUnit from '#models/business_unit'
@@ -16,6 +16,7 @@ import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import { SUPPORT_EMAIL } from '#constants/support_contact'
 import RoleDepartment from '#models/role_department'
 import Position from '#models/position'
 import RoleService from './role_service.js'
@@ -399,44 +400,57 @@ export default class UserService {
     return index !== -1 ? headers[index + 1] : null
   }
 
-  async sendNewPasswordEmail(url: string, newUser: User, userPassword?: string) {
-    const hostData = this.getUrlInfo(url)
-    // USRH1783712837584: se llama tanto desde contextos con empresa en
-    // contexto (alta/edición de usuario, con `businessScope`) como desde el
-    // reseteo de contraseña por token (sin usuario autenticado). El branding
-    // "white label" estuvo deshabilitado (isWhiteLabel siempre false) y nunca
-    // se aplicaba; se retira la consulta muerta a `getActive()` en vez de
-    // migrarla a `resolveByBusinessUnitId`, que fallaría en el caso sin tenant.
+  /**
+   * Avisa al usuario de que la contraseña de su cuenta acaba de cambiar.
+   *
+   * El correo NO transporta la contraseña: solo confirma el cambio y ofrece la
+   * ruta de reporte (restablecer + escribir a soporte) para que un acceso no
+   * autorizado se detecte de inmediato.
+   *
+   * @param url - Origen del backoffice desde el que se hizo el cambio; se usa
+   *   como destino del CTA de inicio de sesión.
+   */
+  async sendNewPasswordEmail(url: string, newUser: User) {
     const tradeName = 'Valanserh'
     const backgroundImageLogo =
       'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
     await newUser.load('person')
-    const emailData = {
-      user: newUser,
-      userPassword,
-      host_data: hostData,
-      backgroundImageLogo,
-    }
-    const userEmail = env.get('SMTP_USERNAME')
-    if (userEmail) {
-      await mail.send((message) => {
-        message
-          .to(newUser.userEmail)
-          .from(userEmail, tradeName)
-          .subject('New password')
-          .htmlView('emails/new_password', emailData)
-      })
-    }
-  }
+    const firstName = newUser.person?.personFirstname || newUser.userEmail
+    const loginUrl = url.replace(/\/$/, '')
 
-  private getUrlInfo(url: string) {
-    return {
-      name: 'SAE BackOffice',
-      host_uri: url,
-      logo_path: 'https://sae.com.mx/wp-content/uploads/2024/03/logo_sae.svg',
-      primary_color: '#0a3459',
+    // El enlace de soporte se compone aquí (dirección fija del producto) y la
+    // vista lo imprime sin escapar: el catálogo solo aporta el texto alrededor.
+    const supportLink = `<a href="mailto:${SUPPORT_EMAIL}" style="color: #445cba; text-decoration: underline;">${SUPPORT_EMAIL}</a>`
+
+    const subject = this.t('auth.password_changed.subject', { tradeName })
+    const emailData = {
+      tradeName,
+      backgroundImageLogo,
+      loginUrl,
+      firstName,
+      subject,
+      preheader: this.t('auth.password_changed.preheader'),
+      title: this.t('auth.password_changed.title'),
+      greetingLead: this.t('auth.password_changed.greeting_lead'),
+      intro: this.t('auth.password_changed.intro'),
+      cta: this.t('auth.password_changed.cta'),
+      ctaCaption: this.t('auth.password_changed.cta_caption', { tradeName }),
+      alertTitle: this.t('auth.password_changed.alert_title'),
+      alertBody: this.t('auth.password_changed.alert_body', { supportLink }),
+      securityNotice: this.t('auth.password_changed.security_notice', { tradeName }),
+      fallbackUrl: this.t('auth.password_changed.fallback_url'),
+      footer: this.t('auth.password_changed.footer', { tradeName }),
     }
+
+    const userEmail = resolveMailSender()
+    await mail.send((message) => {
+      message
+        .to(newUser.userEmail)
+        .from(userEmail, tradeName)
+        .subject(subject)
+        .htmlView('emails/new_password', emailData)
+    })
   }
 
   async hasAccessDepartment(userId: number, departmentId: number) {

@@ -4,6 +4,14 @@ import { defineConfig, transports } from '@adonisjs/mail'
 const user = env.get('SMTP_USERNAME')
 const password = env.get('SMTP_PASSWORD')
 
+/**
+ * Las credenciales solo se envían cuando ambas están presentes.
+ * Con variables vacías o ausentes el bloque `auth` se omite, evitando el
+ * error `500 5.5.2 Syntax error` que produce Mailpit cuando recibe un
+ * comando AUTH con credenciales vacías. (CA-4, USRH1787178944072)
+ */
+const hasCredentials = Boolean(user && password)
+
 const mailConfig = defineConfig({
   default: 'smtp',
 
@@ -15,12 +23,10 @@ const mailConfig = defineConfig({
   mailers: {
     smtp: transports.smtp({
       host: env.get('SMTP_HOST', 'smtp.gmail.com'),
-      port: env.get('SMTP_PORT', '587'),
-      auth: {
-        type: 'login',
-        user: user ? user : '',
-        pass: password ? password : '',
-      },
+      port: env.get('SMTP_PORT', 587),
+      secure: env.get('SMTP_SECURE', 'false') === 'true',
+      ignoreTLS: env.get('SMTP_IGNORE_TLS', 'false') === 'true',
+      ...(hasCredentials ? { auth: { type: 'login' as const, user: user!, pass: password! } } : {}),
     }),
   },
 })

@@ -48,9 +48,14 @@ export default class SignupOtpMail extends BaseMail {
     const i18n = i18nManager.locale(language)
     const subject = i18n.formatMessage('auth.signup.otp.subject', { pinCode })
     const preheader = i18n.formatMessage('auth.signup.otp.preheader')
-    const greeting = i18n.formatMessage('auth.signup.otp.greeting', { firstName })
+    // El saludo va partido a propósito: el diseño resalta solo el nombre, y
+    // `firstName` se imprime desde la vista con `{{ }}` para que Edge lo escape.
+    const greetingLead = i18n.formatMessage('auth.signup.otp.greeting_lead')
     const intro = i18n.formatMessage('auth.signup.otp.intro', { tradeName: branding.tradeName })
     const codeLabel = i18n.formatMessage('auth.signup.otp.code_label')
+    // `validity` trae `<strong>` alrededor de los minutos para respetar el diseño;
+    // la vista la imprime sin escapar. El único dato interpolado es el entero de
+    // vigencia que define el propio servidor, nunca entrada del usuario.
     const validity = i18n.formatMessage('auth.signup.otp.validity', { minutes: validityMinutes })
     const ignoreNotice = i18n.formatMessage('auth.signup.otp.ignore_notice')
     const footer = i18n.formatMessage('auth.signup.otp.footer', { tradeName: branding.tradeName })
@@ -67,7 +72,7 @@ export default class SignupOtpMail extends BaseMail {
         firstName,
         subject,
         preheader,
-        greeting,
+        greetingLead,
         intro,
         codeLabel,
         validity,

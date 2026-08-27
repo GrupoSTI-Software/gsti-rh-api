@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import PlatformTenantService from '#services/platform_tenant_service'
-import { listTenantsValidator } from '#validators/platform_tenant'
+import { listTenantsValidator, updateTenantBiometricsValidator } from '#validators/platform_tenant'
 import { resolvePlatformTenantApiError } from '../helpers/platform_tenant_api_error.js'
 
 /**
@@ -327,6 +327,33 @@ export default class PlatformTenantController {
     try {
       const tenant = await this.service.getTenantDetail(params.id)
       return response.status(200).json({ type: 'success', data: tenant })
+    } catch (error) {
+      const { status: httpStatus, ...body } = resolvePlatformTenantApiError(error)
+      return response.status(httpStatus).json(body)
+    }
+  }
+
+  /**
+   * @updateBiometrics
+   * @summary Encender o apagar la marca de biométricos en sitio de una empresa
+   * @description Governa si el apartado de dispositivos de esa empresa se muestra\
+   *   dentro del panel de GSTI. No afecta la operación del cliente ni el flujo de\
+   *   checadas. Solo modificable con credenciales de plataforma.
+   * @tag Platform · Tenants
+   * @operationId updatePlatformTenantBiometrics
+   * @security [{"bearerAuth": []}]
+   * @paramPath id - UUID público de la empresa (businessUnitPublicId) - string
+   * @requestBody {"enabled": true}
+   * @responseBody 200 - {"type": "success", "data": {"businessUnitPublicId": "uuid", "hasBiometrics": true}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.TEN.NOT_FOUND"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.TEN.VAL_INPUT"}
+   * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
+   */
+  async updateBiometrics({ params, request, response }: HttpContext) {
+    try {
+      const { enabled } = await request.validateUsing(updateTenantBiometricsValidator)
+      const result = await this.service.setTenantBiometrics(params.id, enabled)
+      return response.status(200).json({ type: 'success', data: result })
     } catch (error) {
       const { status: httpStatus, ...body } = resolvePlatformTenantApiError(error)
       return response.status(httpStatus).json(body)

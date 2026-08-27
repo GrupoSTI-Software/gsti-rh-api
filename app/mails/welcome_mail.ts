@@ -56,11 +56,14 @@ export default class WelcomeMail extends BaseMail {
     })
     const preheader = i18n.formatMessage('auth.signup.welcome.preheader')
     const greeting = i18n.formatMessage('auth.signup.welcome.greeting', { firstName })
+    // La empresa salió del texto: el diseño la muestra en la ficha de datos.
     const intro = i18n.formatMessage('auth.signup.welcome.intro', {
       tradeName: branding.tradeName,
-      businessUnitName,
     })
-    const cta = i18n.formatMessage('auth.signup.welcome.cta')
+    const magicLinkNote = i18n.formatMessage('auth.signup.welcome.magic_link_note')
+    const cta = i18n.formatMessage('auth.signup.welcome.cta', { tradeName: branding.tradeName })
+    const emailLabel = i18n.formatMessage('auth.signup.welcome.email_label')
+    const companyLabel = i18n.formatMessage('auth.signup.welcome.company_label')
     const tipsTitle = i18n.formatMessage('auth.signup.welcome.tips_title')
     const tipOne = i18n.formatMessage('auth.signup.welcome.tip_one')
     const tipTwo = i18n.formatMessage('auth.signup.welcome.tip_two')
@@ -82,7 +85,11 @@ export default class WelcomeMail extends BaseMail {
       preheader,
       greeting,
       intro,
+      magicLinkNote,
       cta,
+      emailLabel,
+      companyLabel,
+      accountEmail: to,
       tipsTitle,
       tipOne,
       tipTwo,
