@@ -123,6 +123,7 @@ test.group('Alta/listado persona — exigencia OFF', (group) => {
     employeesModule.systemModulePermissionEnforcementActive = false
     await employeesModule.save()
     actor = await createActor('person-subject-off')
+    // Aísla tab-persona-write de EMP.SENS.WRITE.FORBIDDEN sobre personEmail.
     await grantEmployeesOnly(actor.role.roleId, ['sensitive-contacto-write'])
   })
 
@@ -216,6 +217,7 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
   })
 
   test('destinos no colaborador no exigen tab-persona-write', async ({ client, assert }) => {
+    // Aísla tab-persona-write de EMP.SENS.WRITE.FORBIDDEN sobre personEmail.
     await grantEmployeesOnly(actor!.role.roleId, ['sensitive-contacto-write'])
     for (const subject of ['customer', 'flight-attendant', 'pilot', 'system-user'] as const) {
       const payload = personPayload(`on-${subject}`, subject)

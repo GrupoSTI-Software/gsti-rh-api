@@ -136,10 +136,12 @@ function expectDenied(response: { status: () => number; body: () => { key?: stri
 
 function expectNotDenied(response: { status: () => number; body: () => { key?: string } }, assert: {
   notEqual: (a: unknown, b: unknown) => void
+  isBelow: (a: number, b: number) => void
 }) {
   assert.notEqual(response.status(), 403)
   assert.notEqual(response.body()?.key, 'PERM.DENIED')
   assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
+  assert.isBelow(response.status(), 500)
 }
 
 test.group('Rangos salariales — PermissionGate soft-rollout', (group) => {
@@ -280,6 +282,9 @@ test.group('Rangos salariales — PermissionGate exigencia ON', (group) => {
     if (seed.status !== 201) {
       throw new Error(`No se pudo sembrar el rango de prueba: ${JSON.stringify(seed)}`)
     }
+    if (!('range' in seed)) {
+      throw new Error(`No se pudo sembrar el rango de prueba: ${JSON.stringify(seed)}`)
+    }
     seededRangeId = seed.range.positionSalaryRangeId
 
     positionsModule.systemModulePermissionEnforcementActive = true
@@ -313,6 +318,11 @@ test.group('Rangos salariales — PermissionGate exigencia ON', (group) => {
     client,
     assert,
   }) => {
+    assert.exists(seededRangeId)
+    if (seededRangeId === null) {
+      throw new Error('El rango sembrado no existe')
+    }
+    const rangeId = seededRangeId
     const header = actor!.businessUnit.businessUnitPublicId
     const buId = actor!.businessUnit.businessUnitId
 
@@ -346,7 +356,7 @@ test.group('Rangos salariales — PermissionGate exigencia ON', (group) => {
     expectDenied(store, assert)
 
     const update = await client
-      .patch(`/api/position-salary-ranges/${seededRangeId}`)
+      .patch(`/api/position-salary-ranges/${rangeId}`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', header)
       .header('X-User-Timezone', 'America/Mexico_City')
@@ -354,23 +364,23 @@ test.group('Rangos salariales — PermissionGate exigencia ON', (group) => {
     expectDenied(update, assert)
 
     const close = await client
-      .delete(`/api/position-salary-ranges/${seededRangeId}`)
+      .delete(`/api/position-salary-ranges/${rangeId}`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', header)
       .json({ reason: 'denied' })
     expectDenied(close, assert)
 
     const audit = await client
-      .get(`/api/position-salary-ranges/${seededRangeId}/audit`)
+      .get(`/api/position-salary-ranges/${rangeId}/audit`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', header)
     expectDenied(audit, assert)
 
     const stillOpen = await db
       .from('position_salary_ranges')
-      .where('position_salary_range_id', seededRangeId)
+      .where('position_salary_range_id', rangeId)
       .whereNull('valid_to')
       .first()
-    assert.isNotNull(stillOpen)
+    assert.exists(stillOpen)
   })
 })

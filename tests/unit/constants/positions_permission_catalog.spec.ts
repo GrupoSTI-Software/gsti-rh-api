@@ -23,7 +23,7 @@ test.group('Catálogo positions — USRH1787433076995', () => {
     for (const action of POSITIONS_PERMISSION_CATALOG) {
       assert.equal(action.section, 'salary-ranges')
       assert.equal(action.exceptionProfile, 'standard')
-      assert.isUndefined(action.legacyEquivalence)
+      assert.notProperty(action, 'legacyEquivalence')
     }
   })
 

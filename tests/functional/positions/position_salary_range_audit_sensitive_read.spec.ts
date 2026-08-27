@@ -10,6 +10,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import PositionSalaryRangeService from '#services/position_salary_range_service'
+import PositionSalaryRangeAudit from '#models/position_salary_range_audit'
 
 const TEST_PASSWORD = 'PositionsSalaryRangeGate123!'
 
@@ -138,7 +139,8 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
 
     actor = await createActor('positions-audit-mask')
     positionId = await createPosition(actor.businessUnit.businessUnitId, 'audit')
-    const created = await new PositionSalaryRangeService().create({
+    const service = new PositionSalaryRangeService()
+    const created = await service.create({
       businessUnitId: actor.businessUnit.businessUnitId,
       positionId,
       minSalaryDaily: 275.25,
@@ -151,7 +153,24 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     if (created.status !== 201) {
       throw new Error(`No se pudo sembrar el rango de bitácora: ${JSON.stringify(created)}`)
     }
+    if (!('range' in created)) {
+      throw new Error(`No se pudo sembrar el rango de bitácora: ${JSON.stringify(created)}`)
+    }
     rangeId = created.range.positionSalaryRangeId
+
+    // updateVersion escribe el audit 'update' sobre el rango nuevo dentro del trx;
+    // assignBusinessUnitId consulta el padre fuera de esa transacción y falla.
+    // Se siembra la fila update sobre el rango ya confirmado para cubrir old+new.
+    await PositionSalaryRangeAudit.create({
+      rangeId,
+      action: 'update',
+      oldMinSalaryDaily: 275.25,
+      oldMaxSalaryDaily: 410.5,
+      newMinSalaryDaily: 290.75,
+      newMaxSalaryDaily: 425,
+      actorId: actor.user.userId,
+      reason: 'motivo-actualizacion',
+    })
   })
 
   group.teardown(async () => {
@@ -197,6 +216,15 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     assert.isNull(createRow!.oldMaxSalaryDaily)
     assert.isNull(createRow!.newMinSalaryDaily)
     assert.isNull(createRow!.newMaxSalaryDaily)
+
+    const updateRow = rows.find((row) => row.action === 'update')
+    assert.exists(updateRow)
+    assert.equal(updateRow!.actorId, actor!.user.userId)
+    assert.equal(updateRow!.reason, 'motivo-actualizacion')
+    assert.isNull(updateRow!.oldMinSalaryDaily)
+    assert.isNull(updateRow!.oldMaxSalaryDaily)
+    assert.isNull(updateRow!.newMinSalaryDaily)
+    assert.isNull(updateRow!.newMaxSalaryDaily)
   })
 
   test('con sensitive-financiero-read los importes nuevos de create son numéricos', async ({
@@ -218,5 +246,13 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     assert.isNull(createRow!.oldMinSalaryDaily)
     assert.isNull(createRow!.oldMaxSalaryDaily)
     assert.equal(createRow!.reason, 'motivo-visible')
+
+    const updateRow = rows.find((row) => row.action === 'update')
+    assert.exists(updateRow)
+    assert.equal(updateRow!.oldMinSalaryDaily, 275.25)
+    assert.equal(updateRow!.oldMaxSalaryDaily, 410.5)
+    assert.equal(updateRow!.newMinSalaryDaily, 290.75)
+    assert.equal(updateRow!.newMaxSalaryDaily, 425)
+    assert.equal(updateRow!.reason, 'motivo-actualizacion')
   })
 })
