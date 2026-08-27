@@ -15,6 +15,19 @@ export type ResolvedEmployeeOffboardingApiError = {
   detail: string
   key: string
   code: EmployeeOffboardingErrorCode
+  /** Carga adicional opcional (`rejectedFiles[]` del envío de evidencias, D-3). */
+  data?: Record<string, unknown>
+}
+
+/**
+ * Códigos y `key` de los ramos genéricos (VineJS y no clasificado), que
+ * varían por slice del módulo: `concepts/` usa `OFFB.CONCEPT.*` (default) y
+ * `offboardings/` pasa los suyos `OFFB.CASE.*` (USRH1786568279587).
+ */
+export type EmployeeOffboardingErrorFallbacks = {
+  valInputCode?: EmployeeOffboardingErrorCode
+  unexpectedCode?: EmployeeOffboardingErrorCode
+  unexpectedKey?: string
 }
 
 /**
@@ -26,7 +39,8 @@ export type ResolvedEmployeeOffboardingApiError = {
  */
 export function resolveEmployeeOffboardingApiError(
   error: unknown,
-  i18n: I18n
+  i18n: I18n,
+  fallbacks: EmployeeOffboardingErrorFallbacks = {}
 ): ResolvedEmployeeOffboardingApiError {
   const err = error as {
     code?: string
@@ -42,7 +56,7 @@ export function resolveEmployeeOffboardingApiError(
         err.messages?.[0]?.message ??
         i18n.formatMessage('employee_offboarding_val_input_message'),
       key: 'datos-invalidos',
-      code: EMPLOYEE_OFFBOARDING_ERROR_CODES.VAL_INPUT,
+      code: fallbacks.valInputCode ?? EMPLOYEE_OFFBOARDING_ERROR_CODES.VAL_INPUT,
     }
   }
 
@@ -53,6 +67,7 @@ export function resolveEmployeeOffboardingApiError(
       detail: error.message,
       key: error.key,
       code: error.errorCode,
+      ...(error.data !== undefined ? { data: error.data } : {}),
     }
   }
 
@@ -63,7 +78,7 @@ export function resolveEmployeeOffboardingApiError(
       typeof err?.message === 'string'
         ? err.message
         : i18n.formatMessage('employee_offboarding_unexpected_message'),
-    key: 'error-inesperado',
-    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.SYS_UNHANDLED,
+    key: fallbacks.unexpectedKey ?? 'error-inesperado',
+    code: fallbacks.unexpectedCode ?? EMPLOYEE_OFFBOARDING_ERROR_CODES.SYS_UNHANDLED,
   }
 }

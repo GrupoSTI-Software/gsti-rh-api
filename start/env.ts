@@ -71,9 +71,26 @@ export default await Env.create(new URL('../', import.meta.url), {
   |----------------------------------------------------------
   */
   SMTP_HOST: Env.schema.string.optional(),
-  SMTP_PORT: Env.schema.string.optional(),
+  /** Puerto numérico del servidor SMTP (587 = StartTLS, 465 = SSL, 1025 = Mailpit local). */
+  SMTP_PORT: Env.schema.number.optional(),
+  /**
+   * Dirección remitente explícita de los correos salientes, independiente de la
+   * credencial de autenticación SMTP. Prelación: SMTP_FROM_ADDRESS → SMTP_USERNAME →
+   * dirección institucional de respaldo `no-reply@valanserh.local`. (USRH1787178944072)
+   */
+  SMTP_FROM_ADDRESS: Env.schema.string.optional(),
   SMTP_USERNAME: Env.schema.string.optional(),
   SMTP_PASSWORD: Env.schema.string.optional(),
+  /**
+   * `'true'` para conexión SSL desde el inicio (puerto 465).
+   * `'false'` (por defecto) para StartTLS en puerto 587 o sin cifrado en local.
+   */
+  SMTP_SECURE: Env.schema.string.optional(),
+  /**
+   * `'true'` para omitir TLS completamente (buzón de pruebas local, Mailpit en
+   * puerto 1025). Evita el error `500 5.5.2 Syntax error` al conectar sin cifrado.
+   */
+  SMTP_IGNORE_TLS: Env.schema.string.optional(),
   /**
    * URL pública del backoffice consumida por los correos del flujo de signup
    * self-service (ej. botón "Ir al sistema" del correo de bienvenida). Se deja
@@ -93,6 +110,12 @@ export default await Env.create(new URL('../', import.meta.url), {
    * Opcional: si no está definida, aplica el fallback del servicio.
    */
   BILLING_INTERNAL_NOTIFICATION_EMAILS: Env.schema.string.optional(),
+  /**
+   * Lista de correos que reciben el aviso de estado de la sincronización automática
+   * de asistencias (`commands/sync_assistance.ts`). Reemplaza las direcciones que
+   * antes estaban escritas dentro del código. Separados por coma. (USRH1787178944072)
+   */
+  ASSIST_SYNC_ALERT_EMAILS: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization 

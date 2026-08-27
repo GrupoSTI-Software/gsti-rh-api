@@ -1,9 +1,20 @@
 {{--
-  Aviso interno de contratación self-service (USRH1785441817250).
-  Espejo de layout y convenciones de work_journal_seal_run_summary.edge:
-   - Estilos 100% inline (compatibilidad Gmail / Outlook 2007-2019).
-   - Layout con tablas (Outlook requiere tablas, no divs).
-   - Sin imágenes externas.
+  Aviso interno de operación: contratación self-service (USRH1785441817250).
+
+  Plantilla base de los correos INTERNOS: se distingue de los correos de cara al
+  cliente por el encabezado azul con el logotipo en blanco y por presentar los
+  datos en tablas de dos columnas. Contenido en español fijo, sin i18n por
+  tenant, por ser un aviso operativo.
+
+  Medidas tomadas del diseño aprobado (agosto 2026) y escaladas a una tarjeta de
+  600px: el mock mide 1189px de tarjeta, así que cada valor va multiplicado por
+  0.5046.
+
+  Paleta del diseño:
+    #f2f3f6 fondo · #ffffff tarjeta · #dfe2e6 bordes y reglas
+    #17224d encabezado, títulos y valores · #4b5057 cuerpo · #6e757c etiquetas
+    #f8f9fa cabeceras de tabla y fila de total
+    #fefaed caja de acción requerida · #503713 su texto
 --}}<!DOCTYPE html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -11,126 +22,140 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="X-UA-Compatible" content="ie=edge" />
   <title>{{ subject }}</title>
+  <style>
+    @media only screen and (max-width: 480px) {
+      .internal-card { padding: 24px 20px 40px 20px !important; }
+      .internal-header { padding: 22px 20px !important; }
+    }
+  </style>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
-
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+<body style="margin: 0; padding: 0; background-color: #f2f3f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #4b5057; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f2f3f6;">
     <tr>
-      <td align="center" style="padding: 24px 12px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 640px;">
+      <td align="center" style="padding: 16px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 600px; background-color: #ffffff; border: 1px solid #dfe2e6; border-radius: 8px;">
 
-          {{-- Encabezado de marca --}}
+          {{-- Encabezado azul: marca del correo interno --}}
           <tr>
-            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
-              <div style="font-size: 18px; font-weight: 700; line-height: 1.2; color: #ffffff;">{{ tradeName }}</div>
-              <div style="font-size: 13px; color: #e0f2fe; margin-top: 4px;">Contratación self-service — aviso interno</div>
+            <td class="internal-header" style="background-color: #17224d; padding: 24px 42px; border-radius: 8px 8px 0 0;">
+              <img src="{{ headerLogoUrl }}" alt="{{ tradeName }}" height="40" style="height: 40px; width: auto; display: block; border: 0; margin-left: -8px; color: #ffffff; font-size: 20px; font-weight: 700;" />
             </td>
           </tr>
 
-          {{-- Tarjeta principal --}}
           <tr>
-            <td style="background-color: #ffffff; padding: 24px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+            <td class="internal-card" style="padding: 32px 42px 80px 42px;">
 
-              <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #111827;">
-                La empresa <strong>{{ businessUnitName }}</strong> contrató el plan
-                <strong>{{ billingPlanName }}</strong> por la vía de autoservicio el
-                <strong>{{ subscribedAt }}</strong>. Folio de suscripción <strong>#{{ subscriptionId }}</strong>.
+              <h1 style="margin: 0; font-size: 20px; line-height: 26px; font-weight: 700; color: #17224d;">
+                Nueva contratación
+              </h1>
+
+              <p style="margin: 11px 0 0 0; font-size: 13px; line-height: 22px; color: #4b5057;">
+                La empresa <strong style="color: #17224d;">{{ businessUnitName }}</strong>
+                contrató el plan <strong style="color: #17224d;">{{ billingPlanName }}</strong>
+                por la vía de autoservicio el <strong style="color: #17224d;">{{ subscribedAt }}</strong>.
+                Folio de suscripción <strong style="color: #17224d;">#{{ subscriptionId }}</strong>.
               </p>
 
-              {{-- Tabla: Contratación --}}
-              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #374151;">Contratación</p>
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-                <thead>
-                  <tr style="background: #f3f4f6; text-align: left;">
-                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Dato</th>
-                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
+              {{-- Detalle de la contratación --}}
+              <p style="margin: 28px 0 0 0; font-size: 11px; line-height: 16px; font-weight: 700; color: #17224d;">
+                Contratación
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 10px 0 0 0; border-collapse: collapse;">
+                <tr>
+                  <td width="57%" style="width: 57%; background-color: #f8f9fa; padding: 10px 21px; border-bottom: 1px solid #dfe2e6; font-size: 10px; line-height: 14px; color: #6e757c;">
+                    Dato
+                  </td>
+                  <td style="background-color: #f8f9fa; padding: 10px 21px; border-bottom: 1px solid #dfe2e6; font-size: 10px; line-height: 14px; color: #6e757c;">
+                    Valor
+                  </td>
+                </tr>
+                @each (fila in [
+                  { etiqueta: 'Empresa', valor: businessUnitName },
+                  { etiqueta: 'Plan contratado', valor: billingPlanName },
+                  { etiqueta: 'Folio de suscripción', valor: '#' + subscriptionId },
+                  { etiqueta: 'Empleados contratados', valor: contractedEmployees },
+                  { etiqueta: 'Fecha de contratación', valor: subscribedAt },
+                  { etiqueta: 'Días de prueba', valor: contractedTrialDays },
+                  { etiqueta: 'Fecha del primer pago', valor: trialEndsAt },
+                ])
                   <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Empresa</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ businessUnitName }}</td>
+                    <td style="padding: 9px 21px; border-bottom: 1px solid #dfe2e6; font-size: 13px; line-height: 21px; color: #4b5057;">
+                      {{ fila.etiqueta }}
+                    </td>
+                    <td style="padding: 9px 21px; border-bottom: 1px solid #dfe2e6; font-size: 13px; line-height: 21px; font-weight: 700; color: #17224d;">
+                      {{ fila.valor }}
+                    </td>
                   </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Plan contratado</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ billingPlanName }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Folio de suscripción</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">#{{ subscriptionId }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Empleados contratados</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ contractedEmployees }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Fecha de contratación</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ subscribedAt }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Días de prueba</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ contractedTrialDays }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; color: #374151;">Fecha del primer pago</td>
-                    <td style="padding: 9px 8px; color: #111827; font-weight: 600;">{{ trialEndsAt }}</td>
-                  </tr>
-                </tbody>
+                @end
               </table>
 
-              {{-- Tabla: Importes y cobro --}}
-              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #374151;">Importes y cobro</p>
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-                <thead>
-                  <tr style="background: #f3f4f6; text-align: left;">
-                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Concepto</th>
-                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600; text-align: right;">Importe</th>
-                  </tr>
-                </thead>
-                <tbody>
+              {{-- Importes --}}
+              <p style="margin: 28px 0 0 0; font-size: 11px; line-height: 16px; font-weight: 700; color: #17224d;">
+                Importes y cobro
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 10px 0 0 0; border-collapse: collapse;">
+                <tr>
+                  <td style="background-color: #f8f9fa; padding: 10px 21px; border-bottom: 1px solid #dfe2e6; font-size: 10px; line-height: 14px; color: #6e757c;">
+                    Concepto
+                  </td>
+                  <td align="right" style="background-color: #f8f9fa; padding: 10px 21px; border-bottom: 1px solid #dfe2e6; font-size: 10px; line-height: 14px; color: #6e757c;">
+                    Importe
+                  </td>
+                </tr>
+                @each (fila in [
+                  { etiqueta: 'Precio por empleado', valor: contractedUnitAmount },
+                  { etiqueta: 'Descuento por volumen', valor: discountLabel },
+                  { etiqueta: 'Subtotal', valor: contractedSubtotal },
+                  { etiqueta: 'IVA (' + taxRatePercent + '%)', valor: contractedTaxAmount },
+                ])
                   <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Precio por empleado</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ contractedUnitAmount }}</td>
+                    <td style="padding: 9px 21px; border-bottom: 1px solid #dfe2e6; font-size: 13px; line-height: 21px; color: #4b5057;">
+                      {{ fila.etiqueta }}
+                    </td>
+                    <td align="right" style="padding: 9px 21px; border-bottom: 1px solid #dfe2e6; font-size: 13px; line-height: 21px; font-weight: 700; color: #17224d;">
+                      {{ fila.valor }}
+                    </td>
                   </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Descuento por volumen</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ discountLabel }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Subtotal</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ contractedSubtotal }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">IVA ({{ taxRatePercent }}%)</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600; text-align: right;">{{ contractedTaxAmount }}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Total a pagar ({{ currency }})</td>
-                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 700; text-align: right;">{{ contractedTotal }}</td>
-                  </tr>
-                </tbody>
+                @end
+                <tr>
+                  <td style="background-color: #f8f9fa; padding: 12px 21px; border-bottom: 1px solid #dfe2e6; font-size: 13px; line-height: 21px; font-weight: 700; color: #17224d;">
+                    Total a pagar ({{ currency }})
+                  </td>
+                  <td align="right" style="background-color: #f8f9fa; padding: 12px 21px; border-bottom: 1px solid #dfe2e6; font-size: 13px; line-height: 21px; font-weight: 700; color: #17224d;">
+                    {{ contractedTotal }}
+                  </td>
+                </tr>
               </table>
 
-              <p style="margin: 0 0 20px; padding: 10px 14px; background: #fef3c7; border-left: 4px solid #d97706; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #78350f;">
-                <strong>Acción requerida:</strong> el cobro es manual. Emitir el cobro de
-                <strong>{{ contractedTotal }}</strong> a <strong>{{ businessUnitName }}</strong> el
-                <strong>{{ trialEndsAt }}</strong>, al vencer el periodo de prueba.
-              </p>
+              {{-- Acción operativa: el cobro no está automatizado --}}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 24px 0 0 0; background-color: #fefaed; border-radius: 8px;">
+                <tr>
+                  <td style="padding: 15px 17px;">
+                    <p style="margin: 0; font-size: 13px; line-height: 21px; color: #503713;">
+                      <strong>Acción requerida:</strong> el cobro es manual. Emitir el cobro de
+                      <strong>{{ contractedTotal }}</strong> a <strong>{{ businessUnitName }}</strong>
+                      el <strong>{{ trialEndsAt }}</strong>, al vencer el periodo de prueba.
+                    </p>
+                  </td>
+                </tr>
+              </table>
 
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #9ca3af;">
-                Los importes reflejan el snapshot de la suscripción al momento del alta; no se recalculan en este aviso.
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 30px 0 0 0; font-size: 0; line-height: 0;">
+                    <div style="height: 1px; background-color: #dfe2e6; font-size: 0; line-height: 1px;">&nbsp;</div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 15px 0 0 0; font-size: 12px; line-height: 20px; color: #6e757c;">
+                Este es un mensaje automático de {{ tradeName }}. Por favor no respondas a este correo.
               </p>
 
             </td>
           </tr>
-
-          {{-- Footer --}}
-          <tr>
-            <td style="padding: 14px 24px; text-align: center; font-size: 11px; color: #9ca3af;">
-              Mensaje generado automáticamente por el sistema {{ tradeName }}. No responder a este correo.
-            </td>
-          </tr>
-
         </table>
       </td>
     </tr>

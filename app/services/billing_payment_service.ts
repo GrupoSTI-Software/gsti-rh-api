@@ -4,6 +4,7 @@ import BillingSubscription from '#models/billing_subscription'
 import BillingPayment from '#models/billing_payment'
 import BillingPlan from '#models/billing_plan'
 import BusinessUnit from '#models/business_unit'
+import BillingSubscriptionChange from '#models/billing_subscription_change'
 import type { BillingPaymentMethod } from '#models/billing_payment'
 import UploadService from '#services/upload_service'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
@@ -27,6 +28,24 @@ const AMOUNT_MAX_CENTS = 99_999_999
 const MAX_PERIODS_PER_PAYMENT = 24
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
+
+/**
+ * Qué cifra gobernada resolvió el pago (USRH1787077544537):
+ *   - `period`: el monto normal del periodo (con o sin aumento pendiente, es
+ *     el importe de siempre; no depende de que exista un aumento).
+ *   - `debt`: exactamente el adeudo prorrateado del aumento `pending_payment`.
+ *   - `debt_plus_period`: el adeudo + un periodo completo al precio nuevo.
+ * Solo `debt` y `debt_plus_period` dependen de que el aumento siga vivo al
+ * momento de asentar; si deja de estarlo, el pago se rechaza (no se degrada
+ * en silencio a `period`, decisión Wilvardo 2026-08-23).
+ */
+type GovernedAmountKind = 'period' | 'debt' | 'debt_plus_period'
+
+interface GovernedAmountResolution {
+  /** Monto gobernado que corresponde al `amountKind` resuelto. */
+  amountCents: number
+  amountKind: GovernedAmountKind
+}
 
 export interface RegisterPaymentInput {
   /** Obligatorio solo con allowCustomAmount=true. Ignorado (salvo verificación de igualdad) en flujo normal. */
@@ -54,6 +73,37 @@ export interface PaymentListItem {
   periodStart: string | null
   periodEnd: string | null
   receiptAvailable: boolean
+  /** Periodos completos que este pago cubrió (0 = parcial, no movió el periodo). */
+  periodsCovered: number
+}
+
+/** Desglose financiero persistido al asentar el pago (USRH1785962095098). */
+export interface PaymentBreakdown {
+  grossCents: number
+  discountPercent: number
+  discountAmountCents: number
+  subtotalCents: number
+  taxRate: number
+  taxAmountCents: number
+  totalCents: number
+}
+
+/**
+ * Detalle de un pago con su desglose guardado (USRH1785962095098). Espeja
+ * `PaymentListItem` y agrega, en solo lectura, exactamente lo que
+ * `registerPayment` calculó y persistió al asentarlo — nada se recalcula
+ * aquí. `breakdownAvailable=false` marca los pagos anteriores a
+ * USRH1785962095095, cuya foto financiera quedó en cero por migración.
+ */
+export interface PaymentDetailItem extends PaymentListItem {
+  isCustomAmount: boolean
+  periodAmountCents: number
+  creditAppliedCents: number
+  /** (v2) Dinero de este pago consumido cubriendo el adeudo de un aumento (0856). 0 si no había. */
+  debtAppliedCents: number
+  creditBalanceAfterCents: number
+  breakdownAvailable: boolean
+  breakdown: PaymentBreakdown | null
 }
 
 export interface RegisterPaymentResult {
@@ -152,7 +202,7 @@ export default class BillingPaymentService {
     // ── 1. Validaciones fail-fast (lectura simple, antes de subir a S3) ─────
     const preCheckSubscription = await this.loadSubscriptionOrFail(subscriptionId)
     this.assertNotCanceled(subscriptionId, preCheckSubscription)
-    this.resolveGovernedAmount(preCheckSubscription, input, allowCustomAmount)
+    await this.resolveGovernedAmount(preCheckSubscription, input, allowCustomAmount)
 
     // ── 2. Validar y subir comprobante (fuera de la trx) ────────────────────
     this.validateReceipt(receipt)
@@ -207,12 +257,14 @@ export default class BillingPaymentService {
         this.assertNotCanceled(subscriptionId, subscription)
 
         // ── Regla 1, 14: monto asentado, resuelto ANTES de mutar el trato ──
-        const periodAmountCentsAntes = this.resolveGovernedAmount(
+        const governedResolution = await this.resolveGovernedAmount(
           subscription,
           input,
           allowCustomAmount
         )
-        const amountAsentado = allowCustomAmount ? input.amountCents! : periodAmountCentsAntes
+        const amountAsentado = allowCustomAmount
+          ? input.amountCents!
+          : governedResolution.amountCents
         const creditBalancePrevio = subscription.billingSubscriptionCreditBalanceCents
 
         // ── Regla 13.1: el saldo a favor es la única puerta del dinero ────
@@ -261,6 +313,21 @@ export default class BillingPaymentService {
           trx
         )
         const consumedCents = applyOutcome.outcome === 'applied' ? applyOutcome.consumedCents : 0
+
+        // ── USRH1787077544537: el monto confirmado dependía del adeudo ────
+        // (`debt` o `debt_plus_period`) pero, al bloquear el cambio dentro de
+        // esta misma trx, `applyIncreaseOnPayment` ya no lo encontró vivo o
+        // consistente. Se rechaza en vez de asentar una cifra que dejó de
+        // corresponder (decisión Wilvardo: nunca degradar en silencio).
+        if (governedResolution.amountKind !== 'period' && applyOutcome.outcome !== 'applied') {
+          throw new BillingPaymentServiceError(
+            `El aumento pendiente que justificaba amountCents (${amountAsentado}) ya no está vigente`,
+            BILLING_PAYMENT_ERROR_CODES.PENDING_INCREASE_STALE,
+            422,
+            'aumento-pendiente-desfasado',
+            'El adeudo por aumento cambió o ya no existe. Actualiza la pantalla y vuelve a intentar el pago.'
+          )
+        }
 
         // ── Regla 13.3 ──────────────────────────────────────────────────────
         const saldoTrasAdeudo = saldoDisponible - consumedCents
@@ -420,21 +487,30 @@ export default class BillingPaymentService {
     }
   }
 
-  // ─── Monto gobernado (reglas 1-3) ─────────────────────────────────────────
+  // ─── Monto gobernado (reglas 1-3, ampliado por USRH1787077544537) ────────
 
   /**
    * Resuelve el monto del periodo desde el trato congelado y valida el
    * monto de la petición contra las reglas del flujo (normal vs. importe
-   * distinto). Devuelve `periodAmountCents` (monto del periodo gobernado).
+   * distinto). Devuelve el monto gobernado y de qué tipo es.
+   *
+   * Cuando la suscripción tiene un aumento `increase` en `pending_payment`
+   * vivo, el flujo normal (sin `allowCustomAmount`) acepta además, sin
+   * declarar importe distinto, exactamente dos cifras más: el adeudo
+   * prorrateado solo, o el adeudo + un periodo completo al precio nuevo
+   * (USRH1787077544537, decisión Wilvardo: la elección es de conceptos que
+   * el sistema calcula, nunca una cifra libre — por eso se sigue validando
+   * como igualdad exacta contra lo que el propio sistema calculó, igual que
+   * el monto del periodo de siempre).
    *
    * @throws {BillingPaymentServiceError} PERIOD_AMOUNT_UNAVAILABLE,
    *   AMOUNT_NOT_ALLOWED, AMOUNT_REQUIRED o AMOUNT_INVALID según el caso.
    */
-  private resolveGovernedAmount(
+  private async resolveGovernedAmount(
     subscription: BillingSubscription,
     input: RegisterPaymentInput,
     allowCustomAmount: boolean
-  ): number {
+  ): Promise<GovernedAmountResolution> {
     const periodAmountCents = this.toPeriodAmountCents(subscription.billingSubscriptionContractedTotal)
 
     if (periodAmountCents === null) {
@@ -448,16 +524,27 @@ export default class BillingPaymentService {
     }
 
     if (!allowCustomAmount) {
-      if (input.amountCents !== undefined && input.amountCents !== periodAmountCents) {
-        throw new BillingPaymentServiceError(
-          `amountCents (${input.amountCents}) distinto al monto gobernado del periodo (${periodAmountCents})`,
-          BILLING_PAYMENT_ERROR_CODES.AMOUNT_NOT_ALLOWED,
-          422,
-          'monto-no-permitido',
-          'El monto del pago lo determina el trato de la suscripción y no es editable.'
-        )
+      if (input.amountCents === undefined || input.amountCents === periodAmountCents) {
+        return { amountCents: periodAmountCents, amountKind: 'period' }
       }
-      return periodAmountCents
+
+      const compositeAmounts = await this.resolveCompositeIncreaseAmounts(subscription)
+      if (compositeAmounts) {
+        if (input.amountCents === compositeAmounts.debtCents) {
+          return { amountCents: compositeAmounts.debtCents, amountKind: 'debt' }
+        }
+        if (input.amountCents === compositeAmounts.debtPlusPeriodCents) {
+          return { amountCents: compositeAmounts.debtPlusPeriodCents, amountKind: 'debt_plus_period' }
+        }
+      }
+
+      throw new BillingPaymentServiceError(
+        `amountCents (${input.amountCents}) no coincide con ninguna cifra gobernada disponible`,
+        BILLING_PAYMENT_ERROR_CODES.AMOUNT_NOT_ALLOWED,
+        422,
+        'monto-no-permitido',
+        'El monto del pago lo determina el sistema y no es editable.'
+      )
     }
 
     // ── Importe distinto explícito (regla 3) ──────────────────────────────
@@ -485,7 +572,44 @@ export default class BillingPaymentService {
       )
     }
 
-    return periodAmountCents
+    return { amountCents: input.amountCents, amountKind: 'period' }
+  }
+
+  /**
+   * Lee (sin bloquear) el aumento `pending_payment` vivo de la suscripción y,
+   * si existe, calcula las dos cifras compuestas que el flujo normal puede
+   * aceptar. `null` si no hay ningún aumento pendiente — en ese caso solo
+   * existe el monto del periodo de siempre.
+   *
+   * Lectura de solo consulta: la consistencia real la vuelve a verificar
+   * `applyIncreaseOnPayment` con su propio `.forUpdate()` dentro de la misma
+   * transacción del pago; si para entonces el aumento ya no está vivo o
+   * cambió, el pago se rechaza en vez de asentarse con una cifra que dejó de
+   * corresponder (ver `registerPayment`, verificación post-`applyOutcome`).
+   */
+  private async resolveCompositeIncreaseAmounts(
+    subscription: BillingSubscription
+  ): Promise<{ debtCents: number; debtPlusPeriodCents: number } | null> {
+    const liveChange = await BillingSubscriptionChange.query()
+      .where('billing_subscription_id', subscription.billingSubscriptionId)
+      .where('business_unit_id', subscription.businessUnitId)
+      .where('billing_subscription_change_type', 'increase')
+      .where('billing_subscription_change_status', 'pending_payment')
+      .whereNull('billing_subscription_change_deleted_at')
+      .orderBy('billing_subscription_change_id', 'desc')
+      .first()
+
+    if (!liveChange) {
+      return null
+    }
+
+    const newPeriodAmountCents = this.toPeriodAmountCents(liveChange.billingSubscriptionChangeTotal)
+    if (newPeriodAmountCents === null) {
+      return null
+    }
+
+    const debtCents = liveChange.billingSubscriptionChangeProratedAmountCents
+    return { debtCents, debtPlusPeriodCents: debtCents + newPeriodAmountCents }
   }
 
   /** Convierte el trato congelado (pesos, decimal) a centavos con redondeo único. Null si no es determinable. */
@@ -610,6 +734,51 @@ export default class BillingPaymentService {
     }
   }
 
+  /**
+   * Detalle de un pago con su desglose financiero persistido, acotado a la
+   * suscripción a la que pertenece (USRH1785962095098, regla 10). Espeja
+   * `listPayments` en su validación previa de la suscripción.
+   *
+   * Un `paymentId` inexistente o que pertenece a otra suscripción responde
+   * el mismo `NOT_FOUND`, sin distinguir el caso (regla 10, criterio 5).
+   *
+   * @throws {BillingPaymentServiceError} `SUBSCRIPTION_NOT_FOUND` si la
+   *   suscripción no existe; `NOT_FOUND` si el pago no existe o es ajeno.
+   */
+  async getPaymentDetail(subscriptionId: number, paymentId: number): Promise<PaymentDetailItem> {
+    const subscription = await BillingSubscription.query()
+      .where('billingSubscriptionId', subscriptionId)
+      .whereNull('billing_subscription_deleted_at')
+      .first()
+
+    if (!subscription) {
+      throw new BillingPaymentServiceError(
+        `Suscripción ${subscriptionId} no encontrada`,
+        BILLING_PAYMENT_ERROR_CODES.SUBSCRIPTION_NOT_FOUND,
+        404,
+        'suscripcion-no-encontrada',
+        'La suscripción solicitada no existe.'
+      )
+    }
+
+    const payment = await BillingPayment.query()
+      .where('billingPaymentId', paymentId)
+      .where('billingSubscriptionId', subscriptionId)
+      .first()
+
+    if (!payment) {
+      throw new BillingPaymentServiceError(
+        `Pago ${paymentId} no encontrado para la suscripción ${subscriptionId}`,
+        BILLING_PAYMENT_ERROR_CODES.NOT_FOUND,
+        404,
+        'pago-no-encontrado',
+        'No existe un pago con ese identificador para esta suscripción.'
+      )
+    }
+
+    return this.toDetailItem(payment)
+  }
+
   // ─── Descarga firmada del comprobante ─────────────────────────────────────
 
   /**
@@ -664,6 +833,39 @@ export default class BillingPaymentService {
       periodStart: toCalendarIsoDate(payment.billingPaymentPeriodStart),
       periodEnd: toCalendarIsoDate(payment.billingPaymentPeriodEnd),
       receiptAvailable: !!payment.billingPaymentReceiptPath,
+      periodsCovered: payment.billingPaymentPeriodsCovered,
+    }
+  }
+
+  /**
+   * `breakdownAvailable` usa `totalCents = 0` como marcador de "sin
+   * desglose" (pagos anteriores a USRH1785962095095, dejados en cero por la
+   * migración `1785766125021`). No es una cifra real: un pago con desglose
+   * real y `totalCents = 0` no puede existir (el total siempre es positivo).
+   */
+  private toDetailItem(payment: BillingPayment): PaymentDetailItem {
+    const totalCents = Number(payment.billingPaymentTotalCents)
+    const breakdownAvailable = totalCents !== 0
+
+    return {
+      ...this.toListItem(payment),
+      isCustomAmount: payment.billingPaymentIsCustomAmount,
+      periodAmountCents: payment.billingPaymentPeriodAmountCents,
+      creditAppliedCents: payment.billingPaymentCreditAppliedCents,
+      debtAppliedCents: payment.billingPaymentDebtAppliedCents,
+      creditBalanceAfterCents: payment.billingPaymentCreditBalanceAfterCents,
+      breakdownAvailable,
+      breakdown: breakdownAvailable
+        ? {
+            grossCents: payment.billingPaymentGrossCents,
+            discountPercent: Number(payment.billingPaymentDiscountPercent),
+            discountAmountCents: payment.billingPaymentDiscountAmountCents,
+            subtotalCents: payment.billingPaymentSubtotalCents,
+            taxRate: Number(payment.billingPaymentTaxRate),
+            taxAmountCents: payment.billingPaymentTaxAmountCents,
+            totalCents,
+          }
+        : null,
     }
   }
 

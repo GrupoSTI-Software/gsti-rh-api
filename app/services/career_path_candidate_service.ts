@@ -11,6 +11,7 @@ import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import User from '#models/user'
 import SystemSettingService from '#services/system_setting_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
@@ -81,6 +82,7 @@ export default class CareerPathCandidateService {
     const careerPathCandidateStatusHistoryService = new CareerPathCandidateStatusHistoryService()
     const careerPathCandidateStatusHistory = {
       careerPathCandidateId: newCareerPathCandidate.careerPathCandidateId,
+      businessUnitId: newCareerPathCandidate.businessUnitId,
       changedBy: newCareerPathCandidate.proposedBy,
       careerPathCandidateStatusHistoryFromStatus: null,
       careerPathCandidateStatusHistoryToStatus: newCareerPathCandidate.careerPathCandidateStatus,
@@ -121,6 +123,7 @@ export default class CareerPathCandidateService {
     const careerPathCandidateStatusHistoryService = new CareerPathCandidateStatusHistoryService()
     const careerPathCandidateStatusHistory = {
       careerPathCandidateId: currentCareerPathCandidate.careerPathCandidateId,
+      businessUnitId: currentCareerPathCandidate.businessUnitId,
       changedBy: currentCareerPathCandidate.reviewedBy,
       careerPathCandidateStatusHistoryFromStatus: currentCareerPathCandidateStatus,
       careerPathCandidateStatusHistoryToStatus: careerPathCandidate.careerPathCandidateStatus,
@@ -431,8 +434,7 @@ verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, career
     businessUnitId: number | null = null
   ): Promise<void> {
     try {
-      const smtpUsername = env.get('SMTP_USERNAME')
-      if (!smtpUsername) return
+      const smtpUsername = resolveMailSender()
 
       const proposer = await User.query()
         .where('user_id', proposedByUserId)

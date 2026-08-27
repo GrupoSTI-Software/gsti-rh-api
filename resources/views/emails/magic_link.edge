@@ -1,84 +1,128 @@
-{{-- Correo de magic link para acceso sin contraseña al backoffice. --}}<!DOCTYPE html>
+{{--
+  Correo de magic link para acceso sin contraseña al backoffice.
+
+  Layout calcado del diseño aprobado (agosto 2026): tarjeta blanca con borde
+  sutil sobre fondo gris, logo alineado a la izquierda, regla divisoria, saludo
+  destacado, CTA sólido, caja explicativa "¿Qué es un enlace mágico?", avisos de
+  vigencia y URL de respaldo para clientes que bloquean el botón.
+
+  Medidas tomadas del propio diseño y escaladas a una tarjeta de 600px (ancho
+  estándar de correo): el mock mide 1134px de tarjeta, así que cada valor va
+  multiplicado por 0.529.
+
+  Paleta del diseño:
+    #f2f3f6 fondo · #ffffff tarjeta · #dfe2e6 bordes y reglas
+    #17224d títulos · #4b5057 cuerpo · #6e757c texto secundario
+    #445cba acento (CTA y enlaces) · #eef1fa caja informativa
+--}}<!DOCTYPE html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="X-UA-Compatible" content="ie=edge" />
   <title>{{ subject }}</title>
+  <style>
+    @media only screen and (max-width: 480px) {
+      .magic-link-card { padding: 28px 24px 48px 24px !important; }
+    }
+  </style>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f6b95;">
+<body style="margin: 0; padding: 0; background-color: #f2f3f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #4b5057; -webkit-font-smoothing: antialiased;">
   <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
     {{ preheader }}
   </div>
 
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f2f3f6;">
     <tr>
-      <td align="center" style="padding: 32px 12px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 560px;">
+      <td align="center" style="padding: 16px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 600px; background-color: #ffffff; border: 1px solid #dfe2e6; border-radius: 8px;">
           <tr>
-            <td style="background-color: #3d5dc0; height: 4px; line-height: 4px; font-size: 0; border-top-left-radius: 12px; border-top-right-radius: 12px;">&nbsp;</td>
-          </tr>
-          <tr>
-            <td style="background-color: #ffffff; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);">
+            <td class="magic-link-card" style="padding: 39px 57px 80px 57px;">
+
+              {{-- Logo, alineado a la izquierda --}}
+              @if (backgroundImageLogo)
+                <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" height="42" style="height: 42px; width: auto; display: block; border: 0; margin-left: -16px;" />
+              @else
+                <p style="margin: 0; font-size: 24px; font-weight: 700; color: #17224d;">{{ tradeName }}</p>
+              @end
+
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
-                  <td align="center" style="padding: 32px 32px 8px 32px;">
-                    @if (backgroundImageLogo)
-                      <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" width="140" style="width: auto; height: 45px; display: block; border: 0; margin: 0 auto;" />
-                    @else
-                      <p style="margin: 0; font-size: 18px; font-weight: 700; color: #1f6b95; text-align: center;">{{ tradeName }}</p>
-                    @end
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 16px 32px 12px 32px;">
-                    <h1 style="margin: 0; font-size: 20px; line-height: 1.2; color: #1f6b95; font-weight: 800;">
-                      {{ greeting }}
-                    </h1>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #475569;">
-                      {{ intro }}
-                    </p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td align="center" style="background-color: #3d5dc0; border-radius: 10px;">
-                          <a href="{{ magicLinkUrl }}" target="_blank" style="display: inline-block; padding: 16px 28px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; line-height: 1;">
-                            {{ cta }}
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center" style="padding: 0 32px 20px 32px;">
-                    <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #64748b;">
-                      {{ validity }}
-                    </p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #64748b;">
-                      {{ ignoreNotice }}
-                    </p>
+                  <td style="padding: 19px 0 0 0; font-size: 0; line-height: 0;">
+                    <div style="height: 1px; background-color: #dfe2e6; font-size: 0; line-height: 1px;">&nbsp;</div>
                   </td>
                 </tr>
               </table>
-            </td>
-          </tr>
-          <tr>
-            <td align="center" style="padding: 24px 32px 32px 32px;">
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #94a3b8;">
+
+              {{-- Saludo --}}
+              <h1 style="margin: 33px 0 0 0; font-size: 24px; line-height: 31px; font-weight: 700; color: #17224d;">
+                {{ greeting }}
+              </h1>
+
+              {{-- Intro --}}
+              <p style="margin: 14px 0 0 0; font-size: 13px; line-height: 23px; color: #4b5057;">
+                {{ intro }}
+              </p>
+
+              {{-- CTA --}}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 26px 0 0 0;">
+                <tr>
+                  <td style="background-color: #445cba; border-radius: 8px;">
+                    <a href="{{ magicLinkUrl }}" target="_blank" style="display: inline-block; padding: 16px 33px; font-size: 13px; font-weight: 700; color: #ffffff; text-decoration: none; line-height: 16px;">
+                      {{ cta }}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              {{-- Caja explicativa --}}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 27px 0 0 0; background-color: #eef1fa; border-radius: 8px;">
+                <tr>
+                  <td style="padding: 24px 24px 28px 24px;">
+                    <p style="margin: 0; font-size: 14px; line-height: 22px; font-weight: 700; color: #17224d;">
+                      {{ infoTitle }}
+                    </p>
+                    <p style="margin: 8px 0 0 0; font-size: 13px; line-height: 22px; color: #4b5057;">
+                      {{ infoBody }}
+                    </p>
+                    <div style="margin: 16px 0 0 0;">
+                      @each (bullet in infoBullets)
+                        <p style="margin: 0; font-size: 13px; line-height: 22px; color: #4b5057;">
+                          &middot; {{ bullet }}
+                        </p>
+                      @end
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              {{-- Vigencia: el `<strong>` viene del catálogo i18n, por eso se imprime sin escapar --}}
+              <p style="margin: 20px 0 0 0; font-size: 13px; line-height: 21px; color: #6e757c;">
+                {{{ validity }}}
+              </p>
+
+              <p style="margin: 17px 0 0 0; font-size: 13px; line-height: 21px; color: #6e757c;">
+                {{ ignoreNotice }}
+              </p>
+
+              {{-- URL de respaldo para clientes que bloquean el botón --}}
+              <p style="margin: 22px 0 0 0; font-size: 12px; line-height: 21px; color: #6e757c;">
+                {{ fallbackUrlLabel }}<br />
+                <a href="{{ magicLinkUrl }}" target="_blank" style="color: #445cba; text-decoration: underline; word-break: break-all;">{{ magicLinkUrl }}</a>
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 30px 0 0 0; font-size: 0; line-height: 0;">
+                    <div style="height: 1px; background-color: #dfe2e6; font-size: 0; line-height: 1px;">&nbsp;</div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 14px 0 0 0; font-size: 12px; line-height: 20px; color: #6e757c;">
                 {{ footer }}
               </p>
+
             </td>
           </tr>
         </table>

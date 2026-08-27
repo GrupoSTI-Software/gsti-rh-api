@@ -91,6 +91,78 @@ export default class BillingTenantController {
 
   /**
    * @swagger
+   * /api/signup/public-plan:
+   *   get:
+   *     tags:
+   *       - Signup Billing
+   *     summary: Plan público de la landing (objeto único o null)
+   *     description: |
+   *       Devuelve el plan que dirección marcó como el público de la landing,
+   *       **solo si sigue siendo vendible hoy** (publicado, activo, no eliminado
+   *       y con precio vigente). La marca por sí sola no garantiza vendibilidad;
+   *       se revalida en cada lectura.
+   *
+   *       `data: null` indica que no hay plan público disponible — ya sea porque
+   *       ningún plan está marcado o porque el marcado dejó de ser vendible.
+   *       Ambos casos son indistinguibles a propósito. Es un estado normal del
+   *       negocio, **no un error**: el consumidor debe caer a su copy genérico
+   *       sin reintentar.
+   *
+   *       Usa lista blanca de campos (sin datos del proveedor de cobro ni
+   *       metadatos internos del catálogo). No requiere sesión.
+   *     responses:
+   *       '200':
+   *         description: Plan público vendible, o null si no hay ninguno disponible
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Tipo de respuesta generada
+   *                 title:
+   *                   type: string
+   *                   description: Título de la respuesta
+   *                 message:
+   *                   type: string
+   *                   description: Mensaje de la respuesta
+   *                 data:
+   *                   type: object
+   *                   nullable: true
+   *                   description: Plan público con precio y tramos, o null si no hay oferta publicada
+   *       '429':
+   *         description: Límite de peticiones excedido (signup-catalog)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Tipo de respuesta generada
+   *                 title:
+   *                   type: string
+   *                   description: Título de la respuesta
+   *                 message:
+   *                   type: string
+   *                   description: Mensaje de la respuesta
+   *                 data:
+   *                   type: array
+   *                   description: Datos de la respuesta
+   */
+  async publicPlan({ response }: HttpContext) {
+    try {
+      const plan = await this.service.getPublicPlan()
+      return response.status(200).json({ type: 'success', data: plan })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
    * /api/signup/plans/{planId}/price:
    *   get:
    *     tags:
