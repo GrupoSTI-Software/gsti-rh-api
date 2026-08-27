@@ -217,7 +217,8 @@ test.group('Rangos salariales — PermissionGate soft-rollout', (group) => {
       .header('X-Business-Unit-Id', header)
     expectNotDenied(history, assert)
 
-    if (!rangeId) return
+    assert.exists(rangeId)
+    assert.isNumber(rangeId)
 
     const audit = await client
       .get(`/api/position-salary-ranges/${rangeId}/audit`)
