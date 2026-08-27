@@ -86,7 +86,7 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
         .loginAs(actor!.user)
         .header('X-Business-Unit-Id', buHeader(actor!))
 
-      assert.equal(response.status(), 200, `${model}.${column} debió responder 200`)
+      response.assertStatus(200)
       assert.equal(
         response.body().data[column],
         fixture!.clear[clearKey],
@@ -132,6 +132,7 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
       { module: 'employees', slugs: ['sensitive-identificacion-read'] },
     ])
     const recordId = fixture!.bank.employeeBankId
+    const before = await countRevealLogs('EmployeeBank', 'employeeBankAccountClabe', recordId)
 
     const revealResponse = await client
       .get(`/api/v1/pii/reveal/EmployeeBank/employeeBankAccountClabe/${recordId}`)
@@ -139,6 +140,8 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
       .header('X-Business-Unit-Id', buHeader(actor!))
     revealResponse.assertStatus(403)
     assert.equal(revealResponse.body().code, 'EMP.SENS.READ.FORBIDDEN')
+    const after = await countRevealLogs('EmployeeBank', 'employeeBankAccountClabe', recordId)
+    assert.equal(after, before)
 
     const bankResponse = await client
       .get(`/api/employee-banks/${recordId}`)
@@ -181,20 +184,36 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
   })
 
   test('F.7 — root y owner leen en claro sin ningún slug de categoría (bypass standard)', async ({ client, assert }) => {
-    const owner = await createSystemActor('owner', 'pii-reveal-gate-owner', actor!.businessUnit.businessUnitId)
-    try {
-      const response = await client
-        .get(`/api/v1/pii/reveal/EmployeeMedicalCondition/employeeMedicalConditionDiagnosis/${fixture!.medical.employeeMedicalConditionId}`)
-        .loginAs(owner.user)
-        .header('X-Business-Unit-Id', buHeader(actor!))
-      response.assertStatus(200)
-      assert.equal(
-        response.body().data.employeeMedicalConditionDiagnosis,
-        fixture!.clear.diagnosis
+    const bypassColumns = [
+      { model: 'Person', column: 'personCurp', clearKey: 'curp' as const },
+      { model: 'EmployeeBank', column: 'employeeBankAccountClabe', clearKey: 'clabe' as const },
+      { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', clearKey: 'diagnosis' as const },
+    ] as const
+
+    for (const roleSlug of ['owner', 'root'] as const) {
+      const bypassActor = await createSystemActor(
+        roleSlug,
+        `pii-reveal-gate-${roleSlug}`,
+        actor!.businessUnit.businessUnitId
       )
-    } finally {
-      await cleanupRevealLogs({ userId: owner.user.userId })
-      await cleanupSystemActor(owner)
+      try {
+        for (const { model, column, clearKey } of bypassColumns) {
+          const recordId = recordIdFor(model, fixture!)
+          const response = await client
+            .get(`/api/v1/pii/reveal/${model}/${column}/${recordId}`)
+            .loginAs(bypassActor.user)
+            .header('X-Business-Unit-Id', buHeader(actor!))
+          response.assertStatus(200)
+          assert.equal(
+            response.body().data[column],
+            fixture!.clear[clearKey],
+            `${roleSlug} no reveló ${model}.${column} en claro`
+          )
+        }
+      } finally {
+        await cleanupRevealLogs({ userId: bypassActor.user.userId })
+        await cleanupSystemActor(bypassActor)
+      }
     }
   })
 })
