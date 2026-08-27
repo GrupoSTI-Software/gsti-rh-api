@@ -152,7 +152,7 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
     assert.notEqual(clabe, fixture!.clear.clabe)
   })
 
-  test('F.5 — el permiso de categoría no expande el alcance de empresa: 404, nunca 403', async ({ client, assert }) => {
+  test('F.5 — el permiso de categoría no expande el alcance de empresa: 404, nunca 403', async ({ client }) => {
     const otherActor = await createActor('pii-reveal-gate-other-bu')
     const otherFixture = await createSensitiveFixture(
       otherActor.businessUnit.businessUnitId,
