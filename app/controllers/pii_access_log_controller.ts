@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { ensurePiiAccessLogRead } from '#helpers/ensure_pii_access_log_read'
 import PiiAccessLogService from '#services/pii_access_log_service'
 import { piiAccessLogsListValidator } from '#validators/pii_access_log'
 import { resolvePiiAuditApiError } from '../helpers/pii_audit_api_error.js'
@@ -147,6 +148,38 @@ export default class PiiAccessLogController {
    *                   type: string
    *                 data:
    *                   type: object
+   *       '403':
+   *         description: |
+   *           Sin permiso `read` del módulo `sensitive-data-access-log`
+   *           (`SEC.AUD.FORB.001`). Envelope legado `{type,title,message,key,detail,code,data}`.
+   *           `key` es `consulta-bitacora-denegada` (desviación deliberada: no es el slug del title).
+   *           No se valida el query ni se devuelve `data`/`meta`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Bitácora de accesos a datos sensibles
+   *                 message:
+   *                   type: string
+   *                   example: No tienes permiso para consultar la bitácora de accesos a datos sensibles.
+   *                 key:
+   *                   type: string
+   *                   example: consulta-bitacora-denegada
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para consultar la bitácora de accesos a datos sensibles.
+   *                 code:
+   *                   type: string
+   *                   example: SEC.AUD.FORB.001
+   *                 data:
+   *                   nullable: true
+   *                   example: null
    *       default:
    *         description: Unexpected error
    *         content:
@@ -167,6 +200,7 @@ export default class PiiAccessLogController {
     const { request, response, i18n, businessUnitScope } = ctx
 
     try {
+      await ensurePiiAccessLogRead(ctx)
       const filters = await request.validateUsing(piiAccessLogsListValidator)
       const logService = new PiiAccessLogService()
       const result = await logService.list(filters, businessUnitScope ?? [])
