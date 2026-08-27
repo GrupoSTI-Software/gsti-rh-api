@@ -37,3 +37,36 @@ export const changeDeviceModelStatusValidator = vine.compile(
     status: vine.enum(deviceStatusEnum),
   })
 )
+
+/**
+ * Body para `POST /api/platform/devices/units`.
+ * Registra una unidad concreta del inventario.
+ *
+ * Campos en camelCase completo para espejo 1:1 del contrato del spec (§11).
+ * Reglas de negocio aplicadas en el servicio (no aquí):
+ *   - Orden: modelo existe → vigente → origen/costo → serie libre → crear.
+ *   - El modelo debe estar en estado `vigente`.
+ *   - El serial debe ser único en toda la plataforma (incluyendo bajas lógicas).
+ *   - Aparatos `del_cliente` no aceptan costo ni fecha de adquisición.
+ */
+export const createDeviceValidator = vine.compile(
+  vine.object({
+    platformDeviceSerialNumber: vine.string().trim().minLength(1).maxLength(100),
+    platformDeviceModelId: vine.number().positive().withoutDecimals(),
+    platformDeviceOrigin: vine.enum(['propia', 'del_cliente'] as const),
+    platformDeviceAcquisitionCostCents: vine.number().positive().withoutDecimals().optional().nullable(),
+    platformDeviceAcquisitionDate: vine.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  })
+)
+
+/**
+ * Query params para `GET /api/platform/devices/units`.
+ * `page` y `limit` están desde el día uno para no romper el contrato cuando
+ * llegue el tablero (1874), aunque la UI de esta rebanada no los use.
+ */
+export const listDevicesValidator = vine.compile(
+  vine.object({
+    page: vine.number().positive().withoutDecimals().optional(),
+    limit: vine.number().positive().withoutDecimals().max(100).optional(),
+  })
+)
