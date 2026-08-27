@@ -246,6 +246,23 @@ export const KNOWN_DUPLICATE_IDS: KnownDuplicateIdFinding[] = [
       },
     ],
   },
+  {
+    kind: 'permission',
+    id: 206,
+    claimedBy: [
+      {
+        slug: 'see-payroll',
+        moduleId: 7,
+        seederFile: '0018_system_permission_seeder.ts',
+      },
+      {
+        slug: 'read',
+        moduleId: 51,
+        moduleSlug: 'employee-offboardings',
+        seederFile: '0055_employee_offboardings_module_seeder.ts',
+      },
+    ],
+  },
 ]
 
 function findFirstDuplicate(values: string[]): string | undefined {

@@ -8,10 +8,28 @@ import SessionPermissionTreeService from '#services/session_permission_tree_serv
 import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
 import SystemPermissionCatalogConsistencyService from '#services/system_permission_catalog_consistency_service'
 import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
+import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
+import type { SystemPermissionCatalog } from '#constants/system_permission_catalog'
 
 const MONITOR_SLUG = 'employees-attendance-monitor'
 const STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const ROLE_SLUG = `monitor-tree-test-${STAMP}-plain-role`
+
+// Reusa la entrada REAL de `system_modules_catalog.ts` (no una copia a mano)
+// para que las pruebas de regla 8 / consistencia sigan verificando el
+// catálogo real del monitor, pero sin sincronizar/revisar de paso
+// `employees` y `positions` contra la BD compartida de pruebas.
+const MONITOR_MODULE_ENTRY = SYSTEM_MODULES_CATALOG.find(
+  (moduleEntry) => moduleEntry.slug === MONITOR_SLUG
+)
+if (!MONITOR_MODULE_ENTRY) {
+  throw new Error(`El módulo "${MONITOR_SLUG}" debería estar en SYSTEM_MODULES_CATALOG.`)
+}
+
+const MONITOR_ONLY_CATALOG: SystemPermissionCatalog = {
+  modules: [MONITOR_MODULE_ENTRY],
+  actionsByModule: { [MONITOR_SLUG]: ATTENDANCE_MONITOR_PERMISSION_CATALOG },
+}
 
 function fakeUser(roleId: number): User {
   return { userId: roleId, roleId } as User
@@ -135,8 +153,8 @@ test.group('Árbol de sesión — monitor de asistencia (USRH1787433076991)', (g
     }
 
     const grantsBefore = await countGrants()
-    const first = await new SystemPermissionCatalogSyncService().sync()
-    const second = await new SystemPermissionCatalogSyncService().sync()
+    const first = await new SystemPermissionCatalogSyncService(MONITOR_ONLY_CATALOG).sync()
+    const second = await new SystemPermissionCatalogSyncService(MONITOR_ONLY_CATALOG).sync()
     const grantsAfter = await countGrants()
 
     const monitorSlugs = ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)
@@ -152,7 +170,9 @@ test.group('Árbol de sesión — monitor de asistencia (USRH1787433076991)', (g
   test('la revisión de consistencia deja de reportar deuda del monitor y no gana hallazgos', async ({
     assert,
   }) => {
-    const report = await new SystemPermissionCatalogConsistencyService().checkConsistency()
+    const report = await new SystemPermissionCatalogConsistencyService(
+      MONITOR_ONLY_CATALOG
+    ).checkConsistency()
     const monitorSlugs = ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)
 
     assert.notInclude(report.knownDebtModules, MONITOR_SLUG)
