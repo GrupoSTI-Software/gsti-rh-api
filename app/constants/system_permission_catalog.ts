@@ -1,6 +1,7 @@
 import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
+import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
 import type {
   ActionCatalogEntry,
@@ -14,6 +15,11 @@ export { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_ca
 export type { EmployeesSection, EmployeeActionSlug } from '#constants/employees_permission_catalog'
 export { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
 export type { PositionsSection, PositionActionSlug } from '#constants/positions_permission_catalog'
+export { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
+export type {
+  AttendanceMonitorSection,
+  AttendanceMonitorActionSlug,
+} from '#constants/attendance_monitor_permission_catalog'
 
 /**
  * Índice maestro único (USRH1785766406720): agrega el catálogo de módulos y
@@ -36,6 +42,7 @@ export const SYSTEM_PERMISSION_CATALOG: SystemPermissionCatalog = {
   actionsByModule: {
     employees: EMPLOYEES_PERMISSION_CATALOG,
     positions: POSITIONS_PERMISSION_CATALOG,
+    'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
   },
 }
 

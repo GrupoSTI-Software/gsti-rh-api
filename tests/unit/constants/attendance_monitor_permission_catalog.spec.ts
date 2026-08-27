@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import {
   ATTENDANCE_MONITOR_PERMISSION_CATALOG,
 } from '#constants/attendance_monitor_permission_catalog'
+import { SYSTEM_PERMISSION_CATALOG } from '#constants/system_permission_catalog'
 
 /** Los 11 slugs sembrados con `systemModuleId: 7` en 0018_system_permission_seeder.ts. */
 const SEEDED_MODULE_7_SLUGS = [
@@ -66,5 +67,34 @@ test.group('Catálogo employees-attendance-monitor — USRH1787433076991', () =>
     for (const action of ATTENDANCE_MONITOR_PERMISSION_CATALOG) {
       assert.notProperty(action, 'exemption', action.slug)
     }
+  })
+})
+
+test.group('Índice maestro — registro del monitor de asistencia', () => {
+  test('el módulo queda declarado como enumerado', ({ assert }) => {
+    const moduleEntry = SYSTEM_PERMISSION_CATALOG.modules.find(
+      (entry) => entry.slug === 'employees-attendance-monitor'
+    )
+    assert.exists(moduleEntry)
+    assert.isTrue(moduleEntry!.actionsEnumerated)
+  })
+
+  test('actionsByModule expone exactamente las 11 acciones del catálogo del monitor', ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      SYSTEM_PERMISSION_CATALOG.actionsByModule['employees-attendance-monitor'].map(
+        (action) => action.slug
+      ),
+      ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)
+    )
+  })
+
+  test('los módulos ya enumerados siguen enumerados (no se pisó nada)', ({ assert }) => {
+    assert.deepEqual(Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule).sort(), [
+      'employees',
+      'employees-attendance-monitor',
+      'positions',
+    ])
   })
 })

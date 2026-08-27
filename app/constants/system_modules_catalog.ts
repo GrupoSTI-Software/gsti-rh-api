@@ -11,10 +11,12 @@ import type { ModuleCatalogEntry } from '#constants/permission_catalog_types'
  * resuelven por `slug` (regla de negocio 6).
  *
  * `actionsEnumerated: true` en `employees` (piloto de la HU
- * USRH1785766406720) y en `positions` (USRH1787433076995, permiso de alta y
- * rangos salariales del puesto). El resto queda reconocido pero sin sus
- * acciones declaradas todavía — deuda conocida explícita (ver supuesto de la
- * HU), no un error de la revisión de consistencia.
+ * USRH1785766406720), en `positions` (USRH1787433076995, permiso de alta y
+ * rangos salariales del puesto) y en `employees-attendance-monitor`
+ * (USRH1787433076991, descargas del monitor de asistencia). El resto queda
+ * reconocido pero sin sus acciones declaradas todavía — deuda conocida
+ * explícita (ver supuesto de la HU), no un error de la revisión de
+ * consistencia.
  *
  * Los módulos marcados "colisión de id conocida" no traen
  * `legacySystemModuleId` a propósito: en la base de datos real, más de un
@@ -30,7 +32,7 @@ export const SYSTEM_MODULES_CATALOG = [
   { slug: 'vacations', legacySystemModuleId: 4, actionsEnumerated: false },
   { slug: 'users', legacySystemModuleId: 5, actionsEnumerated: false },
   { slug: 'departments-attendance-monitor', legacySystemModuleId: 6, actionsEnumerated: false },
-  { slug: 'employees-attendance-monitor', legacySystemModuleId: 7, actionsEnumerated: false },
+  { slug: 'employees-attendance-monitor', legacySystemModuleId: 7, actionsEnumerated: true },
   { slug: 'roles-and-permissions', legacySystemModuleId: 8, actionsEnumerated: false },
   { slug: 'shifts', legacySystemModuleId: 12, actionsEnumerated: false },
   { slug: 'holidays', legacySystemModuleId: 13, actionsEnumerated: false },
