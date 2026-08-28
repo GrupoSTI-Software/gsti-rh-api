@@ -89,6 +89,7 @@ const HR_ADMIN_SLUGS = uniqueSlugs([
   'manage-files',
   'read-work-disabilities',
   'manage-work-disabilities',
+  'download-work-disability-file',
   // responsable / asignados legacy
   'manage-responsible-read',
   'manage-responsible-edit',
@@ -155,6 +156,7 @@ const BRANCH_SUPERVISOR_SLUGS = uniqueSlugs([
   'apply-exception-mass',
   'read-work-disabilities',
   'manage-work-disabilities',
+  'download-work-disability-file',
   'manage-responsible-read',
   'manage-assigned-read',
   'manage-assigned-edit',
@@ -185,6 +187,7 @@ const READ_ONLY_SLUGS = uniqueSlugs([
   'read-terminated-employees',
   'read-only-files',
   'read-work-disabilities',
+  'download-work-disability-file',
   'manage-responsible-read',
   'manage-assigned-read',
   'download-employees-list',

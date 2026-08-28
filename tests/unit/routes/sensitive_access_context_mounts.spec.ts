@@ -106,6 +106,22 @@ test.group('Apertura del contexto de lectura sensible', () => {
     assert.equal(occurrences, 3)
   })
 
+  test('revelado y bitácora montan businessScopeOptional en sus propios grupos', ({
+    assert,
+  }) => {
+    const source = readFileSync(join(ROOT, 'start/routes/pii_reveal_routes.ts'), 'utf-8')
+    const groups = extractRouteGroups(source)
+    const revealGroup = groups.find((group) =>
+      group.chain.includes(".prefix('/api/v1/pii/reveal')")
+    )
+    const accessLogsGroup = groups.find((group) =>
+      group.chain.includes(".prefix('/api/v1/pii/access-logs')")
+    )
+
+    assert.include(revealGroup?.chain ?? '', '.use(middleware.businessScopeOptional())')
+    assert.include(accessLogsGroup?.chain ?? '', '.use(middleware.businessScopeOptional())')
+  })
+
   test('los cuatro grupos con solo auth() montan sensitiveAccess y no businessScope', ({
     assert,
   }) => {

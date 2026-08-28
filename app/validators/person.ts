@@ -2,9 +2,11 @@ import vine from '@vinejs/vine'
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
 import { noMaskCharRule } from './no_mask_char_rule.js'
+import { PERSON_SUBJECT_TYPES } from '#constants/person_subject_type'
 
 export const createPersonValidator = vine.compile(
   vine.object({
+    personSubjectType: vine.enum(PERSON_SUBJECT_TYPES).optional(),
     personFirstname: vine.string().trim().minLength(1).maxLength(150),
     personLastname: vine.string().trim().minLength(0).maxLength(150),
     personSecondLastname: vine.string().trim().minLength(0).maxLength(150).optional(),

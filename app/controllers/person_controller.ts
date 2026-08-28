@@ -19,6 +19,10 @@ import {
   EMPLOYEES_READ_PERMISSION_DECLARATIONS,
   EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION,
 } from '#constants/employees_read_permission_declarations'
+import {
+  resolvePersonSubjectType,
+  personSubjectRequiresCollaboratorWritePermission,
+} from '#constants/person_subject_type'
 
 export default class PersonController {
   /**
@@ -181,6 +185,11 @@ export default class PersonController {
    *           schema:
    *             type: object
    *             properties:
+   *               personSubjectType:
+   *                 type: string
+   *                 enum: [collaborator, customer, flight-attendant, pilot, system-user]
+   *                 description: Destino declarado del alta (no se persiste). Ausente, vacío o desconocido se resuelve como 'collaborator' y exige permiso de escritura de persona colaborador.
+   *                 required: false
    *               personFirstname:
    *                 type: string
    *                 description: Person first name
@@ -335,6 +344,16 @@ export default class PersonController {
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
+      const subjectType = resolvePersonSubjectType(request.input('personSubjectType'))
+      if (personSubjectRequiresCollaboratorWritePermission(subjectType)) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
       const personFirstname = request.input('personFirstname')
       const personLastname = request.input('personLastname')
       const personSecondLastname = request.input('personSecondLastname')

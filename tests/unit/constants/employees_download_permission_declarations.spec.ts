@@ -8,11 +8,11 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 18 descargas con module employees y bypass standard', ({
+  test('declara exactamente 19 descargas con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 18)
+    assert.equal(keys.length, 19)
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
       const decl =
@@ -45,6 +45,7 @@ test.group('EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.getSuppliesExcel.action, 'download-supplies-report')
     assert.equal(d.downloadProceedingFile.action, 'download-proceeding-files')
     assert.equal(d.downloadEmployeeContract.action, 'download-employee-contract')
+    assert.equal(d.downloadWorkDisabilityFile.action, 'download-work-disability-file')
 
     const actions = Object.values(d).map((decl) => decl.action)
     assert.equal(new Set(actions).size, actions.length)
