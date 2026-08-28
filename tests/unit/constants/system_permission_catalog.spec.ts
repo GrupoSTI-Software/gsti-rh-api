@@ -39,16 +39,25 @@ test.group('Índice maestro — catálogo real', () => {
     assert.isTrue(employeesModule!.actionsEnumerated)
   })
 
+  test('el módulo "positions" está reconocido y marcado como enumerado', ({ assert }) => {
+    const positionsModule = SYSTEM_PERMISSION_CATALOG.modules.find(
+      (moduleEntry) => moduleEntry.slug === 'positions'
+    )
+    assert.exists(positionsModule, 'debe existir la entrada del módulo "positions"')
+    assert.isTrue(positionsModule!.actionsEnumerated)
+  })
+
   test('el resto de los módulos queda reconocido, sin acciones enumeradas (deuda conocida)', ({
     assert,
   }) => {
+    const enumeratedModuleSlugs = ['employees', 'positions']
     const otherModules = SYSTEM_PERMISSION_CATALOG.modules.filter(
-      (moduleEntry) => moduleEntry.slug !== 'employees'
+      (moduleEntry) => !enumeratedModuleSlugs.includes(moduleEntry.slug)
     )
     assert.isAtLeast(otherModules.length, 40, 'el piloto reconoce ~44 módulos en total')
     assert.isTrue(
       otherModules.every((moduleEntry) => moduleEntry.actionsEnumerated === false),
-      'ningún módulo distinto de "employees" debe declarar actionsEnumerated=true en esta HU'
+      'ningún módulo distinto de "employees" o "positions" debe declarar actionsEnumerated=true en esta HU'
     )
   })
 

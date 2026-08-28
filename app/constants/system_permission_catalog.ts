@@ -1,5 +1,6 @@
 import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
+import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
 import type {
   ActionCatalogEntry,
@@ -11,6 +12,8 @@ export { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 export type { ModuleSlug } from '#constants/system_modules_catalog'
 export { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 export type { EmployeesSection, EmployeeActionSlug } from '#constants/employees_permission_catalog'
+export { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
+export type { PositionsSection, PositionActionSlug } from '#constants/positions_permission_catalog'
 
 /**
  * Índice maestro único (USRH1785766406720): agrega el catálogo de módulos y
@@ -32,6 +35,7 @@ export const SYSTEM_PERMISSION_CATALOG: SystemPermissionCatalog = {
   modules: SYSTEM_MODULES_CATALOG,
   actionsByModule: {
     employees: EMPLOYEES_PERMISSION_CATALOG,
+    positions: POSITIONS_PERMISSION_CATALOG,
   },
 }
 

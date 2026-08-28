@@ -98,6 +98,7 @@ export const SENSITIVE_EXPORT_INVENTORY: readonly SensitiveExportDefinition[] = 
       { model: 'Person', column: 'personImssNss' },
       { model: 'Person', column: 'personEmail' },
       { model: 'Person', column: 'personPhone' },
+      { model: 'Employee', column: 'dailySalary' },
       { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone' },
     ],
     excluded: false,
@@ -203,7 +204,7 @@ export const SENSITIVE_EXPORT_INVENTORY: readonly SensitiveExportDefinition[] = 
     sensitiveColumns: [],
     excluded: true,
     excludedReason:
-      'Job asíncrono de toda la empresa (reportType assistance_all / assistance_incident_summary / assistance_incident_summary_payroll): sin columnas del catálogo SENSITIVE_FIELDS. El resumen de incidencias (USRH1785766125036) sí incluye `toPay`/`discountFaults` derivados de `Employee.dailySalary` (dato financiero vigente en claro, fuera del catálogo), pero esas columnas están gateadas server-side por `RoleService.hasAccess` (display-payments-summary/display-discounts-summary): si se añadiera un campo del catálogo, este export pasa a "en alcance" y exige PiiExportService (motivo + asiento + variante enmascarada). El resumen de nómina (USRH1785766125045, reportType assistance_incident_summary_payroll) solo reporta horas/conteos de horas extra (dobles/triples) y elegibilidad de bono vacacional (flag 0/1): no deriva montos de `dailySalary`. Está gateado server-side por el permiso `see-payroll` (módulo employees-attendance-monitor); el mismo `reportType` legacy también quedó cerrado en las rutas síncronas get-excel-all/get-excel-by-employee/get-excel-by-department.',
+      'Job asíncrono de toda la empresa (reportType assistance_all / assistance_incident_summary / assistance_incident_summary_payroll). Desde USRH1787433076994, `Employee.dailySalary` está clasificado en el catálogo SENSITIVE_FIELDS como `financiero`. El resumen de incidencias (USRH1785766125036) deriva `toPay`/`discountFaults` de ese salario; por tanto se cumple la condición declarada previamente ("si se añadiera un campo del catálogo, este export pasa a "en alcance" y exige PiiExportService (motivo + asiento + variante enmascarada)"). Deuda declarada sin resolver (dueño Wilvardo): queda pendiente implementar PiiExportService en una historia futura; esta clasificación activa la condición pero no la resuelve. Hasta entonces sigue protegido solo por los gates server-side actuales (`RoleService.hasAccess`: display-payments-summary/display-discounts-summary; permiso `see-payroll` en módulo employees-attendance-monitor). El resumen de nómina (USRH1785766125045, reportType assistance_incident_summary_payroll) solo reporta horas/conteos de horas extra (dobles/triples) y elegibilidad de bono vacacional (flag 0/1): no deriva montos de `dailySalary`. El mismo `reportType` legacy también quedó cerrado en las rutas síncronas get-excel-all/get-excel-by-employee/get-excel-by-department.',
   },
   {
     exportKey: 'assists-excel-by-employee',
@@ -216,7 +217,7 @@ export const SENSITIVE_EXPORT_INVENTORY: readonly SensitiveExportDefinition[] = 
     sensitiveColumns: [],
     excluded: true,
     excludedReason:
-      'Job asíncrono de un solo empleado (reportType assistance_employee / assistance_incident_summary / assistance_incident_summary_payroll con employeeId): mismo razonamiento que assists-excel-all, con no-oráculo de scope (USRH1785766125028).',
+      'Job asíncrono de un solo empleado (reportType assistance_employee / assistance_incident_summary / assistance_incident_summary_payroll con employeeId). Desde USRH1787433076994, `Employee.dailySalary` está clasificado en el catálogo SENSITIVE_FIELDS como `financiero`. El resumen de incidencias deriva `toPay`/`discountFaults` de ese salario; por tanto se cumple la condición declarada en assists-excel-all ("si se añadiera un campo del catálogo, este export pasa a "en alcance" y exige PiiExportService (motivo + asiento + variante enmascarada)"). Deuda declarada sin resolver (dueño Wilvardo): queda pendiente implementar PiiExportService en una historia futura; esta clasificación activa la condición pero no la resuelve. Hasta entonces sigue protegido solo por los gates server-side actuales (display-payments-summary/display-discounts-summary; permiso `see-payroll`). El resumen de nómina (reportType assistance_incident_summary_payroll) solo reporta horas/conteos y elegibilidad de bono vacacional (flag 0/1): no deriva montos de `dailySalary`. Aplica no-oráculo de scope (USRH1785766125028).',
   },
 ] as const
 

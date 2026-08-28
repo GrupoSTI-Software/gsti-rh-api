@@ -77,7 +77,7 @@ export interface SensitiveField {
 }
 
 /**
- * Catálogo maestro de campos personales sensibles de Valanserh (27 columnas).
+ * Catálogo maestro de campos personales sensibles de Valanserh (32 columnas).
  *
  * Exclusiones justificadas (no se incluyen porque no son datos sensibles de la persona):
  *   - `workDisabilityPeriodFile`           — ruta S3, no dato clínico.
@@ -180,6 +180,13 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
+  // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
+  // Dato vivo del que se derivan EmployeeSalaryHistory.salaryDaily y el cálculo
+  // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía
+  // (decisión de Wilvardo 2026-08-22). Entra en pendingEncryption() a propósito:
+  // el indicador de brecha LFPDPPP sube en 1 hasta que la HU de cifrado lo cierre.
+  { model: 'Employee', column: 'dailySalary', legalCategory: 'financiero', treatment: 'cifrar', encrypted: false },
+
   // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
   // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.
   // Ancla: app/models/employee_salary_history.ts:56-66
@@ -198,4 +205,11 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ciphertext crudo. Ancla: app/models/user_consent.ts
   { model: 'UserConsent', column: 'userConsentIp', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
   { model: 'UserConsent', column: 'userConsentUserAgent', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+
+  // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
+  // Espejo auditado del rango. Ancla: app/models/position_salary_range_audit.ts
+  { model: 'PositionSalaryRangeAudit', column: 'oldMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'PositionSalaryRangeAudit', column: 'oldMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'PositionSalaryRangeAudit', column: 'newMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'PositionSalaryRangeAudit', column: 'newMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
 ] as const

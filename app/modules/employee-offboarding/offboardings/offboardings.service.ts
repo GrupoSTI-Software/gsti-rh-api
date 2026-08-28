@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import { DateTime } from 'luxon'
 import type { I18n } from '@adonisjs/i18n'
 import type Employee from '#models/employee'
 import RoleService from '#services/role_service'
@@ -9,16 +10,39 @@ import { toBusinessDateString } from '#utils/business_date'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
 import ConceptsRepositoryMysql from '../concepts/concepts.repository.mysql.js'
 import type { ConceptsRepository } from '../concepts/concepts.repository.js'
-import { EMPLOYEE_OFFBOARDING_ORIGIN } from './offboardings.constants.js'
+import {
+  EMPLOYEE_OFFBOARDING_ORIGIN,
+  EMPLOYEE_OFFBOARDING_STATUS,
+} from './offboardings.constants.js'
 import OffboardingsRepositoryMysql from './offboardings.repository.mysql.js'
 import type {
   EmployeeOffboardingItemCreateData,
+  OffboardingListFilters,
   OffboardingsRepository,
 } from './offboardings.repository.js'
-import { toOffboardingDto, type EmployeeOffboardingDto } from './dto/offboardings.dto.js'
+import {
+  buildSuppliesMap,
+  buildUserNamesMap,
+  toListRowDto,
+  toOffboardingDto,
+  type EmployeeOffboardingDto,
+  type EmployeeOffboardingListRowDto,
+} from './dto/offboardings.dto.js'
 
 /** Acciones del módulo `employee-offboardings` que usa este slice. */
-export type EmployeeOffboardingCaseAction = 'read' | 'create'
+export type EmployeeOffboardingCaseAction = 'read' | 'create' | 'update'
+
+/** Página del listado de salidas (USRH1786568279596, §6.1). */
+export interface EmployeeOffboardingListResult {
+  meta: {
+    total: number
+    perPage: number
+    currentPage: number
+    lastPage: number
+    firstPage: number
+  }
+  rows: EmployeeOffboardingListRowDto[]
+}
 
 export interface ScheduleOffboardingInput {
   employeeId: number
@@ -117,7 +141,12 @@ export default class OffboardingsService {
     return await this.buildDto(result.employeeOffboardingId, employee)
   }
 
-  /** Expediente `open` del colaborador con sus pendientes y la marca de vencido. */
+  /**
+   * Expediente del colaborador con sus pendientes, la marca de vencido y el
+   * bloque de avance. Cambio de contrato declarado (USRH1786568279596 §6.2):
+   * sin expediente `open`, devuelve el MÁS RECIENTE aunque esté cerrado — el
+   * 404 queda solo para el colaborador que nunca tuvo expediente (regla 13).
+   */
   async getByEmployee(
     employeeId: number,
     businessUnitScope: number[]
@@ -128,11 +157,108 @@ export default class OffboardingsService {
     }
 
     const openCase = await this.repository.findOpenByEmployee(employeeId)
-    if (!openCase) {
+    const targetCase = openCase ?? (await this.repository.findMostRecentByEmployee(employeeId))
+    if (!targetCase) {
       throw this.caseNotFoundError()
     }
 
-    return await this.buildDto(openCase.employeeOffboardingId, employee)
+    return await this.buildDto(targetCase.employeeOffboardingId, employee)
+  }
+
+  /**
+   * Listado paginado de salidas del alcance (USRH1786568279596): avance
+   * agregado en UNA sentencia más la de conteo, "hoy" resuelto una vez por
+   * request en la zona de negocio y pasado como binding.
+   */
+  async list(
+    filters: OffboardingListFilters,
+    businessUnitScope: number[]
+  ): Promise<EmployeeOffboardingListResult> {
+    const { rows, total } = await this.repository.listAggregated(
+      filters,
+      businessUnitScope,
+      toBusinessDateString()
+    )
+
+    const safePage = Math.max(filters.page, 1)
+    const safeLimit = Math.min(Math.max(filters.limit, 1), 100)
+    return {
+      meta: {
+        total,
+        perPage: safeLimit,
+        currentPage: safePage,
+        lastPage: Math.max(Math.ceil(total / safeLimit), 1),
+        firstPage: 1,
+      },
+      rows: rows.map(toListRowDto),
+    }
+  }
+
+  /**
+   * Da por terminada la salida (reglas 6-7): estampa quién y cuándo, NO toca
+   * los pendientes (los abiertos se conservan tal cual), ni al colaborador,
+   * ni su inventario. Una sola escritura, sin transacción.
+   */
+  async close(
+    employeeOffboardingId: number,
+    businessUnitScope: number[],
+    closedByUserId: number | null
+  ): Promise<EmployeeOffboardingDto> {
+    const offboarding = await this.repository.findByIdInScope(
+      employeeOffboardingId,
+      businessUnitScope
+    )
+    if (!offboarding) {
+      throw this.caseNotFoundError()
+    }
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
+      throw this.alreadyClosedError()
+    }
+
+    offboarding.employeeOffboardingStatus = EMPLOYEE_OFFBOARDING_STATUS.CLOSED
+    offboarding.employeeOffboardingClosedAt = DateTime.now()
+    offboarding.employeeOffboardingClosedByUserId = closedByUserId
+    await this.repository.saveCase(offboarding)
+
+    return await this.buildDtoForCase(offboarding)
+  }
+
+  /**
+   * Vuelve a abrir la salida (regla 9): regresa al estado de trabajo y quita
+   * las marcas del cierre — sin bitácora, solo queda el último cierre.
+   */
+  async reopen(
+    employeeOffboardingId: number,
+    businessUnitScope: number[]
+  ): Promise<EmployeeOffboardingDto> {
+    const offboarding = await this.repository.findByIdInScope(
+      employeeOffboardingId,
+      businessUnitScope
+    )
+    if (!offboarding) {
+      throw this.caseNotFoundError()
+    }
+    if (offboarding.employeeOffboardingStatus !== EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
+      throw this.notClosedError()
+    }
+
+    offboarding.employeeOffboardingStatus = EMPLOYEE_OFFBOARDING_STATUS.OPEN
+    offboarding.employeeOffboardingClosedAt = null
+    offboarding.employeeOffboardingClosedByUserId = null
+    await this.repository.saveCase(offboarding)
+
+    return await this.buildDtoForCase(offboarding)
+  }
+
+  /** DTO tras cerrar/reabrir: el colaborador se resuelve sin alcance y con trashed. */
+  private async buildDtoForCase(
+    offboarding: { employeeOffboardingId: number; employeeId: number }
+  ): Promise<EmployeeOffboardingDto> {
+    const employee = await this.repository.findEmployeeWithTrashed(offboarding.employeeId)
+    if (!employee) {
+      throw this.employeeNotFoundError()
+    }
+    return await this.buildDto(offboarding.employeeOffboardingId, employee)
   }
 
   /**
@@ -244,10 +370,38 @@ export default class OffboardingsService {
       throw this.caseNotFoundError()
     }
 
+    // Diagnóstico de insumo (D-3 de USRH1786568279590) y autoría del
+    // cumplimiento: se derivan en cada lectura, nunca se persisten.
+    const items = offboarding.items ?? []
+    const supplyIds = [
+      ...new Set(
+        items
+          .map((item) => item.employeeSupplyId)
+          .filter((id): id is number => id !== null && id !== undefined)
+      ),
+    ]
+    const userIds = [
+      ...new Set(
+        items
+          .map((item) => item.employeeOffboardingItemCompletedByUserId)
+          .filter((id): id is number => id !== null && id !== undefined)
+      ),
+    ]
+    const [supplies, users, evidenceCountsByItemId] = await Promise.all([
+      this.repository.findSuppliesByIds(supplyIds, offboarding.businessUnitId),
+      this.repository.findUsersByIds(userIds),
+      this.repository.countLiveEvidencesByItemIds(
+        items.map((item) => item.employeeOffboardingItemId)
+      ),
+    ])
+
     return toOffboardingDto(offboarding, {
       employeeTerminatedDate: employee.employeeTerminatedDate,
       employeeDeleted: employee.deletedAt !== null,
       hoyIso: toBusinessDateString(),
+      suppliesById: buildSuppliesMap(supplies),
+      userNamesById: buildUserNamesMap(users),
+      evidenceCountsByItemId,
     })
   }
 
@@ -278,6 +432,26 @@ export default class OffboardingsService {
       httpStatus: 409,
       title: this.t('employee_offboarding_case_already_open_title'),
       detail: this.t('employee_offboarding_case_already_open_message'),
+    })
+  }
+
+  private alreadyClosedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-ya-cerrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_ALREADY_CLOSED,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_already_closed_title'),
+      detail: this.t('employee_offboarding_case_already_closed_message'),
+    })
+  }
+
+  private notClosedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-no-cerrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_NOT_CLOSED,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_not_closed_title'),
+      detail: this.t('employee_offboarding_case_not_closed_message'),
     })
   }
 }

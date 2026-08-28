@@ -24,6 +24,18 @@ export function respondSensitiveDataWriteDenial(
 ): SensitiveDataWriteDenialBody {
   ctx.response.status(403)
 
+  if (error.errorCode === SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN) {
+    const category = error.category ?? 'identificacion'
+    return {
+      title: ctx.i18n.t('sensitive_data_write_import_forbidden_title'),
+      detail: ctx.i18n.t('sensitive_data_write_import_forbidden_detail', {
+        category: categoryLabel(ctx, category),
+      }),
+      key: 'el-archivo-contiene-datos-sensibles-que-no-puedes-modificar',
+      code: error.errorCode,
+    }
+  }
+
   if (error.errorCode === SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED) {
     return {
       title: ctx.i18n.t('sensitive_data_write_unresolved_title'),

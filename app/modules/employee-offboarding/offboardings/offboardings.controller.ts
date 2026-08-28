@@ -7,6 +7,7 @@ import {
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import OffboardingsService from './offboardings.service.js'
+import { listOffboardingsValidator } from './validators/list_offboardings.validator.js'
 import { scheduleOffboardingValidator } from './validators/schedule_offboarding.validator.js'
 
 /** Ramos genéricos del resolvedor con los códigos del slice del expediente. */
@@ -97,17 +98,16 @@ export default class OffboardingsController {
    *     security:
    *       - bearerAuth: []
    *     tags: [Expediente de salida]
-   *     summary: Expediente de salida abierto del colaborador con sus pendientes
+   *     summary: Expediente de salida del colaborador con pendientes y avance
    *     description: |
-   *       Devuelve el expediente `open` con los pendientes ordenados por el
-   *       lugar del concepto en el catálogo y la marca `isOverdue` por
-   *       pendiente (regla 9: fecha real de baja si existe, si no la
-   *       tentativa; "hoy" en zona America/Mexico_City). El colaborador se
-   *       resuelve con withTrashed: el expediente sobrevive a la baja.
-   *
-   *       CONTRATO TRANSITORIO declarado: el 404 cuando no hay expediente
-   *       `open` lo amplía USRH1786568279596 para devolver el más reciente
-   *       aunque esté cerrado.
+   *       Devuelve el expediente `open` — o, si no hay ninguno abierto, el
+   *       MÁS RECIENTE aunque esté cerrado (cambio de contrato declarado por
+   *       USRH1786568279596, regla 13) — con los pendientes ordenados, la
+   *       marca `isOverdue` por pendiente (regla 9 + condición de expediente
+   *       abierto) y el bloque de avance (itemsTotal/Completed/Open/Overdue).
+   *       El colaborador se resuelve con withTrashed: el expediente
+   *       sobrevive a la baja. El 404 queda SOLO para el colaborador que
+   *       nunca tuvo expediente.
    *     parameters:
    *       - in: path
    *         name: employeeId
@@ -115,9 +115,9 @@ export default class OffboardingsController {
    *         schema: { type: integer }
    *     responses:
    *       200:
-   *         description: Expediente en data.employeeOffboarding
+   *         description: Expediente en data.employeeOffboarding, con avance y rastro de cierre
    *       404:
-   *         description: Colaborador fuera del alcance (colaborador-no-encontrado) o sin expediente abierto (expediente-no-encontrado)
+   *         description: Colaborador fuera del alcance (colaborador-no-encontrado) o que nunca tuvo expediente (expediente-no-encontrado)
    *       403:
    *         description: Sin permiso read sobre employee-offboardings (key sin-permiso)
    */
@@ -132,6 +132,178 @@ export default class OffboardingsController {
         employeeOffboarding,
         i18n.formatMessage('employee_offboarding_case_title'),
         i18n.formatMessage('employee_offboarding_case_found_message'),
+        200,
+        'employeeOffboarding'
+      )
+    } catch (error) {
+      return this.respondWithError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-offboardings:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Expediente de salida]
+   *     summary: Listado paginado de salidas con avance agregado
+   *     description: |
+   *       Un renglón por expediente del alcance de empresa, con el avance
+   *       (itemsTotal, itemsCompleted, itemsOpen, itemsOverdue) resuelto en
+   *       UNA sentencia agregada por página más la de conteo. Incluye a los
+   *       colaboradores con la baja ya ejecutada (regla 5). "Atrasado" es la
+   *       regla 9 de USRH1786568279587 más la condición de expediente
+   *       abierto; un cerrado reporta itemsOverdue 0 e itemsOpen con lo que
+   *       quedó sin cumplir. Orden: fecha de referencia descendente.
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema: { type: integer, minimum: 1, default: 1 }
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+   *       - in: query
+   *         name: search
+   *         schema: { type: string, maxLength: 100 }
+   *         description: Nombre completo (LIKE) o código de nómina exacto
+   *       - in: query
+   *         name: status
+   *         schema: { type: string, enum: [open, closed] }
+   *       - in: query
+   *         name: overdueOnly
+   *         schema: { type: boolean }
+   *     responses:
+   *       200:
+   *         description: data.employeeOffboardings con meta y data (renglones)
+   *       400:
+   *         description: Parámetros mal formados (key datos-invalidos)
+   *       403:
+   *         description: Sin permiso read sobre employee-offboardings (key sin-permiso)
+   */
+  async index({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const service = new OffboardingsService(i18n)
+      await service.assertCanAccess(auth.user?.roleId, 'read')
+      const filters = await request.validateUsing(listOffboardingsValidator)
+      const result = await service.list(
+        {
+          page: filters.page ?? 1,
+          limit: filters.limit ?? 20,
+          search: filters.search,
+          status: filters.status,
+          overdueOnly: filters.overdueOnly,
+        },
+        businessUnitScope
+      )
+      return StandardResponseFormatter.success(
+        response,
+        { meta: result.meta, data: result.rows },
+        i18n.formatMessage('employee_offboarding_case_title'),
+        i18n.formatMessage('employee_offboarding_cases_listed_message'),
+        200,
+        'employeeOffboardings'
+      )
+    } catch (error) {
+      return this.respondWithError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-offboardings/{employeeOffboardingId}/close:
+   *   patch:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Expediente de salida]
+   *     summary: Da por terminada la salida (cierre del expediente)
+   *     description: |
+   *       Marca el expediente como `closed` estampando quién lo cerró y
+   *       cuándo (regla 7). NO toca los pendientes — los abiertos se
+   *       conservan tal cual (regla 6) — ni al colaborador ni su inventario
+   *       (regla 10). Sin cuerpo.
+   *     parameters:
+   *       - in: path
+   *         name: employeeOffboardingId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200:
+   *         description: Expediente cerrado en data.employeeOffboarding, con su avance
+   *       404:
+   *         description: Expediente inexistente o fuera del alcance (key expediente-no-encontrado)
+   *       409:
+   *         description: El expediente ya estaba cerrado (key expediente-ya-cerrado)
+   *       403:
+   *         description: Sin permiso update sobre employee-offboardings (key sin-permiso)
+   */
+  async close({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const service = new OffboardingsService(i18n)
+      await service.assertCanAccess(auth.user?.roleId, 'update')
+      const employeeOffboardingId = this.parseEmployeeId(
+        request.param('employeeOffboardingId'),
+        i18n
+      )
+      const employeeOffboarding = await service.close(
+        employeeOffboardingId,
+        businessUnitScope,
+        auth.user?.userId ?? null
+      )
+      return StandardResponseFormatter.success(
+        response,
+        employeeOffboarding,
+        i18n.formatMessage('employee_offboarding_case_title'),
+        i18n.formatMessage('employee_offboarding_case_closed_message'),
+        200,
+        'employeeOffboarding'
+      )
+    } catch (error) {
+      return this.respondWithError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-offboardings/{employeeOffboardingId}/reopen:
+   *   patch:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Expediente de salida]
+   *     summary: Vuelve a abrir una salida terminada
+   *     description: |
+   *       Regresa el expediente a `open` y quita las marcas del cierre
+   *       (regla 9); no hay bitácora — solo queda registrado el último
+   *       cierre. Sin cuerpo.
+   *     parameters:
+   *       - in: path
+   *         name: employeeOffboardingId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200:
+   *         description: Expediente reabierto en data.employeeOffboarding
+   *       404:
+   *         description: Expediente inexistente o fuera del alcance (key expediente-no-encontrado)
+   *       409:
+   *         description: El expediente no está cerrado (key expediente-no-cerrado)
+   *       403:
+   *         description: Sin permiso update sobre employee-offboardings (key sin-permiso)
+   */
+  async reopen({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const service = new OffboardingsService(i18n)
+      await service.assertCanAccess(auth.user?.roleId, 'update')
+      const employeeOffboardingId = this.parseEmployeeId(
+        request.param('employeeOffboardingId'),
+        i18n
+      )
+      const employeeOffboarding = await service.reopen(employeeOffboardingId, businessUnitScope)
+      return StandardResponseFormatter.success(
+        response,
+        employeeOffboarding,
+        i18n.formatMessage('employee_offboarding_case_title'),
+        i18n.formatMessage('employee_offboarding_case_reopened_message'),
         200,
         'employeeOffboarding'
       )

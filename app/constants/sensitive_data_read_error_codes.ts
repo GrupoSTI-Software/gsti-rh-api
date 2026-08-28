@@ -1,9 +1,9 @@
 /**
  * Catálogo ÚNICO de códigos de error de lectura de datos sensibles
  * (cadena CAP-06-01-09, tramo API). Lo crea "Decidir con el permiso de
- * categoría las columnas ya enmascaradas" (USRH1787204602825) y lo
- * extienden las hermanas — USRH1787204602828 agrega las dos constantes
- * que sí se emiten; no se declaran aquí para no dejar constantes muertas.
+ * categoría las columnas ya enmascaradas" (USRH1787204602825).
+ * USRH1787204602828 agrega NOT_REVEALABLE / NOT_CLASSIFIED.
+ * USRH1787433076989 agrega FORBIDDEN (revelado sin permiso de categoría).
  *
  * Convención vigente para toda la cadena: `EMP.SENS.READ.<SEMANTICO>` en
  * SCREAMING_SNAKE, sin numeración (estilo `employee_offboarding_error_codes.ts`).
@@ -16,6 +16,8 @@ export const SENSITIVE_DATA_READ_ERROR_CODES = {
   NOT_REVEALABLE: 'EMP.SENS.READ.NOT_REVEALABLE',
   /** Par modelo/columna ausente del catálogo de campos sensibles — 422. */
   NOT_CLASSIFIED: 'EMP.SENS.READ.NOT_CLASSIFIED',
+  /** Revelado individual sin permiso de la categoría legal del par — 403. */
+  FORBIDDEN: 'EMP.SENS.READ.FORBIDDEN',
 } as const
 
 export type SensitiveDataReadErrorCode =

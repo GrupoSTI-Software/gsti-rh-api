@@ -75,6 +75,15 @@ export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
   @column()
   declare businessUnitOrigin: BusinessUnitOrigin
 
+  /**
+   * Indica si la empresa tiene aparatos biométricos físicos instalados en
+   * sus oficinas. Solo gobierna la visibilidad del apartado de dispositivos
+   * en el panel de GSTI; no afecta la operación del cliente ni las checadas.
+   * Solo modificable por administradores de plataforma.
+   */
+  @column()
+  declare businessUnitHasBiometrics: number
+
   @column.dateTime({ autoCreate: true })
   declare businessUnitCreatedAt: DateTime | null
 

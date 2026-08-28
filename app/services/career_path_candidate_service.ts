@@ -82,6 +82,7 @@ export default class CareerPathCandidateService {
     const careerPathCandidateStatusHistoryService = new CareerPathCandidateStatusHistoryService()
     const careerPathCandidateStatusHistory = {
       careerPathCandidateId: newCareerPathCandidate.careerPathCandidateId,
+      businessUnitId: newCareerPathCandidate.businessUnitId,
       changedBy: newCareerPathCandidate.proposedBy,
       careerPathCandidateStatusHistoryFromStatus: null,
       careerPathCandidateStatusHistoryToStatus: newCareerPathCandidate.careerPathCandidateStatus,
@@ -122,6 +123,7 @@ export default class CareerPathCandidateService {
     const careerPathCandidateStatusHistoryService = new CareerPathCandidateStatusHistoryService()
     const careerPathCandidateStatusHistory = {
       careerPathCandidateId: currentCareerPathCandidate.careerPathCandidateId,
+      businessUnitId: currentCareerPathCandidate.businessUnitId,
       changedBy: currentCareerPathCandidate.reviewedBy,
       careerPathCandidateStatusHistoryFromStatus: currentCareerPathCandidateStatus,
       careerPathCandidateStatusHistoryToStatus: careerPathCandidate.careerPathCandidateStatus,

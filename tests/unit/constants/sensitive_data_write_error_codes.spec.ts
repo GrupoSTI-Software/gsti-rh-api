@@ -8,8 +8,11 @@ test.group('SENSITIVE_DATA_WRITE_ERROR_CODES', () => {
     assert.equal(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED, 'EMP.SENS.WRITE.UNRESOLVED')
   })
 
-  test('no declara IMPORT_FORBIDDEN (lo emite la orden 33)', ({ assert }) => {
-    assert.notProperty(SENSITIVE_DATA_WRITE_ERROR_CODES, 'IMPORT_FORBIDDEN')
+  test('declara IMPORT_FORBIDDEN para rechazo de Excel', ({ assert }) => {
+    assert.equal(
+      SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN,
+      'EMP.SENS.WRITE.IMPORT_FORBIDDEN'
+    )
   })
 })
 

@@ -123,7 +123,7 @@ test.group('sensitiveSerializeNumeric', () => {
   })
 
   test('sin clasificación entrega null (fail-closed de importe)', ({ assert }) => {
-    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    const serialize = sensitiveSerializeNumeric('Employee', 'employeeTeleworkPercentage')
     SensitiveAccessContext.run(
       {
         read: {
@@ -137,6 +137,45 @@ test.group('sensitiveSerializeNumeric', () => {
       },
       () => {
         assert.isNull(serialize(999))
+      }
+    )
+  })
+
+  test('Employee.dailySalary sin permiso financiero entrega null (no enmascarado por partes)', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: false,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.isNull(serialize(850.5))
+      }
+    )
+  })
+
+  test('Employee.dailySalary con permiso financiero entrega el importe', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    SensitiveAccessContext.run(
+      {
+        read: {
+          identificacion: true,
+          contacto: true,
+          financiero: true,
+          salud: true,
+          biometrico: true,
+        },
+        write: deniedWrite,
+      },
+      () => {
+        assert.equal(serialize(850.5), 850.5)
+        assert.equal(typeof serialize(850.5), 'number')
       }
     )
   })

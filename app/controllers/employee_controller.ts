@@ -863,7 +863,8 @@ export default class EmployeeController {
    *                 default: 1
    *               dailySalary:
    *                 type: number
-   *                 description: Daily salary
+   *                 nullable: true
+   *                 description: Daily salary. Nullable in API responses for users without financial-data read permission (returns null). On creation, an absent value defaults to 0 (unchanged create-path behavior).
    *                 required: false
    *                 default: 0
    *               payrollBusinessUnitId:
@@ -1358,9 +1359,9 @@ export default class EmployeeController {
    *                 default: 1
    *               dailySalary:
    *                 type: number
-   *                 description: Daily salary
+   *                 nullable: true
+   *                 description: Salario diario. Ausente, `null` o no numérico = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió).
    *                 required: false
-   *                 default: 0
    *               payrollBusinessUnitId:
    *                 type: number
    *                 description: Payroll Business Unit id
@@ -1558,7 +1559,13 @@ export default class EmployeeController {
       const employeeTypeId = request.input('employeeTypeId')
       const employeeBusinessEmail = request.input('employeeBusinessEmail')
       const employeeTypeOfContract = request.input('employeeTypeOfContract')
-      const dailySalary = request.input('dailySalary') || 0
+      // Eco destructivo (USRH1787433076994): el BO reenvía el registro
+      // completo, incluyendo el `dailySalary: null` que recibió por no tener
+      // el permiso de lectura sensible. Ausente/null/no numérico = no tocar
+      // el salario; solo un número finito (incluyendo 0 explícito) se aplica.
+      const dailySalaryRaw = request.input('dailySalary')
+      const dailySalaryFinite =
+        typeof dailySalaryRaw === 'number' && Number.isFinite(dailySalaryRaw) ? dailySalaryRaw : null
       const salaryChangeReason: string | null = request.input('salaryChangeReason') ?? null
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeAssistDiscriminator = request.input('employeeAssistDiscriminator')
@@ -1583,7 +1590,6 @@ export default class EmployeeController {
         departmentId: departmentId,
         positionId: positionId,
         businessUnitId: request.input('businessUnitId'),
-        dailySalary: dailySalary,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeWorkSchedule: employeeWorkSchedule,
         employeeWorkScheduleHybridMode: employeeWorkScheduleHybridMode,
@@ -1732,6 +1738,14 @@ export default class EmployeeController {
           currentPositionId: currentEmployee.positionId,
         })
         employee.positionLevelConfigId = positionLevelConfigId
+      }
+
+      // Eco destructivo (USRH1787433076994): solo se fija `dailySalary` en el
+      // payload de salida cuando el request trajo un número finito. Ausente,
+      // `null` o no numérico deja la propiedad fuera de `employee`, de modo
+      // que `employeeService.update` conserve el valor actual.
+      if (dailySalaryFinite !== null) {
+        employee.dailySalary = dailySalaryFinite
       }
 
       const previousEmail = currentEmployee.employeeBusinessEmail
@@ -7116,6 +7130,27 @@ export default class EmployeeController {
    *                   key: cabeceras-invalidas
    *                   code: EMP.IMPORT.VAL_HEADERS
    *                   data: null
+   *       403:
+   *         description: |
+   *           El archivo incluye columnas de datos sensibles sin permiso de escritura de la categoría.
+   *           No se procesa ningún renglón. En otras rutas de escritura, un valor con forma de máscara
+   *           del sistema se trata como no enviado cuando el usuario no tiene lectura de la categoría.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: El archivo contiene datos sensibles que no puedes modificar
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: el-archivo-contiene-datos-sensibles-que-no-puedes-modificar
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
    *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.

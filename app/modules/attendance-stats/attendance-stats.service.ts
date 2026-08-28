@@ -323,22 +323,33 @@ export default class AttendanceStatsService {
 
     const byDept = new Map<
       number,
-      { name: string; clean: CleanCounters; informational: InformationalCounters }
+      {
+        name: string
+        clean: CleanCounters
+        informational: InformationalCounters
+        employeesQty: number
+      }
     >()
 
     for (const bundle of bundles) {
       const deptId = bundle.employee.departmentId
       if (deptId === null) continue
       const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
+      // Mismo criterio que el overview: cuenta al empleado solo si tuvo al
+      // menos un día evaluable. Sin esto el conteo por departamento no sería
+      // comparable con el total de la pantalla, que sí lo aplica.
+      const hasEvaluableDay = bundle.calendar.some((day) => isEvaluableDay(day))
       const existing = byDept.get(deptId)
       if (existing) {
         addClean(existing.clean, clean)
         addInformational(existing.informational, informational)
+        if (hasEvaluableDay) existing.employeesQty += 1
       } else {
         byDept.set(deptId, {
           name: bundle.departmentName ?? '',
           clean,
           informational,
+          employeesQty: hasEvaluableDay ? 1 : 0,
         })
       }
     }
@@ -346,7 +357,7 @@ export default class AttendanceStatsService {
     const data: DepartmentRow[] = Array.from(byDept.entries())
       .map(([deptId, agg]) => ({
         department: { departmentId: deptId, departmentName: agg.name },
-        statistics: this.toStatistics(agg.clean, agg.informational),
+        statistics: this.toOverviewStatistics(agg.clean, agg.informational, agg.employeesQty),
       }))
       .sort((a, b) => a.department.departmentName.localeCompare(b.department.departmentName))
 

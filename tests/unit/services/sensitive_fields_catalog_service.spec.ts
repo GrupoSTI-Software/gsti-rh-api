@@ -24,10 +24,15 @@ test.group('SensitiveFieldsCatalogService.categoryOf', () => {
     )
   })
 
+  test('Employee.dailySalary está clasificado como financiero (USRH1787433076994)', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(catalog.categoryOf('Employee', 'dailySalary'), 'financiero')
+  })
+
   test('devuelve null si el par modelo/columna no está clasificado', ({ assert }) => {
     const catalog = new SensitiveFieldsCatalogService()
     assert.isNull(catalog.categoryOf('Person', 'personFirstname'))
-    assert.isNull(catalog.categoryOf('Employee', 'dailySalary'))
+    assert.isNull(catalog.categoryOf('Employee', 'employeeCode'))
   })
 })
 

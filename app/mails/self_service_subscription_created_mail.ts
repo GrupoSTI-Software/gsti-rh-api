@@ -11,7 +11,12 @@ export interface SelfServiceSubscriptionCreatedMailParams {
   billingPlanName: string
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
+/**
+ * Logotipo en blanco para el encabezado azul de los correos internos. Vive en el
+ * mismo bucket público que el logo a color del resto de plantillas.
+ */
+const HEADER_LOGO_URL =
+  'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-white.png'
 
 /**
  * Correo interno de operación: aviso de contratación self-service (USRH1785441817250).
@@ -31,7 +36,7 @@ export default class SelfServiceSubscriptionCreatedMail extends BaseMail {
 
     const environment = env.get('NODE_ENV')
     const environmentTag = environment === 'production' ? '' : `[${environment.toUpperCase()}] `
-    const subject = `${environmentTag}[Contratación self-service] ${businessUnitName} — plan ${billingPlanName} — ${subscription.billingSubscriptionContractedEmployees} empleados`
+    const subject = `${environmentTag}[Interno] Nueva contratación — ${businessUnitName}`
 
     const discountLabel =
       subscription.billingSubscriptionDiscountPercent > 0
@@ -47,7 +52,7 @@ export default class SelfServiceSubscriptionCreatedMail extends BaseMail {
     this.message.htmlView('emails/self_service_subscription_created', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      headerLogoUrl: HEADER_LOGO_URL,
       businessUnitName,
       billingPlanName,
       subscriptionId: subscription.billingSubscriptionId,
